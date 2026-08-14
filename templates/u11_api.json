@@ -282,6 +282,22 @@
       "title": "API 兼容加速"
     }
   },
+  "28": {
+    "class_type": "MiniMaxH3PerformancePreset",
+    "inputs": {
+      "guide": [
+        "10",
+        0
+      ],
+      "acceleration_ready": [
+        "15",
+        2
+      ]
+    },
+    "_meta": {
+      "title": "API 性能预设应用"
+    }
+  },
   "27": {
     "class_type": "MiniMaxH3FishVoiceBridge",
     "inputs": {
@@ -372,7 +388,10 @@
         0
       ],
       "scheduler": "simple",
-      "steps": 20,
+      "steps": [
+        "28",
+        0
+      ],
       "denoise": 1.0
     },
     "_meta": {

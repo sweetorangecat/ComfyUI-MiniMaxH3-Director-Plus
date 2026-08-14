@@ -158,7 +158,7 @@ def _acceleration_node(node_id, pos):
         "id": node_id, "type": "MiniMaxH3AccelerationRouter", "title": "兼容加速路由",
         "pos": pos, "size": [300, 110], "flags": {"collapsed": True}, "order": 101, "mode": 0,
         "inputs": [_socket("model", "MODEL"), _socket("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")],
-        "outputs": [_output("加速后模型", "MODEL"), _output("加速说明", "STRING")],
+        "outputs": [_output("加速后模型", "MODEL"), _output("加速说明", "STRING"), _output("加速成功", "BOOLEAN")],
         "properties": _properties("MiniMaxH3AccelerationRouter"), "widgets_values": [], "color": "#24353d", "bgcolor": "#344b55",
     }
 
@@ -167,7 +167,7 @@ def _performance_node(node_id, pos):
     return {
         "id": node_id, "type": "MiniMaxH3PerformancePreset", "title": "性能预设应用",
         "pos": pos, "size": [300, 140], "flags": {"collapsed": True}, "order": 102, "mode": 0,
-        "inputs": [_socket("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")],
+        "inputs": [_socket("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"), _socket("acceleration_ready", "BOOLEAN")],
         "outputs": [_output("采样步数", "INT"), _output("启用Sage", "BOOLEAN"), _output("启用缓存", "BOOLEAN"), _output("预设说明", "STRING")],
         "properties": _properties("MiniMaxH3PerformancePreset"), "widgets_values": [], "color": "#24353d", "bgcolor": "#344b55",
     }
@@ -568,6 +568,7 @@ def build_workflow(source):
     _add_link(workflow, allocate_link, router, 0, acceleration, 0, "MODEL")
     _add_link(workflow, allocate_link, director, 0, acceleration, 1, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")
     _add_link(workflow, allocate_link, director, 0, performance, 0, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")
+    _add_link(workflow, allocate_link, acceleration, 2, performance, 1, "BOOLEAN")
     _add_link(workflow, allocate_link, director, 0, fish, 0, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")
     _add_link(workflow, allocate_link, director, 5, fish, 1, "AUDIO")
 
@@ -631,12 +632,13 @@ def build_api_template():
         },
         "14": {"class_type": "MiniMaxH3ModelRouter", "inputs": {"guide": ["10", 0], "fl2va_model": ["1", 0], "ref2va_model": ["2", 0]}, "_meta": {"title": "API 模型路由"}},
         "15": {"class_type": "MiniMaxH3AccelerationRouter", "inputs": {"model": ["14", 0], "guide": ["10", 0]}, "_meta": {"title": "API 兼容加速"}},
+        "28": {"class_type": "MiniMaxH3PerformancePreset", "inputs": {"guide": ["10", 0], "acceleration_ready": ["15", 2]}, "_meta": {"title": "API 性能预设应用"}},
         "27": {"class_type": "MiniMaxH3FishVoiceBridge", "inputs": {"guide": ["10", 0], "reference_audio": ["13", 0]}, "_meta": {"title": "API Fish S2 音色桥接"}},
         "16": {"class_type": "MiniMaxH3DirectorPlusGuide", "inputs": {"clip": ["3", 0], "video_vae": ["4", 0], "audio_vae": ["5", 0], "guide": ["10", 0], "generated_voice_audio": ["27", 0]}, "_meta": {"title": "API H3 原生指南"}},
         "17": {"class_type": "BasicGuider", "inputs": {"model": ["15", 0], "conditioning": ["16", 0]}, "_meta": {"title": "API 采样引导"}},
         "18": {"class_type": "RandomNoise", "inputs": {"noise_seed": 0}, "_meta": {"title": "API 随机种子"}},
         "19": {"class_type": "MiniMaxH3SamplerRouter", "inputs": {"sampler_name": "res_multistep", "guide": ["10", 0]}, "_meta": {"title": "API H3 实际采样器路由"}},
-        "20": {"class_type": "BasicScheduler", "inputs": {"model": ["15", 0], "scheduler": "simple", "steps": 20, "denoise": 1.0}, "_meta": {"title": "API 调度器"}},
+        "20": {"class_type": "BasicScheduler", "inputs": {"model": ["15", 0], "scheduler": "simple", "steps": ["28", 0], "denoise": 1.0}, "_meta": {"title": "API 调度器"}},
         "21": {"class_type": "SamplerCustomAdvanced", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1]}, "_meta": {"title": "API H3 采样"}},
         "22": {"class_type": "VAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 视频解码"}},
         "23": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["21", 1], "vae": ["5", 0]}, "_meta": {"title": "API 音频解码"}},

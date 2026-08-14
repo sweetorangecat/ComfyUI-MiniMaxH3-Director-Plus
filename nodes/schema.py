@@ -84,6 +84,8 @@ def normalize_request(raw=None):
         audio_references = [request["voice_reference_audio"]]
     if len(audio_references) > 3:
         raise RequestError("音色参考最多支持 3 路")
+    if request["voice_mode"] == "fish_lock" and len(audio_references) > 1:
+        raise RequestError("Fish 高级音色锁定只使用音色参考 1，请只上传 1 路音频")
     request["voice_reference_audios"] = audio_references
     voice_names = list(request.get("voice_reference_names") or [])
     if len(voice_names) > 3:

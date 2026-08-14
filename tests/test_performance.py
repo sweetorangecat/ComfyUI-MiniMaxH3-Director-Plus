@@ -20,6 +20,26 @@ def test_fast_preset_exposes_four_step_sampling_contract():
     assert values["use_sage"] is True
 
 
+def test_turbo_loader_prefers_h3_aware_adapter_for_pruned_models(monkeypatch):
+    class FolderPaths:
+        @staticmethod
+        def get_full_path(category, name):
+            assert category == "loras"
+            return f"/models/{name}"
+
+    class TurboLoRA:
+        def apply_lora(self, model, name, strength, low_vram):
+            return (f"turbo:{model}:{name}:{strength}:{low_vram}",)
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
+    monkeypatch.setattr(performance, "_turbo_class", lambda name: TurboLoRA)
+
+    result = performance._load_lightx2v_lora("model", "adapter.safetensors")
+
+    assert result == "turbo:model:adapter.safetensors:1.0:False"
+
+
 def test_quality_preset_keeps_conservative_sampling():
     values = preset_values("quality")
     assert values["steps"] >= 10
@@ -30,6 +50,40 @@ def test_performance_node_reads_guide_preset():
     result = MiniMaxH3PerformancePreset().apply({"performance_preset": "reference_fast"})
     assert result[0] == 6
     assert result[1] is True
+
+
+def test_fast_preset_falls_back_to_safe_steps_after_acceleration_failure():
+    result = MiniMaxH3PerformancePreset().apply(
+        {"performance_preset": "fast_4step"},
+        acceleration_ready=False,
+    )
+    assert result[0] == 8
+
+
+def test_low_vram_description_matches_disabled_cache():
+    result = MiniMaxH3PerformancePreset().apply({"performance_preset": "low_vram"})
+    assert "EasyCache" not in result[3]
+
+
+@pytest.mark.parametrize("mode", ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"])
+@pytest.mark.parametrize("preset", ["quality", "fast_4step", "reference_fast", "low_vram", "custom"])
+def test_every_mode_has_a_defined_performance_contract(mode, preset):
+    backend = "ref2va_model" if mode == "REF2VA" else "fl2va_model"
+    values = preset_values(preset, backend=backend)
+    plan = acceleration_plan({
+        "mode": mode,
+        "performance_preset": preset,
+        "resolved_backend": backend,
+    })
+
+    assert values["steps"] >= 4
+    assert values["use_sage"] is (preset in {"fast_4step", "reference_fast", "low_vram"})
+    assert values["use_cache"] is (preset in {"fast_4step", "reference_fast"})
+    assert plan["backend"] == backend
+    assert plan["use_turbo_lora"] is (preset == "fast_4step")
+    assert plan["lora_name"] == (
+        performance.REF2VA_TURBO_LORA_NAME if backend == "ref2va_model" else performance.TURBO_LORA_NAME
+    )
 
 
 def test_low_vram_preset_uses_cpu_safe_policy_without_cache():
@@ -63,7 +117,7 @@ def test_fl2va_fast_loads_existing_official_lora(monkeypatch):
     model = object()
     accelerated = object()
     calls = []
-    monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda value, name: calls.append((value, name)) or accelerated)
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda value, name, **kwargs: calls.append((value, name)) or accelerated)
 
     result = MiniMaxH3AccelerationRouter().apply(
         model,
@@ -79,7 +133,7 @@ def test_ref2va_fast_loads_official_ref2va_lora(monkeypatch):
     model = object()
     accelerated = object()
     calls = []
-    monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda value, name: calls.append((value, name)) or accelerated)
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda value, name, **kwargs: calls.append((value, name)) or accelerated)
 
     result = MiniMaxH3AccelerationRouter().apply(
         model,

@@ -121,6 +121,11 @@ def patch_template(template, request):
     _, scheduler_node = _node_by_title(prompt, "API 调度器")
     if scheduler_node is not None and "performance_preset" in request:
         backend = "ref2va_model" if request.get("mode") == "REF2VA" or request.get("voice_mode") != "none" else "fl2va_model"
-        scheduler_node.setdefault("inputs", {})["steps"] = preset_values(request["performance_preset"], backend=backend)["steps"]
+        steps_input = scheduler_node.setdefault("inputs", {}).get("steps")
+        # The generated API template routes steps through PerformancePreset so
+        # an acceleration failure can downgrade 4 steps to a safe count. Keep
+        # a literal-step fallback for older user-supplied templates.
+        if not (isinstance(steps_input, list) and len(steps_input) == 2):
+            scheduler_node["inputs"]["steps"] = preset_values(request["performance_preset"], backend=backend)["steps"]
 
     return prompt

@@ -177,3 +177,26 @@ def test_fish_bridge_generates_new_dialogue_only_in_fish_mode(monkeypatch):
         "compile_model": False,
         "reference_text": "样本原文",
     }]
+
+
+def test_fish_bridge_uses_cpu_device_in_low_vram_mode(monkeypatch):
+    calls = []
+
+    class VoiceClone:
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            return ("generated-audio",)
+
+    monkeypatch.setattr(fish, "fish_voice_clone_node", VoiceClone)
+    result = fish.MiniMaxH3FishVoiceBridge().generate(
+        guide={
+            "voice_mode": "fish_lock",
+            "performance_preset": "low_vram",
+            "fish_model_path": "s2-pro-w4a16 (auto download)",
+            "target_dialogue": "对白",
+        },
+        reference_audio="voice-sample",
+    )
+
+    assert result == ("generated-audio",)
+    assert calls[0]["device"] == "cpu"

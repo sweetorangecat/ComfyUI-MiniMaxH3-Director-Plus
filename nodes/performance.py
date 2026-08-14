@@ -41,18 +41,25 @@ PRESET_LABELS = {
 }
 
 
-def _load_lightx2v_lora(model, lora_name=None):
-    """Apply an official H3 adapter through ComfyUI's model-only LoRA node."""
+def _load_lightx2v_lora(model, lora_name=None, low_vram=False):
+    """Apply an official H3 adapter with the H3-aware loader when available.
+
+    The stock loader assumes ``model.diffusion_model`` and crashes on the
+    direct ``MiniMaxH3Model`` wrapper used by pruned/int8 checkpoints. The
+    bundled H3 Turbo node handles both layouts and curve-mode adapters.
+    """
     import folder_paths
 
     lora_name = lora_name or TURBO_LORA_NAME
     if not folder_paths.get_full_path("loras", lora_name):
         raise RuntimeError(f"缺少 H3 Turbo LoRA: {lora_name}")
-    # This is the same LoraLoaderModelOnly used by the official H3 example
-    # graphs. It supports the current MiniMaxH3Model wrapper; the older custom
-    # injector expected a ``diffusion_model`` attribute and crashes on it.
-    import nodes
-    return nodes.LoraLoaderModelOnly().load_lora_model_only(model, lora_name, 1.0)[0]
+    try:
+        turbo = _turbo_class("MiniMaxH3TurboLoRA")
+        return turbo().apply_lora(model, lora_name, 1.0, low_vram)[0]
+    except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError):
+        # Older installs may not include the companion H3 Turbo node.
+        import nodes
+        return nodes.LoraLoaderModelOnly().load_lora_model_only(model, lora_name, 1.0)[0]
 
 
 def _turbo_class(name):
@@ -128,17 +135,22 @@ def memory_policy(guide):
 class MiniMaxH3PerformancePreset:
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",)}}
+        return {
+            "required": {"guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",)},
+            "optional": {"acceleration_ready": ("BOOLEAN",)},
+        }
 
     RETURN_TYPES = ("INT", "BOOLEAN", "BOOLEAN", "STRING")
     RETURN_NAMES = ("采样步数", "启用 Sage", "启用缓存", "预设说明")
     FUNCTION = "apply"
     CATEGORY = "MiniMax H3 导演台 Plus"
 
-    def apply(self, guide):
+    def apply(self, guide, acceleration_ready=None):
         name = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
         values = preset_values(name, guide.get("resolved_backend"))
-        if name == "fast_4step" and guide.get("turbo_lora_applied") is False:
+        if name == "fast_4step" and (
+            guide.get("turbo_lora_applied") is False or acceleration_ready is False
+        ):
             # A missing/incompatible adapter must never leave an unsafe 4-step
             # setting behind. The native fallback uses a conservative count.
             values["steps"] = 8
@@ -146,7 +158,7 @@ class MiniMaxH3PerformancePreset:
             "quality": "稳定质量：20 步，不强制启用缓存",
             "fast_4step": "极速 4 步：FL2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
-            "low_vram": "低显存：8 步 + Sage + EasyCache",
+            "low_vram": "低显存：8 步 + Sage，文本编码器与 VAE 使用 CPU，关闭缓存",
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
         return values["steps"], values["use_sage"], values["use_cache"], descriptions[name]
@@ -180,16 +192,20 @@ def _apply_acceleration(model, guide):
     plan = acceleration_plan(guide)
     if plan["use_turbo_lora"]:
         try:
-            accelerated = _load_lightx2v_lora(model, plan["lora_name"])
+            accelerated = _load_lightx2v_lora(
+                model,
+                plan["lora_name"],
+                low_vram=plan["preset"] == "low_vram",
+            )
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
             guide["turbo_lora_applied"] = False
             guide["turbo_lora_error"] = str(exc)
-            return model, "Turbo LoRA 与当前模型封装不兼容，已回退原生采样（工作流不中断）"
+            return model, "Turbo LoRA 与当前模型封装不兼容，已回退原生采样（工作流不中断）", False
         guide["turbo_lora_applied"] = True
         label = "REF2VA 官方 Turbo 4 步 LoRA" if plan["backend"] == "ref2va_model" else "H3 Turbo 4 步 LoRA"
-        return accelerated, f"{label} 已启用"
+        return accelerated, f"{label} 已启用", True
     guide["turbo_lora_applied"] = False
-    return model, "当前预设保持原生模型；Sage/EasyCache 由设置子图控制"
+    return model, "当前预设保持原生模型；Sage/EasyCache 由设置子图控制", False
 
 
 class MiniMaxH3SamplerRouter:
@@ -273,8 +289,8 @@ class MiniMaxH3AccelerationRouter:
             "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
         }}
 
-    RETURN_TYPES = ("MODEL", "STRING")
-    RETURN_NAMES = ("加速后模型", "加速说明")
+    RETURN_TYPES = ("MODEL", "STRING", "BOOLEAN")
+    RETURN_NAMES = ("加速后模型", "加速说明", "加速成功")
     FUNCTION = "apply"
     CATEGORY = "MiniMax H3 导演台 Plus"
 

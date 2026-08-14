@@ -103,6 +103,16 @@ def test_duration_uses_h3_native_four_to_fifteen_second_range():
         normalize_request({"mode": "T2VA", "duration": 3})
 
 
+def test_fish_voice_mode_rejects_unused_secondary_reference_audio():
+    with pytest.raises(RequestError, match="Fish"):
+        normalize_request({
+            "mode": "T2VA",
+            "voice_mode": "fish_lock",
+            "voice_reference_audios": ["voice-1", "voice-2"],
+            "target_dialogue": "对白",
+        })
+
+
 def test_reference_limits_match_h3_native_caps():
     assert len(normalize_request({"mode": "REF2VA", "references": list(range(9))})["references"]) == 9
     with pytest.raises(RequestError, match="最多支持 9 张"):

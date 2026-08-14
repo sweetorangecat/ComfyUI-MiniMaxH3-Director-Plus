@@ -223,10 +223,12 @@ def test_performance_preset_does_not_override_manual_postprocessing_switches():
 
     built = build_workflow(source)
     performance = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3PerformancePreset")
+    acceleration = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3AccelerationRouter")
     settings = next(node for node in built["nodes"] if node.get("title") == "Settings")
     interpolation_slot = next(index for index, item in enumerate(settings["inputs"]) if item["name"] == "enabled_2")
 
     assert not any(link[1:5] == [performance["id"], 3, settings["id"], interpolation_slot] for link in built["links"])
+    assert any(link[1:5] == [acceleration["id"], 2, performance["id"], 1] for link in built["links"])
 
 
 def test_built_settings_uses_h3_sampler_router_for_fast_mode():

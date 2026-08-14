@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .performance import memory_policy, preset_values
+
 
 def fish_voice_clone_node():
     try:
@@ -40,24 +42,26 @@ class MiniMaxH3FishVoiceBridge:
             raise ValueError("Fish 高级音色锁定需要上传音色参考 1")
         if not str(text or "").strip():
             raise ValueError("Fish 高级音色锁定需要填写新的目标对白")
+        low_vram = preset_values(guide.get("performance_preset", "quality")).get("clip_device") == "cpu"
         try:
-            return fish_voice_clone_node().generate(
-                model_path=model_path,
-                text=str(text).strip(),
-                reference_audio=reference_audio,
-                language="auto",
-                device="auto",
-                precision="auto",
-                attention="auto",
-                max_new_tokens=0,
-                chunk_length=200,
-                temperature=0.8,
-                top_p=0.8,
-                repetition_penalty=1.1,
-                seed=0,
-                keep_model_loaded=True,
-                compile_model=False,
-                reference_text=str(reference_text or "").strip(),
-            )
+            with memory_policy(guide):
+                return fish_voice_clone_node().generate(
+                    model_path=model_path,
+                    text=str(text).strip(),
+                    reference_audio=reference_audio,
+                    language="auto",
+                    device="cpu" if low_vram else "auto",
+                    precision="auto",
+                    attention="auto",
+                    max_new_tokens=0,
+                    chunk_length=200,
+                    temperature=0.8,
+                    top_p=0.8,
+                    repetition_penalty=1.1,
+                    seed=0,
+                    keep_model_loaded=True,
+                    compile_model=False,
+                    reference_text=str(reference_text or "").strip(),
+                )
         except Exception as exc:
             raise RuntimeError(f"Fish S2 生成失败，未回退到 H3 原生音色：{exc}") from exc

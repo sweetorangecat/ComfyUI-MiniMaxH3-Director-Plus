@@ -88,6 +88,17 @@ def test_api_template_routes_fish_generated_dialogue_into_h3_guide():
     assert guide["inputs"]["generated_voice_audio"] == [bridge_id, 0]
 
 
+def test_api_template_routes_acceleration_status_into_performance_preset():
+    from tools.build_u11_workflow import build_api_template
+
+    prompt = build_api_template()
+    performance = next(node for node in prompt.values() if node["class_type"] == "MiniMaxH3PerformancePreset")
+    scheduler = next(node for node in prompt.values() if node["class_type"] == "BasicScheduler")
+
+    assert performance["inputs"]["acceleration_ready"] == ["15", 2]
+    assert scheduler["inputs"]["steps"] == ["28", 0]
+
+
 def test_api_template_removes_fish_bridge_for_native_h3_reference():
     from tools.build_u11_workflow import build_api_template
 
