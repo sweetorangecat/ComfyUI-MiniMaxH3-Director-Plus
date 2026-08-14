@@ -17,13 +17,21 @@ def native_node(name):
         ) from exc
 
 
+def _route_patcher_to_device(patcher, device):
+    """Retarget a patcher and register the device for ComfyUI dynamic loading."""
+    patcher.load_device = device
+    patcher.offload_device = device
+    register = getattr(patcher, "register_load_device", None)
+    if callable(register):
+        register(device)
+
+
 def _cpu_clip(clip):
     """Clone a CLIP wrapper and route its patcher entirely to CPU."""
     import torch
 
     routed = clip.clone()
-    routed.patcher.load_device = torch.device("cpu")
-    routed.patcher.offload_device = torch.device("cpu")
+    _route_patcher_to_device(routed.patcher, torch.device("cpu"))
     return routed
 
 
@@ -33,8 +41,7 @@ def _cpu_vae(vae):
 
     routed = copy(vae)
     routed.patcher = vae.patcher.clone()
-    routed.patcher.load_device = torch.device("cpu")
-    routed.patcher.offload_device = torch.device("cpu")
+    _route_patcher_to_device(routed.patcher, torch.device("cpu"))
     routed.device = torch.device("cpu")
     routed.output_device = torch.device("cpu")
     routed.first_stage_model = routed.patcher.model

@@ -82,11 +82,15 @@ def test_low_vram_routes_clip_and_vaes_to_cpu(monkeypatch):
             self.load_device = "cuda"
             self.offload_device = "cuda"
             self.model = "model"
+            self.registered_devices = []
 
         def clone(self):
             clone = Patcher()
             clone.model = self.model
             return clone
+
+        def register_load_device(self, device):
+            self.registered_devices.append(device)
 
     class Clip:
         def __init__(self):
@@ -111,6 +115,9 @@ def test_low_vram_routes_clip_and_vaes_to_cpu(monkeypatch):
     assert clip.patcher.load_device.type == "cpu"
     assert video_vae.patcher.load_device.type == "cpu"
     assert audio_vae.patcher.load_device.type == "cpu"
+    assert clip.patcher.registered_devices[0].type == "cpu"
+    assert video_vae.patcher.registered_devices[0].type == "cpu"
+    assert audio_vae.patcher.registered_devices[0].type == "cpu"
 
 
 def test_model_router_requests_only_selected_model():
