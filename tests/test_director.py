@@ -1,0 +1,294 @@
+import json
+
+import pytest
+
+from nodes.director import MiniMaxH3DirectorPlus, align_frame_count
+from nodes.schema import RequestError
+
+
+def test_director_exposes_native_upload_widgets_for_each_media_role():
+    inputs = MiniMaxH3DirectorPlus.INPUT_TYPES()
+    optional = inputs["optional"]
+    assert optional["first_image_file"][1]["image_upload"] is True
+    assert optional["last_image_file"][1]["image_upload"] is True
+    assert optional["reference_image_1_file"][1]["image_upload"] is True
+    assert optional["voice_reference_audio_file"][1]["audio_upload"] is True
+    assert optional["voice_reference_audio_2_file"][1]["audio_upload"] is True
+    assert optional["voice_reference_audio_3_file"][1]["audio_upload"] is True
+    assert optional["reference_image_9_file"][1]["image_upload"] is True
+
+
+def test_uploaded_filenames_are_loaded_without_external_connections(monkeypatch):
+    first = object()
+    voice = {"waveform": object(), "sample_rate": 32000}
+    monkeypatch.setattr(
+        "nodes.director.load_uploaded_image",
+        lambda filename: first if filename == "first.png" else None,
+    )
+    monkeypatch.setattr(
+        "nodes.director.load_uploaded_audio",
+        lambda filename: voice if filename == "voice.wav" else None,
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="I2VA",
+        prompt="我的新对白。",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="h3_reference",
+        ref_image_size="match",
+        performance_preset="参考图加速",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image_file="first.png",
+        voice_reference_audio_file="voice.wav",
+    )
+
+    assert guide["first_frame"] is None
+    assert guide["ref_images"]["ref_image_1"] is first
+    assert guide["ref_audios"]["ref_audio_1"] is voice
+
+
+def test_native_fl2va_guide_keeps_hard_endpoint_images():
+    first = object()
+    last = object()
+
+    result = MiniMaxH3DirectorPlus().build(
+        mode="FL2VA",
+        prompt="人物从房间走到门外。",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="稳定质量",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image=first,
+        last_image=last,
+    )
+
+    guide, length, resolved_prompt, backend, warnings, _, _, is_hard_endpoint = result[:8]
+    assert guide["resolved_backend"] == "fl2va_model"
+    assert guide["first_frame"] is first
+    assert guide["last_frame"] is last
+    assert guide["ref_images"] == {}
+    assert length == 124
+    assert resolved_prompt == "人物从房间走到门外。"
+    assert backend == "fl2va_model"
+    assert is_hard_endpoint is True
+    assert warnings == ""
+
+
+def test_h3_reference_fl2va_guide_converts_endpoints_to_references():
+    first = object()
+    last = object()
+    voice = {"waveform": object(), "sample_rate": 32000}
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="FL2VA",
+        prompt="人物说：我们回家。",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="h3_reference",
+        ref_image_size="match",
+        performance_preset="参考图加速",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image=first,
+        last_image=last,
+        voice_reference_audio=voice,
+    )
+
+    assert guide["resolved_backend"] == "ref2va_model"
+    assert guide["first_frame"] is None
+    assert guide["last_frame"] is None
+    assert guide["ref_images"] == {"ref_image_1": first, "ref_image_2": last}
+    assert guide["ref_audios"] == {"ref_audio_1": voice}
+    assert "<Audio 1>" in guide["prompt"]
+    assert "不是硬端点" in guide["warnings"][0]
+
+
+def test_fish_lock_exports_voice_sample_and_dialogue_for_fish_node():
+    voice = {"waveform": object(), "sample_rate": 32000}
+
+    result = MiniMaxH3DirectorPlus().build(
+        mode="I2VA",
+        prompt="人物看向镜头。",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="fish_lock",
+        ref_image_size="match",
+        performance_preset="参考图加速",
+        timeline_data=json.dumps({"version": 1, "items": []}),
+        target_dialogue="欢迎回来。",
+        reference_transcript="",
+        first_image=object(),
+        voice_reference_audio=voice,
+    )
+
+    guide, _, _, _, _, exported_voice, dialogue, is_hard_endpoint = result[:8]
+    assert guide["voice_mode"] == "fish_lock"
+    assert exported_voice is voice
+    assert dialogue == "欢迎回来。"
+    assert is_hard_endpoint is False
+
+
+def test_voice_reference_disables_hard_endpoint_branch():
+    result = MiniMaxH3DirectorPlus().build(
+        mode="FL2VA",
+        prompt="人物转身。",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="h3_reference",
+        ref_image_size="match",
+        performance_preset="稳定质量",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image=object(),
+        voice_reference_audio={"waveform": object(), "sample_rate": 32000},
+    )
+    assert result[7] is False
+
+
+def test_ref2va_accepts_five_additional_reference_images():
+    images = [object() for _ in range(5)]
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="保持五个角色身份一致。",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="参考图加速",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        reference_image_1=images[0],
+        reference_image_2=images[1],
+        reference_image_3=images[2],
+        reference_image_4=images[3],
+        reference_image_5=images[4],
+    )
+    assert list(guide["ref_images"].values()) == images
+
+
+def test_ref2va_accepts_nine_total_reference_images_and_three_audio_samples():
+    images = [object() for _ in range(9)]
+    audios = [{"waveform": object(), "sample_rate": 32000} for _ in range(3)]
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="三个角色依次说话。",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="h3_reference",
+        ref_image_size="match",
+        performance_preset="参考图加速",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        reference_image_1=images[0], reference_image_2=images[1], reference_image_3=images[2],
+        reference_image_4=images[3], reference_image_5=images[4], reference_image_6=images[5],
+        reference_image_7=images[6], reference_image_8=images[7], reference_image_9=images[8],
+        voice_reference_audio=audios[0], voice_reference_audio_2=audios[1], voice_reference_audio_3=audios[2],
+    )
+
+    assert list(guide["ref_images"].values()) == images
+    assert list(guide["ref_audios"].values()) == audios
+    assert "<Audio 1>" in guide["prompt"]
+    assert "<Audio 2>" in guide["prompt"]
+    assert "<Audio 3>" in guide["prompt"]
+
+
+def test_numbered_voice_references_reject_gaps_instead_of_silently_renumbering():
+    with pytest.raises(RequestError, match="音色参考必须从 1 开始连续上传"):
+        MiniMaxH3DirectorPlus().build(
+            mode="REF2VA",
+            prompt="角色乙说话。",
+            duration=5,
+            width=1344,
+            height=768,
+            voice_mode="h3_reference",
+            ref_image_size="match",
+            performance_preset="参考图加速",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+            reference_image_1=object(),
+            voice_reference_name_2="角色乙",
+            voice_reference_audio_2={"waveform": object(), "sample_rate": 32000},
+        )
+
+
+def test_numbered_reference_images_reject_gaps_instead_of_silently_renumbering():
+    with pytest.raises(RequestError, match="参考图必须从 1 开始连续上传"):
+        MiniMaxH3DirectorPlus().build(
+            mode="REF2VA",
+            prompt="保持人物身份。",
+            duration=5,
+            width=1344,
+            height=768,
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="参考图加速",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+            reference_image_2=object(),
+        )
+
+
+def test_ref2va_picture_slots_include_the_first_two_visible_slots_in_gap_validation():
+    with pytest.raises(RequestError, match="参考图必须从 1 开始连续上传"):
+        MiniMaxH3DirectorPlus().build(
+            mode="REF2VA",
+            prompt="结束构图参考。",
+            duration=5,
+            width=1344,
+            height=768,
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="参考图加速",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+            last_image=object(),
+        )
+
+
+def test_frame_alignment_matches_native_h3_grid():
+    assert align_frame_count(5 * 24) == 124
+    assert align_frame_count(10 * 24) == 243
+
+
+def test_director_seed_uses_comfy_control_after_generate_and_is_exported():
+    seed_spec = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]["seed"]
+    assert seed_spec[0] == "INT"
+    assert seed_spec[1]["control_after_generate"] == "seed_mode"
+
+    result = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=5,
+        width=1344,
+        height=768,
+        seed=123456,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="稳定质量",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert result[-1] == 123456

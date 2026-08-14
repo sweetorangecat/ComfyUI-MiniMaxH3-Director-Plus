@@ -1,0 +1,474 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "API FL2VA 模型"
+    }
+  },
+  "2": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "API REF2VA 模型"
+    }
+  },
+  "3": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "API H3 文本编码器"
+    }
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+    },
+    "_meta": {
+      "title": "API 视频 VAE"
+    }
+  },
+  "5": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "_meta": {
+      "title": "API 音频 VAE"
+    }
+  },
+  "10": {
+    "class_type": "MiniMaxH3DirectorPlus",
+    "inputs": {
+      "mode": "FL2VA",
+      "prompt": "",
+      "duration": 5,
+      "width": 1344,
+      "height": 768,
+      "aspect_ratio": "16:9",
+      "resolution_preset": "0.83 MP",
+      "custom_width": 16,
+      "custom_height": 9,
+      "seed": 0,
+      "voice_mode": "none",
+      "ref_image_size": "match",
+      "performance_preset": "稳定质量",
+      "fish_model_path": "s2-pro-w4a16 (auto download)",
+      "timeline_data": "{\"version\":1,\"items\":[]}",
+      "target_dialogue": "",
+      "reference_transcript": "",
+      "voice_reference_name_1": "",
+      "voice_reference_name_2": "",
+      "voice_reference_name_3": "",
+      "first_image": [
+        "11",
+        0
+      ],
+      "last_image": [
+        "12",
+        0
+      ],
+      "reference_image_1": [
+        "31",
+        0
+      ],
+      "reference_image_2": [
+        "32",
+        0
+      ],
+      "reference_image_3": [
+        "33",
+        0
+      ],
+      "reference_image_4": [
+        "34",
+        0
+      ],
+      "reference_image_5": [
+        "35",
+        0
+      ],
+      "reference_image_6": [
+        "36",
+        0
+      ],
+      "reference_image_7": [
+        "37",
+        0
+      ],
+      "reference_image_8": [
+        "38",
+        0
+      ],
+      "reference_image_9": [
+        "39",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "快速设置 / API 入参"
+    }
+  },
+  "11": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "first.png"
+    },
+    "_meta": {
+      "title": "API 首帧图片"
+    }
+  },
+  "12": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "last.png"
+    },
+    "_meta": {
+      "title": "API 尾帧图片"
+    }
+  },
+  "13": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "voice_1.wav"
+    },
+    "_meta": {
+      "title": "API 音色参考音频1"
+    }
+  },
+  "25": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "voice_2.wav"
+    },
+    "_meta": {
+      "title": "API 音色参考音频2"
+    }
+  },
+  "26": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "voice_3.wav"
+    },
+    "_meta": {
+      "title": "API 音色参考音频3"
+    }
+  },
+  "31": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference_1.png"
+    },
+    "_meta": {
+      "title": "API 参考图1"
+    }
+  },
+  "32": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference_2.png"
+    },
+    "_meta": {
+      "title": "API 参考图2"
+    }
+  },
+  "33": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference_3.png"
+    },
+    "_meta": {
+      "title": "API 参考图3"
+    }
+  },
+  "34": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference_4.png"
+    },
+    "_meta": {
+      "title": "API 参考图4"
+    }
+  },
+  "35": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference_5.png"
+    },
+    "_meta": {
+      "title": "API 参考图5"
+    }
+  },
+  "36": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference_6.png"
+    },
+    "_meta": {
+      "title": "API 参考图6"
+    }
+  },
+  "37": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference_7.png"
+    },
+    "_meta": {
+      "title": "API 参考图7"
+    }
+  },
+  "38": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference_8.png"
+    },
+    "_meta": {
+      "title": "API 参考图8"
+    }
+  },
+  "39": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference_9.png"
+    },
+    "_meta": {
+      "title": "API 参考图9"
+    }
+  },
+  "14": {
+    "class_type": "MiniMaxH3ModelRouter",
+    "inputs": {
+      "guide": [
+        "10",
+        0
+      ],
+      "fl2va_model": [
+        "1",
+        0
+      ],
+      "ref2va_model": [
+        "2",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "API 模型路由"
+    }
+  },
+  "15": {
+    "class_type": "MiniMaxH3AccelerationRouter",
+    "inputs": {
+      "model": [
+        "14",
+        0
+      ],
+      "guide": [
+        "10",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "API 兼容加速"
+    }
+  },
+  "27": {
+    "class_type": "MiniMaxH3FishVoiceBridge",
+    "inputs": {
+      "guide": [
+        "10",
+        0
+      ],
+      "reference_audio": [
+        "13",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "API Fish S2 音色桥接"
+    }
+  },
+  "16": {
+    "class_type": "MiniMaxH3DirectorPlusGuide",
+    "inputs": {
+      "clip": [
+        "3",
+        0
+      ],
+      "video_vae": [
+        "4",
+        0
+      ],
+      "audio_vae": [
+        "5",
+        0
+      ],
+      "guide": [
+        "10",
+        0
+      ],
+      "generated_voice_audio": [
+        "27",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "API H3 原生指南"
+    }
+  },
+  "17": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "15",
+        0
+      ],
+      "conditioning": [
+        "16",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "API 采样引导"
+    }
+  },
+  "18": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 0
+    },
+    "_meta": {
+      "title": "API 随机种子"
+    }
+  },
+  "19": {
+    "class_type": "MiniMaxH3SamplerRouter",
+    "inputs": {
+      "sampler_name": "res_multistep",
+      "guide": [
+        "10",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "API H3 实际采样器路由"
+    }
+  },
+  "20": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "model": [
+        "15",
+        0
+      ],
+      "scheduler": "simple",
+      "steps": 20,
+      "denoise": 1.0
+    },
+    "_meta": {
+      "title": "API 调度器"
+    }
+  },
+  "21": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "18",
+        0
+      ],
+      "guider": [
+        "17",
+        0
+      ],
+      "sampler": [
+        "19",
+        0
+      ],
+      "sigmas": [
+        "20",
+        0
+      ],
+      "latent_image": [
+        "16",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "API H3 采样"
+    }
+  },
+  "22": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "21",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "API 视频解码"
+    }
+  },
+  "23": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "21",
+        1
+      ],
+      "vae": [
+        "5",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "API 音频解码"
+    }
+  },
+  "24": {
+    "class_type": "DaSiWa_EnhancedVideoCombine",
+    "inputs": {
+      "images": [
+        "22",
+        0
+      ],
+      "frame_rate": 24.0,
+      "codec": "H.264",
+      "container": "MP4",
+      "bit_depth": "Auto",
+      "quality": 20,
+      "log_level": "Standard",
+      "pingpong": false,
+      "save_metadata": true,
+      "filename_prefix": "DirectorPlus",
+      "save_output": true,
+      "pass_frames": false,
+      "crop_to_audio": false,
+      "audio_codec": "Auto",
+      "audio_bitrate": "192k",
+      "save_first_frame": false,
+      "save_last_frame": false,
+      "audio": [
+        "23",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "预览与输出"
+    }
+  }
+}
