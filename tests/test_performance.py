@@ -3,9 +3,11 @@ import pytest
 from nodes import performance
 from nodes.performance import (
     MiniMaxH3AccelerationRouter,
+    MiniMaxH3MemoryAwareSampler,
     MiniMaxH3PerformancePreset,
     MiniMaxH3SamplerRouter,
     acceleration_plan,
+    memory_policy,
     preset_values,
     sampler_route,
 )
@@ -28,6 +30,33 @@ def test_performance_node_reads_guide_preset():
     result = MiniMaxH3PerformancePreset().apply({"performance_preset": "reference_fast"})
     assert result[0] == 6
     assert result[1] is True
+
+
+def test_low_vram_preset_uses_cpu_safe_policy_without_cache():
+    values = preset_values("low_vram")
+    assert values["clip_device"] == "cpu"
+    assert values["vae_device"] == "cpu"
+    assert values["use_cache"] is False
+
+
+def test_memory_policy_restores_comfy_state(monkeypatch):
+    class VramState:
+        NORMAL_VRAM = "normal"
+        LOW_VRAM = "low"
+
+    mm = type("ModelManagement", (), {"vram_state": VramState.NORMAL_VRAM, "VRAMState": VramState})()
+    import sys
+    monkeypatch.setitem(sys.modules, "comfy", type("Comfy", (), {"model_management": mm})())
+    monkeypatch.setitem(sys.modules, "comfy.model_management", mm)
+
+    with memory_policy({"performance_preset": "low_vram"}):
+        assert mm.vram_state == VramState.LOW_VRAM
+    assert mm.vram_state == VramState.NORMAL_VRAM
+
+
+def test_memory_aware_sampler_exposes_guide_input():
+    inputs = MiniMaxH3MemoryAwareSampler.INPUT_TYPES()
+    assert "guide" in inputs["optional"]
 
 
 def test_fl2va_fast_loads_existing_official_lora(monkeypatch):

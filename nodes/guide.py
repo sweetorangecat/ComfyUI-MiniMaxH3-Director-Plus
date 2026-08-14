@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from copy import copy
 
+from .performance import memory_policy, preset_values
+
 
 def native_node(name):
     try:
@@ -13,6 +15,37 @@ def native_node(name):
         raise RuntimeError(
             f"缺少 ComfyUI 原生节点 {name}，请更新 ComfyUI 后重试。"
         ) from exc
+
+
+def _cpu_clip(clip):
+    """Clone a CLIP wrapper and route its patcher entirely to CPU."""
+    import torch
+
+    routed = clip.clone()
+    routed.patcher.load_device = torch.device("cpu")
+    routed.patcher.offload_device = torch.device("cpu")
+    return routed
+
+
+def _cpu_vae(vae):
+    """Clone a VAE wrapper and route both weights and execution to CPU."""
+    import torch
+
+    routed = copy(vae)
+    routed.patcher = vae.patcher.clone()
+    routed.patcher.load_device = torch.device("cpu")
+    routed.patcher.offload_device = torch.device("cpu")
+    routed.device = torch.device("cpu")
+    routed.output_device = torch.device("cpu")
+    routed.first_stage_model = routed.patcher.model
+    return routed
+
+
+def _route_low_vram_inputs(clip, video_vae, audio_vae, guide):
+    values = preset_values(guide.get("performance_preset", "quality"))
+    if values.get("clip_device") != "cpu":
+        return clip, video_vae, audio_vae
+    return _cpu_clip(clip), _cpu_vae(video_vae), _cpu_vae(audio_vae)
 
 
 class MiniMaxH3DirectorPlusGuide:
@@ -42,32 +75,36 @@ class MiniMaxH3DirectorPlusGuide:
                 raise ValueError("Fish 高级音色锁定尚未生成目标对白音频")
             state["ref_audios"] = {"ref_audio_1": generated_voice_audio}
 
-        if state["resolved_backend"] == "fl2va_model":
-            return native_node("MiniMaxH3ImageToVideo").execute(
+        clip, video_vae, audio_vae = _route_low_vram_inputs(
+            clip, video_vae, audio_vae, state
+        )
+        with memory_policy(state):
+            if state["resolved_backend"] == "fl2va_model":
+                return native_node("MiniMaxH3ImageToVideo").execute(
+                    clip,
+                    video_vae,
+                    state["prompt"],
+                    state["width"],
+                    state["height"],
+                    state["length"],
+                    state.get("first_frame"),
+                    state.get("last_frame"),
+                )
+
+            return native_node("MiniMaxH3ReferenceToVideo").execute(
                 clip,
                 video_vae,
+                audio_vae,
                 state["prompt"],
                 state["width"],
                 state["height"],
                 state["length"],
-                state.get("first_frame"),
-                state.get("last_frame"),
+                state.get("ref_image_size", "match"),
+                state.get("ref_images", {}),
+                state.get("ref_videos", {}),
+                state.get("ref_video_audios", {}),
+                state.get("ref_audios", {}),
             )
-
-        return native_node("MiniMaxH3ReferenceToVideo").execute(
-            clip,
-            video_vae,
-            audio_vae,
-            state["prompt"],
-            state["width"],
-            state["height"],
-            state["length"],
-            state.get("ref_image_size", "match"),
-            state.get("ref_images", {}),
-            state.get("ref_videos", {}),
-            state.get("ref_video_audios", {}),
-            state.get("ref_audios", {}),
-        )
 
 
 class MiniMaxH3ModelRouter:

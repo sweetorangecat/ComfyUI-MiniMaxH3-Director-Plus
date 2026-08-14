@@ -70,6 +70,49 @@ def test_ref_backend_calls_native_reference_to_video(monkeypatch):
     )]
 
 
+def test_low_vram_routes_clip_and_vaes_to_cpu(monkeypatch):
+    class Device:
+        def __init__(self, device_type):
+            self.type = device_type
+
+    monkeypatch.setitem(__import__("sys").modules, "torch", type("Torch", (), {"device": Device})())
+
+    class Patcher:
+        def __init__(self):
+            self.load_device = "cuda"
+            self.offload_device = "cuda"
+            self.model = "model"
+
+        def clone(self):
+            clone = Patcher()
+            clone.model = self.model
+            return clone
+
+    class Clip:
+        def __init__(self):
+            self.patcher = Patcher()
+
+        def clone(self):
+            clone = Clip()
+            clone.patcher = self.patcher.clone()
+            return clone
+
+    class Vae:
+        def __init__(self):
+            self.patcher = Patcher()
+            self.device = "cuda"
+            self.output_device = "cuda"
+            self.first_stage_model = "model"
+
+    clip, video_vae, audio_vae = guide._route_low_vram_inputs(
+        Clip(), Vae(), Vae(), {"performance_preset": "low_vram"}
+    )
+
+    assert clip.patcher.load_device.type == "cpu"
+    assert video_vae.patcher.load_device.type == "cpu"
+    assert audio_vae.patcher.load_device.type == "cpu"
+
+
 def test_model_router_requests_only_selected_model():
     node = guide.MiniMaxH3ModelRouter()
 

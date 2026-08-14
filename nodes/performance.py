@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 
 PRESETS = {
     "quality": {"steps": 20, "use_sage": False, "use_cache": False, "interpolate": False},
     "fast_4step": {"steps": 4, "use_sage": True, "use_cache": True, "interpolate": False},
     "reference_fast": {"steps": 6, "use_sage": True, "use_cache": True, "interpolate": False},
-    "low_vram": {"steps": 8, "use_sage": True, "use_cache": True, "interpolate": False},
+    # The H3 text encoder and video VAE are large enough to exhaust an 8 GB
+    # card before sampling starts.  CPU placement is intentional here; Sage
+    # and EasyCache affect speed, not the peak model footprint.
+    "low_vram": {
+        "steps": 8,
+        "use_sage": True,
+        "use_cache": False,
+        "interpolate": False,
+        "clip_device": "cpu",
+        "vae_device": "cpu",
+    },
     "custom": {"steps": 20, "use_sage": False, "use_cache": False, "interpolate": False},
 }
 
@@ -82,6 +93,36 @@ def preset_values(name, backend=None):
     else:
         values["use_turbo_sampler"] = False
     return values
+
+
+@contextmanager
+def memory_policy(guide):
+    """Temporarily apply the workflow's low-VRAM policy to ComfyUI.
+
+    ComfyUI normally restores its global state only at process start.  A
+    context keeps this workflow self-contained: model loading and sampling
+    see LOW_VRAM, while other workflows retain the state they had before.
+    """
+    preset = PRESET_LABELS.get(
+        guide.get("performance_preset", "quality"),
+        guide.get("performance_preset", "quality"),
+    )
+    if preset != "low_vram":
+        yield
+        return
+
+    try:
+        import comfy.model_management as model_management
+    except ImportError:
+        yield
+        return
+
+    previous = model_management.vram_state
+    model_management.vram_state = model_management.VRAMState.LOW_VRAM
+    try:
+        yield
+    finally:
+        model_management.vram_state = previous
 
 
 class MiniMaxH3PerformancePreset:
@@ -192,6 +233,34 @@ class MiniMaxH3SamplerRouter:
         import comfy.samplers
         guide.setdefault("turbo_sampler_applied", False)
         return (comfy.samplers.sampler_object(sampler_name),)
+
+
+class MiniMaxH3MemoryAwareSampler:
+    """Native SamplerCustomAdvanced with a scoped H3 memory policy."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "noise": ("NOISE",),
+                "guider": ("GUIDER",),
+                "sampler": ("SAMPLER",),
+                "sigmas": ("SIGMAS",),
+                "latent_image": ("LATENT",),
+            },
+            "optional": {"guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",)},
+        }
+
+    RETURN_TYPES = ("LATENT", "LATENT")
+    RETURN_NAMES = ("输出Latent", "去噪Latent")
+    FUNCTION = "execute"
+    CATEGORY = "MiniMax H3 导演台 Plus"
+
+    def execute(self, noise, guider, sampler, sigmas, latent_image, guide=None):
+        from comfy_extras.nodes_custom_sampler import SamplerCustomAdvanced
+
+        with memory_policy(guide or {}):
+            return SamplerCustomAdvanced.execute(noise, guider, sampler, sigmas, latent_image)
 
 
 class MiniMaxH3AccelerationRouter:

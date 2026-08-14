@@ -430,7 +430,58 @@ def _upgrade_subgraphs(workflow):
                         "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
                     })
                 sampler["inputs"][1]["link"] = guide_link
-                exposed_inputs[guide_slot].setdefault("linkIds", []).append(guide_link)
+                if guide_link not in exposed_inputs[guide_slot].setdefault("linkIds", []):
+                    exposed_inputs[guide_slot]["linkIds"].append(guide_link)
+
+            # Keep the native custom sampler UI, but scope ComfyUI's low-VRAM
+            # state around the actual denoising call. This avoids a global
+            # setting leak while preserving the original node placement.
+            for sampler in [
+                item for item in subgraph.get("nodes", [])
+                if item.get("type") == "SamplerCustomAdvanced"
+            ]:
+                old_inputs = {item.get("name"): item for item in sampler.get("inputs", [])}
+                sampler["type"] = "MiniMaxH3MemoryAwareSampler"
+                sampler["title"] = "H3 低显存采样保护"
+                sampler["properties"] = _properties("MiniMaxH3MemoryAwareSampler")
+                sampler["inputs"] = [
+                    {**old_inputs.get("noise", _socket("noise", "NOISE")), "name": "noise", "type": "NOISE"},
+                    {**old_inputs.get("guider", _socket("guider", "GUIDER")), "name": "guider", "type": "GUIDER"},
+                    {**old_inputs.get("sampler", _socket("sampler", "SAMPLER")), "name": "sampler", "type": "SAMPLER"},
+                    {**old_inputs.get("sigmas", _socket("sigmas", "SIGMAS")), "name": "sigmas", "type": "SIGMAS"},
+                    {**old_inputs.get("latent_image", _socket("latent_image", "LATENT")), "name": "latent_image", "type": "LATENT"},
+                    _socket("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"),
+                ]
+                sampler["outputs"] = [
+                    _output("输出Latent", "LATENT"),
+                    _output("去噪Latent", "LATENT"),
+                ]
+                guide_link = next((
+                    _link_value(raw)[0] for raw in subgraph.get("links", [])
+                    if _link_value(raw)[1] == -10
+                    and _link_value(raw)[2] == guide_slot
+                    and _link_value(raw)[3] == sampler.get("id")
+                ), None)
+                if guide_link is None:
+                    guide_link = next_link_id
+                    next_link_id += 1
+                    subgraph.setdefault("links", []).append({
+                        "id": guide_link,
+                        "origin_id": -10,
+                        "origin_slot": guide_slot,
+                        "target_id": sampler["id"],
+                        "target_slot": 5,
+                        "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
+                    })
+                else:
+                    for raw in subgraph.get("links", []):
+                        link = _link_value(raw)
+                        if link[0] == guide_link:
+                            _set_link_field(raw, 4, 5)
+                            _set_link_field(raw, 5, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")
+                sampler["inputs"][5]["link"] = guide_link
+                if guide_link not in exposed_inputs[guide_slot].setdefault("linkIds", []):
+                    exposed_inputs[guide_slot]["linkIds"].append(guide_link)
         node_ids = {item.get("id") for item in subgraph.get("nodes", [])}
         subgraph["links"] = [
             raw for raw in subgraph.get("links", [])
