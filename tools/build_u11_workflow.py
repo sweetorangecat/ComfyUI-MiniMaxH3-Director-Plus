@@ -311,6 +311,22 @@ def _remove_subgraph_widget_values(node, subgraph, names):
     node["widgets_values"] = [value for index, value in enumerate(values) if index not in remove_indexes]
 
 
+def _remove_legacy_resolution_calculator(subgraph):
+    """Remove the disconnected DaSiWa resolution widget from the old panel."""
+    legacy_ids = {
+        node.get("id")
+        for node in subgraph.get("nodes", [])
+        if node.get("type") == "DaSiWa_ResolutionScaleCalculator"
+    }
+    if not legacy_ids:
+        return
+    subgraph["nodes"] = [node for node in subgraph.get("nodes", []) if node.get("id") not in legacy_ids]
+    subgraph["links"] = [
+        raw for raw in subgraph.get("links", [])
+        if _link_value(raw)[1] not in legacy_ids and _link_value(raw)[3] not in legacy_ids
+    ]
+
+
 def _strip_model_path_prefixes(value):
     if isinstance(value, str):
         for prefix in ("MiniMaxH3/", "minimax/"):
@@ -541,6 +557,7 @@ def build_workflow(source):
         ), None)
         if settings_subgraph is not None:
             _remove_subgraph_widget_values(settings, settings_subgraph, legacy_resolution_names)
+            _remove_legacy_resolution_calculator(settings_subgraph)
         _remove_node_inputs(
             workflow,
             settings,

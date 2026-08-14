@@ -109,6 +109,32 @@ def test_built_workflow_keeps_duration_and_resolution_widgets():
     assert director["widgets_values"][:5] == ["FL2VA", "", 5, 1344, 768]
 
 
+def test_built_settings_removes_legacy_resolution_calculator():
+    source = {
+        "last_node_id": 10,
+        "last_link_id": 20,
+        "nodes": [
+            {"id": 1, "type": "settings-subgraph", "title": "Settings", "pos": [0, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+        ],
+        "links": [],
+        "groups": [],
+        "definitions": {"subgraphs": [{
+            "id": "settings-subgraph",
+            "inputs": [],
+            "outputs": [],
+            "nodes": [{"id": 2531, "type": "DaSiWa_ResolutionScaleCalculator", "inputs": [], "outputs": []}],
+            "links": [],
+        }]},
+    }
+
+    built = build_workflow(source)
+    subgraph = built["definitions"]["subgraphs"][0]
+
+    assert not any(node["type"] == "DaSiWa_ResolutionScaleCalculator" for node in subgraph["nodes"])
+
+
 def test_api_template_has_clean_output_prefix_and_all_reference_slots():
     from tools.build_u11_workflow import build_api_template
 
