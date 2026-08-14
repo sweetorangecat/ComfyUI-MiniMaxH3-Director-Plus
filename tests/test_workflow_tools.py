@@ -1,6 +1,6 @@
 import pytest
 
-from tools.build_u11_workflow import build_workflow
+from tools.build_u11_workflow import build_workflow, _disable_legacy_acceleration_switches
 from tools.validate_workflow import WorkflowError, validate_workflow
 
 
@@ -15,6 +15,25 @@ def test_validator_rejects_overlapping_visible_nodes():
     }
     with pytest.raises(WorkflowError, match="重叠"):
         validate_workflow(workflow)
+
+
+def test_legacy_acceleration_switches_do_not_control_dead_subgraph_nodes():
+    subgraph = {
+        "nodes": [
+            {"id": 1, "type": "EasyCache", "inputs": [{"name": "model", "link": None}]},
+            {"id": 2, "type": "DaSiWa_NodeStatusSwitch", "inputs": [
+                {"name": "enabled", "link": None},
+                {"name": "target_01", "link": 11},
+            ]},
+        ],
+        "links": [{"id": 11, "origin_id": 1, "origin_slot": 0, "target_id": 2, "target_slot": 1, "type": "*"}],
+    }
+
+    _disable_legacy_acceleration_switches(subgraph)
+
+    switch = next(node for node in subgraph["nodes"] if node["id"] == 2)
+    assert switch["inputs"][1]["link"] is None
+    assert subgraph["links"] == []
 
 
 def test_validator_rejects_read_only_subgraph_display_name():

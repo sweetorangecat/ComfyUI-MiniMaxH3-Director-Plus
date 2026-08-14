@@ -360,6 +360,45 @@ def _rebuild_socket_links(nodes, links):
             target["inputs"][int(link[4])]["link"] = link[0]
 
 
+def _disable_legacy_acceleration_switches(subgraph):
+    """Detach obsolete frontend switches from the old, dead H3 model branches.
+
+    U11 applies acceleration on the routed model in MiniMaxH3AccelerationRouter.
+    Leaving these target links lets the frontend activate disconnected KJ nodes,
+    which can execute twice or fail on direct MiniMaxH3Model wrappers.
+    """
+    legacy_types = {
+        "EasyCache",
+        "PathchSageAttentionKJ",
+        "MiniMaxH3MemoryEfficientSageAttentionPatch",
+    }
+    legacy_ids = {
+        node.get("id")
+        for node in subgraph.get("nodes", [])
+        if node.get("type") in legacy_types
+    }
+    switch_ids = {
+        node.get("id")
+        for node in subgraph.get("nodes", [])
+        if node.get("type") == "DaSiWa_NodeStatusSwitch"
+    }
+    removed = set()
+    kept_links = []
+    for raw in subgraph.get("links", []):
+        link = _link_value(raw)
+        if len(link) >= 6 and link[3] in switch_ids and link[4] >= 1 and link[1] in legacy_ids:
+            removed.add(link[0])
+            continue
+        kept_links.append(raw)
+    subgraph["links"] = kept_links
+    for node in subgraph.get("nodes", []):
+        if node.get("type") != "DaSiWa_NodeStatusSwitch":
+            continue
+        for socket in node.get("inputs", []):
+            if socket.get("name", "").startswith("target_") and socket.get("link") in removed:
+                socket["link"] = None
+
+
 def _upgrade_subgraphs(workflow):
     for subgraph in workflow.get("definitions", {}).get("subgraphs", []) or []:
         _remove_subgraph_inputs(
@@ -498,6 +537,7 @@ def _upgrade_subgraphs(workflow):
                 sampler["inputs"][5]["link"] = guide_link
                 if guide_link not in exposed_inputs[guide_slot].setdefault("linkIds", []):
                     exposed_inputs[guide_slot]["linkIds"].append(guide_link)
+        _disable_legacy_acceleration_switches(subgraph)
         node_ids = {item.get("id") for item in subgraph.get("nodes", [])}
         subgraph["links"] = [
             raw for raw in subgraph.get("links", [])
@@ -543,7 +583,7 @@ def build_workflow(source):
     )
     acceleration_note = _note_node(
         allocate_node(), "加速与后处理说明", [-400, 2470], [950, 270],
-        "## 已整合能力\n\n- 极速4步：只对 FL2VA 加载 LightX2V LoRA。\n- 参考图加速：Sage + EasyCache，不套用 FL2VA 专用 LoRA。\n- 原 U10 的 RIFE 插帧、RTX/模型超分、水印与高级保存继续保留。\n- LTX 二段超分属于独立高显存链路，保留为可选扩展而非默认执行。",
+        "## 已整合能力\n\n- 极速4步：官方 H3/REF2VA Turbo LoRA + 原生 Euler。\n- 参考图加速：实际路由模型应用 SageAttention + ComfyUI 原生 EasyCache。\n- RTX 30 系列使用 BF16 兼容的 Sage FP16 PV 内核；不再激活旧的死分支。\n- 原 U10 的 RIFE 插帧、RTX/模型超分、水印与高级保存继续保留。\n- LTX 二段超分属于独立高显存链路，保留为可选扩展而非默认执行。",
     )
     nodes.extend([router, acceleration, performance, status, fish, materials_note, acceleration_note])
 

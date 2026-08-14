@@ -40,6 +40,29 @@ def test_turbo_loader_prefers_h3_aware_adapter_for_pruned_models(monkeypatch):
     assert result == "turbo:model:adapter.safetensors:1.0:False"
 
 
+def test_turbo_injection_failure_is_not_masked_by_stock_lora_loader(monkeypatch):
+    class FolderPaths:
+        @staticmethod
+        def get_full_path(category, name):
+            return f"/models/{name}"
+
+    class BrokenTurbo:
+        def apply_lora(self, model, name, strength, low_vram):
+            raise AttributeError("MiniMaxH3Model has no diffusion_model")
+
+    class BrokenStockLoader:
+        def load_lora_model_only(self, *args):
+            raise AssertionError("stock loader must not receive H3 injection failures")
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
+    monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": BrokenStockLoader})())
+    monkeypatch.setattr(performance, "_turbo_class", lambda name: BrokenTurbo)
+
+    with pytest.raises(RuntimeError, match="Turbo LoRA 注入失败"):
+        performance._load_lightx2v_lora("model", "adapter.safetensors")
+
+
 def test_quality_preset_keeps_conservative_sampling():
     values = preset_values("quality")
     assert values["steps"] >= 10
@@ -94,6 +117,54 @@ def test_low_vram_preset_uses_dynamic_safe_policy_without_cache():
     assert values["use_cache"] is False
 
 
+def test_reference_fast_applies_sage_and_easycache_on_routed_model(monkeypatch):
+    calls = []
+
+    def apply_sage(model, guide):
+        calls.append("sage")
+        return f"{model}:sage"
+
+    def apply_cache(model, guide):
+        calls.append("cache")
+        return f"{model}:cache"
+
+    monkeypatch.setattr(performance, "_apply_sage_attention", apply_sage, raising=False)
+    monkeypatch.setattr(performance, "_apply_easy_cache", apply_cache, raising=False)
+
+    guide = {
+        "mode": "REF2VA",
+        "performance_preset": "reference_fast",
+        "resolved_backend": "ref2va_model",
+    }
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert result[0] == "model:sage:cache"
+    assert calls == ["sage", "cache"]
+    assert guide["sage_applied"] is True
+    assert guide["easycache_applied"] is True
+    assert result[2] is True
+
+
+def test_reference_fast_uses_safe_steps_when_requested_acceleration_fails(monkeypatch):
+    monkeypatch.setattr(
+        performance,
+        "_apply_sage_attention",
+        lambda model, guide: (_ for _ in ()).throw(RuntimeError("sage unavailable")),
+        raising=False,
+    )
+    guide = {
+        "performance_preset": "reference_fast",
+        "resolved_backend": "ref2va_model",
+    }
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+    steps = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=result[2])[0]
+
+    assert result[0] == "model"
+    assert result[2] is False
+    assert guide["sage_applied"] is False
+    assert steps == 8
+
+
 def test_memory_policy_restores_comfy_state(monkeypatch):
     class VramState:
         NORMAL_VRAM = "normal"
@@ -119,6 +190,8 @@ def test_fl2va_fast_loads_existing_official_lora(monkeypatch):
     accelerated = object()
     calls = []
     monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda value, name, **kwargs: calls.append((value, name)) or accelerated)
+    monkeypatch.setattr(performance, "_apply_sage_attention", lambda value, guide: value)
+    monkeypatch.setattr(performance, "_apply_easy_cache", lambda value, guide: value)
 
     result = MiniMaxH3AccelerationRouter().apply(
         model,
@@ -135,6 +208,8 @@ def test_ref2va_fast_loads_official_ref2va_lora(monkeypatch):
     accelerated = object()
     calls = []
     monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda value, name, **kwargs: calls.append((value, name)) or accelerated)
+    monkeypatch.setattr(performance, "_apply_sage_attention", lambda value, guide: value)
+    monkeypatch.setattr(performance, "_apply_easy_cache", lambda value, guide: value)
 
     result = MiniMaxH3AccelerationRouter().apply(
         model,

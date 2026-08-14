@@ -3,6 +3,14 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import importlib
+import importlib.util
+import logging
+import sys
+from pathlib import Path
+
+
+LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus")
 
 PRESETS = {
     "quality": {"steps": 20, "use_sage": False, "use_cache": False, "interpolate": False},
@@ -56,18 +64,17 @@ def _load_lightx2v_lora(model, lora_name=None, low_vram=False):
         raise RuntimeError(f"缺少 H3 Turbo LoRA: {lora_name}")
     try:
         turbo = _turbo_class("MiniMaxH3TurboLoRA")
-        return turbo().apply_lora(model, lora_name, 1.0, low_vram)[0]
-    except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError):
+    except (ImportError, AttributeError, OSError, RuntimeError):
         # Older installs may not include the companion H3 Turbo node.
         import nodes
         return nodes.LoraLoaderModelOnly().load_lora_model_only(model, lora_name, 1.0)[0]
+    try:
+        return turbo().apply_lora(model, lora_name, 1.0, low_vram)[0]
+    except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"Turbo LoRA 注入失败: {exc}") from exc
 
 
 def _turbo_class(name):
-    import importlib.util
-    from pathlib import Path
-    import sys
-
     module_name = "_u11_minimax_h3_turbo_runtime"
     loaded = sys.modules.get(module_name)
     if loaded is not None:
@@ -83,6 +90,50 @@ def _turbo_class(name):
         return getattr(module, name)
     except (ImportError, AttributeError, OSError) as exc:
         raise RuntimeError("缺少 ComfyUI-MiniMax-H3-Turbo 自定义节点") from exc
+
+
+def _kj_class(name):
+    """Load a KJ optimization node without relying on a hyphenated package import."""
+    module_name = "_u11_kjnodes_optimization_runtime"
+    loaded = sys.modules.get(module_name)
+    if loaded is None:
+        path = Path(__file__).resolve().parents[2] / "ComfyUI-KJNodes" / "nodes" / "model_optimization_nodes.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("缺少 ComfyUI-KJNodes 优化节点")
+        loaded = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = loaded
+        try:
+            spec.loader.exec_module(loaded)
+        except (ImportError, OSError) as exc:
+            sys.modules.pop(module_name, None)
+            raise RuntimeError("无法加载 ComfyUI-KJNodes 优化节点") from exc
+    try:
+        return getattr(loaded, name)
+    except AttributeError as exc:
+        raise RuntimeError(f"缺少 KJ 优化节点: {name}") from exc
+
+
+def _apply_sage_attention(model, guide):
+    """Apply SageAttention with an RTX 30xx-safe kernel."""
+    # H3 is BF16 on this install. The FP8 PV kernel is unreliable on SM86;
+    # the FP16 PV kernel supports BF16 and FP16 inputs on RTX 3070.
+    mode = guide.get("sage_attention_mode", "sageattn_qk_int8_pv_fp16_cuda")
+    node = _kj_class("PathchSageAttentionKJ")()
+    return node.patch(model, mode, allow_compile=False)[0]
+
+
+def _apply_easy_cache(model, guide):
+    """Apply ComfyUI's native EasyCache wrapper to the routed model."""
+    node_module = importlib.import_module("comfy_extras.nodes_easycache")
+    result = node_module.EasyCacheNode.execute(
+        model,
+        reuse_threshold=float(guide.get("easycache_threshold", 0.2)),
+        start_percent=float(guide.get("easycache_start_percent", 0.2)),
+        end_percent=float(guide.get("easycache_end_percent", 0.9)),
+        verbose=True,
+    )
+    return result.result[0]
 
 
 def preset_values(name, backend=None):
@@ -149,7 +200,7 @@ class MiniMaxH3PerformancePreset:
     def apply(self, guide, acceleration_ready=None):
         name = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
         values = preset_values(name, guide.get("resolved_backend"))
-        if name == "fast_4step" and (
+        if name in {"fast_4step", "reference_fast"} and (
             guide.get("turbo_lora_applied") is False or acceleration_ready is False
         ):
             # A missing/incompatible adapter must never leave an unsafe 4-step
@@ -190,23 +241,66 @@ def sampler_route(guide):
 
 
 def _apply_acceleration(model, guide):
+    """Apply all requested accelerators to the model that will actually sample."""
     plan = acceleration_plan(guide)
+    values = preset_values(plan["preset"], plan["backend"])
+    sage_requested = bool(values.get("use_sage"))
+    cache_requested = bool(values.get("use_cache"))
+    guide["sage_requested"] = sage_requested
+    guide["cache_requested"] = cache_requested
+    guide["sage_applied"] = False
+    guide["easycache_applied"] = False
+    guide.pop("sage_error", None)
+    guide.pop("easycache_error", None)
+
+    original_model = model
     if plan["use_turbo_lora"]:
         try:
-            accelerated = _load_lightx2v_lora(
+            model = _load_lightx2v_lora(
                 model,
                 plan["lora_name"],
                 low_vram=plan["preset"] == "low_vram",
             )
+            guide["turbo_lora_applied"] = True
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
             guide["turbo_lora_applied"] = False
             guide["turbo_lora_error"] = str(exc)
-            return model, "Turbo LoRA 与当前模型封装不兼容，已回退原生采样（工作流不中断）", False
-        guide["turbo_lora_applied"] = True
-        label = "REF2VA 官方 Turbo 4 步 LoRA" if plan["backend"] == "ref2va_model" else "H3 Turbo 4 步 LoRA"
-        return accelerated, f"{label} 已启用", True
-    guide["turbo_lora_applied"] = False
-    return model, "当前预设保持原生模型；Sage/EasyCache 由设置子图控制", False
+            return original_model, "Turbo LoRA 与当前模型不兼容，已回退原生采样", False
+    else:
+        guide["turbo_lora_applied"] = False
+
+    if sage_requested:
+        try:
+            model = _apply_sage_attention(model, guide)
+            guide["sage_applied"] = True
+        except (ImportError, AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            guide["sage_error"] = str(exc)
+            LOGGER.warning("[H3 acceleration] SageAttention unavailable: %s", exc)
+            return original_model, "SageAttention 加速失败，已回退原生模型", False
+
+    if cache_requested:
+        try:
+            model = _apply_easy_cache(model, guide)
+            guide["easycache_applied"] = True
+        except (ImportError, AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            guide["easycache_error"] = str(exc)
+            LOGGER.warning("[H3 acceleration] EasyCache unavailable: %s", exc)
+            return original_model, "EasyCache 加速失败，已回退原生模型", False
+
+    requested = plan["use_turbo_lora"] or sage_requested or cache_requested
+    ready = (not plan["use_turbo_lora"] or guide["turbo_lora_applied"]) and (
+        not sage_requested or guide["sage_applied"]
+    ) and (not cache_requested or guide["easycache_applied"])
+    if requested:
+        label = "REF2VA Turbo 4 步 LoRA" if plan["backend"] == "ref2va_model" else "H3 Turbo 4 步 LoRA"
+        if not plan["use_turbo_lora"]:
+            label = "参考图 Sage/EasyCache"
+        LOGGER.info(
+            "[H3 acceleration] preset=%s backend=%s turbo=%s sage=%s easycache=%s",
+            plan["preset"], plan["backend"], guide["turbo_lora_applied"], guide["sage_applied"], guide["easycache_applied"],
+        )
+        return model, f"{label} 已启用；Turbo/Sage/EasyCache 状态已写入指南", ready
+    return model, "当前预设保持原生模型", False
 
 
 class MiniMaxH3SamplerRouter:
