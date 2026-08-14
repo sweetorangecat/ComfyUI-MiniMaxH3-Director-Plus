@@ -159,6 +159,9 @@ def test_prompt_assistant_is_visible_and_writes_back_to_prompt_widget():
     assert "window.promptAssistant || app.promptAssistant" in text
     assert "assistant.checkAndSetupNode(node)" in text
     assert "assistant.cleanup?.(node.id, true)" in text
+    assert 'promptAnchor.className = "h3p-prompt-anchor dom-widget"' in text
+    assert "keepPromptAssistantReadable(promptAnchor)" in text
+    assert 'assistant.style.setProperty("--assistant-scale", String(1 / canvasScale))' in text
     assert "setTimeout(mountPromptAssistant, 250)" in text
     assert "const mountedPrompt = root.querySelector" in text
 

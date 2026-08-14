@@ -93,6 +93,32 @@ function setWidget(node, name, value) {
   node.graph?.setDirtyCanvas(true, true);
 }
 
+function keepPromptAssistantReadable(anchor) {
+  if (!anchor || anchor._h3pAssistantScaleLoop) return;
+  anchor._h3pAssistantScaleLoop = true;
+
+  // LiteGraph scales the entire DOM widget with the canvas. The native
+  // Prompt Assistant is mounted inside that tree, so compensate only its
+  // own UI to keep the icon and toolbar at a usable screen size.
+  const update = () => {
+    const assistant = anchor.querySelector?.(".prompt-assistant-container");
+    const canvasScale = Number(app.canvas?.ds?.scale) || 1;
+    if (assistant) {
+      assistant.style.setProperty("--assistant-scale", String(1 / canvasScale));
+    }
+    if (!document.body.contains(anchor)) {
+      anchor._h3pAssistantScaleLoop = false;
+      return false;
+    }
+    return true;
+  };
+
+  const tick = () => {
+    if (update()) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 function syncUploadWidget(node, widgetName, value) {
   const item = widget(node, widgetName);
   if (!item || !value) return;
@@ -521,7 +547,14 @@ function install(node) {
     prompt.dataset.h3pValueWidget = "prompt";
     ["pointerdown", "mousedown"].forEach((name) => prompt.addEventListener(name, (event) => event.stopPropagation()));
     prompt.style.marginTop = "6px";
-    director.append(prompt);
+    // Give the native Prompt Assistant a local positioning anchor. Without
+    // this wrapper it anchors to the whole U11 DOM widget and can land outside
+    // the visible prompt field when the canvas is zoomed or a sidebar is open.
+    const promptAnchor = document.createElement("div");
+    promptAnchor.className = "h3p-prompt-anchor dom-widget";
+    promptAnchor.append(prompt);
+    director.append(promptAnchor);
+    keepPromptAssistantReadable(promptAnchor);
 
     // Bind this visible textarea to the installed Prompt Assistant plugin.
     // The original widget remains hidden for layout, but the assistant now
