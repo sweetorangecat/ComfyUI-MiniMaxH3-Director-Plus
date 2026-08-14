@@ -531,7 +531,18 @@ function install(node) {
       promptWidget.inputEl = prompt;
       promptWidget.element = prompt;
       prompt._promptAssistantInput = true;
-      requestAnimationFrame(() => window.promptAssistant?.checkAndSetupNode?.(node));
+      // Prompt Assistant can finish loading after this node is created. Retry
+      // briefly so the native toolbar mounts on the visible U11 editor too.
+      let assistantAttempts = 0;
+      const mountPromptAssistant = () => {
+        const assistant = window.promptAssistant || app.promptAssistant;
+        if (assistant && typeof assistant.checkAndSetupNode === "function") {
+          assistant.checkAndSetupNode(node);
+          return;
+        }
+        if (++assistantAttempts < 20) setTimeout(mountPromptAssistant, 250);
+      };
+      requestAnimationFrame(mountPromptAssistant);
     }
 
     // Keep a small fallback only when the real Prompt Assistant plugin is not
@@ -668,6 +679,14 @@ function install(node) {
   const bindMountedControls = () => {
     bindDomControls(domWidget?.element || domWidget?.inputEl || root, node, render);
     bindRenderedControllers();
+    const mountedPrompt = root.querySelector('textarea[data-h3p-value-widget="prompt"]');
+    const promptWidget = widget(node, "prompt");
+    const assistant = window.promptAssistant || app.promptAssistant;
+    if (mountedPrompt && promptWidget && assistant?.checkAndSetupNode) {
+      promptWidget.inputEl = mountedPrompt;
+      promptWidget.element = mountedPrompt;
+      assistant.checkAndSetupNode(node);
+    }
   };
   bindDomControls(root, node, render);
   requestAnimationFrame(bindMountedControls);

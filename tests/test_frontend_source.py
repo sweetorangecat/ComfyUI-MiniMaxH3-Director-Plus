@@ -155,7 +155,11 @@ def test_prompt_assistant_is_visible_and_writes_back_to_prompt_widget():
     assert 'const promptWidget = widget(node, "prompt")' in text
     assert "promptWidget.inputEl = prompt" in text
     assert "promptWidget.element = prompt" in text
-    assert "window.promptAssistant?.checkAndSetupNode?.(node)" in text
+    assert "const mountPromptAssistant = () =>" in text
+    assert "window.promptAssistant || app.promptAssistant" in text
+    assert "assistant.checkAndSetupNode(node)" in text
+    assert "setTimeout(mountPromptAssistant, 250)" in text
+    assert "const mountedPrompt = root.querySelector" in text
 
 
 def test_ui_adds_seed_without_reordering_existing_sections():
