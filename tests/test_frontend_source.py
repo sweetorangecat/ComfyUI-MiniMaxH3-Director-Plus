@@ -128,6 +128,9 @@ def test_director_ui_uses_stable_size_when_sidebar_changes_available_width():
     assert "DIRECTOR_UI_HEIGHT" in text
     assert "node.setSize?.([DIRECTOR_UI_WIDTH, DIRECTOR_UI_HEIGHT])" in text
     assert "node.size?.[0] || 500" not in text
+    assert "width:${DIRECTOR_UI_WIDTH}px" in text
+    assert "min-width:${DIRECTOR_UI_WIDTH}px" in text
+    assert "flex:0 0 ${DIRECTOR_UI_WIDTH}px" in text
     assert ".h3p select,.h3p input,.h3p textarea" in text
     assert "max-width:100%;min-width:0" in text
 
