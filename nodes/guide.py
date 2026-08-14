@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from copy import copy
-
 from .performance import memory_policy, preset_values
 
 
@@ -17,42 +15,10 @@ def native_node(name):
         ) from exc
 
 
-def _route_patcher_to_device(patcher, device):
-    """Retarget a patcher and register the device for ComfyUI dynamic loading."""
-    patcher.load_device = device
-    patcher.offload_device = device
-    register = getattr(patcher, "register_load_device", None)
-    if callable(register):
-        register(device)
-
-
-def _cpu_clip(clip):
-    """Clone a CLIP wrapper and route its patcher entirely to CPU."""
-    import torch
-
-    routed = clip.clone()
-    _route_patcher_to_device(routed.patcher, torch.device("cpu"))
-    return routed
-
-
-def _cpu_vae(vae):
-    """Clone a VAE wrapper and route both weights and execution to CPU."""
-    import torch
-
-    routed = copy(vae)
-    routed.patcher = vae.patcher.clone()
-    _route_patcher_to_device(routed.patcher, torch.device("cpu"))
-    routed.device = torch.device("cpu")
-    routed.output_device = torch.device("cpu")
-    routed.first_stage_model = routed.patcher.model
-    return routed
-
-
 def _route_low_vram_inputs(clip, video_vae, audio_vae, guide):
-    values = preset_values(guide.get("performance_preset", "quality"))
-    if values.get("clip_device") != "cpu":
-        return clip, video_vae, audio_vae
-    return _cpu_clip(clip), _cpu_vae(video_vae), _cpu_vae(audio_vae)
+    """Keep native patcher devices; LOW_VRAM handles dynamic CPU offload."""
+    preset_values(guide.get("performance_preset", "quality"))
+    return clip, video_vae, audio_vae
 
 
 class MiniMaxH3DirectorPlusGuide:
@@ -76,7 +42,7 @@ class MiniMaxH3DirectorPlusGuide:
     CATEGORY = "MiniMax H3 导演台 Plus"
 
     def apply(self, clip, video_vae, audio_vae, guide, generated_voice_audio=None):
-        state = copy(guide)
+        state = guide.copy()
         if state.get("voice_mode") == "fish_lock":
             if generated_voice_audio is None:
                 raise ValueError("Fish 高级音色锁定尚未生成目标对白音频")

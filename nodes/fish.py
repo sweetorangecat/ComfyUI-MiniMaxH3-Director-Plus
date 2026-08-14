@@ -42,7 +42,7 @@ class MiniMaxH3FishVoiceBridge:
             raise ValueError("Fish 高级音色锁定需要上传音色参考 1")
         if not str(text or "").strip():
             raise ValueError("Fish 高级音色锁定需要填写新的目标对白")
-        low_vram = preset_values(guide.get("performance_preset", "quality")).get("clip_device") == "cpu"
+        low_vram = preset_values(guide.get("performance_preset", "quality")).get("fish_device") == "cpu"
         try:
             with memory_policy(guide):
                 return fish_voice_clone_node().generate(

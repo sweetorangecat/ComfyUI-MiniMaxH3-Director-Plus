@@ -8,16 +8,17 @@ PRESETS = {
     "quality": {"steps": 20, "use_sage": False, "use_cache": False, "interpolate": False},
     "fast_4step": {"steps": 4, "use_sage": True, "use_cache": True, "interpolate": False},
     "reference_fast": {"steps": 6, "use_sage": True, "use_cache": True, "interpolate": False},
-    # The H3 text encoder and video VAE are large enough to exhaust an 8 GB
-    # card before sampling starts.  CPU placement is intentional here; Sage
-    # and EasyCache affect speed, not the peak model footprint.
+    # Keep ComfyUI's native dynamic patcher route.  It stages large H3
+    # components in host RAM and moves only the active weights to the GPU.
+    # Forcing the wrappers themselves to CPU makes text encoding unusably slow.
     "low_vram": {
         "steps": 8,
         "use_sage": True,
         "use_cache": False,
         "interpolate": False,
-        "clip_device": "cpu",
-        "vae_device": "cpu",
+        "clip_device": "dynamic",
+        "vae_device": "dynamic",
+        "fish_device": "cpu",
     },
     "custom": {"steps": 20, "use_sage": False, "use_cache": False, "interpolate": False},
 }
@@ -158,7 +159,7 @@ class MiniMaxH3PerformancePreset:
             "quality": "稳定质量：20 步，不强制启用缓存",
             "fast_4step": "极速 4 步：FL2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
-            "low_vram": "低显存：8 步 + Sage，文本编码器与 VAE 使用 CPU，关闭缓存",
+            "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
         return values["steps"], values["use_sage"], values["use_cache"], descriptions[name]

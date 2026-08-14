@@ -86,10 +86,11 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     )
 
 
-def test_low_vram_preset_uses_cpu_safe_policy_without_cache():
+def test_low_vram_preset_uses_dynamic_safe_policy_without_cache():
     values = preset_values("low_vram")
-    assert values["clip_device"] == "cpu"
-    assert values["vae_device"] == "cpu"
+    assert values["clip_device"] == "dynamic"
+    assert values["vae_device"] == "dynamic"
+    assert values["fish_device"] == "cpu"
     assert values["use_cache"] is False
 
 
