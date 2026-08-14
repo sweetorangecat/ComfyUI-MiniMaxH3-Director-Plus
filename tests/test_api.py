@@ -116,7 +116,7 @@ def test_api_template_removes_fish_bridge_for_native_h3_reference():
 
 def test_prepare_generation_maps_internal_preset_back_to_node_label():
     request, prompt = prepare_generation(
-        {"mode": "T2VA", "voice_mode": "none", "performance_preset": "极速4步"},
+        {"mode": "REF2VA", "voice_mode": "none", "performance_preset": "极速4步"},
         deepcopy(BASE_TEMPLATE),
     )
     assert request["performance_preset"] == "fast_4step"
@@ -131,7 +131,7 @@ def test_patch_template_exposes_seed_and_preset_sampling():
     }
     prompt = patch_template(template, {"mode": "T2VA", "voice_mode": "none", "performance_preset": "fast_4step", "seed": 123})
     assert prompt["18"]["inputs"]["noise_seed"] == 123
-    assert prompt["20"]["inputs"]["steps"] == 4
+    assert prompt["20"]["inputs"]["steps"] == 20
 
 
 def test_patch_template_accepts_reference_image_list():

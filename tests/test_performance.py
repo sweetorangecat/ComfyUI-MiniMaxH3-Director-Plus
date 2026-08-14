@@ -75,6 +75,29 @@ def test_performance_node_reads_guide_preset():
     assert result[1] is True
 
 
+def test_performance_node_safely_downgrades_invalid_t2va_reference_preset():
+    result = MiniMaxH3PerformancePreset().apply({
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": "reference_fast",
+    })
+    assert result[0] == 20
+    assert result[1] is False
+    assert result[2] is False
+    assert "稳定质量" in result[3]
+
+
+def test_acceleration_plan_downgrades_invalid_t2va_reference_preset():
+    plan = acceleration_plan({
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": "reference_fast",
+        "resolved_backend": "fl2va_model",
+    })
+    assert plan["preset"] == "quality"
+    assert plan["use_turbo_lora"] is False
+
+
 def test_fast_preset_falls_back_to_safe_steps_after_acceleration_failure():
     result = MiniMaxH3PerformancePreset().apply(
         {"performance_preset": "fast_4step"},
@@ -103,7 +126,8 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     assert values["use_sage"] is (preset in {"fast_4step", "reference_fast", "low_vram"})
     assert values["use_cache"] is (preset in {"fast_4step", "reference_fast"})
     assert plan["backend"] == backend
-    assert plan["use_turbo_lora"] is (preset == "fast_4step")
+    expected_preset = "quality" if mode == "T2VA" and preset in {"fast_4step", "reference_fast"} else preset
+    assert plan["use_turbo_lora"] is (expected_preset == "fast_4step")
     assert plan["lora_name"] == (
         performance.REF2VA_TURBO_LORA_NAME if backend == "ref2va_model" else performance.TURBO_LORA_NAME
     )
@@ -255,7 +279,7 @@ def test_fast_fl2va_routes_to_h3_turbo_sampler():
     assert sampler_route({"performance_preset": "fast_4step", "resolved_backend": "ref2va_model"}) == "native"
 
 
-@pytest.mark.parametrize("mode", ["T2VA", "I2VA", "FL2VA", "L2VA"])
+@pytest.mark.parametrize("mode", ["I2VA", "FL2VA", "L2VA"])
 def test_fast_fl2va_modes_share_the_same_checked_turbo_contract(mode):
     guide = {"mode": mode, "performance_preset": "fast_4step", "resolved_backend": "fl2va_model"}
     plan = acceleration_plan(guide)

@@ -25,6 +25,21 @@ PERFORMANCE_PRESETS = {
     "custom": "custom",
 }
 
+PERFORMANCE_PRESETS_BY_ROUTE = {
+    "t2va": ("quality", "low_vram"),
+    "endpoint": ("quality", "fast_4step", "low_vram"),
+    "reference": ("quality", "reference_fast", "fast_4step", "low_vram"),
+}
+
+
+def allowed_performance_presets(mode, voice_mode="none"):
+    """Return the safe, user-facing presets for the active H3 route."""
+    if voice_mode != "none" or mode == "REF2VA":
+        return PERFORMANCE_PRESETS_BY_ROUTE["reference"]
+    if mode == "T2VA":
+        return PERFORMANCE_PRESETS_BY_ROUTE["t2va"]
+    return PERFORMANCE_PRESETS_BY_ROUTE["endpoint"]
+
 
 class RequestError(ValueError):
     """A short actionable validation error suitable for the UI and API."""
@@ -122,12 +137,19 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的性能预设：{request['performance_preset']}")
     request["performance_preset"] = preset
 
+    request["warnings"] = []
+    allowed = allowed_performance_presets(request["mode"], request["voice_mode"])
+    if preset not in allowed and preset != "custom":
+        request["performance_preset"] = "quality"
+        request["warnings"].append(
+            f"{request['mode']} / {request['voice_mode']} 不支持性能预设 {preset}，已自动切换为稳定质量。"
+        )
+
     request["resolved_backend"] = (
         "ref2va_model"
         if request["mode"] == "REF2VA" or request["voice_mode"] != "none"
         else "fl2va_model"
     )
-    request["warnings"] = []
     if request["resolved_backend"] == "ref2va_model" and request["mode"] != "REF2VA":
         request["warnings"].append(
             "已因音色参考切换到 REF2VA；首尾图片属于提示词约束，不是硬端点。"
@@ -156,7 +178,20 @@ def public_schema():
             "reference_transcript": {"中文名称": "音色样本文本", "type": "string", "default": ""},
             "fish_model_path": {"中文名称": "Fish S2 模型", "type": "string", "default": "s2-pro-w4a16 (auto download)"},
             "ref_image_size": {"中文名称": "参考图尺寸策略", "enum": ["match", "max"], "default": "match"},
-            "performance_preset": {"中文名称": "性能预设", "enum": list(PERFORMANCE_PRESETS)[:5], "default": "稳定质量"},
+            "performance_preset": {
+                "中文名称": "性能预设",
+                "enum": list(PERFORMANCE_PRESETS)[:5],
+                "default": "稳定质量",
+                "allowed_by_route": {
+                    "T2VA": ["稳定质量", "低显存"],
+                    "I2VA / FL2VA / L2VA": ["稳定质量", "极速4步", "低显存"],
+                    "REF2VA": ["稳定质量", "参考图加速", "极速4步", "低显存"],
+                    "I2VA + 音色参考": ["稳定质量", "参考图加速", "极速4步", "低显存"],
+                    "FL2VA + 音色参考": ["稳定质量", "参考图加速", "极速4步", "低显存"],
+                    "L2VA + 音色参考": ["稳定质量", "参考图加速", "极速4步", "低显存"],
+                    "T2VA + 音色参考": ["稳定质量", "参考图加速", "极速4步", "低显存"],
+                },
+            },
             "custom_width": {"中文名称": "自定义宽度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 16},
             "custom_height": {"中文名称": "自定义高度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 9},
         },

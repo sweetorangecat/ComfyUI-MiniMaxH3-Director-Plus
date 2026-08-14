@@ -13,6 +13,11 @@ const DIRECTOR_UI_HEIGHT = 1510;
 const DIRECTOR_DOM_HEIGHT = 1050;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
 const PRESETS = ["稳定质量", "极速4步", "参考图加速", "低显存", "自定义"];
+const PERFORMANCE_PRESETS_BY_ROUTE = {
+  t2va: ["稳定质量", "低显存"],
+  endpoint: ["稳定质量", "极速4步", "低显存"],
+  reference: ["稳定质量", "参考图加速", "极速4步", "低显存"],
+};
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
   "8:5": [8, 5], "5:8": [5, 8], "16:9": [16, 9], "9:16": [9, 16], "21:9": [21, 9], "9:21": [9, 21],
@@ -85,12 +90,18 @@ function hideWidget(item) {
   item.draw = () => {};
 }
 
-function setWidget(node, name, value) {
+function setWidget(node, name, value, notify = true) {
   const item = widget(node, name);
   if (!item || item.value === value) return;
   item.value = value;
-  item.callback?.(value);
+  if (notify) item.callback?.(value);
   node.graph?.setDirtyCanvas(true, true);
+}
+
+function allowedPerformancePresets(mode, voiceMode) {
+  if (voiceMode !== "none" || mode === "REF2VA") return PERFORMANCE_PRESETS_BY_ROUTE.reference;
+  if (mode === "T2VA") return PERFORMANCE_PRESETS_BY_ROUTE.t2va;
+  return PERFORMANCE_PRESETS_BY_ROUTE.endpoint;
 }
 
 function keepPromptAssistantReadable(anchor) {
@@ -450,7 +461,12 @@ function install(node) {
   function render() {
     const mode = widget(node, "mode")?.value || "FL2VA";
     const voiceMode = widget(node, "voice_mode")?.value || "none";
-    const preset = widget(node, "performance_preset")?.value || "稳定质量";
+    const performanceOptions = allowedPerformancePresets(mode, voiceMode);
+    let preset = widget(node, "performance_preset")?.value || "稳定质量";
+    if (!performanceOptions.includes(preset)) {
+      preset = "稳定质量";
+      setWidget(node, "performance_preset", preset, false);
+    }
     const aspect = widget(node, "aspect_ratio")?.value || "16:9";
     const resolutionPreset = widget(node, "resolution_preset")?.value || "0.83 MP";
     const [resolvedWidth, resolvedHeight] = syncResolution(node);
@@ -478,7 +494,7 @@ function install(node) {
     quickGrid.className = "h3p-grid";
     quickGrid.append(
       valueControl("生成模式", "mode", MODES, mode),
-      valueControl("性能预设", "performance_preset", PRESETS, preset),
+      valueControl("性能预设", "performance_preset", performanceOptions, preset),
     );
     quick.append(quickGrid);
     root.append(quick);

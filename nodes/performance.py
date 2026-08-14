@@ -9,6 +9,8 @@ import logging
 import sys
 from pathlib import Path
 
+from .schema import allowed_performance_presets
+
 
 LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus")
 
@@ -198,7 +200,9 @@ class MiniMaxH3PerformancePreset:
     CATEGORY = "MiniMax H3 导演台 Plus"
 
     def apply(self, guide, acceleration_ready=None):
-        name = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
+        name, downgraded = _safe_guide_preset(guide)
+        mode = guide.get("mode")
+        voice_mode = guide.get("voice_mode", "none")
         values = preset_values(name, guide.get("resolved_backend"))
         if name in {"fast_4step", "reference_fast"} and (
             guide.get("turbo_lora_applied") is False or acceleration_ready is False
@@ -213,12 +217,24 @@ class MiniMaxH3PerformancePreset:
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
+        if downgraded:
+            descriptions[name] = f"{mode} / {voice_mode} 不支持所选预设，已回退稳定质量"
         return values["steps"], values["use_sage"], values["use_cache"], descriptions[name]
+
+
+def _safe_guide_preset(guide):
+    requested = guide.get("performance_preset", "quality")
+    name = PRESET_LABELS.get(requested, requested)
+    mode = guide.get("mode")
+    voice_mode = guide.get("voice_mode", "none")
+    if mode and name != "custom" and name not in allowed_performance_presets(mode, voice_mode):
+        return "quality", True
+    return name, False
 
 
 def acceleration_plan(guide):
     """Return the model/LoRA/sampler contract shared by U11 nodes."""
-    preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
+    preset, _ = _safe_guide_preset(guide)
     backend = guide.get("resolved_backend", "fl2va_model")
     use_turbo = preset == "fast_4step"
     # Official H3 Turbo graphs use ComfyUI's stock Euler sampler for every

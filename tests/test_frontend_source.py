@@ -50,6 +50,13 @@ def test_ui_exposes_duration_aspect_and_resolution_controls():
         assert aspect in text
 
 
+def test_frontend_filters_performance_presets_by_mode_and_voice():
+    text = source()
+    assert "allowedPerformancePresets" in text
+    assert 'voiceMode !== "none"' in text
+    assert 'setWidget(node, "performance_preset", preset, false)' in text
+
+
 def test_ui_keeps_audio_lane_for_i2va_and_fl2va():
     text = source()
     assert "I2VA" in text and "FL2VA" in text

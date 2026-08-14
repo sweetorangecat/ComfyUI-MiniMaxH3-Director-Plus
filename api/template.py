@@ -5,9 +5,11 @@ from __future__ import annotations
 from copy import deepcopy
 
 try:
-    from ..nodes.performance import preset_values
+    from ..nodes.performance import PRESET_LABELS, preset_values
+    from ..nodes.schema import allowed_performance_presets
 except ImportError:
-    from nodes.performance import preset_values
+    from nodes.performance import PRESET_LABELS, preset_values
+    from nodes.schema import allowed_performance_presets
 
 
 CONTROLLER_TITLE = "快速设置 / API 入参"
@@ -121,11 +123,19 @@ def patch_template(template, request):
     _, scheduler_node = _node_by_title(prompt, "API 调度器")
     if scheduler_node is not None and "performance_preset" in request:
         backend = "ref2va_model" if request.get("mode") == "REF2VA" or request.get("voice_mode") != "none" else "fl2va_model"
+        requested_preset = request["performance_preset"]
+        preset_name = PRESET_LABELS.get(requested_preset, requested_preset)
+        if (
+            request.get("mode")
+            and preset_name != "custom"
+            and preset_name not in allowed_performance_presets(request["mode"], request.get("voice_mode", "none"))
+        ):
+            requested_preset = "quality"
         steps_input = scheduler_node.setdefault("inputs", {}).get("steps")
         # The generated API template routes steps through PerformancePreset so
         # an acceleration failure can downgrade 4 steps to a safe count. Keep
         # a literal-step fallback for older user-supplied templates.
         if not (isinstance(steps_input, list) and len(steps_input) == 2):
-            scheduler_node["inputs"]["steps"] = preset_values(request["performance_preset"], backend=backend)["steps"]
+            scheduler_node["inputs"]["steps"] = preset_values(requested_preset, backend=backend)["steps"]
 
     return prompt

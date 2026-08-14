@@ -1,6 +1,12 @@
 import pytest
 
-from nodes.schema import PUBLIC_API_KEYS, RequestError, normalize_request, public_schema
+from nodes.schema import (
+    PUBLIC_API_KEYS,
+    RequestError,
+    allowed_performance_presets,
+    normalize_request,
+    public_schema,
+)
 
 
 def test_public_schema_lists_every_public_api_key():
@@ -11,6 +17,14 @@ def test_public_schema_exposes_fish_model_choice():
     schema = public_schema()
     assert "fish_model_path" in PUBLIC_API_KEYS
     assert schema["properties"]["fish_model_path"]["中文名称"] == "Fish S2 模型"
+
+
+def test_public_schema_documents_route_performance_options():
+    property_schema = public_schema()["properties"]["performance_preset"]
+    assert property_schema["allowed_by_route"]["T2VA"] == ["稳定质量", "低显存"]
+    assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
+        "稳定质量", "参考图加速", "极速4步", "低显存"
+    ]
 
 
 class TensorLikeImage:
@@ -91,9 +105,44 @@ def test_reference_mode_never_accepts_copy_semantics():
     ],
 )
 def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
-    request = normalize_request({"mode": "T2VA", "performance_preset": preset})
+    request = normalize_request({"mode": "REF2VA", "performance_preset": preset})
 
     assert request["performance_preset"] == expected
+
+
+@pytest.mark.parametrize(
+    ("mode", "voice_mode", "expected"),
+    [
+        ("T2VA", "none", ("quality", "low_vram")),
+        ("I2VA", "none", ("quality", "fast_4step", "low_vram")),
+        ("FL2VA", "none", ("quality", "fast_4step", "low_vram")),
+        ("L2VA", "none", ("quality", "fast_4step", "low_vram")),
+        ("REF2VA", "none", ("quality", "reference_fast", "fast_4step", "low_vram")),
+        ("I2VA", "h3_reference", ("quality", "reference_fast", "fast_4step", "low_vram")),
+        ("FL2VA", "fish_lock", ("quality", "reference_fast", "fast_4step", "low_vram")),
+        ("L2VA", "h3_reference", ("quality", "reference_fast", "fast_4step", "low_vram")),
+        ("T2VA", "h3_reference", ("quality", "reference_fast", "fast_4step", "low_vram")),
+    ],
+)
+def test_allowed_performance_presets_follow_mode_and_voice(mode, voice_mode, expected):
+    assert allowed_performance_presets(mode, voice_mode) == expected
+
+
+def test_invalid_t2va_reference_acceleration_falls_back_with_warning():
+    request = normalize_request({"mode": "T2VA", "performance_preset": "reference_fast"})
+    assert request["performance_preset"] == "quality"
+    assert any("T2VA" in warning and "稳定质量" in warning for warning in request["warnings"])
+
+
+def test_voice_reference_uses_ref2va_performance_set_even_in_fl2va():
+    request = normalize_request({
+        "mode": "FL2VA",
+        "first_image": "opening.png",
+        "voice_mode": "h3_reference",
+        "voice_reference_audio": "voice.wav",
+    })
+    assert request["resolved_backend"] == "ref2va_model"
+    assert "reference_fast" in allowed_performance_presets("FL2VA", "h3_reference")
 
 
 def test_duration_uses_h3_native_four_to_fifteen_second_range():
