@@ -537,6 +537,12 @@ function install(node) {
       const mountPromptAssistant = () => {
         const assistant = window.promptAssistant || app.promptAssistant;
         if (assistant && typeof assistant.checkAndSetupNode === "function") {
+          // Prompt Assistant may have auto-created an instance for the hidden
+          // native widget before this DOM editor was mounted. Drop that stale
+          // instance so the visible textarea becomes the anchor.
+          assistant.cleanup?.(node.id, true);
+          promptWidget.inputEl = prompt;
+          promptWidget.element = prompt;
           assistant.checkAndSetupNode(node);
           return;
         }
@@ -683,6 +689,7 @@ function install(node) {
     const promptWidget = widget(node, "prompt");
     const assistant = window.promptAssistant || app.promptAssistant;
     if (mountedPrompt && promptWidget && assistant?.checkAndSetupNode) {
+      assistant.cleanup?.(node.id, true);
       promptWidget.inputEl = mountedPrompt;
       promptWidget.element = mountedPrompt;
       assistant.checkAndSetupNode(node);

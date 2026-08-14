@@ -158,6 +158,7 @@ def test_prompt_assistant_is_visible_and_writes_back_to_prompt_widget():
     assert "const mountPromptAssistant = () =>" in text
     assert "window.promptAssistant || app.promptAssistant" in text
     assert "assistant.checkAndSetupNode(node)" in text
+    assert "assistant.cleanup?.(node.id, true)" in text
     assert "setTimeout(mountPromptAssistant, 250)" in text
     assert "const mountedPrompt = root.querySelector" in text
 
