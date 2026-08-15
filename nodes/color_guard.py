@@ -1,0 +1,63 @@
+"""Temporal exposure and colour continuity guard for MiniMax H3 outputs."""
+
+from __future__ import annotations
+
+import torch
+import torch.nn.functional as F
+
+
+class MiniMaxH3ColorGuard:
+    """Keep generated frames close to the scene exposure without changing motion."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
+                "enabled": ("BOOLEAN", {"default": True}),
+                "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("色彩稳定帧", "色彩保护说明")
+    FUNCTION = "apply"
+    CATEGORY = "MiniMax H3 导演台 Plus"
+
+    @staticmethod
+    def _luma(image):
+        return image[..., :3].mul(image.new_tensor([0.2126, 0.7152, 0.0722])).sum(-1)
+
+    @staticmethod
+    def _anchor(images, guide):
+        # I2VA/FL2VA/L2VA expose a real first frame. REF2VA deliberately does
+        # not, because its first reference is not implicitly a keyframe.
+        source = guide.get("first_frame") if isinstance(guide, dict) else None
+        if torch.is_tensor(source) and source.ndim == 4 and source.shape[0]:
+            source = source[..., :3].to(device=images.device, dtype=images.dtype)
+            source = source.movedim(-1, 1)
+            source = F.interpolate(source[:1], size=images.shape[1:3], mode="bilinear", align_corners=False)
+            return source.movedim(1, -1)
+        return images[:1]
+
+    def apply(self, images, guide, enabled=True, strength=1.0):
+        if not enabled or images.ndim != 4 or images.shape[0] < 2:
+            return images, "色彩保护未启用或帧数不足"
+
+        frames = images[..., :3].to(dtype=torch.float32)
+        anchor = self._anchor(frames, guide)
+        target_luma = self._luma(anchor).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
+        frame_luma = self._luma(frames).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
+
+        # Correct only the frame-to-anchor exposure drift.  The exponent makes
+        # the default conservative while still correcting the observed 60->92
+        # YAVG drift; gains are bounded to avoid destroying intentional motion.
+        ratio = (target_luma / frame_luma).pow(float(strength)).clamp(0.45, 1.38)
+        corrected = frames * ratio.unsqueeze(-1)
+
+        # Keep extra channels (if present) untouched and restore the input dtype.
+        if images.shape[-1] > 3:
+            corrected = torch.cat((corrected, images[..., 3:].to(corrected)), dim=-1)
+        corrected = corrected.clamp(0.0, 1.0).to(dtype=images.dtype)
+        return corrected, "已锁定场景曝光与色彩连续性；REF2VA 未将第一张参考图视为首帧"

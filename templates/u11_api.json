@@ -458,11 +458,29 @@
       "title": "API 音频解码"
     }
   },
+  "29": {
+    "class_type": "MiniMaxH3ColorGuard",
+    "inputs": {
+      "images": [
+        "22",
+        0
+      ],
+      "guide": [
+        "10",
+        0
+      ],
+      "enabled": true,
+      "strength": 1.0
+    },
+    "_meta": {
+      "title": "曝光与色彩连续性保护"
+    }
+  },
   "24": {
     "class_type": "DaSiWa_EnhancedVideoCombine",
     "inputs": {
       "images": [
-        "22",
+        "29",
         0
       ],
       "frame_rate": 24.0,
