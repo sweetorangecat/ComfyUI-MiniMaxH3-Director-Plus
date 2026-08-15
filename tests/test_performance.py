@@ -112,7 +112,7 @@ def test_low_vram_description_matches_disabled_cache():
 
 
 @pytest.mark.parametrize("mode", ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"])
-@pytest.mark.parametrize("preset", ["quality", "fast_4step", "reference_fast", "low_vram", "custom"])
+@pytest.mark.parametrize("preset", ["quality", "quality_sage", "fast_4step", "reference_fast", "low_vram", "custom"])
 def test_every_mode_has_a_defined_performance_contract(mode, preset):
     backend = "ref2va_model" if mode == "REF2VA" else "fl2va_model"
     values = performance._runtime_preset_values(
@@ -126,7 +126,7 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     })
 
     assert values["steps"] >= 4
-    assert values["use_sage"] is (preset in {"fast_4step", "reference_fast", "low_vram"})
+    assert values["use_sage"] is (preset in {"quality_sage", "fast_4step", "reference_fast", "low_vram"})
     expected_cache = preset in {"fast_4step", "reference_fast"} and not (mode == "T2VA" and preset == "fast_4step")
     assert values["use_cache"] is expected_cache
     assert plan["backend"] == backend
@@ -152,10 +152,61 @@ def test_t2va_fast_uses_official_h3_turbo_contract():
         "performance_preset": "fast_4step",
         "resolved_backend": "fl2va_model",
     }
-    assert performance.allowed_performance_presets("T2VA", "none") == ("quality", "fast_4step", "low_vram")
+    assert performance.allowed_performance_presets("T2VA", "none") == (
+        "quality", "quality_sage", "fast_4step", "low_vram"
+    )
     assert acceleration_plan(guide)["use_turbo_lora"] is True
     assert acceleration_plan(guide)["lora_name"] == performance.TURBO_LORA_NAME
     assert performance._runtime_preset_values(guide, "fast_4step")["use_cache"] is False
+
+
+@pytest.mark.parametrize("mode", ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"])
+@pytest.mark.parametrize("voice_mode", ["none", "h3_reference", "fish_lock"])
+def test_quality_priority_acceleration_keeps_native_quality_contract(mode, voice_mode):
+    guide = {
+        "mode": mode,
+        "voice_mode": voice_mode,
+        "performance_preset": "quality_sage",
+        "resolved_backend": "ref2va_model" if voice_mode != "none" or mode == "REF2VA" else "fl2va_model",
+    }
+
+    values = performance._runtime_preset_values(guide, "quality_sage")
+    plan = acceleration_plan(guide)
+
+    assert values["steps"] == 20
+    assert values["use_sage"] is True
+    assert values["use_cache"] is False
+    assert plan["use_turbo_lora"] is False
+    assert sampler_route(guide) == "native"
+
+
+def test_quality_priority_acceleration_applies_sage_without_cache_or_lora(monkeypatch):
+    calls = []
+    monkeypatch.setattr(performance, "_apply_sage_attention", lambda model, guide: calls.append("sage") or f"{model}:sage")
+    monkeypatch.setattr(performance, "_apply_easy_cache", lambda model, guide: calls.append("cache") or f"{model}:cache")
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda *args, **kwargs: calls.append("lora"))
+
+    guide = {"mode": "T2VA", "performance_preset": "quality_sage", "resolved_backend": "fl2va_model"}
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert result[0] == "model:sage"
+    assert calls == ["sage"]
+    assert result[2] is True
+
+
+def test_quality_priority_acceleration_failure_keeps_twenty_steps(monkeypatch):
+    monkeypatch.setattr(
+        performance,
+        "_apply_sage_attention",
+        lambda model, guide: (_ for _ in ()).throw(RuntimeError("sage unavailable")),
+        raising=False,
+    )
+    guide = {"mode": "T2VA", "performance_preset": "quality_sage", "resolved_backend": "fl2va_model"}
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert result[0] == "model"
+    assert result[2] is False
+    assert MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=result[2])[0] == 20
 
 
 def test_reference_fast_applies_sage_and_easycache_on_routed_model(monkeypatch):

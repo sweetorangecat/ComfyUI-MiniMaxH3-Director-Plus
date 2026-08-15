@@ -14,11 +14,13 @@ PUBLIC_API_KEYS = (
 )
 PERFORMANCE_PRESETS = {
     "稳定质量": "quality",
+    "质量优先加速": "quality_sage",
     "极速4步": "fast_4step",
     "参考图加速": "reference_fast",
     "低显存": "low_vram",
     "自定义": "custom",
     "quality": "quality",
+    "quality_sage": "quality_sage",
     "fast_4step": "fast_4step",
     "reference_fast": "reference_fast",
     "low_vram": "low_vram",
@@ -28,9 +30,9 @@ PERFORMANCE_PRESETS = {
 PERFORMANCE_PRESETS_BY_ROUTE = {
     # The official H3 Turbo LoRA ships with a T2V example workflow and is
     # compatible with the same FL2VA model endpoint used by T2VA/FL2VA/I2VA.
-    "t2va": ("quality", "fast_4step", "low_vram"),
-    "endpoint": ("quality", "fast_4step", "low_vram"),
-    "reference": ("quality", "reference_fast", "fast_4step", "low_vram"),
+    "t2va": ("quality", "quality_sage", "fast_4step", "low_vram"),
+    "endpoint": ("quality", "quality_sage", "fast_4step", "low_vram"),
+    "reference": ("quality", "quality_sage", "reference_fast", "fast_4step", "low_vram"),
 }
 
 
@@ -182,16 +184,16 @@ def public_schema():
             "ref_image_size": {"中文名称": "参考图尺寸策略", "enum": ["match", "max"], "default": "match"},
             "performance_preset": {
                 "中文名称": "性能预设",
-                "enum": list(PERFORMANCE_PRESETS)[:5],
+                "enum": list(PERFORMANCE_PRESETS)[:6],
                 "default": "稳定质量",
                 "allowed_by_route": {
-                    "T2VA": ["稳定质量", "极速4步", "低显存"],
-                    "I2VA / FL2VA / L2VA": ["稳定质量", "极速4步", "低显存"],
-                    "REF2VA": ["稳定质量", "参考图加速", "极速4步", "低显存"],
-                    "I2VA + 音色参考": ["稳定质量", "参考图加速", "极速4步", "低显存"],
-                    "FL2VA + 音色参考": ["稳定质量", "参考图加速", "极速4步", "低显存"],
-                    "L2VA + 音色参考": ["稳定质量", "参考图加速", "极速4步", "低显存"],
-                    "T2VA + 音色参考": ["稳定质量", "参考图加速", "极速4步", "低显存"],
+                    "T2VA": ["稳定质量", "质量优先加速", "极速4步", "低显存"],
+                    "I2VA / FL2VA / L2VA": ["稳定质量", "质量优先加速", "极速4步", "低显存"],
+                    "REF2VA": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
+                    "I2VA + 音色参考": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
+                    "FL2VA + 音色参考": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
+                    "L2VA + 音色参考": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
+                    "T2VA + 音色参考": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
                 },
             },
             "custom_width": {"中文名称": "自定义宽度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 16},

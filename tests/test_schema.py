@@ -21,9 +21,9 @@ def test_public_schema_exposes_fish_model_choice():
 
 def test_public_schema_documents_route_performance_options():
     property_schema = public_schema()["properties"]["performance_preset"]
-    assert property_schema["allowed_by_route"]["T2VA"] == ["稳定质量", "极速4步", "低显存"]
+    assert property_schema["allowed_by_route"]["T2VA"] == ["稳定质量", "质量优先加速", "极速4步", "低显存"]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
-        "稳定质量", "参考图加速", "极速4步", "低显存"
+        "稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"
     ]
 
 
@@ -100,6 +100,7 @@ def test_reference_mode_never_accepts_copy_semantics():
         ("稳定质量", "quality"),
         ("极速4步", "fast_4step"),
         ("参考图加速", "reference_fast"),
+        ("质量优先加速", "quality_sage"),
         ("低显存", "low_vram"),
         ("自定义", "custom"),
     ],
@@ -113,15 +114,15 @@ def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
 @pytest.mark.parametrize(
     ("mode", "voice_mode", "expected"),
     [
-    ("T2VA", "none", ("quality", "fast_4step", "low_vram")),
-        ("I2VA", "none", ("quality", "fast_4step", "low_vram")),
-        ("FL2VA", "none", ("quality", "fast_4step", "low_vram")),
-        ("L2VA", "none", ("quality", "fast_4step", "low_vram")),
-        ("REF2VA", "none", ("quality", "reference_fast", "fast_4step", "low_vram")),
-        ("I2VA", "h3_reference", ("quality", "reference_fast", "fast_4step", "low_vram")),
-        ("FL2VA", "fish_lock", ("quality", "reference_fast", "fast_4step", "low_vram")),
-        ("L2VA", "h3_reference", ("quality", "reference_fast", "fast_4step", "low_vram")),
-        ("T2VA", "h3_reference", ("quality", "reference_fast", "fast_4step", "low_vram")),
+        ("T2VA", "none", ("quality", "quality_sage", "fast_4step", "low_vram")),
+        ("I2VA", "none", ("quality", "quality_sage", "fast_4step", "low_vram")),
+        ("FL2VA", "none", ("quality", "quality_sage", "fast_4step", "low_vram")),
+        ("L2VA", "none", ("quality", "quality_sage", "fast_4step", "low_vram")),
+        ("REF2VA", "none", ("quality", "quality_sage", "reference_fast", "fast_4step", "low_vram")),
+        ("I2VA", "h3_reference", ("quality", "quality_sage", "reference_fast", "fast_4step", "low_vram")),
+        ("FL2VA", "fish_lock", ("quality", "quality_sage", "reference_fast", "fast_4step", "low_vram")),
+        ("L2VA", "h3_reference", ("quality", "quality_sage", "reference_fast", "fast_4step", "low_vram")),
+        ("T2VA", "h3_reference", ("quality", "quality_sage", "reference_fast", "fast_4step", "low_vram")),
     ],
 )
 def test_allowed_performance_presets_follow_mode_and_voice(mode, voice_mode, expected):

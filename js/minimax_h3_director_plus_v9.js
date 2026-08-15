@@ -12,11 +12,11 @@ const DIRECTOR_UI_WIDTH = 1350;
 const DIRECTOR_UI_HEIGHT = 1510;
 const DIRECTOR_DOM_HEIGHT = 1050;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
-const PRESETS = ["稳定质量", "极速4步", "参考图加速", "低显存", "自定义"];
+const PRESETS = ["稳定质量", "质量优先加速", "极速4步", "参考图加速", "低显存", "自定义"];
 const PERFORMANCE_PRESETS_BY_ROUTE = {
-  t2va: ["稳定质量", "极速4步", "低显存"],
-  endpoint: ["稳定质量", "极速4步", "低显存"],
-  reference: ["稳定质量", "参考图加速", "极速4步", "低显存"],
+  t2va: ["稳定质量", "质量优先加速", "极速4步", "低显存"],
+  endpoint: ["稳定质量", "质量优先加速", "极速4步", "低显存"],
+  reference: ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
