@@ -115,7 +115,10 @@ def test_low_vram_description_matches_disabled_cache():
 @pytest.mark.parametrize("preset", ["quality", "fast_4step", "reference_fast", "low_vram", "custom"])
 def test_every_mode_has_a_defined_performance_contract(mode, preset):
     backend = "ref2va_model" if mode == "REF2VA" else "fl2va_model"
-    values = preset_values(preset, backend=backend)
+    values = performance._runtime_preset_values(
+        {"mode": mode, "resolved_backend": backend},
+        preset,
+    )
     plan = acceleration_plan({
         "mode": mode,
         "performance_preset": preset,
@@ -124,7 +127,8 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
 
     assert values["steps"] >= 4
     assert values["use_sage"] is (preset in {"fast_4step", "reference_fast", "low_vram"})
-    assert values["use_cache"] is (preset in {"fast_4step", "reference_fast"})
+    expected_cache = preset in {"fast_4step", "reference_fast"} and not (mode == "T2VA" and preset == "fast_4step")
+    assert values["use_cache"] is expected_cache
     assert plan["backend"] == backend
     expected_preset = "quality" if mode == "T2VA" and preset == "reference_fast" else preset
     assert plan["use_turbo_lora"] is (expected_preset == "fast_4step")
@@ -151,6 +155,7 @@ def test_t2va_fast_uses_official_h3_turbo_contract():
     assert performance.allowed_performance_presets("T2VA", "none") == ("quality", "fast_4step", "low_vram")
     assert acceleration_plan(guide)["use_turbo_lora"] is True
     assert acceleration_plan(guide)["lora_name"] == performance.TURBO_LORA_NAME
+    assert performance._runtime_preset_values(guide, "fast_4step")["use_cache"] is False
 
 
 def test_reference_fast_applies_sage_and_easycache_on_routed_model(monkeypatch):

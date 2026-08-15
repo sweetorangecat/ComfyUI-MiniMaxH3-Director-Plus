@@ -156,6 +156,16 @@ def preset_values(name, backend=None):
     return values
 
 
+def _runtime_preset_values(guide, preset):
+    """Apply route-specific quality guards on top of the shared preset."""
+    values = preset_values(preset, guide.get("resolved_backend"))
+    # EasyCache is not part of the official T2VA Turbo recipe and can soften
+    # fast text-only motion. Keep T2VA fast mode to Turbo + Sage only.
+    if guide.get("mode") == "T2VA" and preset == "fast_4step":
+        values["use_cache"] = False
+    return values
+
+
 @contextmanager
 def memory_policy(guide):
     """Temporarily apply the workflow's low-VRAM policy to ComfyUI.
@@ -203,7 +213,7 @@ class MiniMaxH3PerformancePreset:
         name, downgraded = _safe_guide_preset(guide)
         mode = guide.get("mode")
         voice_mode = guide.get("voice_mode", "none")
-        values = preset_values(name, guide.get("resolved_backend"))
+        values = _runtime_preset_values(guide, name)
         if name in {"fast_4step", "reference_fast"} and (
             guide.get("turbo_lora_applied") is False or acceleration_ready is False
         ):
@@ -217,6 +227,8 @@ class MiniMaxH3PerformancePreset:
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
+        if mode == "T2VA" and name == "fast_4step":
+            descriptions[name] = "T2VA 极速 4 步：官方 H3 Turbo + Sage，关闭 EasyCache 以减少细节损失"
         if downgraded:
             descriptions[name] = f"{mode} / {voice_mode} 不支持所选预设，已回退稳定质量"
         return values["steps"], values["use_sage"], values["use_cache"], descriptions[name]
@@ -259,7 +271,7 @@ def sampler_route(guide):
 def _apply_acceleration(model, guide):
     """Apply all requested accelerators to the model that will actually sample."""
     plan = acceleration_plan(guide)
-    values = preset_values(plan["preset"], plan["backend"])
+    values = _runtime_preset_values(guide, plan["preset"])
     sage_requested = bool(values.get("use_sage"))
     cache_requested = bool(values.get("use_cache"))
     guide["sage_requested"] = sage_requested
