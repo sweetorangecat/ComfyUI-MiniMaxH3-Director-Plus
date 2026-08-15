@@ -212,7 +212,7 @@ class MiniMaxH3PerformancePreset:
             values["steps"] = 8
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
-            "fast_4step": "极速 4 步：FL2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
+            "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
             "custom": "自定义：保守默认值，可在设置子图中调整",

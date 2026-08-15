@@ -26,7 +26,9 @@ PERFORMANCE_PRESETS = {
 }
 
 PERFORMANCE_PRESETS_BY_ROUTE = {
-    "t2va": ("quality", "low_vram"),
+    # The official H3 Turbo LoRA ships with a T2V example workflow and is
+    # compatible with the same FL2VA model endpoint used by T2VA/FL2VA/I2VA.
+    "t2va": ("quality", "fast_4step", "low_vram"),
     "endpoint": ("quality", "fast_4step", "low_vram"),
     "reference": ("quality", "reference_fast", "fast_4step", "low_vram"),
 }
@@ -183,7 +185,7 @@ def public_schema():
                 "enum": list(PERFORMANCE_PRESETS)[:5],
                 "default": "稳定质量",
                 "allowed_by_route": {
-                    "T2VA": ["稳定质量", "低显存"],
+                    "T2VA": ["稳定质量", "极速4步", "低显存"],
                     "I2VA / FL2VA / L2VA": ["稳定质量", "极速4步", "低显存"],
                     "REF2VA": ["稳定质量", "参考图加速", "极速4步", "低显存"],
                     "I2VA + 音色参考": ["稳定质量", "参考图加速", "极速4步", "低显存"],

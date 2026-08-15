@@ -126,7 +126,7 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     assert values["use_sage"] is (preset in {"fast_4step", "reference_fast", "low_vram"})
     assert values["use_cache"] is (preset in {"fast_4step", "reference_fast"})
     assert plan["backend"] == backend
-    expected_preset = "quality" if mode == "T2VA" and preset in {"fast_4step", "reference_fast"} else preset
+    expected_preset = "quality" if mode == "T2VA" and preset == "reference_fast" else preset
     assert plan["use_turbo_lora"] is (expected_preset == "fast_4step")
     assert plan["lora_name"] == (
         performance.REF2VA_TURBO_LORA_NAME if backend == "ref2va_model" else performance.TURBO_LORA_NAME
@@ -139,6 +139,18 @@ def test_low_vram_preset_uses_dynamic_safe_policy_without_cache():
     assert values["vae_device"] == "dynamic"
     assert values["fish_device"] == "cpu"
     assert values["use_cache"] is False
+
+
+def test_t2va_fast_uses_official_h3_turbo_contract():
+    guide = {
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": "fast_4step",
+        "resolved_backend": "fl2va_model",
+    }
+    assert performance.allowed_performance_presets("T2VA", "none") == ("quality", "fast_4step", "low_vram")
+    assert acceleration_plan(guide)["use_turbo_lora"] is True
+    assert acceleration_plan(guide)["lora_name"] == performance.TURBO_LORA_NAME
 
 
 def test_reference_fast_applies_sage_and_easycache_on_routed_model(monkeypatch):

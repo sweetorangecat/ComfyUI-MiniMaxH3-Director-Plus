@@ -601,7 +601,7 @@ def build_workflow(source):
     )
     acceleration_note = _note_node(
         allocate_node(), "加速与后处理说明", [-400, 2470], [950, 270],
-        "## 已整合能力\n\n- 极速4步：官方 H3/REF2VA Turbo LoRA + 原生 Euler。\n- 参考图加速：实际路由模型应用 SageAttention + ComfyUI 原生 EasyCache。\n- RTX 30 系列使用 BF16 兼容的 Sage FP16 PV 内核；不再激活旧的死分支。\n- 原 U10 的 RIFE 插帧、RTX/模型超分、水印与高级保存继续保留。\n- LTX 二段超分属于独立高显存链路，保留为可选扩展而非默认执行。",
+        "## 已整合能力\n\n- 极速4步：T2VA/FL2VA 使用官方 H3 Turbo，REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler。\n- 参考图加速：实际路由模型应用 SageAttention + ComfyUI 原生 EasyCache。\n- RTX 30 系列使用 BF16 兼容的 Sage FP16 PV 内核；不再激活旧的死分支。\n- 原 U10 的 RIFE 插帧、RTX/模型超分、水印与高级保存继续保留。\n- LTX 二段超分属于独立高显存链路，保留为可选扩展而非默认执行。",
     )
     nodes.extend([router, acceleration, performance, status, fish, color_guard, materials_note, acceleration_note])
 

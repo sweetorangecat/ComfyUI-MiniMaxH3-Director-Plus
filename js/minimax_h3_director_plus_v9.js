@@ -14,7 +14,7 @@ const DIRECTOR_DOM_HEIGHT = 1050;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
 const PRESETS = ["稳定质量", "极速4步", "参考图加速", "低显存", "自定义"];
 const PERFORMANCE_PRESETS_BY_ROUTE = {
-  t2va: ["稳定质量", "低显存"],
+  t2va: ["稳定质量", "极速4步", "低显存"],
   endpoint: ["稳定质量", "极速4步", "低显存"],
   reference: ["稳定质量", "参考图加速", "极速4步", "低显存"],
 };

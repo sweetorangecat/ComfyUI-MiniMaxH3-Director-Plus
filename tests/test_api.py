@@ -131,7 +131,7 @@ def test_patch_template_exposes_seed_and_preset_sampling():
     }
     prompt = patch_template(template, {"mode": "T2VA", "voice_mode": "none", "performance_preset": "fast_4step", "seed": 123})
     assert prompt["18"]["inputs"]["noise_seed"] == 123
-    assert prompt["20"]["inputs"]["steps"] == 20
+    assert prompt["20"]["inputs"]["steps"] == 4
 
 
 def test_patch_template_accepts_reference_image_list():

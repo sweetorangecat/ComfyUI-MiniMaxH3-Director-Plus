@@ -21,7 +21,7 @@ def test_public_schema_exposes_fish_model_choice():
 
 def test_public_schema_documents_route_performance_options():
     property_schema = public_schema()["properties"]["performance_preset"]
-    assert property_schema["allowed_by_route"]["T2VA"] == ["稳定质量", "低显存"]
+    assert property_schema["allowed_by_route"]["T2VA"] == ["稳定质量", "极速4步", "低显存"]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
         "稳定质量", "参考图加速", "极速4步", "低显存"
     ]
@@ -113,7 +113,7 @@ def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
 @pytest.mark.parametrize(
     ("mode", "voice_mode", "expected"),
     [
-        ("T2VA", "none", ("quality", "low_vram")),
+    ("T2VA", "none", ("quality", "fast_4step", "low_vram")),
         ("I2VA", "none", ("quality", "fast_4step", "low_vram")),
         ("FL2VA", "none", ("quality", "fast_4step", "low_vram")),
         ("L2VA", "none", ("quality", "fast_4step", "low_vram")),
