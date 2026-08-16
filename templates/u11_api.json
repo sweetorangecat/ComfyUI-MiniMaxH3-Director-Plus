@@ -480,8 +480,8 @@
       "title": "曝光与色彩连续性保护"
     }
   },
-  "40": {
-    "class_type": "MiniMaxH3VideoUpscale",
+  "24": {
+    "class_type": "MiniMaxH3StreamingVideoCombine",
     "inputs": {
       "images": [
         "29",
@@ -489,18 +489,6 @@
       ],
       "guide": [
         "10",
-        0
-      ]
-    },
-    "_meta": {
-      "title": "低显存自动分块放大"
-    }
-  },
-  "24": {
-    "class_type": "DaSiWa_EnhancedVideoCombine",
-    "inputs": {
-      "images": [
-        "40",
         0
       ],
       "frame_rate": 24.0,

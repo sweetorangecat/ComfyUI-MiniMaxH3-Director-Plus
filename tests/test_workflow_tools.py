@@ -175,7 +175,7 @@ def test_api_template_scopes_low_vram_policy_around_sampling():
     assert sampler["inputs"]["guide"] == ["10", 0]
 
 
-def test_builder_routes_color_guard_through_auto_upscale_before_output():
+def test_builder_routes_color_guard_through_streaming_output():
     source = {
         "last_node_id": 3,
         "last_link_id": 21,
@@ -200,12 +200,10 @@ def test_builder_routes_color_guard_through_auto_upscale_before_output():
     built = build_workflow(source)
     director = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3DirectorPlus")
     guard = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3ColorGuard")
-    upscale = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3VideoUpscale")
-    output = next(node for node in built["nodes"] if node["type"] == "DaSiWa_EnhancedVideoCombine")
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
 
-    assert any(link[1:5] == [guard["id"], 0, upscale["id"], 0] for link in built["links"])
-    assert any(link[1:5] == [director["id"], 0, upscale["id"], 1] for link in built["links"])
-    assert any(link[1:5] == [upscale["id"], 0, output["id"], 0] for link in built["links"])
+    assert any(link[1:5] == [guard["id"], 0, output["id"], 0] for link in built["links"])
+    assert any(link[1:5] == [director["id"], 0, output["id"], 1] for link in built["links"])
 
 
 def test_builder_removes_old_resolution_links_and_model_directory_prefixes():
@@ -336,6 +334,16 @@ def test_built_settings_uses_h3_sampler_router_for_fast_mode():
     assert build_api_template()["19"]["class_type"] == "MiniMaxH3SamplerRouter"
 
 
+def test_api_template_streams_final_target_into_output_node():
+    from tools.build_u11_workflow import build_api_template
+
+    output = build_api_template()["24"]
+
+    assert output["class_type"] == "MiniMaxH3StreamingVideoCombine"
+    assert output["inputs"]["images"] == ["29", 0]
+    assert output["inputs"]["guide"] == ["10", 0]
+
+
 def test_builder_makes_director_the_only_resolution_and_seed_control_surface():
     subgraph_inputs = [
         {"id": "fps", "name": "value_3", "type": "FLOAT", "linkIds": [101]},
@@ -423,5 +431,5 @@ def test_builder_forces_mp4_h264_output_for_u11():
     }
 
     built = build_workflow(source)
-    output = next(node for node in built["nodes"] if node["type"] == "DaSiWa_EnhancedVideoCombine")
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
     assert output["widgets_values"][1:3] == ["H.264", "MP4"]

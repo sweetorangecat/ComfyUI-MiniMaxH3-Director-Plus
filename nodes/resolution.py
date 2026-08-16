@@ -49,6 +49,15 @@ MEGAPIXELS = {
     "1.90 MP": 1.90,
     "2.00 MP": 2.00,
     "2.10 MP": 2.10,
+    "2K QHD": 3.6864,
+    "4K UHD": 8.2944,
+}
+
+EXACT_OUTPUT_TARGETS = {
+    ("2K QHD", "16:9"): (2560, 1440),
+    ("2K QHD", "9:16"): (1440, 2560),
+    ("4K UHD", "16:9"): (3840, 2160),
+    ("4K UHD", "9:16"): (2160, 3840),
 }
 
 
@@ -69,6 +78,10 @@ def calculate_resolution(preset, aspect, custom_width=16, custom_height=9):
         ratio = ASPECTS.get(aspect)
         if ratio is None:
             raise ValueError(f"不支持的画面比例：{aspect}")
+
+    exact_target = EXACT_OUTPUT_TARGETS.get((preset, aspect))
+    if exact_target is not None:
+        return exact_target
 
     area = megapixels * 1024 * 1024
     width = math.sqrt(area * ratio[0] / ratio[1])

@@ -362,3 +362,25 @@ def test_low_vram_keeps_small_target_without_unnecessary_upscale():
 
     assert (native_width, native_height) == (416, 736)
     assert upscale_required is False
+
+
+def test_low_vram_4k_target_is_preserved_for_final_streaming_output():
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=12,
+        width=3840,
+        height=2160,
+        aspect_ratio="16:9",
+        resolution_preset="4K UHD",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="低显存",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert (guide["target_width"], guide["target_height"]) == (3840, 2160)
+    assert guide["upscale_required"] is True
+    assert (guide["native_width"], guide["native_height"]) == (736, 416)

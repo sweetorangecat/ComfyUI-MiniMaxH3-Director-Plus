@@ -15,6 +15,7 @@ if __package__:
     from .nodes.status import MiniMaxH3DirectorPlusStatus
     from .nodes.color_guard import MiniMaxH3ColorGuard
     from .nodes.upscale import MiniMaxH3VideoUpscale
+    from .nodes.stream_output import MiniMaxH3StreamingVideoCombine
 
     NODE_CLASS_MAPPINGS = {
         "MiniMaxH3DirectorPlus": MiniMaxH3DirectorPlus,
@@ -29,6 +30,7 @@ if __package__:
         "MiniMaxH3DirectorPlusStatus": MiniMaxH3DirectorPlusStatus,
         "MiniMaxH3ColorGuard": MiniMaxH3ColorGuard,
         "MiniMaxH3VideoUpscale": MiniMaxH3VideoUpscale,
+        "MiniMaxH3StreamingVideoCombine": MiniMaxH3StreamingVideoCombine,
     }
 
     NODE_DISPLAY_NAME_MAPPINGS = {
@@ -43,6 +45,7 @@ if __package__:
         "MiniMaxH3DirectorPlusStatus": "H3 能力与模型状态",
         "MiniMaxH3ColorGuard": "H3 曝光与色彩连续性保护",
         "MiniMaxH3VideoUpscale": "H3 低显存 CPU 分块放大",
+        "MiniMaxH3StreamingVideoCombine": "H3 低显存流式放大与 MP4 输出",
     }
 
     register_routes()

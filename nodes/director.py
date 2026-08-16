@@ -120,7 +120,7 @@ class MiniMaxH3DirectorPlus:
                 "width": ("INT", {"default": 1344, "min": 32, "max": 8192, "step": 32, "tooltip": "输出宽度"}),
                 "height": ("INT", {"default": 768, "min": 32, "max": 8192, "step": 32, "tooltip": "输出高度"}),
                 "aspect_ratio": ([*ASPECTS, "CUSTOM"], {"default": "16:9", "tooltip": "画面比例，包含横向与竖向比例"}),
-                "resolution_preset": (list(MEGAPIXELS), {"default": "0.83 MP", "tooltip": "最终输出目标分辨率档位；低显存模式会按时长降低 H3 原生采样尺寸，再自动 CPU 分块放大到此目标"}),
+                "resolution_preset": (list(MEGAPIXELS), {"default": "0.83 MP", "tooltip": "最终输出目标分辨率档位；支持 2K QHD/4K UHD，低显存模式会按时长降低 H3 原生采样尺寸，再在最终编码阶段流式放大到此目标"}),
                 "custom_width": ("INT", {"default": 16, "min": 1, "max": 8192, "tooltip": "自定义比例宽"}),
                 "custom_height": ("INT", {"default": 9, "min": 1, "max": 8192, "tooltip": "自定义比例高"}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": "seed_mode", "tooltip": "噪音种子；可选择固定、递增、递减或随机"}),

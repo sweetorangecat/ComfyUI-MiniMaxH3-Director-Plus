@@ -47,3 +47,9 @@ def test_custom_aspect_rejects_zero_component():
 def test_unknown_resolution_preset_is_rejected():
     with pytest.raises(ValueError, match="分辨率档位"):
         calculate_resolution("unknown", "16:9")
+
+
+def test_uhd_output_presets_keep_exact_16_9_targets():
+    assert calculate_resolution("2K QHD", "16:9") == (2560, 1440)
+    assert calculate_resolution("4K UHD", "16:9") == (3840, 2160)
+    assert calculate_resolution("4K UHD", "9:16") == (2160, 3840)
