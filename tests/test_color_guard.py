@@ -38,8 +38,19 @@ def test_color_guard_is_noop_when_disabled():
 
 
 @pytest.mark.parametrize("mode", ["T2VA", "FL2VA", "REF2VA"])
-def test_color_guard_uses_generated_first_frame_when_mode_has_no_hard_keyframe(mode):
+def test_color_guard_does_not_use_generated_first_frame_as_exposure_anchor(mode):
     frames = torch.stack((torch.full((8, 8, 3), 0.25), torch.full((8, 8, 3), 0.5)))
     result, _ = MiniMaxH3ColorGuard().apply(frames, {"mode": mode}, enabled=True, strength=1.0)
-    assert torch.allclose(result[0], frames[0])
-    assert result[1].mean() < frames[1].mean()
+    assert torch.allclose(result, frames)
+
+
+def test_fast4_quality_guard_lifts_dark_output_without_hard_keyframe():
+    frames = torch.full((2, 16, 16, 3), 0.2)
+    result, message = MiniMaxH3ColorGuard().apply(
+        frames,
+        {"mode": "T2VA", "performance_preset": "fast_4step"},
+        enabled=True,
+        strength=1.0,
+    )
+    assert result.mean() > frames.mean()
+    assert "极速4步" in message

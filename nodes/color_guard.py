@@ -32,14 +32,35 @@ class MiniMaxH3ColorGuard:
     @staticmethod
     def _anchor(images, guide):
         # I2VA/FL2VA/L2VA expose a real first frame. REF2VA deliberately does
-        # not, because its first reference is not implicitly a keyframe.
+        # not, because its first reference is not a keyframe. T2VA also has no
+        # scene-exposure anchor. Never use the first generated frame as one:
+        # fast distilled runs often begin with a deliberately dark transition.
         source = guide.get("first_frame") if isinstance(guide, dict) else None
         if torch.is_tensor(source) and source.ndim == 4 and source.shape[0]:
             source = source[..., :3].to(device=images.device, dtype=images.dtype)
             source = source.movedim(-1, 1)
             source = F.interpolate(source[:1], size=images.shape[1:3], mode="bilinear", align_corners=False)
             return source.movedim(1, -1)
-        return images[:1]
+        return None
+
+    @staticmethod
+    def _fast4_finish(frames, strength):
+        """Apply a conservative lift and detail recovery for four-step output."""
+        if strength <= 0:
+            return frames
+
+        # Turbo output is commonly under-exposed in the shadows. A sub-unity
+        # gamma lifts dark values while retaining highlight headroom.
+        gamma = max(0.88, 1.0 - 0.08 * float(strength))
+        corrected = frames.clamp(0.0, 1.0).pow(gamma)
+
+        # A small unsharp mask restores edge definition lost by the distilled
+        # trajectory. Reflect padding avoids adding a border halo.
+        nchw = corrected.movedim(-1, 1)
+        padded = F.pad(nchw, (1, 1, 1, 1), mode="reflect")
+        blur = F.avg_pool2d(padded, kernel_size=3, stride=1)
+        detail_amount = min(0.14, 0.10 * float(strength))
+        return (nchw + (nchw - blur) * detail_amount).movedim(1, -1).clamp(0.0, 1.0)
 
     def apply(self, images, guide, enabled=True, strength=1.0):
         if not enabled or images.ndim != 4 or images.shape[0] < 2:
@@ -47,17 +68,30 @@ class MiniMaxH3ColorGuard:
 
         frames = images[..., :3].to(dtype=torch.float32)
         anchor = self._anchor(frames, guide)
-        target_luma = self._luma(anchor).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
-        frame_luma = self._luma(frames).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
+        if anchor is None:
+            # There is no reliable absolute exposure reference for text-only
+            # or reference-only generation. Scaling to frame 1 would turn a
+            # dark opening transition into a dark full video.
+            corrected = frames
+        else:
+            target_luma = self._luma(anchor).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
+            frame_luma = self._luma(frames).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
 
-        # Correct only the frame-to-anchor exposure drift.  The exponent makes
-        # the default conservative while still correcting the observed 60->92
-        # YAVG drift; gains are bounded to avoid destroying intentional motion.
-        ratio = (target_luma / frame_luma).pow(float(strength)).clamp(0.45, 1.38)
-        corrected = frames * ratio.unsqueeze(-1)
+            # Correct only the frame-to-anchor exposure drift. The exponent
+            # keeps the default conservative and gains are bounded.
+            ratio = (target_luma / frame_luma).pow(float(strength)).clamp(0.45, 1.38)
+            corrected = frames * ratio.unsqueeze(-1)
+
+        fast4 = isinstance(guide, dict) and guide.get("performance_preset") in {"fast_4step", "极速4步"}
+        if fast4:
+            corrected = self._fast4_finish(corrected, strength)
 
         # Keep extra channels (if present) untouched and restore the input dtype.
         if images.shape[-1] > 3:
             corrected = torch.cat((corrected, images[..., 3:].to(corrected)), dim=-1)
         corrected = corrected.clamp(0.0, 1.0).to(dtype=images.dtype)
+        if fast4:
+            return corrected, "极速4步已启用轻度提亮与细节恢复；未将生成第1帧当作曝光基准"
+        if anchor is None:
+            return corrected, "未发现硬首帧，保持原始曝光；未将生成第1帧当作曝光基准"
         return corrected, "已锁定场景曝光与色彩连续性；REF2VA 未将第一张参考图视为首帧"
