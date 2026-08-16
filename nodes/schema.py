@@ -7,10 +7,13 @@ from copy import deepcopy
 
 MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA")
 VOICE_MODES = ("none", "h3_reference", "fish_lock")
+POSTPROCESS_MODES = ("native", "rtx_vsr")
+RTX_QUALITIES = ("HIGH", "ULTRA")
 PUBLIC_API_KEYS = (
     "mode", "prompt", "duration", "aspect_ratio", "resolution_preset", "custom_width", "custom_height",
     "seed", "first_image", "last_image", "references", "voice_mode", "voice_reference_audio", "voice_reference_audios", "voice_reference_names",
     "target_dialogue", "reference_transcript", "fish_model_path", "ref_image_size", "performance_preset",
+    "postprocess_mode", "rtx_quality",
 )
 PERFORMANCE_PRESETS = {
     "稳定质量": "quality",
@@ -43,6 +46,11 @@ def allowed_performance_presets(mode, voice_mode="none"):
     if mode == "T2VA":
         return PERFORMANCE_PRESETS_BY_ROUTE["t2va"]
     return PERFORMANCE_PRESETS_BY_ROUTE["endpoint"]
+
+
+def low_vram_target_limit(duration):
+    """Return the maximum final-output dimensions for low-VRAM generation."""
+    return (2560, 1440) if int(duration) <= 6 else (1920, 1080)
 
 
 class RequestError(ValueError):
@@ -83,6 +91,8 @@ DEFAULT_REQUEST = {
     "fish_model_path": "s2-pro-w4a16 (auto download)",
     "ref_image_size": "match",
     "performance_preset": "quality",
+    "postprocess_mode": "native",
+    "rtx_quality": "HIGH",
     "postprocess": {},
     "output": {},
 }
@@ -115,6 +125,10 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的生成模式：{request['mode']}")
     if request["voice_mode"] not in VOICE_MODES:
         raise RequestError(f"不支持的音色模式：{request['voice_mode']}")
+    if request["postprocess_mode"] not in POSTPROCESS_MODES:
+        raise RequestError(f"不支持的后处理模式：{request['postprocess_mode']}")
+    if request["rtx_quality"] not in RTX_QUALITIES:
+        raise RequestError(f"不支持的 RTX VSR 质量：{request['rtx_quality']}")
 
     try:
         duration = int(request["duration"])
@@ -195,6 +209,18 @@ def public_schema():
                     "L2VA + 音色参考": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
                     "T2VA + 音色参考": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
                 },
+            },
+            "postprocess_mode": {
+                "中文名称": "最终输出后处理模式",
+                "enum": list(POSTPROCESS_MODES),
+                "default": "native",
+                "description": "原生尺寸直出，或使用 RTX VSR 进行 AI 细节重建。",
+            },
+            "rtx_quality": {
+                "中文名称": "RTX VSR 质量",
+                "enum": list(RTX_QUALITIES),
+                "default": "HIGH",
+                "description": "RTX VSR 的质量级别，仅在后处理模式为 rtx_vsr 时生效。",
             },
             "custom_width": {"中文名称": "自定义宽度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 16},
             "custom_height": {"中文名称": "自定义高度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 9},

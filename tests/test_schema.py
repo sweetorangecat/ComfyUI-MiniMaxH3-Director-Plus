@@ -4,6 +4,7 @@ from nodes.schema import (
     PUBLIC_API_KEYS,
     RequestError,
     allowed_performance_presets,
+    low_vram_target_limit,
     normalize_request,
     public_schema,
 )
@@ -11,6 +12,38 @@ from nodes.schema import (
 
 def test_public_schema_lists_every_public_api_key():
     assert set(PUBLIC_API_KEYS) <= set(public_schema()["properties"])
+
+
+def test_schema_exposes_final_postprocess_controls():
+    schema = public_schema()["properties"]
+
+    assert schema["postprocess_mode"]["enum"] == ["native", "rtx_vsr"]
+    assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA"]
+
+
+def test_normalize_request_defaults_to_native_postprocess():
+    request = normalize_request({"mode": "T2VA", "duration": 4})
+
+    assert request["postprocess_mode"] == "native"
+    assert request["rtx_quality"] == "HIGH"
+
+
+def test_normalize_request_rejects_unknown_postprocess_mode():
+    with pytest.raises(RequestError, match="后处理模式"):
+        normalize_request({"mode": "T2VA", "postprocess_mode": "magic"})
+
+
+def test_normalize_request_rejects_unknown_rtx_quality():
+    with pytest.raises(RequestError, match="RTX VSR 质量"):
+        normalize_request({"mode": "T2VA", "rtx_quality": "MEDIUM"})
+
+
+@pytest.mark.parametrize(
+    ("duration", "expected"),
+    [(4, (2560, 1440)), (6, (2560, 1440)), (8, (1920, 1080)), (15, (1920, 1080))],
+)
+def test_low_vram_target_limit_follows_duration(duration, expected):
+    assert low_vram_target_limit(duration) == expected
 
 
 def test_public_schema_exposes_fish_model_choice():

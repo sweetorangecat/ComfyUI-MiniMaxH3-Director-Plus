@@ -7,7 +7,7 @@ import os
 
 from .prompting import build_reference_prompt
 from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution
-from .schema import PERFORMANCE_PRESETS, RequestError, normalize_request
+from .schema import PERFORMANCE_PRESETS, RequestError, low_vram_target_limit, normalize_request
 
 
 BASE_MODES = {"T2VA", "I2VA", "FL2VA", "L2VA"}
@@ -128,6 +128,8 @@ class MiniMaxH3DirectorPlus:
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
                 "performance_preset": (list(PERFORMANCE_PRESETS)[:5], {"default": "稳定质量", "tooltip": "性能预设"}),
+                "postprocess_mode": (["native", "rtx_vsr"], {"default": "native", "tooltip": "原生尺寸直出 / AI 细节重建（RTX VSR）"}),
+                "rtx_quality": (["HIGH", "ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量"}),
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
                 "target_dialogue": ("STRING", {"default": "", "multiline": True, "tooltip": "Fish高级音色锁定的目标对白"}),
                 "reference_transcript": ("STRING", {"default": "", "multiline": True, "tooltip": "音色样本对应文本，可留空"}),
@@ -185,6 +187,8 @@ class MiniMaxH3DirectorPlus:
         timeline_data,
         target_dialogue,
         reference_transcript,
+        postprocess_mode="native",
+        rtx_quality="HIGH",
         fish_model_path="s2-pro-w4a16 (auto download)",
         aspect_ratio="16:9",
         resolution_preset="0.83 MP",
@@ -306,7 +310,21 @@ class MiniMaxH3DirectorPlus:
             "references": [item for item in reference_images if item is not None],
             "ref_image_size": ref_image_size,
             "performance_preset": performance_preset,
+            "postprocess_mode": postprocess_mode,
+            "rtx_quality": rtx_quality,
         })
+
+        if request["performance_preset"] == "low_vram":
+            limit_width, limit_height = low_vram_target_limit(request["duration"])
+            requested_sides = sorted((int(requested_width), int(requested_height)), reverse=True)
+            limit_sides = sorted((limit_width, limit_height), reverse=True)
+            if any(requested > limit for requested, limit in zip(requested_sides, limit_sides)):
+                if requested_width < requested_height:
+                    limit_width, limit_height = limit_height, limit_width
+                raise RequestError(
+                    f"低显存模式下 {request['duration']} 秒视频的最终输出目标最大为 "
+                    f"{limit_width}×{limit_height}"
+                )
 
         native_width, native_height, upscale_required = native_resolution_for_request(
             requested_width,
@@ -317,9 +335,18 @@ class MiniMaxH3DirectorPlus:
             custom_width,
             custom_height,
         )
-        if upscale_required:
+        if requested_width == native_width and requested_height == native_height:
+            postprocess_path = "native_bypass"
+        elif requested_width < native_width or requested_height < native_height:
+            postprocess_path = "downscale"
+        elif request["postprocess_mode"] == "rtx_vsr":
+            postprocess_path = "rtx_vsr"
+        else:
+            postprocess_path = "native_bypass"
+
+        if postprocess_path == "rtx_vsr":
             request["warnings"].append(
-                f"低显存模式：H3 原生采样降为 {native_width}×{native_height}，生成后自动 CPU 分块放大到 {requested_width}×{requested_height}。"
+                f"低显存模式：H3 原生采样降为 {native_width}×{native_height}，生成后通过 RTX VSR 重建到 {requested_width}×{requested_height}。"
             )
 
         ref_images = {}
@@ -368,7 +395,14 @@ class MiniMaxH3DirectorPlus:
             "target_width": int(requested_width),
             "target_height": int(requested_height),
             "upscale_required": bool(upscale_required),
-            "upscale_method": "cpu_bicubic" if upscale_required else "none",
+            "postprocess_mode": request["postprocess_mode"],
+            "rtx_quality": request["rtx_quality"],
+            "postprocess_path": postprocess_path,
+            "upscale_method": {
+                "rtx_vsr": "rtx_vsr",
+                "downscale": "cpu_bicubic",
+                "native_bypass": "none",
+            }[postprocess_path],
             "length": length,
             "ref_image_size": ref_image_size,
             "first_frame": first_frame,

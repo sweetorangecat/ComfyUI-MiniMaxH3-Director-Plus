@@ -26,6 +26,14 @@ def test_resolution_preset_is_labeled_as_the_final_output_target():
     assert "低显存" in resolution_spec[1]["tooltip"]
 
 
+def test_director_exposes_postprocess_widgets():
+    required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
+
+    assert required["postprocess_mode"][0] == ["native", "rtx_vsr"]
+    assert "AI 细节重建（RTX VSR）" in required["postprocess_mode"][1]["tooltip"]
+    assert required["rtx_quality"][0] == ["HIGH", "ULTRA"]
+
+
 def test_uploaded_filenames_are_loaded_without_external_connections(monkeypatch):
     first = object()
     voice = {"waveform": object(), "sample_rate": 32000}
@@ -364,23 +372,91 @@ def test_low_vram_keeps_small_target_without_unnecessary_upscale():
     assert upscale_required is False
 
 
-def test_low_vram_4k_target_is_preserved_for_final_streaming_output():
+def test_low_vram_rejects_target_above_duration_limit():
+    with pytest.raises(RequestError, match="1920×1080"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA",
+            prompt="镜头缓慢推进。",
+            duration=12,
+            width=3840,
+            height=2160,
+            aspect_ratio="16:9",
+            resolution_preset="4K UHD",
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="低显存",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
+
+
+def test_same_size_rtx_request_uses_native_bypass():
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="T2VA",
         prompt="镜头缓慢推进。",
-        duration=12,
-        width=3840,
-        height=2160,
-        aspect_ratio="16:9",
-        resolution_preset="4K UHD",
+        duration=5,
+        width=1344,
+        height=768,
         voice_mode="none",
         ref_image_size="match",
-        performance_preset="低显存",
+        performance_preset="稳定质量",
+        postprocess_mode="rtx_vsr",
+        rtx_quality="ULTRA",
         timeline_data="{}",
         target_dialogue="",
         reference_transcript="",
     )
 
-    assert (guide["target_width"], guide["target_height"]) == (3840, 2160)
-    assert guide["upscale_required"] is True
-    assert (guide["native_width"], guide["native_height"]) == (736, 416)
+    assert guide["postprocess_mode"] == "rtx_vsr"
+    assert guide["rtx_quality"] == "ULTRA"
+    assert guide["postprocess_path"] == "native_bypass"
+    assert guide["upscale_method"] == "none"
+
+
+def test_low_vram_target_upscale_selects_rtx_vsr():
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="I2VA",
+        prompt="镜头缓慢推进。",
+        duration=12,
+        width=864,
+        height=1568,
+        aspect_ratio="9:16",
+        resolution_preset="1.30 MP",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="低显存",
+        postprocess_mode="rtx_vsr",
+        rtx_quality="HIGH",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image=object(),
+    )
+
+    assert guide["postprocess_path"] == "rtx_vsr"
+    assert guide["upscale_method"] == "rtx_vsr"
+
+
+def test_smaller_target_selects_downscale(monkeypatch):
+    monkeypatch.setattr(
+        "nodes.director.native_resolution_for_request",
+        lambda *args, **kwargs: (1920, 1080, False),
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="稳定质量",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert guide["postprocess_path"] == "downscale"
+    assert guide["upscale_method"] == "cpu_bicubic"
