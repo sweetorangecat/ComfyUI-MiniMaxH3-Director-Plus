@@ -219,6 +219,26 @@ def test_downscale_path_uses_cpu_resize_without_loading_vsr(monkeypatch):
     assert result["result"][0].shape[0] == 0
 
 
+def test_discarded_frames_use_independent_zero_storage_cpu_image(monkeypatch):
+    images = torch.rand(5, 8, 12, 4)
+    captured = []
+
+    result = _combine(
+        monkeypatch,
+        {"target_width": 6, "target_height": 4, "postprocess_path": "downscale"},
+        images,
+        captured,
+    )
+
+    output = result["result"][0]
+    assert output.shape == (0, 4, 6, 3)
+    assert output.device.type == "cpu"
+    assert output.untyped_storage().nbytes() == 0
+    assert output.data_ptr() != images.data_ptr()
+    assert output._base is None
+    assert not output.is_pinned()
+
+
 def test_native_path_is_only_path_that_returns_pass_frames(monkeypatch):
     images = torch.rand(3, 2, 3, 3)
     captured = []
@@ -284,6 +304,76 @@ def test_vsr_path_creates_one_processor_per_encoder_retry(monkeypatch):
     assert len(encode_calls) == 2
     assert processor_count == 2
     assert processor_instances == []
+
+
+def test_vsr_cleanup_failure_stops_auto_codec_retry_after_partial_consumption(monkeypatch):
+    images = torch.stack([torch.full((2, 3, 3), float(index)) for index in range(3)])
+    processed = []
+    encode_calls = []
+    processor_count = 0
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            nonlocal processor_count
+            processor_count += 1
+
+        def process(self, frame):
+            processed.append(int(frame[0, 0, 0].item()))
+            return torch.zeros(4, 6, 3)
+
+        def close(self):
+            raise RuntimeError("CUDA cleanup failed")
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", FakeProcessor)
+
+    def consume_one_chunk(*args, **kwargs):
+        encode_calls.append((args, kwargs))
+        chunks = args[6]()
+        next(chunks)
+        chunks.close()
+        return SimpleNamespace()
+
+    dasiwa = _fake_dasiwa([], encode_calls=encode_calls)
+    dasiwa._MAX_RAW_FRAME_CHUNK_BYTES = 6 * 4 * 3
+    dasiwa._codec_candidates = lambda codec: ["H.264", "H.265 (HEVC)"]
+    dasiwa._auto_container_candidates = lambda codec, container: ["MP4"]
+    dasiwa._encode_with_available_encoder = consume_one_chunk
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+
+    with pytest.raises(stream_output._VsrProcessingError, match="CUDA cleanup failed"):
+        stream_output.MiniMaxH3StreamingVideoCombine().combine(
+            images=images,
+            guide={"target_width": 6, "target_height": 4, "postprocess_path": "rtx_vsr"},
+            frame_rate=24.0, codec="Auto", container="MP4", bit_depth="8-bit", quality=20,
+            log_level="Standard", pingpong=False, save_metadata=False,
+            filename_prefix="stream-test", save_output=True, pass_frames=False,
+            crop_to_audio=False, audio_codec="Auto", audio_bitrate="192k",
+            save_first_frame=False, save_last_frame=False,
+        )
+
+    assert len(encode_calls) == 1
+    assert processor_count == 1
+    assert processed == [0]
+
+
+def test_vsr_cleanup_failure_does_not_mask_processing_error(monkeypatch):
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            raise RuntimeError("VSR process failed")
+
+        def close(self):
+            raise RuntimeError("CUDA cleanup failed")
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", FakeProcessor)
+
+    with pytest.raises(stream_output._VsrProcessingError, match="VSR process failed"):
+        next(stream_output._iter_vsr_frame_chunks(torch.rand(1, 2, 3, 3), 6, 4))
 
 
 def test_vsr_dependency_error_is_not_replaced_by_cpu_resize(monkeypatch):

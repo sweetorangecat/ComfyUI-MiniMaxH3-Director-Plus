@@ -130,7 +130,12 @@ def _iter_vsr_frame_chunks(
             yield torch.stack(pending, dim=0).contiguous()
     finally:
         if processor is not None:
-            processor.close()
+            active_error = sys.exc_info()[1]
+            try:
+                processor.close()
+            except Exception as exc:
+                if active_error is None or isinstance(active_error, GeneratorExit):
+                    raise _VsrProcessingError(str(exc)) from exc
 
 
 def _resolve_postprocess_path(guide, source_width, source_height):
@@ -417,7 +422,14 @@ class MiniMaxH3StreamingVideoCombine:
                         output_path, "last",
                     ))
 
-        output_frames = source if pass_frames and postprocess_path == "native_bypass" else source[:0]
+        if pass_frames and postprocess_path == "native_bypass":
+            output_frames = source
+        else:
+            output_frames = torch.empty(
+                (0, target_height, target_width, 3),
+                dtype=torch.float32,
+                device="cpu",
+            )
         mime_types = {
             "WebM": "video/webm", "MKV": "video/x-matroska", "MP4": "video/mp4",
             **{name: settings[2] for name, settings in dasiwa._ANIMATED_IMAGE_SETTINGS.items()},
