@@ -145,6 +145,17 @@ def test_low_vram_preset_uses_dynamic_safe_policy_without_cache():
     assert values["use_cache"] is False
 
 
+def test_quality_priority_preset_uses_dynamic_safe_policy_without_quality_changes():
+    values = preset_values("quality_sage")
+
+    assert values["steps"] == 20
+    assert values["use_sage"] is True
+    assert values["use_cache"] is False
+    assert values["clip_device"] == "dynamic"
+    assert values["vae_device"] == "dynamic"
+    assert values["fish_device"] == "cpu"
+
+
 def test_t2va_fast_uses_official_h3_turbo_contract():
     guide = {
         "mode": "T2VA",
@@ -257,7 +268,8 @@ def test_reference_fast_uses_safe_steps_when_requested_acceleration_fails(monkey
     assert steps == 8
 
 
-def test_memory_policy_restores_comfy_state(monkeypatch):
+@pytest.mark.parametrize("preset", ["low_vram", "quality_sage"])
+def test_memory_policy_restores_comfy_state(monkeypatch, preset):
     class VramState:
         NORMAL_VRAM = "normal"
         LOW_VRAM = "low"
@@ -267,7 +279,7 @@ def test_memory_policy_restores_comfy_state(monkeypatch):
     monkeypatch.setitem(sys.modules, "comfy", type("Comfy", (), {"model_management": mm})())
     monkeypatch.setitem(sys.modules, "comfy.model_management", mm)
 
-    with memory_policy({"performance_preset": "low_vram"}):
+    with memory_policy({"performance_preset": preset}):
         assert mm.vram_state == VramState.LOW_VRAM
     assert mm.vram_state == VramState.NORMAL_VRAM
 

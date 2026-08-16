@@ -18,7 +18,15 @@ PRESETS = {
     "quality": {"steps": 20, "use_sage": False, "use_cache": False, "interpolate": False},
     # Quality-first acceleration: keep native 20-step sampling and patch only
     # SageAttention. No Turbo adapter or EasyCache is involved.
-    "quality_sage": {"steps": 20, "use_sage": True, "use_cache": False, "interpolate": False},
+    "quality_sage": {
+        "steps": 20,
+        "use_sage": True,
+        "use_cache": False,
+        "interpolate": False,
+        "clip_device": "dynamic",
+        "vae_device": "dynamic",
+        "fish_device": "cpu",
+    },
     "fast_4step": {"steps": 4, "use_sage": True, "use_cache": True, "interpolate": False},
     "reference_fast": {"steps": 6, "use_sage": True, "use_cache": True, "interpolate": False},
     # Keep ComfyUI's native dynamic patcher route.  It stages large H3
@@ -182,7 +190,7 @@ def memory_policy(guide):
         guide.get("performance_preset", "quality"),
         guide.get("performance_preset", "quality"),
     )
-    if preset != "low_vram":
+    if preset not in {"low_vram", "quality_sage"}:
         yield
         return
 
@@ -226,7 +234,7 @@ class MiniMaxH3PerformancePreset:
             values["steps"] = 8
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
-            "quality_sage": "质量优先加速：20 步 + SageAttention，关闭 Turbo LoRA 与 EasyCache",
+            "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
