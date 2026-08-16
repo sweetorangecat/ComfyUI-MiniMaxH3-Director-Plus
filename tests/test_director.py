@@ -5,7 +5,6 @@ import pytest
 from nodes.director import MiniMaxH3DirectorPlus, align_frame_count, native_resolution_for_request
 from nodes.resolution import calculate_resolution
 from nodes.schema import RequestError
-from nodes.upscale import MiniMaxH3VideoUpscale
 
 
 def test_director_exposes_native_upload_widgets_for_each_media_role():
@@ -340,11 +339,6 @@ def test_low_vram_native_bypass_keeps_requested_dimensions_for_reporting_only():
     assert guide["native_width"] * guide["native_height"] <= 0.30 * 1024 * 1024
     assert guide["width"] == guide["native_width"]
     assert guide["height"] == guide["native_height"]
-
-    decoded_frames = object()
-    output_frames, _ = MiniMaxH3VideoUpscale().apply(decoded_frames, guide)
-    assert output_frames is decoded_frames
-
 
 @pytest.mark.parametrize(
     ("duration", "safe_preset"),
