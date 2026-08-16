@@ -344,3 +344,27 @@ def test_vsr_save_frames_use_vsr_processor_and_metadata_path(monkeypatch):
     assert all(path == "first" or path == "last" for _, path in saved)
     assert result["ui"]["postprocess_path"] == "rtx_vsr"
     assert result["ui"]["images"][0]["postprocess_path"] == "rtx_vsr"
+
+
+def test_vsr_save_frame_drops_alpha_before_chw_processing(monkeypatch, tmp_path):
+    processed = []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            self.width, self.height = args[-2:]
+
+        def process(self, frame):
+            processed.append(frame)
+            return torch.zeros(self.height, self.width, 3)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", FakeProcessor)
+    source = torch.rand(1, 2, 3, 4)
+    stream_output._save_vsr_frame(
+        source, 0, 6, 4, "HIGH", 0, str(tmp_path / "video.mp4"), "first"
+    )
+
+    assert processed[0].shape == (3, 2, 3)

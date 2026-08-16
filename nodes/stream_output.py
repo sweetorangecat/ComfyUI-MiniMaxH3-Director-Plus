@@ -187,7 +187,9 @@ def _save_vsr_frame(
         load_vsr_api(), quality, int(device_id), int(target_width), int(target_height)
     )
     try:
-        frame = processor.process(source[index].detach().movedim(-1, 0).contiguous())
+        frame = processor.process(
+            source[index, ..., :3].detach().movedim(-1, 0).contiguous()
+        )
     finally:
         processor.close()
     pixels = torch.round(frame[..., :3].clamp(0.0, 1.0) * 255).to(torch.uint8).numpy()
