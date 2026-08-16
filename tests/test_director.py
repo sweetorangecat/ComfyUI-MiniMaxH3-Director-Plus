@@ -5,6 +5,7 @@ import pytest
 from nodes.director import MiniMaxH3DirectorPlus, align_frame_count, native_resolution_for_request
 from nodes.resolution import calculate_resolution
 from nodes.schema import RequestError
+from nodes.upscale import MiniMaxH3VideoUpscale
 
 
 def test_director_exposes_native_upload_widgets_for_each_media_role():
@@ -310,7 +311,7 @@ def test_director_seed_uses_comfy_control_after_generate_and_is_exported():
     assert result[-1] == 123456
 
 
-def test_low_vram_separates_safe_native_resolution_from_requested_target():
+def test_low_vram_native_bypass_keeps_requested_dimensions_for_reporting_only():
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="I2VA",
         prompt="镜头缓慢推进。",
@@ -328,12 +329,21 @@ def test_low_vram_separates_safe_native_resolution_from_requested_target():
         first_image=object(),
     )
 
-    assert guide["upscale_required"] is True
-    assert guide["target_width"] == guide["requested_width"]
-    assert guide["target_height"] == guide["requested_height"]
+    assert (guide["requested_width"], guide["requested_height"]) == (864, 1568)
+    assert (guide["target_width"], guide["target_height"]) == (
+        guide["native_width"],
+        guide["native_height"],
+    )
+    assert guide["postprocess_path"] == "native_bypass"
+    assert guide["upscale_required"] is False
+    assert guide["upscale_method"] == "none"
     assert guide["native_width"] * guide["native_height"] <= 0.30 * 1024 * 1024
     assert guide["width"] == guide["native_width"]
     assert guide["height"] == guide["native_height"]
+
+    decoded_frames = object()
+    output_frames, _ = MiniMaxH3VideoUpscale().apply(decoded_frames, guide)
+    assert output_frames is decoded_frames
 
 
 @pytest.mark.parametrize(
@@ -391,6 +401,45 @@ def test_low_vram_rejects_target_above_duration_limit():
         )
 
 
+def test_duration_seven_accepts_portrait_target_within_rotated_limit():
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=7,
+        width=1056,
+        height=1888,
+        aspect_ratio="9:16",
+        resolution_preset="1.90 MP",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="低显存",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert (guide["requested_width"], guide["requested_height"]) == (1056, 1888)
+
+
+def test_duration_seven_rejects_portrait_target_above_rotated_limit():
+    with pytest.raises(RequestError, match="1080×1920"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA",
+            prompt="镜头缓慢推进。",
+            duration=7,
+            width=1440,
+            height=2560,
+            aspect_ratio="9:16",
+            resolution_preset="2K QHD",
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="低显存",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
+
+
 def test_same_size_rtx_request_uses_native_bypass():
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="T2VA",
@@ -411,6 +460,7 @@ def test_same_size_rtx_request_uses_native_bypass():
     assert guide["postprocess_mode"] == "rtx_vsr"
     assert guide["rtx_quality"] == "ULTRA"
     assert guide["postprocess_path"] == "native_bypass"
+    assert guide["upscale_required"] is False
     assert guide["upscale_method"] == "none"
 
 
@@ -435,6 +485,11 @@ def test_low_vram_target_upscale_selects_rtx_vsr():
     )
 
     assert guide["postprocess_path"] == "rtx_vsr"
+    assert (guide["target_width"], guide["target_height"]) == (
+        guide["requested_width"],
+        guide["requested_height"],
+    )
+    assert guide["upscale_required"] is True
     assert guide["upscale_method"] == "rtx_vsr"
 
 
@@ -459,4 +514,9 @@ def test_smaller_target_selects_downscale(monkeypatch):
     )
 
     assert guide["postprocess_path"] == "downscale"
+    assert (guide["target_width"], guide["target_height"]) == (
+        guide["requested_width"],
+        guide["requested_height"],
+    )
+    assert guide["upscale_required"] is False
     assert guide["upscale_method"] == "cpu_bicubic"

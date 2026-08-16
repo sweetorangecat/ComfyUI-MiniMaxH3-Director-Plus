@@ -326,7 +326,7 @@ class MiniMaxH3DirectorPlus:
                     f"{limit_width}×{limit_height}"
                 )
 
-        native_width, native_height, upscale_required = native_resolution_for_request(
+        native_width, native_height, _ = native_resolution_for_request(
             requested_width,
             requested_height,
             duration,
@@ -343,6 +343,16 @@ class MiniMaxH3DirectorPlus:
             postprocess_path = "rtx_vsr"
         else:
             postprocess_path = "native_bypass"
+
+        if postprocess_path == "native_bypass":
+            final_target_width, final_target_height = native_width, native_height
+            final_upscale_required = False
+        elif postprocess_path == "downscale":
+            final_target_width, final_target_height = requested_width, requested_height
+            final_upscale_required = False
+        else:
+            final_target_width, final_target_height = requested_width, requested_height
+            final_upscale_required = True
 
         if postprocess_path == "rtx_vsr":
             request["warnings"].append(
@@ -392,9 +402,9 @@ class MiniMaxH3DirectorPlus:
             "native_height": int(native_height),
             "requested_width": int(requested_width),
             "requested_height": int(requested_height),
-            "target_width": int(requested_width),
-            "target_height": int(requested_height),
-            "upscale_required": bool(upscale_required),
+            "target_width": int(final_target_width),
+            "target_height": int(final_target_height),
+            "upscale_required": final_upscale_required,
             "postprocess_mode": request["postprocess_mode"],
             "rtx_quality": request["rtx_quality"],
             "postprocess_path": postprocess_path,

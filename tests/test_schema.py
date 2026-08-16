@@ -40,10 +40,22 @@ def test_normalize_request_rejects_unknown_rtx_quality():
 
 @pytest.mark.parametrize(
     ("duration", "expected"),
-    [(4, (2560, 1440)), (6, (2560, 1440)), (8, (1920, 1080)), (15, (1920, 1080))],
+    [
+        (4, (2560, 1440)),
+        (6, (2560, 1440)),
+        (7, (1920, 1080)),
+        (8, (1920, 1080)),
+        (15, (1920, 1080)),
+    ],
 )
 def test_low_vram_target_limit_follows_duration(duration, expected):
     assert low_vram_target_limit(duration) == expected
+
+
+@pytest.mark.parametrize("duration", [3, 16])
+def test_low_vram_target_limit_rejects_duration_outside_request_range(duration):
+    with pytest.raises(RequestError, match="4 到 15"):
+        low_vram_target_limit(duration)
 
 
 def test_public_schema_exposes_fish_model_choice():
