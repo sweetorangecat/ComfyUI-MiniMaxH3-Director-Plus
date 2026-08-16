@@ -9,6 +9,8 @@ import torch.nn.functional as F
 class MiniMaxH3ColorGuard:
     """Keep generated frames close to the scene exposure without changing motion."""
 
+    GPU_OUTPUT_LIMIT_BYTES = 512 * 1024**2
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -28,6 +30,19 @@ class MiniMaxH3ColorGuard:
     @staticmethod
     def _luma(image):
         return image[..., :3].mul(image.new_tensor([0.2126, 0.7152, 0.0722])).sum(-1)
+
+    @staticmethod
+    def _chunk_ranges(frame_count, chunk_size=8):
+        chunk_size = max(1, int(chunk_size))
+        return [
+            (start, min(start + chunk_size, frame_count))
+            for start in range(0, int(frame_count), chunk_size)
+        ]
+
+    @staticmethod
+    def _requires_cpu_output(total_bytes, is_cuda):
+        """Avoid a second multi-GiB IMAGE allocation beside the decoded video."""
+        return bool(is_cuda and int(total_bytes) > MiniMaxH3ColorGuard.GPU_OUTPUT_LIMIT_BYTES)
 
     @staticmethod
     def _anchor(images, guide):
@@ -59,9 +74,7 @@ class MiniMaxH3ColorGuard:
         # decode can contain hundreds of frames and should not need several
         # extra full-resolution working tensors simultaneously.
         detail_amount = min(0.14, 0.10 * float(strength))
-        chunk_size = 8
-        for start in range(0, corrected.shape[0], chunk_size):
-            end = min(start + chunk_size, corrected.shape[0])
+        for start, end in MiniMaxH3ColorGuard._chunk_ranges(corrected.shape[0]):
             nchw = corrected[start:end].movedim(-1, 1)
             padded = F.pad(nchw, (1, 1, 1, 1), mode="reflect")
             blur = F.avg_pool2d(padded, kernel_size=3, stride=1)
@@ -74,30 +87,40 @@ class MiniMaxH3ColorGuard:
         if not enabled or images.ndim != 4 or images.shape[0] < 2:
             return images, "色彩保护未启用或帧数不足"
 
-        frames = images[..., :3].to(dtype=torch.float32)
-        anchor = self._anchor(frames, guide)
-        if anchor is None:
-            # There is no reliable absolute exposure reference for text-only
-            # or reference-only generation. Scaling to frame 1 would turn a
-            # dark opening transition into a dark full video.
-            corrected = frames
-        else:
-            target_luma = self._luma(anchor).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
-            frame_luma = self._luma(frames).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
-
-            # Correct only the frame-to-anchor exposure drift. The exponent
-            # keeps the default conservative and gains are bounded.
-            ratio = (target_luma / frame_luma).pow(float(strength)).clamp(0.45, 1.38)
-            corrected = frames * ratio.unsqueeze(-1)
-
         fast4 = isinstance(guide, dict) and guide.get("performance_preset") in {"fast_4step", "极速4步"}
-        if fast4:
-            corrected = self._fast4_finish(corrected, strength)
+        output_bytes = images.numel() * images.element_size()
+        output_device = torch.device(
+            "cpu" if self._requires_cpu_output(output_bytes, images.is_cuda) else images.device
+        )
+        anchor = self._anchor(images, guide)
+        if anchor is None and not fast4:
+            # There is no reliable absolute exposure reference for text-only
+            # or reference-only generation. Return before any dtype conversion
+            # so long videos keep their original memory footprint.
+            return images, "未发现硬首帧，保持原始曝光；未将生成第1帧当作曝光基准"
 
-        # Keep extra channels (if present) untouched and restore the input dtype.
-        if images.shape[-1] > 3:
-            corrected = torch.cat((corrected, images[..., 3:].to(corrected)), dim=-1)
-        corrected = corrected.clamp(0.0, 1.0).to(dtype=images.dtype)
+        target_luma = None
+        if anchor is not None:
+            target_luma = self._luma(
+                anchor.to(device=output_device, dtype=torch.float32)
+            ).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
+
+        # Keep the original IMAGE tensor resident and process only a few RGB
+        # frames as float32. This prevents a 15-second high-resolution decode
+        # from allocating another 8-12 GiB just for color protection.
+        corrected = torch.empty(images.shape, dtype=images.dtype, device=output_device)
+        for start, end in self._chunk_ranges(images.shape[0]):
+            frames = images[start:end, ..., :3].to(device=output_device, dtype=torch.float32)
+            if target_luma is not None:
+                frame_luma = self._luma(frames).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
+                ratio = (target_luma / frame_luma).pow(float(strength)).clamp(0.45, 1.38)
+                frames = frames * ratio.unsqueeze(-1)
+            if fast4:
+                frames = self._fast4_finish(frames, strength)
+            corrected[start:end, ..., :3] = frames.clamp(0.0, 1.0).to(dtype=images.dtype)
+            if images.shape[-1] > 3:
+                corrected[start:end, ..., 3:] = images[start:end, ..., 3:].to(output_device)
+
         if fast4:
             return corrected, "极速4步已启用轻度提亮与细节恢复；未将生成第1帧当作曝光基准"
         if anchor is None:

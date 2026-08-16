@@ -54,3 +54,15 @@ def test_fast4_quality_guard_lifts_dark_output_without_hard_keyframe():
     )
     assert result.mean() > frames.mean()
     assert "极速4步" in message
+
+
+def test_color_guard_exposes_bounded_frame_chunks_for_long_videos():
+    chunks = MiniMaxH3ColorGuard._chunk_ranges(19, chunk_size=8)
+    assert chunks == [(0, 8), (8, 16), (16, 19)]
+
+
+def test_color_guard_offloads_large_cuda_outputs_to_system_memory():
+    large_video_bytes = 362 * 1024 * 1792 * 3 * 4
+    assert MiniMaxH3ColorGuard._requires_cpu_output(large_video_bytes, is_cuda=True)
+    assert not MiniMaxH3ColorGuard._requires_cpu_output(large_video_bytes, is_cuda=False)
+    assert not MiniMaxH3ColorGuard._requires_cpu_output(64 * 1024**2, is_cuda=True)
