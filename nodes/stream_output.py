@@ -11,6 +11,12 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
+from .rtx_vsr_stream import VsrFrameProcessor, load_vsr_api
+
+
+class _VsrProcessingError(RuntimeError):
+    """Distinguish VSR dependency/runtime failures from FFmpeg retry errors."""
+
 
 def _dasiwa_video_module():
     """Return DaSiWa's already-loaded encoder helper module."""
@@ -64,9 +70,127 @@ def _iter_resized_frame_chunks(
             yield resized(images[start:stop].flip(0))
 
 
+def _iter_native_frame_chunks(images, max_frames=4, pingpong=False):
+    """Yield source-size CPU chunks without duplicating the complete batch."""
+    max_frames = max(1, min(4, int(max_frames)))
+
+    def emit(start, stop):
+        return images[start:stop].detach().to(device="cpu", dtype=torch.float32).contiguous()
+
+    for start in range(0, len(images), max_frames):
+        yield emit(start, min(len(images), start + max_frames))
+    if pingpong:
+        for stop in range(len(images) - 1, 1, -max_frames):
+            start = max(1, stop - max_frames)
+            yield emit(start, stop).flip(0)
+
+
+def _iter_vsr_frame_chunks(
+    images,
+    target_width,
+    target_height,
+    quality="HIGH",
+    max_chunk_bytes=64 * 1024 * 1024,
+    bytes_per_channel=1,
+    pingpong=False,
+    device_id=0,
+):
+    """Run RTX VSR one frame at a time and yield bounded CPU HWC chunks."""
+    target_frame_bytes = max(1, int(target_width) * int(target_height) * 3 * int(bytes_per_channel))
+    frames_per_chunk = max(1, min(4, int(max_chunk_bytes) // target_frame_bytes))
+    processor = None
+
+    def frame_indices():
+        yield from range(len(images))
+        if pingpong:
+            for index in range(len(images) - 2, 0, -1):
+                yield index
+
+    pending = []
+    try:
+        try:
+            api = load_vsr_api()
+            processor = VsrFrameProcessor(
+                api, quality, device_id, int(target_width), int(target_height)
+            )
+        except RuntimeError as exc:
+            raise _VsrProcessingError(str(exc)) from exc
+        for index in frame_indices():
+            # The processor owns the CUDA conversion; keep only one source
+            # frame and a small CPU output chunk alive at a time.
+            chw_frame = images[index, ..., :3].detach().movedim(-1, 0).contiguous()
+            try:
+                pending.append(processor.process(chw_frame))
+            except RuntimeError as exc:
+                raise _VsrProcessingError(str(exc)) from exc
+            if len(pending) >= frames_per_chunk:
+                yield torch.stack(pending, dim=0).contiguous()
+                pending.clear()
+        if pending:
+            yield torch.stack(pending, dim=0).contiguous()
+    finally:
+        if processor is not None:
+            processor.close()
+
+
+def _resolve_postprocess_path(guide, source_width, source_height):
+    """Resolve explicit guide paths while retaining legacy guide behavior."""
+    path = guide.get("postprocess_path")
+    if path in {"native_bypass", "downscale", "rtx_vsr"}:
+        # Equal native/target dimensions are always a bypass, even if an old
+        # guide requested RTX VSR as a mode rather than a resolved path.
+        native_width = int(guide.get("native_width") or source_width)
+        native_height = int(guide.get("native_height") or source_height)
+        target_width = int(guide.get("target_width") or source_width)
+        target_height = int(guide.get("target_height") or source_height)
+        if target_width == native_width and target_height == native_height:
+            return "native_bypass"
+        return path
+
+    target_width = int(guide.get("target_width") or source_width)
+    target_height = int(guide.get("target_height") or source_height)
+    if target_width == int(source_width) and target_height == int(source_height):
+        return "native_bypass"
+    # Legacy workflows used upscale_required plus CPU bicubic for all size
+    # changes. Keep that behavior under the downscale iterator name.
+    return "downscale"
+
+
 def _save_resized_frame(source, index, target_width, target_height, output_path, suffix):
     frame = _resize_cpu_chunk(source[index:index + 1], target_width, target_height)[0]
     pixels = torch.round(frame[..., :3] * 255).to(torch.uint8).numpy()
+    path = f"{os.path.splitext(output_path)[0]}-{suffix}-frame.png"
+    Image.fromarray(pixels, mode="RGB").save(path, "PNG")
+    return path
+
+
+def _save_native_frame(source, index, output_path, suffix):
+    frame = source[index].detach().to(device="cpu", dtype=torch.float32).clamp(0.0, 1.0)
+    pixels = torch.round(frame[..., :3] * 255).to(torch.uint8).numpy()
+    path = f"{os.path.splitext(output_path)[0]}-{suffix}-frame.png"
+    Image.fromarray(pixels, mode="RGB").save(path, "PNG")
+    return path
+
+
+def _save_vsr_frame(
+    source,
+    index,
+    target_width,
+    target_height,
+    quality,
+    device_id,
+    output_path,
+    suffix,
+):
+    """Run one exported frame through the same RTX VSR path as the video."""
+    processor = VsrFrameProcessor(
+        load_vsr_api(), quality, int(device_id), int(target_width), int(target_height)
+    )
+    try:
+        frame = processor.process(source[index].detach().movedim(-1, 0).contiguous())
+    finally:
+        processor.close()
+    pixels = torch.round(frame[..., :3].clamp(0.0, 1.0) * 255).to(torch.uint8).numpy()
     path = f"{os.path.splitext(output_path)[0]}-{suffix}-frame.png"
     Image.fromarray(pixels, mode="RGB").save(path, "PNG")
     return path
@@ -144,16 +268,13 @@ class MiniMaxH3StreamingVideoCombine:
             raise ValueError("images 必须是 [帧数, 高, 宽, 通道] 的 IMAGE 批次")
 
         dasiwa = _dasiwa_video_module()
-        # Keep only the low-resolution decoded batch on CPU when resizing is
-        # required. For a native-size output, each small source slice is
-        # copied by the iterator, avoiding an unnecessary full CPU duplicate.
         source = images.detach()
+        source_width = int(source.shape[2])
+        source_height = int(source.shape[1])
         target_width = int(guide.get("target_width") or source.shape[2])
         target_height = int(guide.get("target_height") or source.shape[1])
-        resizing = bool(guide.get("upscale_required")) or (
-            target_width != int(source.shape[2]) or target_height != int(source.shape[1])
-        )
-        if resizing:
+        postprocess_path = _resolve_postprocess_path(guide, source_width, source_height)
+        if postprocess_path == "downscale":
             source = source.to(device="cpu", dtype=torch.float32)
         selected_bit_depth = dasiwa._selected_bit_depth(codec, bit_depth, source)
         output_dir = dasiwa.folder_paths.get_output_directory() if save_output else dasiwa.folder_paths.get_temp_directory()
@@ -179,15 +300,33 @@ class MiniMaxH3StreamingVideoCombine:
                 progress_bar.update_absolute(min(total_frames, max(0, int(encoded_seconds * frame_rate))))
 
         def frame_chunks():
-            for chunk in _iter_resized_frame_chunks(
-                source,
-                target_width,
-                target_height,
-                max_chunk_bytes=dasiwa._MAX_RAW_FRAME_CHUNK_BYTES,
-                bytes_per_channel=2 if selected_bit_depth == 10 else 1,
-                pingpong=pingpong,
-            ):
-                yield dasiwa._frame_bytes(chunk, selected_bit_depth)
+            chunk_kwargs = {
+                "max_chunk_bytes": dasiwa._MAX_RAW_FRAME_CHUNK_BYTES,
+                "bytes_per_channel": 2 if selected_bit_depth == 10 else 1,
+                "pingpong": pingpong,
+            }
+            if postprocess_path == "native_bypass":
+                chunks = _iter_native_frame_chunks(source, max_frames=4, pingpong=pingpong)
+            elif postprocess_path == "downscale":
+                chunks = _iter_resized_frame_chunks(
+                    source, target_width, target_height, **chunk_kwargs
+                )
+            else:
+                chunks = _iter_vsr_frame_chunks(
+                    source,
+                    target_width,
+                    target_height,
+                    quality=guide.get("rtx_quality", "HIGH"),
+                    device_id=guide.get("device_id", 0),
+                    **chunk_kwargs,
+                )
+            try:
+                for chunk in chunks:
+                    yield dasiwa._frame_bytes(chunk, selected_bit_depth)
+            finally:
+                close = getattr(chunks, "close", None)
+                if callable(close):
+                    close()
 
         metadata_path = dasiwa._metadata_file(prompt, extra_pnginfo) if save_metadata else None
         audio_path, audio_duration = dasiwa._audio_file(audio)
@@ -224,6 +363,8 @@ class MiniMaxH3StreamingVideoCombine:
                             break
                         except RuntimeError as error:
                             attempts.append(f"{selected_codec}/{selected_container}: {error}")
+                            if isinstance(error, _VsrProcessingError):
+                                raise
                             if codec != "Auto":
                                 raise
                     else:
@@ -251,12 +392,30 @@ class MiniMaxH3StreamingVideoCombine:
         frame_exports = []
         if output_path:
             if save_first_frame:
-                frame_exports.append(_save_resized_frame(source, 0, target_width, target_height, output_path, "first"))
+                if postprocess_path == "native_bypass":
+                    frame_exports.append(_save_native_frame(source, 0, output_path, "first"))
+                elif postprocess_path == "downscale":
+                    frame_exports.append(_save_resized_frame(source, 0, target_width, target_height, output_path, "first"))
+                else:
+                    frame_exports.append(_save_vsr_frame(
+                        source, 0, target_width, target_height,
+                        guide.get("rtx_quality", "HIGH"), guide.get("device_id", 0),
+                        output_path, "first",
+                    ))
             if save_last_frame:
                 last_index = 1 if pingpong and len(source) >= 3 else len(source) - 1
-                frame_exports.append(_save_resized_frame(source, last_index, target_width, target_height, output_path, "last"))
+                if postprocess_path == "native_bypass":
+                    frame_exports.append(_save_native_frame(source, last_index, output_path, "last"))
+                elif postprocess_path == "downscale":
+                    frame_exports.append(_save_resized_frame(source, last_index, target_width, target_height, output_path, "last"))
+                else:
+                    frame_exports.append(_save_vsr_frame(
+                        source, last_index, target_width, target_height,
+                        guide.get("rtx_quality", "HIGH"), guide.get("device_id", 0),
+                        output_path, "last",
+                    ))
 
-        output_frames = source if pass_frames and not resizing else source[:0]
+        output_frames = source if pass_frames and postprocess_path == "native_bypass" else source[:0]
         mime_types = {
             "WebM": "video/webm", "MKV": "video/x-matroska", "MP4": "video/mp4",
             **{name: settings[2] for name, settings in dasiwa._ANIMATED_IMAGE_SETTINGS.items()},
@@ -266,16 +425,19 @@ class MiniMaxH3StreamingVideoCombine:
             "filename": os.path.basename(output_path), "subfolder": subfolder, "type": output_type,
             "format": output_mime_type, "width": target_width, "height": target_height,
             "codec": selected_codec, "bit_depth": selected_bit_depth, "container": selected_container,
+            "postprocess_path": postprocess_path,
         }]
         assets.extend({
             "filename": os.path.basename(path), "subfolder": subfolder, "type": output_type,
             "format": "image/png", "width": target_width, "height": target_height,
+            "postprocess_path": postprocess_path,
         } for path in frame_exports)
-        ui = {"images": assets}
+        ui = {"images": assets, "postprocess_path": postprocess_path}
         if not dasiwa._animated_image_settings(selected_container):
             ui["gifs"] = [{
                 "filename": os.path.basename(output_path), "subfolder": subfolder, "type": output_type,
                 "format": output_mime_type, "codec": selected_codec, "bit_depth": selected_bit_depth,
                 "container": selected_container, "width": target_width, "height": target_height, "fps": frame_rate,
+                "postprocess_path": postprocess_path,
             }]
         return {"ui": ui, "result": (output_frames, output_path)}
