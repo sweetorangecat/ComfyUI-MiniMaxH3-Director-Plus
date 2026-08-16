@@ -235,6 +235,36 @@ def test_quality_priority_uses_h3_memory_efficient_sage_patch(monkeypatch):
     ]
 
 
+def test_low_vram_uses_h3_memory_efficient_sage_patch_with_more_head_chunks(monkeypatch):
+    calls = []
+
+    class MemoryEfficientSage:
+        @staticmethod
+        def execute(model):
+            calls.append(("sage", model))
+            return (f"{model}:h3sage",)
+
+    class HeadChunkPatch:
+        @staticmethod
+        def execute(model, head_chunks):
+            calls.append(("chunks", model, head_chunks))
+            return (f"{model}:chunks",)
+
+    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: MemoryEfficientSage)
+    monkeypatch.setattr(performance, "_kj_minimax_class", lambda name: HeadChunkPatch)
+
+    result = performance._apply_sage_attention(
+        "model",
+        {"performance_preset": "low_vram"},
+    )
+
+    assert result == "model:h3sage:chunks"
+    assert calls == [
+        ("sage", "model"),
+        ("chunks", "model:h3sage", 16),
+    ]
+
+
 def test_quality_priority_acceleration_failure_keeps_twenty_steps(monkeypatch):
     monkeypatch.setattr(
         performance,

@@ -187,7 +187,7 @@ def _node_model(result):
 def _apply_sage_attention(model, guide):
     """Apply SageAttention with an RTX 30xx-safe kernel."""
     preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
-    if preset == "quality_sage":
+    if preset in {"quality_sage", "low_vram"}:
         # The generic KJ override keeps full Q/K/V tensors alive and can add
         # multiple GiB of temporary memory on long H3 sequences. The H3
         # patch quantizes the packed attention path and splits independent
@@ -195,7 +195,8 @@ def _apply_sage_attention(model, guide):
         try:
             sage_node = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")()
             model = _node_model(sage_node.execute(model))
-            chunks = max(1, int(guide.get("minimax_head_chunks", 8)))
+            default_chunks = 16 if preset == "low_vram" else 8
+            chunks = max(1, int(guide.get("minimax_head_chunks", default_chunks)))
             chunk_node = _kj_minimax_class("MiniMaxLowVRAMAttention")()
             return _node_model(chunk_node.execute(model, chunks))
         except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:

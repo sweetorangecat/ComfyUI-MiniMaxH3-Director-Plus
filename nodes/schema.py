@@ -169,7 +169,7 @@ def public_schema():
             "prompt": {"中文名称": "视频提示词", "type": "string", "default": ""},
             "duration": {"中文名称": "视频时长", "type": "integer", "minimum": 4, "maximum": 15, "default": 5},
             "aspect_ratio": {"中文名称": "画面比例", "type": "string", "default": "16:9"},
-            "resolution_preset": {"中文名称": "分辨率档位", "type": "string", "default": "0.83 MP"},
+            "resolution_preset": {"中文名称": "最终输出目标分辨率档位", "type": "string", "default": "0.83 MP"},
             "seed": {"中文名称": "随机种子", "type": "integer", "minimum": 0, "default": 0},
             "first_image": {"中文名称": "首帧图片", "type": ["string", "null"]},
             "last_image": {"中文名称": "尾帧图片", "type": ["string", "null"]},

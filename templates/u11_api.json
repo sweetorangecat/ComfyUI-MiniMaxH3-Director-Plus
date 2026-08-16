@@ -399,7 +399,7 @@
     }
   },
   "21": {
-    "class_type": "SamplerCustomAdvanced",
+    "class_type": "MiniMaxH3MemoryAwareSampler",
     "inputs": {
       "noise": [
         "18",
@@ -420,10 +420,14 @@
       "latent_image": [
         "16",
         1
+      ],
+      "guide": [
+        "10",
+        0
       ]
     },
     "_meta": {
-      "title": "API H3 采样"
+      "title": "API H3 低显存采样保护"
     }
   },
   "22": {
@@ -476,11 +480,27 @@
       "title": "曝光与色彩连续性保护"
     }
   },
+  "40": {
+    "class_type": "MiniMaxH3VideoUpscale",
+    "inputs": {
+      "images": [
+        "29",
+        0
+      ],
+      "guide": [
+        "10",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "低显存自动分块放大"
+    }
+  },
   "24": {
     "class_type": "DaSiWa_EnhancedVideoCombine",
     "inputs": {
       "images": [
-        "29",
+        "40",
         0
       ],
       "frame_rate": 24.0,

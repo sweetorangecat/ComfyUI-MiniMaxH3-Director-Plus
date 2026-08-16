@@ -16,6 +16,8 @@ API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递�
 
 `performance_preset` 支持 `稳定质量`、`质量优先加速`、`极速4步`、`参考图加速`、`低显存` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。
 
+API 中的 `resolution_preset` 同样表示最终输出目标。选择 `低显存` 后，4/6/8/10/12/15 秒任务会把 H3 原生采样上限自动限制到约 1.00/0.65/0.50/0.36/0.30/0.26 MP，再在 CPU 上分块放大并交给 MP4 输出节点；调用方不需要增加超分参数或修改 API 模板。
+
 `voice_mode = "fish_lock"` 时只使用 `voice_reference_audios` 的第 1 路作为 Fish 音色样本，`target_dialogue` 是要新生成的对白，`reference_transcript` 是样本音频原文（建议填写），`fish_model_path` 默认使用 `s2-pro-w4a16 (auto download)`。Fish 失败会返回明确错误，不会静默回退到 H3 原生音色。
 
 ### `GET /h3-director-plus/status`

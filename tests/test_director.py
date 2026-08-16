@@ -2,7 +2,8 @@ import json
 
 import pytest
 
-from nodes.director import MiniMaxH3DirectorPlus, align_frame_count
+from nodes.director import MiniMaxH3DirectorPlus, align_frame_count, native_resolution_for_request
+from nodes.resolution import calculate_resolution
 from nodes.schema import RequestError
 
 
@@ -16,6 +17,13 @@ def test_director_exposes_native_upload_widgets_for_each_media_role():
     assert optional["voice_reference_audio_2_file"][1]["audio_upload"] is True
     assert optional["voice_reference_audio_3_file"][1]["audio_upload"] is True
     assert optional["reference_image_9_file"][1]["image_upload"] is True
+
+
+def test_resolution_preset_is_labeled_as_the_final_output_target():
+    resolution_spec = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]["resolution_preset"]
+
+    assert "最终输出目标" in resolution_spec[1]["tooltip"]
+    assert "低显存" in resolution_spec[1]["tooltip"]
 
 
 def test_uploaded_filenames_are_loaded_without_external_connections(monkeypatch):
@@ -292,3 +300,65 @@ def test_director_seed_uses_comfy_control_after_generate_and_is_exported():
     )
 
     assert result[-1] == 123456
+
+
+def test_low_vram_separates_safe_native_resolution_from_requested_target():
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="I2VA",
+        prompt="镜头缓慢推进。",
+        duration=12,
+        width=864,
+        height=1568,
+        aspect_ratio="9:16",
+        resolution_preset="1.30 MP",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="低显存",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image=object(),
+    )
+
+    assert guide["upscale_required"] is True
+    assert guide["target_width"] == guide["requested_width"]
+    assert guide["target_height"] == guide["requested_height"]
+    assert guide["native_width"] * guide["native_height"] <= 0.30 * 1024 * 1024
+    assert guide["width"] == guide["native_width"]
+    assert guide["height"] == guide["native_height"]
+
+
+@pytest.mark.parametrize(
+    ("duration", "safe_preset"),
+    [
+        (4, "1.00 MP"),
+        (8, "0.50 MP"),
+        (12, "0.30 MP"),
+        (15, "0.26 MP"),
+    ],
+)
+def test_low_vram_native_resolution_scales_with_clip_duration(duration, safe_preset):
+    native_width, native_height, upscale_required = native_resolution_for_request(
+        1568,
+        896,
+        duration,
+        "low_vram",
+        "16:9",
+    )
+    expected_width, expected_height = calculate_resolution(safe_preset, "16:9")
+
+    assert (native_width, native_height) == (expected_width, expected_height)
+    assert upscale_required is True
+
+
+def test_low_vram_keeps_small_target_without_unnecessary_upscale():
+    native_width, native_height, upscale_required = native_resolution_for_request(
+        416,
+        736,
+        12,
+        "low_vram",
+        "9:16",
+    )
+
+    assert (native_width, native_height) == (416, 736)
+    assert upscale_required is False

@@ -57,6 +57,47 @@ def align_frame_count(frame_count):
     return frame_count + ((5 - frame_count) % 17)
 
 
+def native_resolution_for_request(
+    requested_width,
+    requested_height,
+    duration,
+    performance_preset,
+    aspect_ratio,
+    custom_width=16,
+    custom_height=9,
+):
+    """Choose a safe H3 sampling size while retaining the requested output target."""
+    if performance_preset != "low_vram":
+        return int(requested_width), int(requested_height), False
+
+    # H3's QKV peak grows with both spatial tokens and frame count. Keep a
+    # conservative native grid for RTX 3070-class 8GB cards, then restore the
+    # user-selected output size after decoding with CPU chunked interpolation.
+    duration_presets = (
+        (4, "1.00 MP"),
+        (6, "0.65 MP"),
+        (8, "0.50 MP"),
+        (10, "0.36 MP"),
+        (12, "0.30 MP"),
+        (15, "0.26 MP"),
+    )
+    native_preset = next(
+        preset for maximum_duration, preset in duration_presets
+        if int(duration) <= maximum_duration
+    )
+    native_width, native_height = calculate_resolution(
+        native_preset,
+        aspect_ratio,
+        int(custom_width),
+        int(custom_height),
+    )
+    target_area = int(requested_width) * int(requested_height)
+    native_area = int(native_width) * int(native_height)
+    if target_area <= native_area:
+        return int(requested_width), int(requested_height), False
+    return native_width, native_height, True
+
+
 def require_contiguous_slots(values, label):
     seen_empty = False
     for value in values:
@@ -79,7 +120,7 @@ class MiniMaxH3DirectorPlus:
                 "width": ("INT", {"default": 1344, "min": 32, "max": 8192, "step": 32, "tooltip": "输出宽度"}),
                 "height": ("INT", {"default": 768, "min": 32, "max": 8192, "step": 32, "tooltip": "输出高度"}),
                 "aspect_ratio": ([*ASPECTS, "CUSTOM"], {"default": "16:9", "tooltip": "画面比例，包含横向与竖向比例"}),
-                "resolution_preset": (list(MEGAPIXELS), {"default": "0.83 MP", "tooltip": "H3 原生生成分辨率档位"}),
+                "resolution_preset": (list(MEGAPIXELS), {"default": "0.83 MP", "tooltip": "最终输出目标分辨率档位；低显存模式会按时长降低 H3 原生采样尺寸，再自动 CPU 分块放大到此目标"}),
                 "custom_width": ("INT", {"default": 16, "min": 1, "max": 8192, "tooltip": "自定义比例宽"}),
                 "custom_height": ("INT", {"default": 9, "min": 1, "max": 8192, "tooltip": "自定义比例高"}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": "seed_mode", "tooltip": "噪音种子；可选择固定、递增、递减或随机"}),
@@ -182,7 +223,7 @@ class MiniMaxH3DirectorPlus:
         reference_image_8_file="",
         reference_image_9_file="",
     ):
-        width, height = calculate_resolution(
+        requested_width, requested_height = calculate_resolution(
             resolution_preset,
             aspect_ratio,
             int(custom_width),
@@ -267,6 +308,20 @@ class MiniMaxH3DirectorPlus:
             "performance_preset": performance_preset,
         })
 
+        native_width, native_height, upscale_required = native_resolution_for_request(
+            requested_width,
+            requested_height,
+            duration,
+            request["performance_preset"],
+            aspect_ratio,
+            custom_width,
+            custom_height,
+        )
+        if upscale_required:
+            request["warnings"].append(
+                f"低显存模式：H3 原生采样降为 {native_width}×{native_height}，生成后自动 CPU 分块放大到 {requested_width}×{requested_height}。"
+            )
+
         ref_images = {}
         ref_audios = {}
         first_frame = first_image
@@ -304,8 +359,16 @@ class MiniMaxH3DirectorPlus:
             "voice_mode": voice_mode,
             "resolved_backend": request["resolved_backend"],
             "prompt": resolved_prompt,
-            "width": int(width),
-            "height": int(height),
+            "width": int(native_width),
+            "height": int(native_height),
+            "native_width": int(native_width),
+            "native_height": int(native_height),
+            "requested_width": int(requested_width),
+            "requested_height": int(requested_height),
+            "target_width": int(requested_width),
+            "target_height": int(requested_height),
+            "upscale_required": bool(upscale_required),
+            "upscale_method": "cpu_bicubic" if upscale_required else "none",
             "length": length,
             "ref_image_size": ref_image_size,
             "first_frame": first_frame,

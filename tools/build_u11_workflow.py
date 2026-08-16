@@ -344,6 +344,20 @@ def _color_guard_node(node_id, pos):
     }
 
 
+def _upscale_node(node_id, pos):
+    return {
+        "id": node_id, "type": "MiniMaxH3VideoUpscale", "title": "低显存自动分块放大",
+        "pos": pos, "size": [420, 180], "flags": {}, "order": 105, "mode": 0,
+        "inputs": [
+            _socket("images", "IMAGE"),
+            _socket("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"),
+        ],
+        "outputs": [_output("目标尺寸视频帧", "IMAGE"), _output("放大说明", "STRING")],
+        "properties": _properties("MiniMaxH3VideoUpscale"),
+        "color": "#2a363b", "bgcolor": "#3f5159",
+    }
+
+
 def _strip_model_path_prefixes(value):
     if isinstance(value, str):
         for prefix in ("MiniMaxH3/", "minimax/"):
@@ -595,15 +609,16 @@ def build_workflow(source):
     status = _status_node(allocate_node(), [1600, 2100])
     fish = _fish_node(allocate_node(), [260, 2320])
     color_guard = _color_guard_node(allocate_node(), [1510, 1800])
+    upscale = _upscale_node(allocate_node(), [1940, 1800])
     materials_note = _note_node(
         allocate_node(), "导演与素材区", [620, 2290], [1280, 300],
         "## 导演与素材区\n\n1. 先选择模式，导演台会自动显示所需素材上传框。\n2. REF2VA 图片 reference 最多 9 张；提示词用 <Picture 1> 到 <Picture 9> 引用。\n3. H3 原生音色最多 3 路；角色名与 <Audio 1> 到 <Audio 3> 一一对应。\n4. 无需创建或连接任何图片、音频加载节点。",
     )
     acceleration_note = _note_node(
         allocate_node(), "加速与后处理说明", [-400, 2470], [950, 270],
-        "## 已整合能力\n\n- 极速4步：T2VA/FL2VA 使用官方 H3 Turbo，REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler。\n- 参考图加速：实际路由模型应用 SageAttention + ComfyUI 原生 EasyCache。\n- RTX 30 系列使用 BF16 兼容的 Sage FP16 PV 内核；不再激活旧的死分支。\n- 原 U10 的 RIFE 插帧、RTX/模型超分、水印与高级保存继续保留。\n- LTX 二段超分属于独立高显存链路，保留为可选扩展而非默认执行。",
+        "## 已整合能力\n\n- 极速4步：T2VA/FL2VA 使用官方 H3 Turbo，REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler。\n- 参考图加速：实际路由模型应用 SageAttention + ComfyUI 原生 EasyCache。\n- 低显存：分辨率档位代表最终输出目标；4/8/12/15 秒分别最多按约 1.00/0.50/0.30/0.26 MP 原生生成，再自动用 CPU 分块放大。\n- RTX 30 系列使用 BF16 兼容的 Sage FP16 PV 内核；不再激活旧的死分支。\n- 原 U10 的 RIFE 插帧、RTX/模型超分、水印与高级保存继续保留。\n- LTX 二段超分属于独立高显存链路，保留为可选扩展而非默认执行。",
     )
-    nodes.extend([router, acceleration, performance, status, fish, color_guard, materials_note, acceleration_note])
+    nodes.extend([router, acceleration, performance, status, fish, color_guard, upscale, materials_note, acceleration_note])
 
     if output is not None:
         image_link = next((
@@ -614,8 +629,10 @@ def build_workflow(source):
             image_link[3] = color_guard["id"]
             image_link[4] = 0
             image_link[5] = "IMAGE"
-            _add_link(workflow, allocate_link, color_guard, 0, output, 0, "IMAGE")
+            _add_link(workflow, allocate_link, color_guard, 0, upscale, 0, "IMAGE")
+            _add_link(workflow, allocate_link, upscale, 0, output, 0, "IMAGE")
         _add_link(workflow, allocate_link, director, 0, color_guard, 1, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")
+        _add_link(workflow, allocate_link, director, 0, upscale, 1, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")
 
     if settings is not None:
         legacy_resolution_names = {
@@ -676,7 +693,7 @@ def build_workflow(source):
     workflow["groups"] = [
         {"id": "u11-settings", "title": "快速设置", "bounding": [-430, 400, 550, 1590], "color": "#5c7580", "font_size": 24, "flags": {}},
         {"id": "u11-director", "title": "导演控制台", "bounding": [120, 400, 1370, 1590], "color": "#4e788a", "font_size": 24, "flags": {}},
-        {"id": "u11-output", "title": "预览与输出", "bounding": [1500, 400, 630, 1850], "color": "#5c7580", "font_size": 24, "flags": {}},
+        {"id": "u11-output", "title": "预览与输出", "bounding": [1500, 400, 900, 1850], "color": "#5c7580", "font_size": 24, "flags": {}},
         {"id": "u11-assets", "title": "自动素材与加速", "bounding": [-430, 2030, 2560, 620], "color": "#4c6f62", "font_size": 24, "flags": {}},
     ]
     workflow.setdefault("extra", {})["u11_director_plus"] = {
@@ -726,11 +743,12 @@ def build_api_template():
         "18": {"class_type": "RandomNoise", "inputs": {"noise_seed": 0}, "_meta": {"title": "API 随机种子"}},
         "19": {"class_type": "MiniMaxH3SamplerRouter", "inputs": {"sampler_name": "res_multistep", "guide": ["10", 0]}, "_meta": {"title": "API H3 实际采样器路由"}},
         "20": {"class_type": "BasicScheduler", "inputs": {"model": ["15", 0], "scheduler": "simple", "steps": ["28", 0], "denoise": 1.0}, "_meta": {"title": "API 调度器"}},
-        "21": {"class_type": "SamplerCustomAdvanced", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1]}, "_meta": {"title": "API H3 采样"}},
+        "21": {"class_type": "MiniMaxH3MemoryAwareSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0]}, "_meta": {"title": "API H3 低显存采样保护"}},
         "22": {"class_type": "VAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 视频解码"}},
         "23": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["21", 1], "vae": ["5", 0]}, "_meta": {"title": "API 音频解码"}},
         "29": {"class_type": "MiniMaxH3ColorGuard", "inputs": {"images": ["22", 0], "guide": ["10", 0], "enabled": True, "strength": 1.0}, "_meta": {"title": "曝光与色彩连续性保护"}},
-        "24": {"class_type": "DaSiWa_EnhancedVideoCombine", "inputs": {"images": ["29", 0], "frame_rate": 24.0, "codec": "H.264", "container": "MP4", "bit_depth": "Auto", "quality": 20, "log_level": "Standard", "pingpong": False, "save_metadata": True, "filename_prefix": "DirectorPlus", "save_output": True, "pass_frames": False, "crop_to_audio": False, "audio_codec": "Auto", "audio_bitrate": "192k", "save_first_frame": False, "save_last_frame": False, "audio": ["23", 0]}, "_meta": {"title": "预览与输出"}},
+        "40": {"class_type": "MiniMaxH3VideoUpscale", "inputs": {"images": ["29", 0], "guide": ["10", 0]}, "_meta": {"title": "低显存自动分块放大"}},
+        "24": {"class_type": "DaSiWa_EnhancedVideoCombine", "inputs": {"images": ["40", 0], "frame_rate": 24.0, "codec": "H.264", "container": "MP4", "bit_depth": "Auto", "quality": 20, "log_level": "Standard", "pingpong": False, "save_metadata": True, "filename_prefix": "DirectorPlus", "save_output": True, "pass_frames": False, "crop_to_audio": False, "audio_codec": "Auto", "audio_bitrate": "192k", "save_first_frame": False, "save_last_frame": False, "audio": ["23", 0]}, "_meta": {"title": "预览与输出"}},
     }
 
 

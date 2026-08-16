@@ -166,6 +166,48 @@ def test_api_template_has_clean_output_prefix_and_all_reference_slots():
     assert "reference_image_9" in controller
 
 
+def test_api_template_scopes_low_vram_policy_around_sampling():
+    from tools.build_u11_workflow import build_api_template
+
+    sampler = build_api_template()["21"]
+
+    assert sampler["class_type"] == "MiniMaxH3MemoryAwareSampler"
+    assert sampler["inputs"]["guide"] == ["10", 0]
+
+
+def test_builder_routes_color_guard_through_auto_upscale_before_output():
+    source = {
+        "last_node_id": 3,
+        "last_link_id": 21,
+        "nodes": [
+            {
+                "id": 1, "type": "Settings", "title": "Settings", "pos": [0, 0],
+                "size": [300, 300], "mode": 0, "inputs": [],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [21]}],
+            },
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {
+                "id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0],
+                "size": [300, 300], "mode": 0,
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 21}], "outputs": [],
+            },
+        ],
+        "links": [[21, 1, 0, 3, 0, "IMAGE"]],
+        "groups": [],
+        "definitions": {"subgraphs": []},
+    }
+
+    built = build_workflow(source)
+    director = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3DirectorPlus")
+    guard = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3ColorGuard")
+    upscale = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3VideoUpscale")
+    output = next(node for node in built["nodes"] if node["type"] == "DaSiWa_EnhancedVideoCombine")
+
+    assert any(link[1:5] == [guard["id"], 0, upscale["id"], 0] for link in built["links"])
+    assert any(link[1:5] == [director["id"], 0, upscale["id"], 1] for link in built["links"])
+    assert any(link[1:5] == [upscale["id"], 0, output["id"], 0] for link in built["links"])
+
+
 def test_builder_removes_old_resolution_links_and_model_directory_prefixes():
     source = {
         "last_node_id": 10,
