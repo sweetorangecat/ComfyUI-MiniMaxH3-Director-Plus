@@ -1,4 +1,5 @@
 import sys
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -19,6 +20,12 @@ EMBEDDED_INSTALL_COMMAND = (
     "D:/ComfyUI_windows_portable-G313/python_embeded/python.exe -m pip install -r "
     + REQUIREMENTS_PATH
 )
+
+
+@pytest.fixture(autouse=True)
+def mock_cuda_lifecycle(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "device", lambda device: nullcontext())
+    monkeypatch.setattr(torch.cuda, "synchronize", lambda device=None: None)
 
 
 def test_load_vsr_api_reports_actionable_embedded_python_install_steps(monkeypatch):
@@ -157,6 +164,78 @@ def test_process_returns_cloned_hwc_float32_cpu_frame(monkeypatch):
     processor.close()
 
 
+def test_non_default_device_context_covers_create_run_and_cleanup(monkeypatch):
+    active_devices = []
+    operations = []
+    sdk_output = torch.ones((3, 6, 8), dtype=torch.float32)
+
+    class FakeDeviceContext:
+        def __init__(self, device):
+            self.device = str(device)
+
+        def __enter__(self):
+            active_devices.append(self.device)
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            assert active_devices.pop() == self.device
+
+    def record(operation):
+        operations.append((operation, active_devices[-1] if active_devices else None))
+
+    class FakeStream:
+        def synchronize(self):
+            record("stream_sync")
+
+    class FakeEffect:
+        def load(self):
+            record("load")
+
+        def run(self, frame):
+            record("run")
+            return SimpleNamespace(image=sdk_output)
+
+        def close(self):
+            record("close")
+
+    def video_super_res(*args, **kwargs):
+        record("create")
+        return FakeEffect()
+
+    monkeypatch.setattr(torch.cuda, "device", FakeDeviceContext)
+    monkeypatch.setattr(torch.cuda, "current_stream", lambda device: FakeStream())
+    monkeypatch.setattr(torch.cuda, "synchronize", lambda device=None: record("device_sync"))
+    original_to = torch.Tensor.to
+
+    def fake_to(tensor, *args, **kwargs):
+        device = kwargs.get("device", args[0] if args else None)
+        if device is not None and torch.device(device).type == "cuda":
+            return tensor.to(dtype=kwargs.get("dtype"))
+        return original_to(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", fake_to)
+
+    processor = VsrFrameProcessor(
+        (video_super_res, SimpleNamespace(HIGH="high", ULTRA="ultra")),
+        "HIGH",
+        2,
+        8,
+        6,
+    )
+    processor.process(torch.zeros(3, 2, 4))
+    processor.close()
+
+    assert operations == [
+        ("create", "cuda:2"),
+        ("load", "cuda:2"),
+        ("stream_sync", "cuda:2"),
+        ("run", "cuda:2"),
+        ("device_sync", "cuda:2"),
+        ("device_sync", "cuda:2"),
+        ("close", "cuda:2"),
+    ]
+    assert active_devices == []
+
+
 def test_context_manager_closes_effect_once_when_processing_raises():
     calls = []
 
@@ -198,3 +277,64 @@ def test_close_uses_destroy_when_close_is_unavailable():
     processor.close()
 
     assert calls == ["destroy"]
+
+
+def test_sdk_context_manager_uses_entered_effect_and_exits_once():
+    calls = []
+
+    class EnteredEffect:
+        def load(self):
+            calls.append("load")
+
+    entered_effect = EnteredEffect()
+
+    class FakeEffectContext:
+        def __enter__(self):
+            calls.append("enter")
+            return entered_effect
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            calls.append(("exit", exc_type, exc_value, traceback))
+
+    processor = VsrFrameProcessor(
+        (lambda *args, **kwargs: FakeEffectContext(), SimpleNamespace(HIGH="high", ULTRA="ultra")),
+        "HIGH",
+        0,
+        8,
+        6,
+    )
+
+    assert entered_effect.output_width == 8
+    assert entered_effect.output_height == 6
+    processor.close()
+    processor.close()
+
+    assert calls == ["enter", "load", ("exit", None, None, None)]
+
+
+def test_sdk_context_manager_exits_when_load_fails():
+    calls = []
+
+    class EnteredEffect:
+        def load(self):
+            calls.append("load")
+            raise RuntimeError("load failed")
+
+    class FakeEffectContext:
+        def __enter__(self):
+            calls.append("enter")
+            return EnteredEffect()
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            calls.append("exit")
+
+    with pytest.raises(RuntimeError, match="load failed"):
+        VsrFrameProcessor(
+            (lambda *args, **kwargs: FakeEffectContext(), SimpleNamespace(HIGH="high", ULTRA="ultra")),
+            "HIGH",
+            0,
+            8,
+            6,
+        )
+
+    assert calls == ["enter", "load", "exit"]
