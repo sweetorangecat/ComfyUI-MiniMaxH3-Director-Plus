@@ -338,3 +338,29 @@ def test_sdk_context_manager_exits_when_load_fails():
         )
 
     assert calls == ["enter", "load", "exit"]
+
+
+def test_sdk_context_enter_failure_uses_raw_effect_cleanup_without_exit():
+    calls = []
+
+    class RawEffect:
+        def __enter__(self):
+            calls.append("enter")
+            raise RuntimeError("enter failed")
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            calls.append("exit")
+
+        def destroy(self):
+            calls.append("destroy")
+
+    with pytest.raises(RuntimeError, match="enter failed"):
+        VsrFrameProcessor(
+            (lambda *args, **kwargs: RawEffect(), SimpleNamespace(HIGH="high", ULTRA="ultra")),
+            "HIGH",
+            0,
+            8,
+            6,
+        )
+
+    assert calls == ["enter", "destroy"]

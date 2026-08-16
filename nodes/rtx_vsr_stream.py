@@ -109,14 +109,17 @@ class VsrFrameProcessor:
         self.cuda_device = torch.device("cuda", self.device_id)
         self._effect = None
         self._effect_context = None
+        self._effect_entered = False
 
         try:
             with torch.cuda.device(self.cuda_device):
                 effect = _create_effect(video_super_res, resolved_quality, self.device_id)
                 self._effect = effect
                 if hasattr(effect, "__enter__") and hasattr(effect, "__exit__"):
+                    entered_effect = effect.__enter__()
                     self._effect_context = effect
-                    self._effect = effect.__enter__()
+                    self._effect_entered = True
+                    self._effect = entered_effect
                 effect = self._effect
                 effect.output_width = self.output_width
                 effect.output_height = self.output_height
@@ -174,13 +177,15 @@ class VsrFrameProcessor:
     def close(self) -> None:
         effect = self._effect
         effect_context = self._effect_context
+        effect_entered = self._effect_entered
         self._effect = None
         self._effect_context = None
+        self._effect_entered = False
         if effect is None and effect_context is None:
             return
         with torch.cuda.device(self.cuda_device):
             torch.cuda.synchronize(self.cuda_device)
-            if effect_context is not None:
+            if effect_context is not None and effect_entered:
                 effect_context.__exit__(None, None, None)
             elif effect is not None:
                 _close_effect(effect)
