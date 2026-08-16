@@ -119,7 +119,7 @@ def _kj_class(name):
         sys.modules[module_name] = loaded
         try:
             spec.loader.exec_module(loaded)
-        except (ImportError, OSError) as exc:
+        except (AttributeError, ImportError, OSError) as exc:
             sys.modules.pop(module_name, None)
             raise RuntimeError("无法加载 ComfyUI-KJNodes 优化节点") from exc
     try:
@@ -128,8 +128,79 @@ def _kj_class(name):
         raise RuntimeError(f"缺少 KJ 优化节点: {name}") from exc
 
 
+def _kj_ltx_class(name):
+    """Load KJNodes' H3-specific memory-efficient attention patch."""
+    for loaded_name, loaded in list(sys.modules.items()):
+        if loaded_name.endswith("nodes.ltxv_nodes") and hasattr(loaded, name):
+            return getattr(loaded, name)
+    module_name = "_u11_kjnodes_ltxv_runtime"
+    loaded = sys.modules.get(module_name)
+    if loaded is None:
+        path = Path(__file__).resolve().parents[2] / "ComfyUI-KJNodes" / "nodes" / "ltxv_nodes.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("缺少 KJNodes H3 内存高效 Sage 补丁")
+        loaded = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = loaded
+        try:
+            spec.loader.exec_module(loaded)
+        except (AttributeError, ImportError, OSError) as exc:
+            sys.modules.pop(module_name, None)
+            raise RuntimeError("无法加载 KJNodes H3 内存高效 Sage 补丁") from exc
+    try:
+        return getattr(loaded, name)
+    except AttributeError as exc:
+        raise RuntimeError(f"缺少 KJNodes H3 内存高效节点: {name}") from exc
+
+
+def _kj_minimax_class(name):
+    """Load KJNodes' exact head-chunk patch for MiniMax H3."""
+    for loaded_name, loaded in list(sys.modules.items()):
+        if loaded_name.endswith("nodes.minimax_nodes") and hasattr(loaded, name):
+            return getattr(loaded, name)
+    module_name = "_u11_kjnodes_minimax_runtime"
+    loaded = sys.modules.get(module_name)
+    if loaded is None:
+        path = Path(__file__).resolve().parents[2] / "ComfyUI-KJNodes" / "nodes" / "minimax_nodes.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("缺少 KJNodes MiniMax H3 分块补丁")
+        loaded = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = loaded
+        try:
+            spec.loader.exec_module(loaded)
+        except (AttributeError, ImportError, OSError) as exc:
+            sys.modules.pop(module_name, None)
+            raise RuntimeError("无法加载 KJNodes MiniMax H3 分块补丁") from exc
+    try:
+        return getattr(loaded, name)
+    except AttributeError as exc:
+        raise RuntimeError(f"缺少 KJNodes MiniMax H3 节点: {name}") from exc
+
+
+def _node_model(result):
+    """Unwrap both ComfyUI v3 NodeOutput and legacy tuple node results."""
+    result = getattr(result, "result", result)
+    return result[0] if isinstance(result, (tuple, list)) else result
+
+
 def _apply_sage_attention(model, guide):
     """Apply SageAttention with an RTX 30xx-safe kernel."""
+    preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
+    if preset == "quality_sage":
+        # The generic KJ override keeps full Q/K/V tensors alive and can add
+        # multiple GiB of temporary memory on long H3 sequences. The H3
+        # patch quantizes the packed attention path and splits independent
+        # heads, preserving the math while shrinking that working set.
+        try:
+            sage_node = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")()
+            model = _node_model(sage_node.execute(model))
+            chunks = max(1, int(guide.get("minimax_head_chunks", 8)))
+            chunk_node = _kj_minimax_class("MiniMaxLowVRAMAttention")()
+            return _node_model(chunk_node.execute(model, chunks))
+        except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise RuntimeError(f"H3 内存高效 SageAttention 不可用: {exc}") from exc
+
     # H3 is BF16 on this install. The FP8 PV kernel is unreliable on SM86;
     # the FP16 PV kernel supports BF16 and FP16 inputs on RTX 3070.
     mode = guide.get("sage_attention_mode", "sageattn_qk_int8_pv_fp16_cuda")
