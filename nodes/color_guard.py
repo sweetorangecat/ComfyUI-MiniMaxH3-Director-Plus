@@ -55,12 +55,20 @@ class MiniMaxH3ColorGuard:
         corrected = frames.clamp(0.0, 1.0).pow(gamma)
 
         # A small unsharp mask restores edge definition lost by the distilled
-        # trajectory. Reflect padding avoids adding a border halo.
-        nchw = corrected.movedim(-1, 1)
-        padded = F.pad(nchw, (1, 1, 1, 1), mode="reflect")
-        blur = F.avg_pool2d(padded, kernel_size=3, stride=1)
+        # trajectory. Process a few frames at a time: a 15-second 1.75 MP
+        # decode can contain hundreds of frames and should not need several
+        # extra full-resolution working tensors simultaneously.
         detail_amount = min(0.14, 0.10 * float(strength))
-        return (nchw + (nchw - blur) * detail_amount).movedim(1, -1).clamp(0.0, 1.0)
+        chunk_size = 8
+        for start in range(0, corrected.shape[0], chunk_size):
+            end = min(start + chunk_size, corrected.shape[0])
+            nchw = corrected[start:end].movedim(-1, 1)
+            padded = F.pad(nchw, (1, 1, 1, 1), mode="reflect")
+            blur = F.avg_pool2d(padded, kernel_size=3, stride=1)
+            corrected[start:end] = (
+                nchw + (nchw - blur) * detail_amount
+            ).movedim(1, -1).clamp(0.0, 1.0)
+        return corrected
 
     def apply(self, images, guide, enabled=True, strength=1.0):
         if not enabled or images.ndim != 4 or images.shape[0] < 2:
