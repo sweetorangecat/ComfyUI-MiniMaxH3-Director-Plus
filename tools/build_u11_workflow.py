@@ -134,7 +134,8 @@ def _replace_director(node):
         "properties": _properties("MiniMaxH3DirectorPlus"),
         "widgets_values": [
             "FL2VA", "", 5, 1344, 768, "16:9", "0.83 MP", 16, 9, 0, "randomize",
-            "none", "s2-pro-w4a16 (auto download)", "match", "稳定质量", "{\"version\":1,\"items\":[]}", "", "", "", "", "",
+            "none", "s2-pro-w4a16 (auto download)", "match", "稳定质量", "native", "HIGH",
+            "{\"version\":1,\"items\":[]}", "", "", "", "", "",
             "", "", "", "", "", "", "", "", "", "", "", "", "", "",
         ],
         "color": "#24353d",

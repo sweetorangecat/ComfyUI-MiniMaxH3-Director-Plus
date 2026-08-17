@@ -126,6 +126,7 @@ def test_built_workflow_keeps_duration_and_resolution_widgets():
     input_names = {item["name"] for item in director["inputs"]}
     assert {"width", "height"} <= input_names
     assert director["widgets_values"][:5] == ["FL2VA", "", 5, 1344, 768]
+    assert director["widgets_values"][15:17] == ["native", "HIGH"]
 
 
 def test_built_settings_removes_legacy_resolution_calculator():
