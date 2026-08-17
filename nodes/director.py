@@ -6,7 +6,7 @@ import json
 import os
 
 from .prompting import build_reference_prompt
-from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution
+from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution, h3_native_canvas
 from .schema import PERFORMANCE_PRESETS, RequestError, low_vram_target_limit, normalize_request
 
 
@@ -67,8 +67,25 @@ def native_resolution_for_request(
     custom_height=9,
 ):
     """Choose a safe H3 sampling size while retaining the requested output target."""
+    official_width, official_height = h3_native_canvas(
+        aspect_ratio,
+        int(custom_width),
+        int(custom_height),
+    )
+
+    # The official H3 node supports a 768px short edge and 768x1344 area cap.
+    # Apply that guard to every performance preset. The requested dimensions
+    # remain the final output target and are handled after sampling.
+    requested_area = int(requested_width) * int(requested_height)
+    if requested_area > official_width * official_height:
+        native_width, native_height = official_width, official_height
+        capped = True
+    else:
+        native_width, native_height = int(requested_width), int(requested_height)
+        capped = False
+
     if performance_preset != "low_vram":
-        return int(requested_width), int(requested_height), False
+        return native_width, native_height, capped
 
     # H3's QKV peak grows with both spatial tokens and frame count. Keep a
     # conservative native grid for RTX 3070-class 8GB cards, then restore the
@@ -94,7 +111,7 @@ def native_resolution_for_request(
     target_area = int(requested_width) * int(requested_height)
     native_area = int(native_width) * int(native_height)
     if target_area <= native_area:
-        return int(requested_width), int(requested_height), False
+        return int(requested_width), int(requested_height), capped
     return native_width, native_height, True
 
 
@@ -326,7 +343,7 @@ class MiniMaxH3DirectorPlus:
                     f"{limit_width}×{limit_height}"
                 )
 
-        native_width, native_height, _ = native_resolution_for_request(
+        native_width, native_height, native_capped = native_resolution_for_request(
             requested_width,
             requested_height,
             duration,
@@ -354,10 +371,12 @@ class MiniMaxH3DirectorPlus:
             final_target_width, final_target_height = requested_width, requested_height
             final_upscale_required = True
 
-        if postprocess_path == "rtx_vsr":
+        if native_capped:
             request["warnings"].append(
-                f"低显存模式：H3 原生采样降为 {native_width}×{native_height}，生成后通过 RTX VSR 重建到 {requested_width}×{requested_height}。"
+                f"H3 原生采样受官方画布上限限制为 {native_width}×{native_height}；最终目标为 {requested_width}×{requested_height}。"
             )
+            if postprocess_mode == "rtx_vsr" and requested_width != native_width:
+                request["warnings"][-1] += " 将在生成后通过 RTX VSR 重建。"
 
         ref_images = {}
         ref_audios = {}
@@ -400,6 +419,7 @@ class MiniMaxH3DirectorPlus:
             "height": int(native_height),
             "native_width": int(native_width),
             "native_height": int(native_height),
+            "native_cap_applied": bool(native_capped),
             "requested_width": int(requested_width),
             "requested_height": int(requested_height),
             "target_width": int(final_target_width),

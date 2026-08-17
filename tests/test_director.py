@@ -363,6 +363,20 @@ def test_low_vram_native_resolution_scales_with_clip_duration(duration, safe_pre
     assert upscale_required is True
 
 
+@pytest.mark.parametrize("preset", ["稳定质量", "质量优先加速", "极速4步", "参考图加速"])
+def test_all_non_low_vram_presets_cap_long_h3_sampling_to_official_canvas(preset):
+    native_width, native_height, upscale_required = native_resolution_for_request(
+        1920,
+        1088,
+        15,
+        preset,
+        "16:9",
+    )
+
+    assert (native_width, native_height) == (1344, 768)
+    assert upscale_required is True
+
+
 def test_low_vram_keeps_small_target_without_unnecessary_upscale():
     native_width, native_height, upscale_required = native_resolution_for_request(
         416,

@@ -60,6 +60,12 @@ EXACT_OUTPUT_TARGETS = {
     ("4K UHD", "9:16"): (2160, 3840),
 }
 
+# MiniMax H3's native ComfyUI nodes document a 768px short edge and a
+# 768x1344 pixel-area cap. Larger values are output targets for a postprocess
+# stage, not safe DiT sampling canvases (especially for 15-second clips).
+H3_NATIVE_SHORT_EDGE = 768
+H3_NATIVE_MAX_PIXELS = H3_NATIVE_SHORT_EDGE * 1344
+
 
 def _snap(value, divisor=32):
     return max(divisor, int(round(value / divisor)) * divisor)
@@ -87,6 +93,33 @@ def calculate_resolution(preset, aspect, custom_width=16, custom_height=9):
     width = math.sqrt(area * ratio[0] / ratio[1])
     height = math.sqrt(area * ratio[1] / ratio[0])
     return _snap(width), _snap(height)
+
+
+def h3_native_canvas(aspect, custom_width=16, custom_height=9):
+    """Return the official H3 native canvas for an aspect ratio."""
+    if aspect == "CUSTOM":
+        ratio = (int(custom_width), int(custom_height))
+        if min(ratio) <= 0:
+            raise ValueError("自定义比例的宽和高必须大于 0")
+    else:
+        ratio = ASPECTS.get(aspect)
+        if ratio is None:
+            raise ValueError(f"不支持的画面比例：{aspect}")
+
+    ratio_value = ratio[0] / ratio[1]
+    if ratio_value >= 1.0:
+        nominal_width = H3_NATIVE_SHORT_EDGE * ratio_value
+        nominal_height = H3_NATIVE_SHORT_EDGE
+    else:
+        nominal_width = H3_NATIVE_SHORT_EDGE
+        nominal_height = H3_NATIVE_SHORT_EDGE / ratio_value
+
+    area = nominal_width * nominal_height
+    if area > H3_NATIVE_MAX_PIXELS:
+        scale = (H3_NATIVE_MAX_PIXELS / area) ** 0.5
+        nominal_width *= scale
+        nominal_height *= scale
+    return _snap(nominal_width), _snap(nominal_height)
 
 
 class MiniMaxH3ResolutionPlus:
