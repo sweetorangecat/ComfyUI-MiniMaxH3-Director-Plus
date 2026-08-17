@@ -49,6 +49,8 @@ def test_ui_exposes_duration_aspect_and_resolution_controls():
     for aspect in ("3:2", "4:3", "8:5", "16:9", "21:9"):
         assert aspect in text
     assert '"2K QHD", "4K UHD"' in text
+    assert '"2K QHD|16:9": [2560, 1440]' in text
+    assert '"4K UHD|16:9": [3840, 2160]' in text
 
 
 def test_ui_exposes_one_final_output_postprocess_surface():

@@ -22,6 +22,12 @@ const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
   "8:5": [8, 5], "5:8": [5, 8], "16:9": [16, 9], "9:16": [9, 16], "21:9": [21, 9], "9:21": [9, 21],
 };
+const EXACT_OUTPUT_TARGETS = {
+  "2K QHD|16:9": [2560, 1440],
+  "2K QHD|9:16": [1440, 2560],
+  "4K UHD|16:9": [3840, 2160],
+  "4K UHD|9:16": [2160, 3840],
+};
 const RESOLUTIONS = [
   "0.26 MP", "0.30 MP", "0.36 MP", "0.40 MP", "0.50 MP", "0.52 MP", "0.60 MP", "0.65 MP", "0.70 MP",
   "0.80 MP", "0.83 MP", "0.90 MP", "1.00 MP", "1.05 MP", "1.10 MP", "1.20 MP", "1.30 MP", "1.35 MP",
@@ -201,6 +207,8 @@ function valueControl(label, widgetName, options, current, type = "select") {
 function calculatedResolution(node) {
   const preset = String(widget(node, "resolution_preset")?.value || "0.83 MP");
   const aspect = String(widget(node, "aspect_ratio")?.value || "16:9");
+  const exact = EXACT_OUTPUT_TARGETS[`${preset}|${aspect}`];
+  if (exact) return exact;
   const megapixels = Number.parseFloat(preset) || 0.83;
   const ratio = aspect === "CUSTOM"
     ? [Math.max(1, Number(widget(node, "custom_width")?.value) || 16), Math.max(1, Number(widget(node, "custom_height")?.value) || 9)]
