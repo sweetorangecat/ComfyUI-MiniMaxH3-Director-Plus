@@ -207,6 +207,60 @@ def test_builder_routes_color_guard_through_streaming_output():
     assert any(link[1:5] == [director["id"], 0, output["id"], 1] for link in built["links"])
 
 
+def test_builder_preserves_audio_and_frame_rate_slots_when_upgrading_output():
+    source = {
+        "last_node_id": 3,
+        "last_link_id": 12,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Settings",
+                "title": "Settings",
+                "pos": [0, 0],
+                "size": [300, 300],
+                "mode": 0,
+                "inputs": [],
+                "outputs": [
+                    {"name": "CLIP", "type": "CLIP", "links": []},
+                    {"name": "IMAGE", "type": "IMAGE", "links": [10]},
+                    {"name": "FLOAT", "type": "FLOAT", "links": [11]},
+                    {"name": "AUDIO", "type": "AUDIO", "links": [12]},
+                ],
+            },
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {
+                "id": 3,
+                "type": "DaSiWa_EnhancedVideoCombine",
+                "title": "",
+                "pos": [1250, 0],
+                "size": [300, 300],
+                "mode": 0,
+                "inputs": [
+                    {"name": "images", "type": "IMAGE", "link": 10},
+                    {"name": "audio", "type": "AUDIO", "link": 12},
+                    {"name": "frame_rate", "type": "FLOAT", "link": 11},
+                ],
+                "outputs": [],
+            },
+        ],
+        "links": [
+            [10, 1, 1, 3, 0, "IMAGE"],
+            [11, 1, 2, 3, 2, "FLOAT"],
+            [12, 1, 3, 3, 1, "AUDIO"],
+        ],
+        "groups": [],
+        "definitions": {"subgraphs": []},
+    }
+
+    built = build_workflow(source)
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
+    slots = {item["name"]: index for index, item in enumerate(output["inputs"])}
+
+    assert slots["audio"] > slots["frame_rate"]
+    assert any(link[1:5] == [1, 3, output["id"], slots["audio"]] and link[5] == "AUDIO" for link in built["links"])
+    assert any(link[1:5] == [1, 2, output["id"], slots["frame_rate"]] and link[5] == "FLOAT" for link in built["links"])
+
+
 def test_builder_removes_old_resolution_links_and_model_directory_prefixes():
     source = {
         "last_node_id": 10,

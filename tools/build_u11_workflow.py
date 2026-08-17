@@ -229,6 +229,44 @@ def _append_input(node, name, data_type, widget=False):
     return len(node["inputs"]) - 1
 
 
+def _upgrade_stream_output_inputs(workflow, output):
+    """Normalize output socket order and remap links by socket name.
+
+    U10's combine node exposes ``images, audio, frame_rate`` while the U11
+    node inserts the required ``guide`` input and follows ComfyUI's declared
+    order ``images, guide, frame_rate, audio``.  Reusing the old numeric
+    target slots would silently connect the FLOAT FPS stream to ``audio``.
+    """
+    old_inputs = list(output.get("inputs", []))
+    old_names = {index: item.get("name") for index, item in enumerate(old_inputs)}
+    desired = (
+        ("images", "IMAGE"),
+        ("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"),
+        ("frame_rate", "FLOAT"),
+        ("audio", "AUDIO"),
+    )
+    existing = {item.get("name"): item for item in old_inputs}
+    output["inputs"] = [
+        {**existing.get(name, _socket(name, data_type)), "name": name, "type": data_type}
+        for name, data_type in desired
+    ]
+    new_slots = {item["name"]: index for index, item in enumerate(output["inputs"])}
+
+    rewritten = []
+    for raw in workflow.get("links", []):
+        link = _link_value(raw)
+        if link[3] != output["id"]:
+            rewritten.append(raw)
+            continue
+        old_name = old_names.get(int(link[4]))
+        if old_name not in new_slots:
+            # Drop links to sockets that do not exist on the new output node.
+            continue
+        _set_link_field(raw, 4, new_slots[old_name])
+        rewritten.append(raw)
+    workflow["links"] = rewritten
+
+
 def _add_link(workflow, allocate_link, source, source_slot, target, target_slot, data_type):
     link_id = allocate_link()
     workflow.setdefault("links", []).append([link_id, source["id"], source_slot, target["id"], target_slot, data_type])
@@ -583,11 +621,10 @@ def build_workflow(source):
     settings = _find_node(nodes, title="Settings")
     output = next((node for node in nodes if "EnhancedVideoCombine" in str(node.get("type"))), None)
     if output is not None:
+        _upgrade_stream_output_inputs(workflow, output)
         output["type"] = "MiniMaxH3StreamingVideoCombine"
         output["properties"] = _properties("MiniMaxH3StreamingVideoCombine")
         output["title"] = "预览与输出"
-        if not any(item.get("name") == "guide" for item in output.get("inputs", [])):
-            output.setdefault("inputs", []).insert(1, _socket("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"))
         values = list(output.get("widgets_values", []))
         if len(values) >= 3:
             values[1] = "H.264"
