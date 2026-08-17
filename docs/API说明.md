@@ -18,7 +18,7 @@ API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递�
 
 `postprocess_mode` 控制最终视频输出：`native` 为 H3 原生尺寸直出，`rtx_vsr` 为 RTX VSR AI 细节重建；`rtx_quality` 可选 `HIGH` 或 `ULTRA`。目标尺寸与 H3 原生尺寸相同会自动走 `native_bypass`，目标更小走高质量缩小，目标更大且选择 `rtx_vsr` 才走 `rtx_vsr`。最终只保存一个视频，不会同时输出原始视频和超分视频。RTX VSR 依赖缺失时会明确报错，不会静默退回普通插值。
 
-API 中的 `resolution_preset` 同样表示最终输出目标，支持 `2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。选择 `低显存` 后，4/6/8/10/12/15 秒任务会把 H3 原生采样上限自动限制到约 1.00/0.65/0.50/0.36/0.30/0.26 MP，再在最终编码阶段 CPU 分块放大并交给流式 MP4 输出节点；调用方不需要增加超分参数或修改 API 模板。
+API 中的 `resolution_preset` 表示请求的最终输出目标，支持 `2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。选择 `低显存` 后，H3 原生采样尺寸会按时长降低；`postprocess_mode = "native"` 时输出实际原生尺寸，`postprocess_mode = "rtx_vsr"` 时才逐帧 AI 重建到更大的目标。两种路径都由同一个流式 MP4 输出节点保存，不需要修改 API 模板或连接第二个输出节点。
 
 `voice_mode = "fish_lock"` 时只使用 `voice_reference_audios` 的第 1 路作为 Fish 音色样本，`target_dialogue` 是要新生成的对白，`reference_transcript` 是样本音频原文（建议填写），`fish_model_path` 默认使用 `s2-pro-w4a16 (auto download)`。Fish 失败会返回明确错误，不会静默回退到 H3 原生音色。
 
