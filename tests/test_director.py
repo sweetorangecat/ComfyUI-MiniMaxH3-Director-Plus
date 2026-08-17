@@ -472,7 +472,9 @@ def test_same_size_rtx_request_uses_native_bypass():
     assert guide["upscale_method"] == "none"
 
 
-def test_low_vram_target_upscale_selects_rtx_vsr():
+def test_low_vram_target_upscale_selects_rtx_vsr(monkeypatch):
+    monkeypatch.setattr("nodes.director.probe_vsr_capability", lambda *args, **kwargs: True)
+
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="I2VA",
         prompt="镜头缓慢推进。",
@@ -499,6 +501,54 @@ def test_low_vram_target_upscale_selects_rtx_vsr():
     )
     assert guide["upscale_required"] is True
     assert guide["upscale_method"] == "rtx_vsr"
+
+
+def test_rtx_vsr_capability_failure_is_reported_before_generation(monkeypatch):
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("NvVFX_Load failed: The requested feature or capability was not found (code -14)")
+        ),
+    )
+
+    with pytest.raises(RequestError, match="前置检查失败.*code -14"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA",
+            prompt="镜头缓慢推进。",
+            duration=5,
+            width=2560,
+            height=1440,
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="稳定质量",
+            postprocess_mode="rtx_vsr",
+            rtx_quality="ULTRA",
+            resolution_preset="2K QHD",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
+
+
+def test_native_output_warns_when_large_final_target_is_not_upscaled():
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=5,
+        width=2560,
+        height=1440,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="稳定质量",
+        postprocess_mode="native",
+        resolution_preset="2K QHD",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert guide["postprocess_path"] == "native_bypass"
+    assert any("原生尺寸直出" in warning and "不会放大" in warning for warning in guide["warnings"])
 
 
 def test_smaller_target_selects_downscale(monkeypatch):

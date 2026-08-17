@@ -7,6 +7,7 @@ import os
 
 from .prompting import build_reference_prompt
 from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution, h3_native_canvas
+from .rtx_vsr_stream import probe_vsr_capability
 from .schema import PERFORMANCE_PRESETS, RequestError, low_vram_target_limit, normalize_request
 
 
@@ -360,6 +361,20 @@ class MiniMaxH3DirectorPlus:
             postprocess_path = "rtx_vsr"
         else:
             postprocess_path = "native_bypass"
+
+        if postprocess_path == "native_bypass" and (
+            requested_width != native_width or requested_height != native_height
+        ):
+            request["warnings"].append(
+                "当前为原生尺寸直出，2K/4K 最终目标不会放大；"
+                f"实际保存尺寸为 {native_width}×{native_height}。"
+            )
+
+        if postprocess_path == "rtx_vsr":
+            try:
+                probe_vsr_capability(request["rtx_quality"], device_id=0)
+            except Exception as exc:
+                raise RequestError(f"RTX VSR 前置检查失败，尚未开始 H3 视频生成：{exc}") from exc
 
         if postprocess_path == "native_bypass":
             final_target_width, final_target_height = native_width, native_height

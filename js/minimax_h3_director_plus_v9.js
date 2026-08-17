@@ -545,8 +545,8 @@ function install(node) {
     const postprocessNote = document.createElement("div");
     postprocessNote.className = "h3p-spec-note";
     postprocessNote.textContent = postprocessMode === "rtx_vsr"
-      ? "目标尺寸大于 H3 原生尺寸时逐帧使用 RTX VSR；同尺寸自动旁路，缺少依赖会明确报错，不会静默改用普通缩放。"
-      : "只保存一个最终视频；原生尺寸直出不加载 RTX VSR。选择更大的最终目标后可切换 AI 细节重建。";
+      ? "目标尺寸大于 H3 原生尺寸时逐帧使用 RTX VSR；首次使用前请安装 nvidia-vfx 与 NVIDIA Broadcast SDK。导演节点会在生成开始前检查驱动和 SDK，不通过会立即提示；同尺寸自动旁路。"
+      : "只保存一个最终视频；原生尺寸直出不会把 H3 画布放大，选择 2K/4K 时需切换 AI 细节重建。RTX VSR 首次使用前需要 nvidia-vfx、NVIDIA Broadcast SDK 与匹配驱动。";
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {
       specGrid.append(

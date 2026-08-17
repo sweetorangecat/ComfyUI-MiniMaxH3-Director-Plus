@@ -9,6 +9,7 @@ from nodes.rtx_vsr_stream import (
     VsrFrameProcessor,
     _dasiwa_requirements_path,
     load_vsr_api,
+    probe_vsr_capability,
     resolve_vsr_quality,
 )
 
@@ -52,6 +53,39 @@ def test_load_vsr_api_locates_video_super_res_and_effect_quality(monkeypatch):
     monkeypatch.setitem(sys.modules, "nvvfx", fake_nvvfx)
 
     assert load_vsr_api() == (video_super_res, quality_level)
+
+
+def test_probe_vsr_capability_loads_and_closes_effect_before_generation(monkeypatch):
+    calls = []
+
+    class FakeEffect:
+        def load(self):
+            calls.append("load")
+
+        def close(self):
+            calls.append("close")
+
+    monkeypatch.setattr(
+        "nodes.rtx_vsr_stream.load_vsr_api",
+        lambda: (lambda *args, **kwargs: FakeEffect(), SimpleNamespace(HIGH="high", ULTRA="ultra")),
+    )
+
+    assert probe_vsr_capability("ULTRA", 0) is True
+    assert calls == ["load", "close"]
+
+
+def test_probe_vsr_capability_reports_unsupported_sdk_before_generation(monkeypatch):
+    class FakeEffect:
+        def load(self):
+            raise RuntimeError("NvVFX_Load failed: The requested feature or capability was not found (code -14)")
+
+    monkeypatch.setattr(
+        "nodes.rtx_vsr_stream.load_vsr_api",
+        lambda: (lambda *args, **kwargs: FakeEffect(), SimpleNamespace(HIGH="high", ULTRA="ultra")),
+    )
+
+    with pytest.raises(RuntimeError, match="code -14"):
+        probe_vsr_capability("ULTRA", 0)
 
 
 @pytest.mark.parametrize("name, expected", [("HIGH", "high"), ("ULTRA", "ultra")])

@@ -196,3 +196,26 @@ class VsrFrameProcessor:
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
         return False
+
+
+def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
+    """Validate the real RTX VSR effect before H3 denoising starts.
+
+    Importing ``nvvfx`` only proves that the Python package is present.  The
+    NVIDIA SDK can still reject ``NvVFX_Load`` because the installed driver,
+    Broadcast SDK, GPU, or requested quality is unsupported.  Reuse the same
+    constructor/load path as frame processing so this failure is reported by
+    the director node before any expensive video generation begins.
+    """
+    try:
+        api = load_vsr_api()
+        with VsrFrameProcessor(api, quality, int(device_id), 64, 64):
+            return True
+    except Exception as exc:
+        raise RuntimeError(
+            "RTX VSR 前置检查失败，尚未开始 H3 视频生成。"
+            f"\n质量：{quality}；GPU：{device_id}。"
+            f"\n详细错误：{exc}"
+            "\n请确认 NVIDIA 驱动、NVIDIA Broadcast SDK 与 nvidia-vfx 版本匹配。"
+            "\n如果当前设备不支持该能力，请将‘最终输出’切换为‘原生尺寸直出’，不会影响 H3 生成。"
+        ) from exc
