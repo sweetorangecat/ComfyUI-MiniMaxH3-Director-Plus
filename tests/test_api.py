@@ -99,6 +99,22 @@ def test_api_template_routes_acceleration_status_into_performance_preset():
     assert scheduler["inputs"]["steps"] == ["28", 0]
 
 
+def test_api_template_and_patcher_expose_final_postprocess_controls():
+    from tools.build_u11_workflow import build_api_template
+
+    template = build_api_template()
+    assert template["10"]["inputs"]["postprocess_mode"] == "native"
+    assert template["10"]["inputs"]["rtx_quality"] == "HIGH"
+
+    prompt = patch_template(template, {
+        "mode": "T2VA",
+        "postprocess_mode": "rtx_vsr",
+        "rtx_quality": "ULTRA",
+    })
+    assert prompt["10"]["inputs"]["postprocess_mode"] == "rtx_vsr"
+    assert prompt["10"]["inputs"]["rtx_quality"] == "ULTRA"
+
+
 def test_api_template_removes_fish_bridge_for_native_h3_reference():
     from tools.build_u11_workflow import build_api_template
 

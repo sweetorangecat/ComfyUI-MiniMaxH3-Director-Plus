@@ -68,6 +68,8 @@
       "timeline_data": "{\"version\":1,\"items\":[]}",
       "target_dialogue": "",
       "reference_transcript": "",
+      "postprocess_mode": "native",
+      "rtx_quality": "HIGH",
       "voice_reference_name_1": "",
       "voice_reference_name_2": "",
       "voice_reference_name_3": "",

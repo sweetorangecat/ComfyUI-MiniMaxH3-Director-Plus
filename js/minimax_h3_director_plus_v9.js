@@ -48,6 +48,14 @@ const VOICE_MODES = [
   ["fish_lock", "Fish S2 高级锁定"],
 ];
 const VOICE_MODE_LABELS = {none: "不使用音色", h3_reference: "H3 原生音色参考", fish_lock: "Fish S2 高级锁定"};
+const POSTPROCESS_MODES = [
+  ["native", "原生尺寸直出"],
+  ["rtx_vsr", "AI 细节重建（RTX VSR）"],
+];
+const RTX_QUALITIES = [
+  ["HIGH", "HIGH（质量）"],
+  ["ULTRA", "ULTRA（更高质量）"],
+];
 const VOICE_REFERENCE_LABELS = ["音色参考 1", "音色参考 2", "音色参考 3"];
 const AUDIO_REFERENCE_HINT = "<Audio 1> / <Audio 2> / <Audio 3>";
 const FISH_MODELS = [
@@ -444,7 +452,7 @@ function install(node) {
 
   const hidden = [
     "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset", "custom_width", "custom_height", "seed", "seed_mode", "voice_mode", "fish_model_path",
-    "ref_image_size", "performance_preset", "timeline_data",
+    "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "timeline_data",
     "target_dialogue", "reference_transcript", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
     "first_image_file", "last_image_file", "voice_reference_audio_file", "voice_reference_audio_2_file", "voice_reference_audio_3_file",
     "reference_image_1_file", "reference_image_2_file", "reference_image_3_file", "reference_image_4_file", "reference_image_5_file",
@@ -517,13 +525,27 @@ function install(node) {
       valueControl("噪音种子", "seed", [], widget(node, "seed")?.value ?? 0, "number"),
       valueControl("种子模式", "seed_mode", SEED_MODES, widget(node, "seed_mode")?.value || "randomize"),
     );
+    const postprocessGrid = document.createElement("div");
+    postprocessGrid.className = "h3p-grid";
+    const postprocessMode = widget(node, "postprocess_mode")?.value || "native";
+    postprocessGrid.append(
+      valueControl("最终输出", "postprocess_mode", POSTPROCESS_MODES, postprocessMode),
+      valueControl("RTX VSR 质量", "rtx_quality", RTX_QUALITIES, widget(node, "rtx_quality")?.value || "HIGH"),
+    );
+    specification.append(specGrid);
+    specification.append(postprocessGrid);
+    const postprocessNote = document.createElement("div");
+    postprocessNote.className = "h3p-spec-note";
+    postprocessNote.textContent = postprocessMode === "rtx_vsr"
+      ? "目标尺寸大于 H3 原生尺寸时逐帧使用 RTX VSR；同尺寸自动旁路，缺少依赖会明确报错，不会静默改用普通缩放。"
+      : "只保存一个最终视频；原生尺寸直出不加载 RTX VSR。选择更大的最终目标后可切换 AI 细节重建。";
+    specification.append(postprocessNote);
     if (aspect === "CUSTOM") {
       specGrid.append(
         valueControl("自定义宽比", "custom_width", [], widget(node, "custom_width")?.value || 16, "number"),
         valueControl("自定义高比", "custom_height", [], widget(node, "custom_height")?.value || 9, "number"),
       );
     }
-    specification.append(specGrid);
     const specNote = document.createElement("div");
     specNote.className = "h3p-spec-note";
     specNote.textContent = "时长支持 4–15 秒；尺寸按 32 对齐。2K/4K 属于生成后的超分选项，不冒充 H3 原生分辨率。";
@@ -748,7 +770,7 @@ function install(node) {
   requestAnimationFrame(bindMountedControls);
   setTimeout(bindMountedControls, 250);
 
-  ["mode", "voice_mode", "performance_preset", "aspect_ratio", "resolution_preset", "seed_mode"].forEach((name) => {
+  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "rtx_quality", "aspect_ratio", "resolution_preset", "seed_mode"].forEach((name) => {
     const item = widget(node, name);
     if (!item) return;
     const original = item.callback;

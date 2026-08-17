@@ -113,7 +113,7 @@ def _iter_vsr_frame_chunks(
             processor = VsrFrameProcessor(
                 api, quality, device_id, int(target_width), int(target_height)
             )
-        except RuntimeError as exc:
+        except Exception as exc:
             raise _VsrProcessingError(str(exc)) from exc
         for index in frame_indices():
             # The processor owns the CUDA conversion; keep only one source
@@ -121,7 +121,7 @@ def _iter_vsr_frame_chunks(
             chw_frame = images[index, ..., :3].detach().movedim(-1, 0).contiguous()
             try:
                 pending.append(processor.process(chw_frame))
-            except RuntimeError as exc:
+            except Exception as exc:
                 raise _VsrProcessingError(str(exc)) from exc
             if len(pending) >= frames_per_chunk:
                 yield torch.stack(pending, dim=0).contiguous()
@@ -281,6 +281,14 @@ class MiniMaxH3StreamingVideoCombine:
         target_width = int(guide.get("target_width") or source.shape[2])
         target_height = int(guide.get("target_height") or source.shape[1])
         postprocess_path = _resolve_postprocess_path(guide, source_width, source_height)
+        # Fail before creating an output path/encoder when the strict VSR
+        # dependency is unavailable. The frame iterator is still responsible
+        # for creating and closing the per-attempt processor.
+        if postprocess_path == "rtx_vsr":
+            try:
+                load_vsr_api()
+            except Exception as exc:
+                raise _VsrProcessingError(str(exc)) from exc
         if postprocess_path == "downscale":
             source = source.to(device="cpu", dtype=torch.float32)
         selected_bit_depth = dasiwa._selected_bit_depth(codec, bit_depth, source)

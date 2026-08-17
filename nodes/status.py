@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import importlib
 from pathlib import Path
 
 
@@ -21,6 +22,30 @@ def _has_matching_file(path, *needles):
         for item in path.rglob("*")
         if item.is_file()
     )
+
+
+def _rtx_vsr_status():
+    """Probe the active ComfyUI Python environment without loading a model."""
+    try:
+        module = importlib.import_module("nvvfx")
+    except (ImportError, ModuleNotFoundError) as exc:
+        return {
+            "node_available": True,
+            "dependency_available": False,
+            "message": f"缺少 nvidia-vfx/nvvfx，请在当前 ComfyUI Python 环境安装后重启：{exc}",
+        }
+    video_super_res = getattr(module, "VideoSuperRes", None)
+    if video_super_res is None:
+        return {
+            "node_available": True,
+            "dependency_available": False,
+            "message": "已找到 nvvfx，但缺少 VideoSuperRes；请检查 NVIDIA Broadcast SDK 与 DaSiWa 依赖。",
+        }
+    return {
+        "node_available": True,
+        "dependency_available": True,
+        "message": "RTX VSR 依赖已就绪",
+    }
 
 
 def detect_capabilities(comfy_root):
@@ -59,6 +84,7 @@ def detect_capabilities(comfy_root):
             "rife": any("frame-interpolation" in name for name in node_names),
             "ltx_upscale": "comfyui-ltxvideo" in node_names,
             "video_helper_suite": "comfyui-videohelpersuite" in node_names,
+            "rtx_vsr": _rtx_vsr_status(),
         },
         "fish_s2": {
             "node_available": fish_node,
@@ -78,7 +104,8 @@ def status_summary(status):
         fish_text = "Fish S2：节点未安装，保持关闭即可"
     models = status["models"]
     h3_text = f"H3 模型：FL2VA {'可用' if models['fl2va'] else '缺失'} / REF2VA {'可用' if models['ref2va'] else '缺失'}"
-    return f"{h3_text}\n{fish_text}"
+    rtx_text = f"RTX VSR：{status['postprocess']['rtx_vsr']['message']}"
+    return f"{h3_text}\n{fish_text}\n{rtx_text}"
 
 
 class MiniMaxH3DirectorPlusStatus:

@@ -8,7 +8,7 @@
 
 返回版本化字段 schema 和中文名称。当前公开字段为：
 
-`mode`、`prompt`、`duration`、`aspect_ratio`、`resolution_preset`、`custom_width`、`custom_height`、`seed`、`first_image`、`last_image`、`references`、`voice_mode`、`voice_reference_audio`、`voice_reference_audios`、`voice_reference_names`、`target_dialogue`、`reference_transcript`、`fish_model_path`、`ref_image_size`、`performance_preset`。
+`mode`、`prompt`、`duration`、`aspect_ratio`、`resolution_preset`、`custom_width`、`custom_height`、`seed`、`first_image`、`last_image`、`references`、`voice_mode`、`voice_reference_audio`、`voice_reference_audios`、`voice_reference_names`、`target_dialogue`、`reference_transcript`、`fish_model_path`、`ref_image_size`、`performance_preset`、`postprocess_mode`、`rtx_quality`。
 
 `duration` 为 4-15 秒整数。`references` 最多 9 张；`voice_reference_audios` 最多 3 路，`voice_reference_names` 按相同下标绑定角色。旧字段 `voice_reference_audio` 继续兼容，等价于音色参考 1。
 
@@ -16,13 +16,27 @@ API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递�
 
 `performance_preset` 支持 `稳定质量`、`质量优先加速`、`极速4步`、`参考图加速`、`低显存` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。
 
+`postprocess_mode` 控制最终视频输出：`native` 为 H3 原生尺寸直出，`rtx_vsr` 为 RTX VSR AI 细节重建；`rtx_quality` 可选 `HIGH` 或 `ULTRA`。目标尺寸与 H3 原生尺寸相同会自动走 `native_bypass`，目标更小走高质量缩小，目标更大且选择 `rtx_vsr` 才走 `rtx_vsr`。最终只保存一个视频，不会同时输出原始视频和超分视频。RTX VSR 依赖缺失时会明确报错，不会静默退回普通插值。
+
 API 中的 `resolution_preset` 同样表示最终输出目标，支持 `2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。选择 `低显存` 后，4/6/8/10/12/15 秒任务会把 H3 原生采样上限自动限制到约 1.00/0.65/0.50/0.36/0.30/0.26 MP，再在最终编码阶段 CPU 分块放大并交给流式 MP4 输出节点；调用方不需要增加超分参数或修改 API 模板。
 
 `voice_mode = "fish_lock"` 时只使用 `voice_reference_audios` 的第 1 路作为 Fish 音色样本，`target_dialogue` 是要新生成的对白，`reference_transcript` 是样本音频原文（建议填写），`fish_model_path` 默认使用 `s2-pro-w4a16 (auto download)`。Fish 失败会返回明确错误，不会静默回退到 H3 原生音色。
 
 ### `GET /h3-director-plus/status`
 
-探测本机模型和节点能力。Fish S2 分成 `node_available`、`model_available`、`available` 三个状态，不会把空模型目录报成可用。
+探测本机模型和节点能力。Fish S2 分成 `node_available`、`model_available`、`available` 三个状态，不会把空模型目录报成可用。`postprocess.rtx_vsr` 会显示 `node_available`、`dependency_available` 和中文安装提示；状态探测不会下载模型或初始化 VSR。
+
+启用 RTX VSR 前，在 ComfyUI 自带 Python 中安装 DaSiWa 依赖，然后重启 ComfyUI：
+
+```powershell
+D:\ComfyUI_windows_portable-G313\python_embeded\python.exe -m pip install -r D:\ComfyUI_windows_portable-G313\ComfyUI\custom_nodes\ComfyUI-DaSiWa-Nodes\requirements.txt
+```
+
+还需要 NVIDIA Broadcast SDK 提供的 `nvvfx`/`VideoSuperRes` 运行库。验证命令：
+
+```powershell
+D:\ComfyUI_windows_portable-G313\python_embeded\python.exe -c "import nvvfx; print(nvvfx.VideoSuperRes)"
+```
 
 ### `POST /h3-director-plus/assets`
 
@@ -47,6 +61,8 @@ $body = @{
   voice_reference_audios = @("h3-director-plus/voice-a.wav", "h3-director-plus/voice-b.wav")
   voice_reference_names = @("角色甲", "角色乙")
   performance_preset = "参考图加速"
+  postprocess_mode = "rtx_vsr"
+  rtx_quality = "HIGH"
   seed = 123
 } | ConvertTo-Json
 Invoke-RestMethod http://127.0.0.1:8188/h3-director-plus/generate -Method Post -ContentType application/json -Body $body

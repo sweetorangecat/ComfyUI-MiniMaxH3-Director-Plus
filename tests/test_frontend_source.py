@@ -50,6 +50,16 @@ def test_ui_exposes_duration_aspect_and_resolution_controls():
         assert aspect in text
 
 
+def test_ui_exposes_one_final_output_postprocess_surface():
+    text = source()
+    for label in ("最终输出", "原生尺寸直出", "AI 细节重建（RTX VSR）", "RTX VSR 质量"):
+        assert label in text
+    assert 'valueControl("最终输出", "postprocess_mode"' in text
+    assert 'valueControl("RTX VSR 质量", "rtx_quality"' in text
+    assert '"postprocess_mode", "rtx_quality", "timeline_data"' in text
+    assert "同尺寸自动旁路" in text
+
+
 def test_frontend_filters_performance_presets_by_mode_and_voice():
     text = source()
     assert "allowedPerformancePresets" in text

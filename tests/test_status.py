@@ -1,5 +1,6 @@
-from pathlib import Path
+from types import SimpleNamespace
 
+import nodes.status as status_module
 from nodes.status import detect_capabilities, status_summary
 
 
@@ -49,3 +50,21 @@ def test_status_summary_is_chinese(tmp_path):
     summary = status_summary(detect_capabilities(tmp_path))
     assert "Fish S2" in summary
     assert "模型未就绪" in summary
+
+
+def test_status_reports_rtx_vsr_dependency_state(monkeypatch, tmp_path):
+    def missing(name):
+        raise ModuleNotFoundError(name)
+
+    monkeypatch.setattr(status_module.importlib, "import_module", missing)
+    status = detect_capabilities(tmp_path)
+    assert status["postprocess"]["rtx_vsr"]["node_available"] is True
+    assert status["postprocess"]["rtx_vsr"]["dependency_available"] is False
+    assert "安装后重启" in status["postprocess"]["rtx_vsr"]["message"]
+
+    monkeypatch.setattr(
+        status_module.importlib, "import_module", lambda name: SimpleNamespace(VideoSuperRes=object())
+    )
+    ready = detect_capabilities(tmp_path)["postprocess"]["rtx_vsr"]
+    assert ready["dependency_available"] is True
+    assert ready["message"] == "RTX VSR 依赖已就绪"
