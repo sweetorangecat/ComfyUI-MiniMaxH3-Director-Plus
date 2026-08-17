@@ -7,18 +7,15 @@ import torch
 
 from nodes.rtx_vsr_stream import (
     VsrFrameProcessor,
+    _dasiwa_requirements_path,
     load_vsr_api,
     resolve_vsr_quality,
 )
 
 
-REQUIREMENTS_PATH = (
-    "D:/ComfyUI_windows_portable-G313/ComfyUI/custom_nodes/"
-    "ComfyUI-DaSiWa-Nodes/requirements.txt"
-)
+REQUIREMENTS_PATH = str(_dasiwa_requirements_path())
 EMBEDDED_INSTALL_COMMAND = (
-    "D:/ComfyUI_windows_portable-G313/python_embeded/python.exe -m pip install -r "
-    + REQUIREMENTS_PATH
+    f'"{sys.executable}" -m pip install -r "{REQUIREMENTS_PATH}"'
 )
 
 
@@ -36,6 +33,7 @@ def test_load_vsr_api_reports_actionable_embedded_python_install_steps(monkeypat
 
     message = str(error.value)
     assert sys.executable in message
+    assert EMBEDDED_INSTALL_COMMAND in message
     assert REQUIREMENTS_PATH in message
     assert EMBEDDED_INSTALL_COMMAND in message
     assert "nvidia-vfx" in message

@@ -3,27 +3,27 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import torch
 
 
-_DASIWA_REQUIREMENTS = (
-    "D:/ComfyUI_windows_portable-G313/ComfyUI/custom_nodes/"
-    "ComfyUI-DaSiWa-Nodes/requirements.txt"
-)
-_EMBEDDED_PYTHON = "D:/ComfyUI_windows_portable-G313/python_embeded/python.exe"
+def _dasiwa_requirements_path() -> Path:
+    """Resolve the sibling DaSiWa dependency file for any ComfyUI install."""
+    custom_nodes = Path(__file__).resolve().parents[2]
+    return custom_nodes / "ComfyUI-DaSiWa-Nodes" / "requirements.txt"
 
 
 def _dependency_error(reason: str) -> RuntimeError:
-    install_command = (
-        f"{_EMBEDDED_PYTHON} -m pip install -r {_DASIWA_REQUIREMENTS}"
-    )
-    verify_command = f'"{sys.executable}" -c "import nvvfx; print(nvvfx.VideoSuperRes)"'
+    requirements = _dasiwa_requirements_path()
+    python_executable = Path(sys.executable)
+    install_command = f'"{python_executable}" -m pip install -r "{requirements}"'
+    verify_command = f'"{python_executable}" -c "import nvvfx; print(nvvfx.VideoSuperRes)"'
     return RuntimeError(
         "RTX VSR 依赖不可用："
         f"{reason}\n"
         f"当前 ComfyUI Python：{sys.executable}\n"
-        f"DaSiWa 依赖文件（绝对路径）：{_DASIWA_REQUIREMENTS}\n"
+        f"DaSiWa 依赖文件（绝对路径）：{requirements}\n"
         f"请安装 nvidia-vfx：{install_command}\n"
         "部分 nvidia-vfx 版本还需要先安装 NVIDIA Broadcast SDK。\n"
         f"安装完成后重启 ComfyUI，并运行以下命令验证：{verify_command}"

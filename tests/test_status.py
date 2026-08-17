@@ -68,3 +68,15 @@ def test_status_reports_rtx_vsr_dependency_state(monkeypatch, tmp_path):
     ready = detect_capabilities(tmp_path)["postprocess"]["rtx_vsr"]
     assert ready["dependency_available"] is True
     assert ready["message"] == "RTX VSR 依赖已就绪"
+
+
+def test_status_reports_rtx_vsr_when_windows_dll_is_missing(monkeypatch, tmp_path):
+    def missing_dll(name):
+        raise OSError("The specified module could not be found")
+
+    monkeypatch.setattr(status_module.importlib, "import_module", missing_dll)
+
+    status = detect_capabilities(tmp_path)
+
+    assert status["postprocess"]["rtx_vsr"]["dependency_available"] is False
+    assert "安装后重启" in status["postprocess"]["rtx_vsr"]["message"]

@@ -28,7 +28,7 @@ def _rtx_vsr_status():
     """Probe the active ComfyUI Python environment without loading a model."""
     try:
         module = importlib.import_module("nvvfx")
-    except (ImportError, ModuleNotFoundError) as exc:
+    except (ImportError, ModuleNotFoundError, OSError) as exc:
         return {
             "node_available": True,
             "dependency_available": False,
