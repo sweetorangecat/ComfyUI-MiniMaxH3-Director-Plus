@@ -68,8 +68,10 @@ def test_ui_exposes_one_final_output_postprocess_surface():
 
 def test_frontend_filters_performance_presets_by_mode_and_voice():
     text = source()
+    assert '"质量优先二采样"' in text
     assert "allowedPerformancePresets" in text
     assert 'voiceMode !== "none"' in text
+    assert 'voiceMode === "fish_lock"' in text
     assert 'setWidget(node, "performance_preset", preset, false)' in text
 
 

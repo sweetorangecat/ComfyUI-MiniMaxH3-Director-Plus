@@ -544,17 +544,17 @@ def _upgrade_subgraphs(workflow):
                 if guide_link not in exposed_inputs[guide_slot].setdefault("linkIds", []):
                     exposed_inputs[guide_slot]["linkIds"].append(guide_link)
 
-            # Keep the native custom sampler UI, but scope ComfyUI's low-VRAM
-            # state around the actual denoising call. This avoids a global
-            # setting leak while preserving the original node placement.
+            # Keep one sampler socket layout while routing the selected preset
+            # through the self-contained U15 two-stage node. It automatically
+            # bypasses the second stage for every other performance preset.
             for sampler in [
                 item for item in subgraph.get("nodes", [])
                 if item.get("type") == "SamplerCustomAdvanced"
             ]:
                 old_inputs = {item.get("name"): item for item in sampler.get("inputs", [])}
-                sampler["type"] = "MiniMaxH3MemoryAwareSampler"
-                sampler["title"] = "H3 低显存采样保护"
-                sampler["properties"] = _properties("MiniMaxH3MemoryAwareSampler")
+                sampler["type"] = "MiniMaxH3TwoStageSampler"
+                sampler["title"] = "H3 U15 二阶段 Latent 细化采样（自动旁路）"
+                sampler["properties"] = _properties("MiniMaxH3TwoStageSampler")
                 sampler["inputs"] = [
                     {**old_inputs.get("noise", _socket("noise", "NOISE")), "name": "noise", "type": "NOISE"},
                     {**old_inputs.get("guider", _socket("guider", "GUIDER")), "name": "guider", "type": "GUIDER"},
@@ -770,7 +770,7 @@ def build_api_template():
         "18": {"class_type": "RandomNoise", "inputs": {"noise_seed": 0}, "_meta": {"title": "API 随机种子"}},
         "19": {"class_type": "MiniMaxH3SamplerRouter", "inputs": {"sampler_name": "res_multistep", "guide": ["10", 0]}, "_meta": {"title": "API H3 实际采样器路由"}},
         "20": {"class_type": "BasicScheduler", "inputs": {"model": ["15", 0], "scheduler": "simple", "steps": ["28", 0], "denoise": 1.0}, "_meta": {"title": "API 调度器"}},
-        "21": {"class_type": "MiniMaxH3MemoryAwareSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0]}, "_meta": {"title": "API H3 低显存采样保护"}},
+        "21": {"class_type": "MiniMaxH3TwoStageSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0]}, "_meta": {"title": "API H3 U15 二阶段 Latent 细化采样（自动旁路）"}},
         "22": {"class_type": "VAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 视频解码"}},
         "23": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["21", 1], "vae": ["5", 0]}, "_meta": {"title": "API 音频解码"}},
         "29": {"class_type": "MiniMaxH3ColorGuard", "inputs": {"images": ["22", 0], "guide": ["10", 0], "enabled": True, "strength": 1.0}, "_meta": {"title": "曝光与色彩连续性保护"}},

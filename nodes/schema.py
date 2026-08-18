@@ -18,12 +18,14 @@ PUBLIC_API_KEYS = (
 PERFORMANCE_PRESETS = {
     "稳定质量": "quality",
     "质量优先加速": "quality_sage",
+    "质量优先二采样": "quality_two_stage",
     "极速4步": "fast_4step",
     "参考图加速": "reference_fast",
     "低显存": "low_vram",
     "自定义": "custom",
     "quality": "quality",
     "quality_sage": "quality_sage",
+    "quality_two_stage": "quality_two_stage",
     "fast_4step": "fast_4step",
     "reference_fast": "reference_fast",
     "low_vram": "low_vram",
@@ -33,14 +35,16 @@ PERFORMANCE_PRESETS = {
 PERFORMANCE_PRESETS_BY_ROUTE = {
     # The official H3 Turbo LoRA ships with a T2V example workflow and is
     # compatible with the same FL2VA model endpoint used by T2VA/FL2VA/I2VA.
-    "t2va": ("quality", "quality_sage", "fast_4step", "low_vram"),
-    "endpoint": ("quality", "quality_sage", "fast_4step", "low_vram"),
-    "reference": ("quality", "quality_sage", "reference_fast", "fast_4step", "low_vram"),
+    "t2va": ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram"),
+    "endpoint": ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram"),
+    "reference": ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram"),
 }
 
 
 def allowed_performance_presets(mode, voice_mode="none"):
     """Return the safe, user-facing presets for the active H3 route."""
+    if voice_mode == "fish_lock":
+        return tuple(item for item in PERFORMANCE_PRESETS_BY_ROUTE["reference"] if item != "quality_two_stage")
     if voice_mode != "none" or mode == "REF2VA":
         return PERFORMANCE_PRESETS_BY_ROUTE["reference"]
     if mode == "T2VA":
@@ -208,16 +212,16 @@ def public_schema():
             "ref_image_size": {"中文名称": "参考图尺寸策略", "enum": ["match", "max"], "default": "match"},
             "performance_preset": {
                 "中文名称": "性能预设",
-                "enum": list(PERFORMANCE_PRESETS)[:6],
+                "enum": list(PERFORMANCE_PRESETS)[:7],
                 "default": "稳定质量",
                 "allowed_by_route": {
-                    "T2VA": ["稳定质量", "质量优先加速", "极速4步", "低显存"],
-                    "I2VA / FL2VA / L2VA": ["稳定质量", "质量优先加速", "极速4步", "低显存"],
-                    "REF2VA": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
-                    "I2VA + 音色参考": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
-                    "FL2VA + 音色参考": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
-                    "L2VA + 音色参考": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
-                    "T2VA + 音色参考": ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
+                    "T2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存"],
+                    "I2VA / FL2VA / L2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存"],
+                    "REF2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
+                    "I2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
+                    "FL2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
+                    "L2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
+                    "T2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
                 },
             },
             "postprocess_mode": {

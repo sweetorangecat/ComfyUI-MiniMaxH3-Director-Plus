@@ -402,7 +402,7 @@
     }
   },
   "21": {
-    "class_type": "MiniMaxH3MemoryAwareSampler",
+    "class_type": "MiniMaxH3TwoStageSampler",
     "inputs": {
       "noise": [
         "18",
@@ -430,7 +430,7 @@
       ]
     },
     "_meta": {
-      "title": "API H3 低显存采样保护"
+      "title": "API H3 U15 二阶段 Latent 细化采样（自动旁路）"
     }
   },
   "22": {

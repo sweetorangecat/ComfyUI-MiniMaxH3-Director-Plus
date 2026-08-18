@@ -112,7 +112,7 @@ def test_low_vram_description_matches_disabled_cache():
 
 
 @pytest.mark.parametrize("mode", ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"])
-@pytest.mark.parametrize("preset", ["quality", "quality_sage", "fast_4step", "reference_fast", "low_vram", "custom"])
+@pytest.mark.parametrize("preset", ["quality", "quality_sage", "quality_two_stage", "fast_4step", "reference_fast", "low_vram", "custom"])
 def test_every_mode_has_a_defined_performance_contract(mode, preset):
     backend = "ref2va_model" if mode == "REF2VA" else "fl2va_model"
     values = performance._runtime_preset_values(
@@ -126,7 +126,7 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     })
 
     assert values["steps"] >= 4
-    assert values["use_sage"] is (preset in {"quality_sage", "fast_4step", "reference_fast", "low_vram"})
+    assert values["use_sage"] is (preset in {"quality_sage", "quality_two_stage", "fast_4step", "reference_fast", "low_vram"})
     expected_cache = preset in {"fast_4step", "reference_fast"} and not (mode == "T2VA" and preset == "fast_4step")
     assert values["use_cache"] is expected_cache
     assert plan["backend"] == backend
@@ -164,7 +164,7 @@ def test_t2va_fast_uses_official_h3_turbo_contract():
         "resolved_backend": "fl2va_model",
     }
     assert performance.allowed_performance_presets("T2VA", "none") == (
-        "quality", "quality_sage", "fast_4step", "low_vram"
+        "quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram"
     )
     assert acceleration_plan(guide)["use_turbo_lora"] is True
     assert acceleration_plan(guide)["lora_name"] == performance.TURBO_LORA_NAME
@@ -328,7 +328,7 @@ def test_reference_fast_uses_safe_steps_when_requested_acceleration_fails(monkey
     assert steps == 8
 
 
-@pytest.mark.parametrize("preset", ["low_vram", "quality_sage"])
+@pytest.mark.parametrize("preset", ["low_vram", "quality_sage", "quality_two_stage"])
 def test_memory_policy_restores_comfy_state(monkeypatch, preset):
     class VramState:
         NORMAL_VRAM = "normal"
@@ -342,6 +342,15 @@ def test_memory_policy_restores_comfy_state(monkeypatch, preset):
     with memory_policy({"performance_preset": preset}):
         assert mm.vram_state == VramState.LOW_VRAM
     assert mm.vram_state == VramState.NORMAL_VRAM
+
+
+def test_non_two_stage_preset_explicitly_bypasses_refinement():
+    guide = {"mode": "FL2VA", "voice_mode": "none", "performance_preset": "quality"}
+    MiniMaxH3PerformancePreset().apply(guide)
+    assert guide["two_stage_enabled"] is False
+    assert guide["two_stage_steps"] == 0
+    assert guide["two_stage_scale"] == 1.0
+    assert guide["two_stage_status"] == "旁路"
 
 
 def test_memory_aware_sampler_exposes_guide_input():

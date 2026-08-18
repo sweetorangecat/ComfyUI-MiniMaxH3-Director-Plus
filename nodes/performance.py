@@ -27,6 +27,19 @@ PRESETS = {
         "vae_device": "dynamic",
         "fish_device": "cpu",
     },
+    # U15-inspired quality route: the sampler splits the native sigma path,
+    # enlarges only the video latent, then completes a lower-sigma refinement.
+    "quality_two_stage": {
+        "steps": 14,
+        "two_stage_steps": 6,
+        "two_stage_scale": 1.5,
+        "use_sage": True,
+        "use_cache": False,
+        "interpolate": False,
+        "clip_device": "dynamic",
+        "vae_device": "dynamic",
+        "fish_device": "cpu",
+    },
     "fast_4step": {"steps": 4, "use_sage": True, "use_cache": True, "interpolate": False},
     "reference_fast": {"steps": 6, "use_sage": True, "use_cache": True, "interpolate": False},
     # Keep ComfyUI's native dynamic patcher route.  It stages large H3
@@ -51,6 +64,7 @@ REF2VA_TURBO_LORA_NAME = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safeten
 PRESET_LABELS = {
     "稳定质量": "quality",
     "质量优先加速": "quality_sage",
+    "质量优先二采样": "quality_two_stage",
     "极速4步": "fast_4step",
     "参考图加速": "reference_fast",
     "低显存": "low_vram",
@@ -187,7 +201,7 @@ def _node_model(result):
 def _apply_sage_attention(model, guide):
     """Apply SageAttention with an RTX 30xx-safe kernel."""
     preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
-    if preset in {"quality_sage", "low_vram"}:
+    if preset in {"quality_sage", "quality_two_stage", "low_vram"}:
         # The generic KJ override keeps full Q/K/V tensors alive and can add
         # multiple GiB of temporary memory on long H3 sequences. The H3
         # patch quantizes the packed attention path and splits independent
@@ -262,7 +276,7 @@ def memory_policy(guide):
         guide.get("performance_preset", "quality"),
         guide.get("performance_preset", "quality"),
     )
-    if preset not in {"low_vram", "quality_sage"}:
+    if preset not in {"low_vram", "quality_sage", "quality_two_stage"}:
         yield
         return
 
@@ -307,6 +321,7 @@ class MiniMaxH3PerformancePreset:
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
+            "quality_two_stage": "质量优先二采样：14 步连续 sigma（首阶段 8 步 + 二阶段 6 步）+ 1.5 倍视频 latent 细化，音频 latent 保持不变",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
@@ -314,6 +329,10 @@ class MiniMaxH3PerformancePreset:
         }
         if mode == "T2VA" and name == "fast_4step":
             descriptions[name] = "T2VA 极速 4 步：官方 H3 Turbo + Sage，关闭 EasyCache 以减少细节损失"
+        guide["two_stage_enabled"] = name == "quality_two_stage"
+        guide["two_stage_steps"] = int(values.get("two_stage_steps", 0))
+        guide["two_stage_scale"] = float(values.get("two_stage_scale", 1.0))
+        guide["two_stage_status"] = "待执行" if guide["two_stage_enabled"] else "旁路"
         if downgraded:
             descriptions[name] = f"{mode} / {voice_mode} 不支持所选预设，已回退稳定质量"
         return values["steps"], values["use_sage"], values["use_cache"], descriptions[name]
@@ -408,6 +427,8 @@ def _apply_acceleration(model, guide):
         label = "REF2VA Turbo 4 步 LoRA" if plan["backend"] == "ref2va_model" else "H3 Turbo 4 步 LoRA"
         if plan["preset"] == "quality_sage":
             label = "质量优先 SageAttention"
+        elif plan["preset"] == "quality_two_stage":
+            label = "质量优先二采样 + SageAttention"
         elif not plan["use_turbo_lora"]:
             label = "参考图 Sage/EasyCache"
         LOGGER.info(

@@ -12,11 +12,11 @@ const DIRECTOR_UI_WIDTH = 1350;
 const DIRECTOR_UI_HEIGHT = 1510;
 const DIRECTOR_DOM_HEIGHT = 1050;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
-const PRESETS = ["稳定质量", "质量优先加速", "极速4步", "参考图加速", "低显存", "自定义"];
+const PRESETS = ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "参考图加速", "低显存", "自定义"];
 const PERFORMANCE_PRESETS_BY_ROUTE = {
-  t2va: ["稳定质量", "质量优先加速", "极速4步", "低显存"],
-  endpoint: ["稳定质量", "质量优先加速", "极速4步", "低显存"],
-  reference: ["稳定质量", "质量优先加速", "参考图加速", "极速4步", "低显存"],
+  t2va: ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存"],
+  endpoint: ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存"],
+  reference: ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
@@ -115,9 +115,20 @@ function setWidget(node, name, value, notify = true) {
 }
 
 function allowedPerformancePresets(mode, voiceMode) {
-  if (voiceMode !== "none" || mode === "REF2VA") return PERFORMANCE_PRESETS_BY_ROUTE.reference;
-  if (mode === "T2VA") return PERFORMANCE_PRESETS_BY_ROUTE.t2va;
-  return PERFORMANCE_PRESETS_BY_ROUTE.endpoint;
+  let presets;
+  if (voiceMode !== "none" || mode === "REF2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.reference;
+  else if (mode === "T2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.t2va;
+  else presets = PERFORMANCE_PRESETS_BY_ROUTE.endpoint;
+  if (voiceMode === "fish_lock") return presets.filter((item) => item !== "质量优先二采样");
+  return presets;
+}
+
+function performancePresetHint(preset) {
+  if (preset === "质量优先二采样") return "14 步连续 sigma + 1.5 倍视频 latent 二阶段细化（高显存）";
+  if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
+  if (preset === "低显存") return "动态分层加载，适合显存受限设备";
+  if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
+  return "模式与加速预设";
 }
 
 function keepPromptAssistantReadable(anchor) {
@@ -507,7 +518,7 @@ function install(node) {
 
     const quick = document.createElement("section");
     quick.className = "h3p-section";
-    quick.innerHTML = '<div class="h3p-section-title"><span>快速设置</span><span class="h3p-hint">模式与加速预设</span></div>';
+    quick.innerHTML = `<div class="h3p-section-title"><span>快速设置</span><span class="h3p-hint">${performancePresetHint(preset)}</span></div>`;
     const quickGrid = document.createElement("div");
     quickGrid.className = "h3p-grid";
     quickGrid.append(

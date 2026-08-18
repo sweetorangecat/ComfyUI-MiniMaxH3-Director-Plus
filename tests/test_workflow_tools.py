@@ -172,7 +172,7 @@ def test_api_template_scopes_low_vram_policy_around_sampling():
 
     sampler = build_api_template()["21"]
 
-    assert sampler["class_type"] == "MiniMaxH3MemoryAwareSampler"
+    assert sampler["class_type"] == "MiniMaxH3TwoStageSampler"
     assert sampler["inputs"]["guide"] == ["10", 0]
 
 
