@@ -29,9 +29,59 @@ def test_resolution_preset_is_labeled_as_the_final_output_target():
 def test_director_exposes_postprocess_widgets():
     required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
 
-    assert required["postprocess_mode"][0] == ["native", "rtx_vsr"]
+    assert required["postprocess_mode"][0] == ["native", "lanczos", "ai_upscale", "rtx_vsr"]
     assert "AI 细节重建（RTX VSR）" in required["postprocess_mode"][1]["tooltip"]
     assert required["rtx_quality"][0] == ["HIGH", "ULTRA"]
+    assert required["ai_upscale_model"][0][0] == "auto"
+
+
+@pytest.mark.parametrize("postprocess_mode, expected_path", [("lanczos", "lanczos"), ("ai_upscale", "ai_upscale")])
+def test_director_routes_generic_final_upscale_modes(monkeypatch, postprocess_mode, expected_path):
+    if postprocess_mode == "ai_upscale":
+        monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "fake.pth")
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=5,
+        width=2560,
+        height=1440,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="稳定质量",
+        postprocess_mode=postprocess_mode,
+        resolution_preset="2K QHD",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert guide["postprocess_path"] == expected_path
+
+
+def test_ai_upscale_missing_model_is_reported_before_generation(monkeypatch):
+    monkeypatch.setattr(
+        "nodes.director.resolve_upscale_model_name",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("通用 AI 超分模型不存在：missing.pth")),
+    )
+
+    with pytest.raises(RequestError, match="AI 超分.*不存在"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA",
+            prompt="镜头缓慢推进。",
+            duration=5,
+            width=2560,
+            height=1440,
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="稳定质量",
+            postprocess_mode="ai_upscale",
+            ai_upscale_model="missing.pth",
+            resolution_preset="2K QHD",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
 
 
 def test_uploaded_filenames_are_loaded_without_external_connections(monkeypatch):

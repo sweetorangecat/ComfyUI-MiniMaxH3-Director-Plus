@@ -9,8 +9,10 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+import numpy as np
 from PIL import Image
 
+from .upscale import resolve_upscale_model_name
 from .rtx_vsr_stream import VsrFrameProcessor, load_vsr_api
 
 
@@ -34,10 +36,20 @@ def _dasiwa_video_module():
     raise RuntimeError("缺少 DaSiWa Enhanced Video Combine 编码器")
 
 
-def _resize_cpu_chunk(images, target_width, target_height):
+def _resize_cpu_chunk(images, target_width, target_height, method="bicubic"):
     chunk = images.detach().to(device="cpu", dtype=torch.float32)
     if chunk.shape[1] == target_height and chunk.shape[2] == target_width:
         return chunk.clamp(0.0, 1.0)
+    if method == "lanczos":
+        resampling = getattr(Image, "Resampling", Image).LANCZOS
+        resized = []
+        for frame in chunk:
+            pixels = torch.round(frame[..., :3].clamp(0.0, 1.0) * 255).to(torch.uint8).numpy()
+            image = Image.fromarray(pixels).resize(
+                (int(target_width), int(target_height)), resampling
+            )
+            resized.append(torch.from_numpy(np.asarray(image).copy()).to(torch.float32) / 255.0)
+        return torch.stack(resized, dim=0).clamp(0.0, 1.0)
     resized = F.interpolate(
         chunk.movedim(-1, 1),
         size=(target_height, target_width),
@@ -54,13 +66,14 @@ def _iter_resized_frame_chunks(
     max_chunk_bytes=64 * 1024 * 1024,
     bytes_per_channel=1,
     pingpong=False,
+    method="bicubic",
 ):
     """Yield small target-size frame tensors; never allocate the full target batch."""
     target_frame_bytes = max(1, int(target_width) * int(target_height) * 3 * int(bytes_per_channel))
     frames_per_chunk = max(1, min(4, int(max_chunk_bytes) // target_frame_bytes))
 
     def resized(frame_chunk):
-        return _resize_cpu_chunk(frame_chunk, int(target_width), int(target_height))
+        return _resize_cpu_chunk(frame_chunk, int(target_width), int(target_height), method=method)
 
     for start in range(0, len(images), frames_per_chunk):
         yield resized(images[start:start + frames_per_chunk])
@@ -68,6 +81,103 @@ def _iter_resized_frame_chunks(
         for stop in range(len(images) - 1, 1, -frames_per_chunk):
             start = max(1, stop - frames_per_chunk)
             yield resized(images[start:stop].flip(0))
+
+
+def _iter_lanczos_frame_chunks(
+    images,
+    target_width,
+    target_height,
+    max_chunk_bytes=64 * 1024 * 1024,
+    bytes_per_channel=1,
+    pingpong=False,
+):
+    yield from _iter_resized_frame_chunks(
+        images,
+        target_width,
+        target_height,
+        max_chunk_bytes=max_chunk_bytes,
+        bytes_per_channel=bytes_per_channel,
+        pingpong=pingpong,
+        method="lanczos",
+    )
+
+
+def _load_upscale_model(model_name):
+    try:
+        import comfy.model_management as model_management
+        from comfy_extras.nodes_upscale_model import UpscaleModelLoader
+
+        model_management.unload_all_models()
+        loaded = UpscaleModelLoader().load_model(model_name)
+        return loaded[0] if hasattr(loaded, "__getitem__") else loaded
+    except Exception as exc:
+        raise RuntimeError(f"通用 AI 超分模型加载失败：{model_name}：{exc}") from exc
+
+
+def _upscale_image_with_model(model, image):
+    try:
+        from comfy_extras.nodes_upscale_model import ImageUpscaleWithModel
+
+        result = ImageUpscaleWithModel().upscale(model, image)
+        return result[0] if hasattr(result, "__getitem__") else result
+    except Exception as exc:
+        raise RuntimeError(f"通用 AI 超分处理失败：{exc}") from exc
+
+
+def _release_upscale_model(model):
+    patcher = getattr(model, "patcher", None)
+    if patcher is None:
+        return
+    try:
+        import comfy.model_management as model_management
+
+        model_management.unload_model_and_clones(patcher)
+        model_management.soft_empty_cache()
+    except (ImportError, AttributeError, RuntimeError):
+        return
+
+
+def _iter_ai_upscale_frame_chunks(
+    images,
+    target_width,
+    target_height,
+    model_name="auto",
+    max_chunk_bytes=64 * 1024 * 1024,
+    bytes_per_channel=1,
+    pingpong=False,
+):
+    """Run ComfyUI's generic image upscaler one frame at a time."""
+    scale_factor = max(
+        float(target_width) / max(1, int(images.shape[2])),
+        float(target_height) / max(1, int(images.shape[1])),
+    )
+    selected_model = resolve_upscale_model_name(model_name, scale_factor)
+    target_frame_bytes = max(1, int(target_width) * int(target_height) * 3 * int(bytes_per_channel))
+    frames_per_chunk = max(1, min(4, int(max_chunk_bytes) // target_frame_bytes))
+    model = None
+
+    def frame_indices():
+        yield from range(len(images))
+        if pingpong:
+            for index in range(len(images) - 2, 0, -1):
+                yield index
+
+    pending = []
+    try:
+        model = _load_upscale_model(selected_model)
+        for index in frame_indices():
+            frame = images[index:index + 1].detach().to(device="cpu", dtype=torch.float32)
+            result = _upscale_image_with_model(model, frame)
+            result = _resize_cpu_chunk(result, int(target_width), int(target_height), method="lanczos")
+            pending.append(result[0].contiguous())
+            if len(pending) >= frames_per_chunk:
+                yield torch.stack(pending, dim=0).contiguous()
+                pending.clear()
+        if pending:
+            yield torch.stack(pending, dim=0).contiguous()
+    finally:
+        if model is not None:
+            _release_upscale_model(model)
 
 
 def _iter_native_frame_chunks(images, max_frames=4, pingpong=False):
@@ -141,7 +251,7 @@ def _iter_vsr_frame_chunks(
 def _resolve_postprocess_path(guide, source_width, source_height):
     """Resolve explicit guide paths while retaining legacy guide behavior."""
     path = guide.get("postprocess_path")
-    if path in {"native_bypass", "downscale", "rtx_vsr"}:
+    if path in {"native_bypass", "downscale", "lanczos", "ai_upscale", "rtx_vsr"}:
         # Equal native/target dimensions are always a bypass, even if an old
         # guide requested RTX VSR as a mode rather than a resolved path.
         native_width = int(guide.get("native_width") or source_width)
@@ -164,6 +274,34 @@ def _resolve_postprocess_path(guide, source_width, source_height):
 def _save_resized_frame(source, index, target_width, target_height, output_path, suffix):
     frame = _resize_cpu_chunk(source[index:index + 1], target_width, target_height)[0]
     pixels = torch.round(frame[..., :3] * 255).to(torch.uint8).numpy()
+    path = f"{os.path.splitext(output_path)[0]}-{suffix}-frame.png"
+    Image.fromarray(pixels, mode="RGB").save(path, "PNG")
+    return path
+
+
+def _save_lanczos_frame(source, index, target_width, target_height, output_path, suffix):
+    frame = _resize_cpu_chunk(
+        source[index:index + 1], target_width, target_height, method="lanczos"
+    )[0]
+    pixels = torch.round(frame[..., :3] * 255).to(torch.uint8).numpy()
+    path = f"{os.path.splitext(output_path)[0]}-{suffix}-frame.png"
+    Image.fromarray(pixels, mode="RGB").save(path, "PNG")
+    return path
+
+
+def _save_ai_upscale_frame(
+    source, index, target_width, target_height, model_name, output_path, suffix
+):
+    chunks = _iter_ai_upscale_frame_chunks(
+        source[index:index + 1], target_width, target_height, model_name=model_name
+    )
+    try:
+        frame = next(chunks)[0]
+    finally:
+        close = getattr(chunks, "close", None)
+        if callable(close):
+            close()
+    pixels = torch.round(frame[..., :3].clamp(0.0, 1.0) * 255).to(torch.uint8).numpy()
     path = f"{os.path.splitext(output_path)[0]}-{suffix}-frame.png"
     Image.fromarray(pixels, mode="RGB").save(path, "PNG")
     return path
@@ -289,6 +427,17 @@ class MiniMaxH3StreamingVideoCombine:
                 load_vsr_api()
             except Exception as exc:
                 raise _VsrProcessingError(str(exc)) from exc
+        if postprocess_path == "ai_upscale":
+            try:
+                resolve_upscale_model_name(
+                    guide.get("ai_upscale_model", "auto"),
+                    max(
+                        float(target_width) / max(1, source_width),
+                        float(target_height) / max(1, source_height),
+                    ),
+                )
+            except Exception as exc:
+                raise RuntimeError(f"通用 AI 超分前置检查失败：{exc}") from exc
         if postprocess_path == "downscale":
             source = source.to(device="cpu", dtype=torch.float32)
         selected_bit_depth = dasiwa._selected_bit_depth(codec, bit_depth, source)
@@ -325,6 +474,18 @@ class MiniMaxH3StreamingVideoCombine:
             elif postprocess_path == "downscale":
                 chunks = _iter_resized_frame_chunks(
                     source, target_width, target_height, **chunk_kwargs
+                )
+            elif postprocess_path == "lanczos":
+                chunks = _iter_lanczos_frame_chunks(
+                    source, target_width, target_height, **chunk_kwargs
+                )
+            elif postprocess_path == "ai_upscale":
+                chunks = _iter_ai_upscale_frame_chunks(
+                    source,
+                    target_width,
+                    target_height,
+                    model_name=guide.get("ai_upscale_model", "auto"),
+                    **chunk_kwargs,
                 )
             else:
                 chunks = _iter_vsr_frame_chunks(
@@ -411,6 +572,10 @@ class MiniMaxH3StreamingVideoCombine:
                     frame_exports.append(_save_native_frame(source, 0, output_path, "first"))
                 elif postprocess_path == "downscale":
                     frame_exports.append(_save_resized_frame(source, 0, target_width, target_height, output_path, "first"))
+                elif postprocess_path == "lanczos":
+                    frame_exports.append(_save_lanczos_frame(source, 0, target_width, target_height, output_path, "first"))
+                elif postprocess_path == "ai_upscale":
+                    frame_exports.append(_save_ai_upscale_frame(source, 0, target_width, target_height, guide.get("ai_upscale_model", "auto"), output_path, "first"))
                 else:
                     frame_exports.append(_save_vsr_frame(
                         source, 0, target_width, target_height,
@@ -423,6 +588,10 @@ class MiniMaxH3StreamingVideoCombine:
                     frame_exports.append(_save_native_frame(source, last_index, output_path, "last"))
                 elif postprocess_path == "downscale":
                     frame_exports.append(_save_resized_frame(source, last_index, target_width, target_height, output_path, "last"))
+                elif postprocess_path == "lanczos":
+                    frame_exports.append(_save_lanczos_frame(source, last_index, target_width, target_height, output_path, "last"))
+                elif postprocess_path == "ai_upscale":
+                    frame_exports.append(_save_ai_upscale_frame(source, last_index, target_width, target_height, guide.get("ai_upscale_model", "auto"), output_path, "last"))
                 else:
                     frame_exports.append(_save_vsr_frame(
                         source, last_index, target_width, target_height,

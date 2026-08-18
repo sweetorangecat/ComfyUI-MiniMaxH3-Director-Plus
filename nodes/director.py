@@ -9,6 +9,7 @@ from .prompting import build_reference_prompt
 from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution, h3_native_canvas
 from .rtx_vsr_stream import probe_vsr_capability
 from .schema import PERFORMANCE_PRESETS, RequestError, low_vram_target_limit, normalize_request
+from .upscale import _available_upscale_models, resolve_upscale_model_name
 
 
 BASE_MODES = {"T2VA", "I2VA", "FL2VA", "L2VA"}
@@ -146,8 +147,9 @@ class MiniMaxH3DirectorPlus:
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
                 "performance_preset": (list(PERFORMANCE_PRESETS)[:5], {"default": "稳定质量", "tooltip": "性能预设"}),
-                "postprocess_mode": (["native", "rtx_vsr"], {"default": "native", "tooltip": "原生尺寸直出 / AI 细节重建（RTX VSR）"}),
+                "postprocess_mode": (["native", "lanczos", "ai_upscale", "rtx_vsr"], {"default": "native", "tooltip": "原生直出 / Lanczos / 通用 AI 超分 / AI 细节重建（RTX VSR）"}),
                 "rtx_quality": (["HIGH", "ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量"}),
+                "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "auto", "tooltip": "通用 AI 超分模型；自动选择或指定已安装模型"}),
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
                 "target_dialogue": ("STRING", {"default": "", "multiline": True, "tooltip": "Fish高级音色锁定的目标对白"}),
                 "reference_transcript": ("STRING", {"default": "", "multiline": True, "tooltip": "音色样本对应文本，可留空"}),
@@ -207,6 +209,7 @@ class MiniMaxH3DirectorPlus:
         reference_transcript,
         postprocess_mode="native",
         rtx_quality="HIGH",
+        ai_upscale_model="auto",
         fish_model_path="s2-pro-w4a16 (auto download)",
         aspect_ratio="16:9",
         resolution_preset="0.83 MP",
@@ -330,6 +333,7 @@ class MiniMaxH3DirectorPlus:
             "performance_preset": performance_preset,
             "postprocess_mode": postprocess_mode,
             "rtx_quality": rtx_quality,
+            "ai_upscale_model": ai_upscale_model,
         })
 
         if request["performance_preset"] == "low_vram":
@@ -357,8 +361,8 @@ class MiniMaxH3DirectorPlus:
             postprocess_path = "native_bypass"
         elif requested_width < native_width or requested_height < native_height:
             postprocess_path = "downscale"
-        elif request["postprocess_mode"] == "rtx_vsr":
-            postprocess_path = "rtx_vsr"
+        elif request["postprocess_mode"] in {"lanczos", "ai_upscale", "rtx_vsr"}:
+            postprocess_path = request["postprocess_mode"]
         else:
             postprocess_path = "native_bypass"
 
@@ -375,6 +379,17 @@ class MiniMaxH3DirectorPlus:
                 probe_vsr_capability(request["rtx_quality"], device_id=0)
             except Exception as exc:
                 raise RequestError(f"RTX VSR 前置检查失败，尚未开始 H3 视频生成：{exc}") from exc
+        if postprocess_path == "ai_upscale":
+            try:
+                request["ai_upscale_model"] = resolve_upscale_model_name(
+                    request["ai_upscale_model"],
+                    max(
+                        float(requested_width) / max(1, int(native_width)),
+                        float(requested_height) / max(1, int(native_height)),
+                    ),
+                )
+            except Exception as exc:
+                raise RequestError(f"通用 AI 超分前置检查失败，尚未开始 H3 视频生成：{exc}") from exc
 
         if postprocess_path == "native_bypass":
             final_target_width, final_target_height = native_width, native_height
@@ -442,9 +457,12 @@ class MiniMaxH3DirectorPlus:
             "upscale_required": final_upscale_required,
             "postprocess_mode": request["postprocess_mode"],
             "rtx_quality": request["rtx_quality"],
+            "ai_upscale_model": request["ai_upscale_model"],
             "postprocess_path": postprocess_path,
             "upscale_method": {
                 "rtx_vsr": "rtx_vsr",
+                "ai_upscale": "comfy_upscale_model",
+                "lanczos": "lanczos",
                 "downscale": "cpu_bicubic",
                 "native_bypass": "none",
             }[postprocess_path],

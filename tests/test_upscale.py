@@ -1,7 +1,41 @@
 import torch
 
-from nodes.upscale import MiniMaxH3VideoUpscale
-from nodes.stream_output import _iter_resized_frame_chunks
+import pytest
+
+from nodes.upscale import (
+    MiniMaxH3VideoUpscale,
+    resolve_upscale_model_name,
+)
+from nodes.stream_output import (
+    _iter_ai_upscale_frame_chunks,
+    _iter_lanczos_frame_chunks,
+    _iter_resized_frame_chunks,
+)
+
+
+def test_auto_upscale_model_prefers_x2_for_two_times_target():
+    selected = resolve_upscale_model_name(
+        "auto",
+        scale_factor=1.9,
+        available=["RealESRGAN_x4plus.pth", "RealESRGAN_x2plus.pth", "OmniSR_X2_DIV2K.safetensors"],
+    )
+
+    assert selected == "RealESRGAN_x2plus.pth"
+
+
+def test_auto_upscale_model_prefers_x4_for_four_k_target():
+    selected = resolve_upscale_model_name(
+        "auto",
+        scale_factor=2.9,
+        available=["RealESRGAN_x2plus.pth", "OmniSR_X4_DIV2K.safetensors", "RealESRGAN_x4plus.pth"],
+    )
+
+    assert selected == "OmniSR_X4_DIV2K.safetensors"
+
+
+def test_manual_upscale_model_must_exist():
+    with pytest.raises(ValueError, match="不存在"):
+        resolve_upscale_model_name("missing.safetensors", 2.0, available=["RealESRGAN_x2plus.pth"])
 
 
 def test_video_upscale_passes_through_when_not_requested():
@@ -50,3 +84,35 @@ def test_streaming_resize_preserves_pingpong_order():
     assert len(chunks) == 8
     assert chunks[0].equal(images[0:1])
     assert chunks[-1].equal(images[1:2])
+
+
+def test_streaming_lanczos_resize_yields_exact_target_frames():
+    images = torch.rand(3, 4, 4, 3)
+
+    chunks = list(_iter_lanczos_frame_chunks(images, 8, 6, max_chunk_bytes=8 * 6 * 3))
+
+    assert [chunk.shape for chunk in chunks] == [(1, 6, 8, 3)] * 3
+    assert all(chunk.device.type == "cpu" for chunk in chunks)
+
+
+def test_streaming_ai_upscale_uses_model_and_releases_it(monkeypatch):
+    images = torch.rand(2, 4, 4, 3)
+    calls = []
+
+    class FakePatcher:
+        pass
+
+    model = type("FakeModel", (), {"patcher": FakePatcher()})()
+
+    monkeypatch.setattr("nodes.stream_output.resolve_upscale_model_name", lambda *args, **kwargs: "fake.pth")
+    monkeypatch.setattr("nodes.stream_output._load_upscale_model", lambda name: model)
+    monkeypatch.setattr("nodes.stream_output._release_upscale_model", lambda value: calls.append(value))
+    monkeypatch.setattr(
+        "nodes.stream_output._upscale_image_with_model",
+        lambda value, image: image.repeat_interleave(2, dim=1).repeat_interleave(2, dim=2),
+    )
+
+    chunks = list(_iter_ai_upscale_frame_chunks(images, 7, 6, max_chunk_bytes=7 * 6 * 3))
+
+    assert [chunk.shape for chunk in chunks] == [(1, 6, 7, 3)] * 2
+    assert calls == [model]

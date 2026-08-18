@@ -42,7 +42,7 @@ def patch_template(template, request):
         "mode", "prompt", "duration", "width", "height", "voice_mode",
         "aspect_ratio", "resolution_preset", "custom_width", "custom_height",
         "ref_image_size", "performance_preset", "target_dialogue", "reference_transcript",
-        "fish_model_path", "postprocess_mode", "rtx_quality",
+        "fish_model_path", "postprocess_mode", "rtx_quality", "ai_upscale_model",
     )
     for name in public_controller_fields:
         if name in request:

@@ -17,8 +17,9 @@ def test_public_schema_lists_every_public_api_key():
 def test_schema_exposes_final_postprocess_controls():
     schema = public_schema()["properties"]
 
-    assert schema["postprocess_mode"]["enum"] == ["native", "rtx_vsr"]
+    assert schema["postprocess_mode"]["enum"] == ["native", "lanczos", "ai_upscale", "rtx_vsr"]
     assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA"]
+    assert schema["ai_upscale_model"]["default"] == "auto"
 
 
 def test_normalize_request_defaults_to_native_postprocess():
@@ -26,6 +27,18 @@ def test_normalize_request_defaults_to_native_postprocess():
 
     assert request["postprocess_mode"] == "native"
     assert request["rtx_quality"] == "HIGH"
+    assert request["ai_upscale_model"] == "auto"
+
+
+def test_normalize_request_accepts_generic_upscale_model_override():
+    request = normalize_request({
+        "mode": "T2VA",
+        "postprocess_mode": "ai_upscale",
+        "ai_upscale_model": "RealESRGAN_x2plus.pth",
+    })
+
+    assert request["postprocess_mode"] == "ai_upscale"
+    assert request["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
 
 
 def test_normalize_request_rejects_unknown_postprocess_mode():

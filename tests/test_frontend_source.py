@@ -55,11 +55,14 @@ def test_ui_exposes_duration_aspect_and_resolution_controls():
 
 def test_ui_exposes_one_final_output_postprocess_surface():
     text = source()
-    for label in ("最终输出", "原生尺寸直出", "AI 细节重建（RTX VSR）", "RTX VSR 质量"):
+    for label in ("最终输出", "原生尺寸直出", "Lanczos 快速放大", "AI 自动超分", "AI 细节重建（RTX VSR）", "RTX VSR 质量", "AI 超分模型"):
         assert label in text
     assert 'valueControl("最终输出", "postprocess_mode"' in text
     assert 'valueControl("RTX VSR 质量", "rtx_quality"' in text
-    assert '"postprocess_mode", "rtx_quality", "timeline_data"' in text
+    assert 'valueControl("AI 超分模型", "ai_upscale_model"' in text
+    assert 'postprocessMode === "ai_upscale"' in text
+    assert 'const aiModelOptions' in text
+    assert '"postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data"' in text
     assert "同尺寸自动旁路" in text
 
 

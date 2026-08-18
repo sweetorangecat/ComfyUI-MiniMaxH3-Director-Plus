@@ -6,6 +6,50 @@ import torch
 import torch.nn.functional as F
 
 
+def _available_upscale_models():
+    try:
+        import folder_paths
+
+        return list(folder_paths.get_filename_list("upscale_models"))
+    except (ImportError, OSError, AttributeError):
+        return []
+
+
+def resolve_upscale_model_name(model_name="auto", scale_factor=2.0, available=None):
+    """Resolve an installed general-purpose model without hiding missing files."""
+    available = list(_available_upscale_models() if available is None else available)
+    requested = str(model_name or "auto").strip() or "auto"
+    by_lower = {str(name).lower(): name for name in available}
+    if requested.lower() != "auto":
+        if requested.lower() not in by_lower:
+            raise ValueError(
+                f"通用 AI 超分模型不存在：{requested}。请将模型放入 ComfyUI/models/upscale_models。"
+            )
+        return by_lower[requested.lower()]
+
+    factor = float(scale_factor)
+    preferred = (
+        ["realesrgan_x2plus.pth", "omnisr_x2_div2k.safetensors"]
+        if factor <= 2.0
+        else ["omnisr_x4_div2k.safetensors", "realesrgan_x4plus.pth"]
+    )
+    for name in preferred:
+        if name in by_lower:
+            return by_lower[name]
+
+    marker = "x2" if factor <= 2.0 else "x4"
+    matches = sorted(
+        name for name in available
+        if marker in str(name).lower() or f"{int(factor)}x" in str(name).lower()
+    )
+    if matches:
+        return matches[0]
+    raise ValueError(
+        f"未找到适合约 {factor:.1f} 倍放大的通用 AI 超分模型。"
+        "请安装 X2/X4 模型到 ComfyUI/models/upscale_models，或切换为 Lanczos。"
+    )
+
+
 class MiniMaxH3VideoUpscale:
     """Resize decoded H3 frames without allocating the target video on CUDA."""
 

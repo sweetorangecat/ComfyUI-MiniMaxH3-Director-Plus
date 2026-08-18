@@ -7,13 +7,13 @@ from copy import deepcopy
 
 MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA")
 VOICE_MODES = ("none", "h3_reference", "fish_lock")
-POSTPROCESS_MODES = ("native", "rtx_vsr")
+POSTPROCESS_MODES = ("native", "lanczos", "ai_upscale", "rtx_vsr")
 RTX_QUALITIES = ("HIGH", "ULTRA")
 PUBLIC_API_KEYS = (
     "mode", "prompt", "duration", "aspect_ratio", "resolution_preset", "custom_width", "custom_height",
     "seed", "first_image", "last_image", "references", "voice_mode", "voice_reference_audio", "voice_reference_audios", "voice_reference_names",
     "target_dialogue", "reference_transcript", "fish_model_path", "ref_image_size", "performance_preset",
-    "postprocess_mode", "rtx_quality",
+    "postprocess_mode", "rtx_quality", "ai_upscale_model",
 )
 PERFORMANCE_PRESETS = {
     "稳定质量": "quality",
@@ -101,6 +101,7 @@ DEFAULT_REQUEST = {
     "performance_preset": "quality",
     "postprocess_mode": "native",
     "rtx_quality": "HIGH",
+    "ai_upscale_model": "auto",
     "postprocess": {},
     "output": {},
 }
@@ -137,6 +138,7 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的后处理模式：{request['postprocess_mode']}")
     if request["rtx_quality"] not in RTX_QUALITIES:
         raise RequestError(f"不支持的 RTX VSR 质量：{request['rtx_quality']}")
+    request["ai_upscale_model"] = str(request.get("ai_upscale_model") or "auto").strip() or "auto"
 
     try:
         duration = int(request["duration"])
@@ -222,13 +224,19 @@ def public_schema():
                 "中文名称": "最终输出后处理模式",
                 "enum": list(POSTPROCESS_MODES),
                 "default": "native",
-                "description": "原生尺寸直出，或使用 RTX VSR 进行 AI 细节重建。",
+                "description": "四种最终输出路线：原生尺寸直出、Lanczos 快速放大、通用 AI 自动超分、NVIDIA RTX VSR AI 细节重建。",
             },
             "rtx_quality": {
                 "中文名称": "RTX VSR 质量",
                 "enum": list(RTX_QUALITIES),
                 "default": "HIGH",
                 "description": "RTX VSR 的质量级别，仅在后处理模式为 rtx_vsr 时生效。",
+            },
+            "ai_upscale_model": {
+                "中文名称": "通用 AI 超分模型",
+                "type": "string",
+                "default": "auto",
+                "description": "自动选择或指定 models/upscale_models 中的通用 AI 超分模型，仅在 ai_upscale 模式生效。",
             },
             "custom_width": {"中文名称": "自定义宽度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 16},
             "custom_height": {"中文名称": "自定义高度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 9},

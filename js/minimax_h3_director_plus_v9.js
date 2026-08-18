@@ -56,6 +56,8 @@ const VOICE_MODES = [
 const VOICE_MODE_LABELS = {none: "不使用音色", h3_reference: "H3 原生音色参考", fish_lock: "Fish S2 高级锁定"};
 const POSTPROCESS_MODES = [
   ["native", "原生尺寸直出"],
+  ["lanczos", "Lanczos 快速放大"],
+  ["ai_upscale", "AI 自动超分"],
   ["rtx_vsr", "AI 细节重建（RTX VSR）"],
 ];
 const RTX_QUALITIES = [
@@ -460,7 +462,7 @@ function install(node) {
 
   const hidden = [
     "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset", "custom_width", "custom_height", "seed", "seed_mode", "voice_mode", "fish_model_path",
-    "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "timeline_data",
+    "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data",
     "target_dialogue", "reference_transcript", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
     "first_image_file", "last_image_file", "voice_reference_audio_file", "voice_reference_audio_2_file", "voice_reference_audio_3_file",
     "reference_image_1_file", "reference_image_2_file", "reference_image_3_file", "reference_image_4_file", "reference_image_5_file",
@@ -538,15 +540,39 @@ function install(node) {
     const postprocessMode = widget(node, "postprocess_mode")?.value || "native";
     postprocessGrid.append(
       valueControl("最终输出", "postprocess_mode", POSTPROCESS_MODES, postprocessMode),
-      valueControl("RTX VSR 质量", "rtx_quality", RTX_QUALITIES, widget(node, "rtx_quality")?.value || "HIGH"),
+      postprocessMode === "ai_upscale"
+        ? valueControl("AI 超分模型", "ai_upscale_model", [["auto", "自动选择"]], widget(node, "ai_upscale_model")?.value || "auto")
+        : postprocessMode === "rtx_vsr"
+          ? valueControl("RTX VSR 质量", "rtx_quality", RTX_QUALITIES, widget(node, "rtx_quality")?.value || "HIGH")
+          : document.createElement("span"),
     );
+    if (postprocessMode === "ai_upscale") {
+      const modelField = postprocessGrid.lastElementChild;
+      const modelSelect = modelField?.querySelector("select");
+      const modelWidget = widget(node, "ai_upscale_model");
+      const aiModelOptions = modelWidget?.options?.values || [];
+      if (modelSelect && aiModelOptions.length) {
+        modelSelect.replaceChildren();
+        [["auto", "自动选择"], ...aiModelOptions.filter((value) => value && value !== "auto").map((value) => [value, value])].forEach(([value, display]) => {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = display;
+          option.selected = value === String(modelWidget?.value || "auto");
+          modelSelect.append(option);
+        });
+      }
+    }
     specification.append(specGrid);
     specification.append(postprocessGrid);
     const postprocessNote = document.createElement("div");
     postprocessNote.className = "h3p-spec-note";
-    postprocessNote.textContent = postprocessMode === "rtx_vsr"
-      ? "目标尺寸大于 H3 原生尺寸时逐帧使用 RTX VSR；首次使用前请安装 nvidia-vfx 与 NVIDIA Broadcast SDK。导演节点会在生成开始前检查驱动和 SDK，不通过会立即提示；同尺寸自动旁路。"
-      : "只保存一个最终视频；原生尺寸直出不会把 H3 画布放大，选择 2K/4K 时需切换 AI 细节重建。RTX VSR 首次使用前需要 nvidia-vfx、NVIDIA Broadcast SDK 与匹配驱动。";
+    const postprocessNotes = {
+      native: "原生尺寸直出：保留 H3 实际生成尺寸，不进行放大。选择 2K/4K 时不会自动变成 2K/4K。",
+      lanczos: "Lanczos 快速放大：使用 CPU 分块缩放，兼容性最好、速度快，但只重采样不重建 AI 细节。",
+      ai_upscale: "AI 自动超分：使用已安装的通用超分模型逐帧重建细节；默认自动选择合适倍率模型，模型不存在会在生成前提示。",
+      rtx_vsr: "RTX VSR：目标尺寸大于 H3 原生尺寸时逐帧使用 NVIDIA RTX VSR；首次使用前请安装 nvidia-vfx、NVIDIA Broadcast SDK 与匹配驱动，导演节点会在生成前检查；同尺寸自动旁路。",
+    };
+    postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {
       specGrid.append(

@@ -70,6 +70,7 @@
       "reference_transcript": "",
       "postprocess_mode": "native",
       "rtx_quality": "HIGH",
+      "ai_upscale_model": "auto",
       "voice_reference_name_1": "",
       "voice_reference_name_2": "",
       "voice_reference_name_3": "",

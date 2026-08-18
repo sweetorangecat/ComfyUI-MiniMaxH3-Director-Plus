@@ -105,6 +105,19 @@ def test_same_size_rtx_request_is_reported_as_native_bypass(monkeypatch):
     assert stream_output._resolve_postprocess_path(guide, 3, 2) == "native_bypass"
 
 
+@pytest.mark.parametrize("path", ["lanczos", "ai_upscale"])
+def test_generic_upscale_paths_are_preserved_for_larger_targets(path):
+    guide = {
+        "native_width": 3,
+        "native_height": 2,
+        "target_width": 6,
+        "target_height": 4,
+        "postprocess_path": path,
+    }
+
+    assert stream_output._resolve_postprocess_path(guide, 3, 2) == path
+
+
 def test_rtx_vsr_path_processes_frames_and_preserves_frame_count(monkeypatch):
     images = torch.rand(5, 2, 3, 3)
     captured = []

@@ -8,7 +8,7 @@
 
 返回版本化字段 schema 和中文名称。当前公开字段为：
 
-`mode`、`prompt`、`duration`、`aspect_ratio`、`resolution_preset`、`custom_width`、`custom_height`、`seed`、`first_image`、`last_image`、`references`、`voice_mode`、`voice_reference_audio`、`voice_reference_audios`、`voice_reference_names`、`target_dialogue`、`reference_transcript`、`fish_model_path`、`ref_image_size`、`performance_preset`、`postprocess_mode`、`rtx_quality`。
+`mode`、`prompt`、`duration`、`aspect_ratio`、`resolution_preset`、`custom_width`、`custom_height`、`seed`、`first_image`、`last_image`、`references`、`voice_mode`、`voice_reference_audio`、`voice_reference_audios`、`voice_reference_names`、`target_dialogue`、`reference_transcript`、`fish_model_path`、`ref_image_size`、`performance_preset`、`postprocess_mode`、`rtx_quality`、`ai_upscale_model`。
 
 `duration` 为 4-15 秒整数。`references` 最多 9 张；`voice_reference_audios` 最多 3 路，`voice_reference_names` 按相同下标绑定角色。旧字段 `voice_reference_audio` 继续兼容，等价于音色参考 1。
 
@@ -16,9 +16,9 @@ API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递�
 
 `performance_preset` 支持 `稳定质量`、`质量优先加速`、`极速4步`、`参考图加速`、`低显存` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。
 
-`postprocess_mode` 控制最终视频输出：`native` 为 H3 原生尺寸直出，`rtx_vsr` 为 RTX VSR AI 细节重建；`rtx_quality` 可选 `HIGH` 或 `ULTRA`。目标尺寸与 H3 原生尺寸相同会自动走 `native_bypass`，目标更小走高质量缩小，目标更大且选择 `rtx_vsr` 才走 `rtx_vsr`。最终只保存一个视频，不会同时输出原始视频和超分视频。RTX VSR 依赖缺失时会明确报错，不会静默退回普通插值。
+`postprocess_mode` 控制最终视频输出：`native`（原生尺寸直出）、`lanczos`（CPU Lanczos 快速放大）、`ai_upscale`（ComfyUI 通用 AI 超分）或 `rtx_vsr`（RTX VSR AI 细节重建）。`ai_upscale_model` 为 `auto` 或 `models/upscale_models` 中已安装的模型名；`auto` 会按目标倍率优先选择 X2/X4 模型。`rtx_quality` 可选 `HIGH` 或 `ULTRA`，仅在 `rtx_vsr` 时生效。目标尺寸与 H3 原生尺寸相同会自动旁路，目标更小走高质量缩小。最终只保存一个视频；AI 模型或 RTX VSR 依赖缺失时会在生成前明确报错，不会静默退回另一种算法。
 
-API 中的 `resolution_preset` 表示请求的最终输出目标，支持 `2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。选择 `低显存` 后，H3 原生采样尺寸会按时长降低；`postprocess_mode = "native"` 时输出实际原生尺寸，`postprocess_mode = "rtx_vsr"` 时才逐帧 AI 重建到更大的目标。两种路径都由同一个流式 MP4 输出节点保存，不需要修改 API 模板或连接第二个输出节点。
+API 中的 `resolution_preset` 表示请求的最终输出目标，支持 `2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。选择 `低显存` 后，H3 原生采样尺寸会按时长降低；四种 `postprocess_mode` 都由同一个流式 MP4 输出节点保存，不需要修改 API 模板或连接第二个输出节点。`native` 输出实际原生尺寸，其余路线在目标更大时按对应算法逐帧放大。
 
 `voice_mode = "fish_lock"` 时只使用 `voice_reference_audios` 的第 1 路作为 Fish 音色样本，`target_dialogue` 是要新生成的对白，`reference_transcript` 是样本音频原文（建议填写），`fish_model_path` 默认使用 `s2-pro-w4a16 (auto download)`。Fish 失败会返回明确错误，不会静默回退到 H3 原生音色。
 

@@ -105,14 +105,17 @@ def test_api_template_and_patcher_expose_final_postprocess_controls():
     template = build_api_template()
     assert template["10"]["inputs"]["postprocess_mode"] == "native"
     assert template["10"]["inputs"]["rtx_quality"] == "HIGH"
+    assert template["10"]["inputs"]["ai_upscale_model"] == "auto"
 
     prompt = patch_template(template, {
         "mode": "T2VA",
         "postprocess_mode": "rtx_vsr",
         "rtx_quality": "ULTRA",
+        "ai_upscale_model": "OmniSR_X4_DIV2K.safetensors",
     })
     assert prompt["10"]["inputs"]["postprocess_mode"] == "rtx_vsr"
     assert prompt["10"]["inputs"]["rtx_quality"] == "ULTRA"
+    assert prompt["10"]["inputs"]["ai_upscale_model"] == "OmniSR_X4_DIV2K.safetensors"
 
 
 def test_api_template_removes_fish_bridge_for_native_h3_reference():

@@ -134,7 +134,7 @@ def _replace_director(node):
         "properties": _properties("MiniMaxH3DirectorPlus"),
         "widgets_values": [
             "FL2VA", "", 5, 1344, 768, "16:9", "0.83 MP", 16, 9, 0, "randomize",
-            "none", "s2-pro-w4a16 (auto download)", "match", "稳定质量", "native", "HIGH",
+            "none", "s2-pro-w4a16 (auto download)", "match", "稳定质量", "native", "HIGH", "auto",
             "{\"version\":1,\"items\":[]}", "", "", "", "", "",
             "", "", "", "", "", "", "", "", "", "", "", "", "", "",
         ],
@@ -745,7 +745,7 @@ def build_api_template():
                 "seed": 0,
                 "voice_mode": "none", "ref_image_size": "match", "performance_preset": "稳定质量",
                 "fish_model_path": "s2-pro-w4a16 (auto download)", "timeline_data": "{\"version\":1,\"items\":[]}", "target_dialogue": "", "reference_transcript": "",
-                "postprocess_mode": "native", "rtx_quality": "HIGH",
+                "postprocess_mode": "native", "rtx_quality": "HIGH", "ai_upscale_model": "auto",
                 "voice_reference_name_1": "", "voice_reference_name_2": "", "voice_reference_name_3": "",
                 "first_image": ["11", 0], "last_image": ["12", 0],
                 **{f"reference_image_{index}": [str(30 + index), 0] for index in range(1, 10)},
