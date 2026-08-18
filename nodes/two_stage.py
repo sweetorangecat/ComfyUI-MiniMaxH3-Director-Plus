@@ -76,7 +76,7 @@ class MiniMaxH3TwoStageSampler:
         return bool((guide or {}).get("two_stage_enabled"))
 
     def execute(self, noise, guider, sampler, sigmas, latent_image, guide=None):
-        from comfy_extras.nodes_custom_sampler import Noise_EmptyNoise, SamplerCustomAdvanced
+        from comfy_extras.nodes_custom_sampler import Noise_EmptyNoise, Noise_RandomNoise, SamplerCustomAdvanced
         from comfy_extras.nodes_lt import LTXVConcatAVLatent, LTXVSeparateAVLatent
         from .performance import memory_policy
 
@@ -112,9 +112,22 @@ class MiniMaxH3TwoStageSampler:
             # The audio stream is intentionally never resized; H3's AV concat
             # node aligns it back to the refined video stream.
             video_latent = upscale_video_latent(video_latent, scale)
+            # U15 inserts a one-sigma boundary pass after latent upscaling.
+            # FLOW_AV/CONST models use this pass to apply the boundary noise
+            # scaling and inverse scaling before the low-sigma refinement.
+            # Skipping it leaves the decoded video in a flat grey range.
+            boundary_noise = Noise_RandomNoise(int(getattr(noise, "seed", 0)))
+            boundary = SamplerCustomAdvanced.execute(
+                boundary_noise,
+                guider,
+                sampler,
+                second_sigmas[:1],
+                video_latent,
+            )
+            video_latent = _node_output(boundary, 0)
             merged = _node_output(LTXVConcatAVLatent.execute(video_latent, audio_latent), 0)
-            # The refinement sampler continues from the already sampled latent;
-            # U15 disables fresh noise here instead of corrupting it with a new
+            # The final refinement continues from the boundary output;
+            # U15 disables fresh noise here instead of injecting a second
             # random field.
             second_noise = Noise_EmptyNoise()
             second = SamplerCustomAdvanced.execute(second_noise, guider, sampler, second_sigmas, merged)

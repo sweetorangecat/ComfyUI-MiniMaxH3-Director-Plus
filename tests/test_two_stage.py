@@ -221,6 +221,66 @@ def test_two_stage_final_refinement_uses_empty_noise(monkeypatch):
         {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert isinstance(calls[0], FakeRandomNoise)
-    assert isinstance(calls[1], FakeEmptyNoise)
+    assert isinstance(calls[1], FakeRandomNoise)
+    assert isinstance(calls[2], FakeEmptyNoise)
+
+
+def test_two_stage_injects_boundary_noise_before_final_refinement(monkeypatch):
+    import nodes.performance as performance
+
+    calls = []
+    first_sampled = {"samples": torch.zeros(1, 4, 2, 4, 4)}
+    first_denoised = {"samples": torch.ones(1, 4, 2, 4, 4)}
+    boundary_sampled = {"samples": torch.full((1, 4, 2, 6, 6), 2.0)}
+    final_denoised = {"samples": torch.full((1, 4, 2, 6, 6), 3.0)}
+
+    class FakeRandomNoise:
+        def __init__(self, seed):
+            self.seed = seed
+
+    class FakeEmptyNoise:
+        seed = 0
+
+    class FakeSampler:
+        @classmethod
+        def execute(cls, noise, guider, sampler, sigmas, latent):
+            calls.append((noise, sigmas.clone(), latent))
+            if len(calls) == 1:
+                return types.SimpleNamespace(result=(first_sampled, first_denoised))
+            if len(calls) == 2:
+                return types.SimpleNamespace(result=(boundary_sampled, boundary_sampled))
+            return types.SimpleNamespace(result=(boundary_sampled, final_denoised))
+
+    def separate(latent):
+        if latent is first_sampled:
+            return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
+        return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
+
+    def concat(video, audio):
+        return types.SimpleNamespace(result=(video,))
+
+    monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
+    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(
+        Noise_RandomNoise=FakeRandomNoise,
+        Noise_EmptyNoise=FakeEmptyNoise,
+        SamplerCustomAdvanced=FakeSampler,
+    ))
+    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_lt", types.SimpleNamespace(
+        LTXVSeparateAVLatent=types.SimpleNamespace(execute=staticmethod(separate)),
+        LTXVConcatAVLatent=types.SimpleNamespace(execute=staticmethod(concat)),
+    ))
+
+    MiniMaxH3TwoStageSampler().execute(
+        FakeRandomNoise(1), object(), object(), torch.tensor([10.0, 7.0, 4.0, 2.0, 1.0, 0.0]),
+        {"samples": torch.zeros(1, 4, 2, 4, 4)},
+        {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
+    )
+
+    assert len(calls) == 3
+    assert isinstance(calls[1][0], FakeRandomNoise)
+    assert calls[1][1].shape == (1,)
+    assert calls[1][2]["samples"].shape[-2:] == (6, 6)
+    assert isinstance(calls[2][0], FakeEmptyNoise)
+    assert calls[2][2] is boundary_sampled
