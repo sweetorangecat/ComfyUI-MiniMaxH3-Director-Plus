@@ -112,4 +112,8 @@ class MiniMaxH3TwoStageSampler:
             seed = int(getattr(noise, "seed", 0))
             second_noise = Noise_RandomNoise(seed)
             second = SamplerCustomAdvanced.execute(second_noise, guider, sampler, second_sigmas, merged)
-        return _node_output(second, 0), _node_output(second, 1)
+        # U15 decodes the final denoised AV latent (slot 1) for both video and
+        # audio. Slot 0 is still the sampler path output and can contain noise,
+        # which produces a grey/noisy video when sent directly to VAEDecode.
+        final_denoised = _node_output(second, 1)
+        return final_denoised, final_denoised
