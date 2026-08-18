@@ -91,6 +91,9 @@ def test_two_stage_refines_first_sampler_output_not_denoised_preview(monkeypatch
         def __init__(self, seed):
             self.seed = seed
 
+    class FakeEmptyNoise:
+        seed = 0
+
     def separate(latent):
         separate_inputs.append(latent)
         return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
@@ -101,6 +104,7 @@ def test_two_stage_refines_first_sampler_output_not_denoised_preview(monkeypatch
     monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
     monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(
         Noise_RandomNoise=FakeNoise,
+        Noise_EmptyNoise=FakeEmptyNoise,
         SamplerCustomAdvanced=FakeSampler,
     ))
     monkeypatch.setitem(sys.modules, "comfy_extras.nodes_lt", types.SimpleNamespace(
@@ -141,6 +145,9 @@ def test_two_stage_returns_final_denoised_latent_for_video_and_audio(monkeypatch
         def __init__(self, seed):
             self.seed = seed
 
+    class FakeEmptyNoise:
+        seed = 0
+
     def separate(latent):
         return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
 
@@ -150,6 +157,7 @@ def test_two_stage_returns_final_denoised_latent_for_video_and_audio(monkeypatch
     monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
     monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(
         Noise_RandomNoise=FakeNoise,
+        Noise_EmptyNoise=FakeEmptyNoise,
         SamplerCustomAdvanced=FakeSampler,
     ))
     monkeypatch.setitem(sys.modules, "comfy_extras.nodes_lt", types.SimpleNamespace(
@@ -165,3 +173,50 @@ def test_two_stage_returns_final_denoised_latent_for_video_and_audio(monkeypatch
 
     assert result[0] is final_denoised
     assert result[1] is final_denoised
+
+
+def test_two_stage_final_refinement_uses_empty_noise(monkeypatch):
+    import nodes.performance as performance
+
+    calls = []
+
+    class FakeRandomNoise:
+        def __init__(self, seed):
+            self.seed = seed
+
+    class FakeEmptyNoise:
+        seed = 0
+
+    class FakeSampler:
+        @classmethod
+        def execute(cls, noise, guider, sampler, sigmas, latent):
+            calls.append(noise)
+            sample = {"samples": torch.zeros(1, 4, 2, 4, 4)}
+            return types.SimpleNamespace(result=(sample, sample))
+
+    def separate(latent):
+        return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
+
+    def concat(video, audio):
+        return types.SimpleNamespace(result=(video,))
+
+    monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
+    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(
+        Noise_RandomNoise=FakeRandomNoise,
+        Noise_EmptyNoise=FakeEmptyNoise,
+        SamplerCustomAdvanced=FakeSampler,
+    ))
+    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_lt", types.SimpleNamespace(
+        LTXVSeparateAVLatent=types.SimpleNamespace(execute=staticmethod(separate)),
+        LTXVConcatAVLatent=types.SimpleNamespace(execute=staticmethod(concat)),
+    ))
+
+    MiniMaxH3TwoStageSampler().execute(
+        FakeRandomNoise(1), object(), object(), torch.tensor([10.0, 7.0, 4.0, 2.0, 1.0, 0.0]),
+        {"samples": torch.zeros(1, 4, 2, 4, 4)},
+        {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
+    )
+
+    assert len(calls) == 2
+    assert isinstance(calls[0], FakeRandomNoise)
+    assert isinstance(calls[1], FakeEmptyNoise)

@@ -76,7 +76,7 @@ class MiniMaxH3TwoStageSampler:
         return bool((guide or {}).get("two_stage_enabled"))
 
     def execute(self, noise, guider, sampler, sigmas, latent_image, guide=None):
-        from comfy_extras.nodes_custom_sampler import Noise_RandomNoise, SamplerCustomAdvanced
+        from comfy_extras.nodes_custom_sampler import Noise_EmptyNoise, SamplerCustomAdvanced
         from comfy_extras.nodes_lt import LTXVConcatAVLatent, LTXVSeparateAVLatent
         from .performance import memory_policy
 
@@ -109,8 +109,10 @@ class MiniMaxH3TwoStageSampler:
             # node aligns it back to the refined video stream.
             video_latent = upscale_video_latent(video_latent, scale)
             merged = _node_output(LTXVConcatAVLatent.execute(video_latent, audio_latent), 0)
-            seed = int(getattr(noise, "seed", 0))
-            second_noise = Noise_RandomNoise(seed)
+            # The refinement sampler continues from the already sampled latent;
+            # U15 disables fresh noise here instead of corrupting it with a new
+            # random field.
+            second_noise = Noise_EmptyNoise()
             second = SamplerCustomAdvanced.execute(second_noise, guider, sampler, second_sigmas, merged)
         # U15 decodes the final denoised AV latent (slot 1) for both video and
         # audio. Slot 0 is still the sampler path output and can contain noise,
