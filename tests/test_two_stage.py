@@ -68,13 +68,15 @@ def test_two_stage_sampler_exposes_guide_and_two_latent_outputs():
     assert MiniMaxH3TwoStageSampler.RETURN_TYPES == ("LATENT", "LATENT")
 
 
-def test_two_stage_refines_first_sampler_output_not_denoised_preview(monkeypatch):
+def test_two_stage_refines_denoised_video_and_preserves_sampled_audio(monkeypatch):
     import nodes.performance as performance
 
     sample_output = {"samples": torch.zeros(1, 4, 2, 4, 4)}
     denoised_preview = {"samples": torch.ones(1, 4, 2, 4, 4)}
     separate_inputs = []
     second_latents = []
+    sampled_audio = {"samples": torch.full((1, 2, 2, 1, 1), 7.0)}
+    denoised_audio = {"samples": torch.full((1, 2, 2, 1, 1), 9.0)}
 
     class FakeSampler:
         calls = 0
@@ -96,9 +98,12 @@ def test_two_stage_refines_first_sampler_output_not_denoised_preview(monkeypatch
 
     def separate(latent):
         separate_inputs.append(latent)
-        return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
+        audio = sampled_audio if latent is sample_output else denoised_audio
+        return latent, audio
 
     def concat(video, audio):
+        assert video is not sample_output
+        assert audio is sampled_audio
         return types.SimpleNamespace(result=(video,))
 
     monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
@@ -118,8 +123,7 @@ def test_two_stage_refines_first_sampler_output_not_denoised_preview(monkeypatch
         {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
     )
 
-    assert len(separate_inputs) == 1
-    assert separate_inputs[0] is sample_output
+    assert separate_inputs == [sample_output, denoised_preview]
     assert second_latents[0]["samples"].shape[-2:] == (6, 6)
 
 

@@ -101,10 +101,14 @@ class MiniMaxH3TwoStageSampler:
 
         with memory_policy(guide):
             first = SamplerCustomAdvanced.execute(noise, guider, sampler, first_sigmas, latent_image)
-            # U15 feeds the sampled latent (slot 0) into the latent upscale.
-            # Slot 1 is an x0 preview and is not on the sampler's sigma path.
             sampled = _node_output(first, 0)
-            video_latent, audio_latent = LTXVSeparateAVLatent.execute(sampled)
+            denoised = _node_output(first, 1)
+            # Match U15's actual AV split: refine the clean x0 video stream,
+            # but preserve the sampler-path audio stream for the final AV
+            # continuation. Upscaling slot 0's noisy video produces the flat
+            # grey output seen after VAE decode.
+            _, audio_latent = LTXVSeparateAVLatent.execute(sampled)
+            video_latent, _ = LTXVSeparateAVLatent.execute(denoised)
             # The audio stream is intentionally never resized; H3's AV concat
             # node aligns it back to the refined video stream.
             video_latent = upscale_video_latent(video_latent, scale)
