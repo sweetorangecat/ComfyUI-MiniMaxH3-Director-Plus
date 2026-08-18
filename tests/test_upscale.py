@@ -116,3 +116,24 @@ def test_streaming_ai_upscale_uses_model_and_releases_it(monkeypatch):
 
     assert [chunk.shape for chunk in chunks] == [(1, 6, 7, 3)] * 2
     assert calls == [model]
+
+
+def test_streaming_ai_upscale_batches_frames_before_model_load_check(monkeypatch):
+    images = torch.rand(4, 4, 4, 3)
+    calls = []
+    model = type("FakeModel", (), {"patcher": object()})()
+
+    monkeypatch.setattr("nodes.stream_output.resolve_upscale_model_name", lambda *args, **kwargs: "fake.pth")
+    monkeypatch.setattr("nodes.stream_output._load_upscale_model", lambda name: model)
+    monkeypatch.setattr("nodes.stream_output._release_upscale_model", lambda value: None)
+
+    def upscale(value, batch):
+        calls.append(batch.shape[0])
+        return batch.repeat_interleave(2, dim=1).repeat_interleave(2, dim=2)
+
+    monkeypatch.setattr("nodes.stream_output._upscale_image_with_model", upscale)
+
+    chunks = list(_iter_ai_upscale_frame_chunks(images, 8, 8, max_chunk_bytes=4 * 8 * 8 * 3))
+
+    assert calls == [4]
+    assert [chunk.shape for chunk in chunks] == [(4, 8, 8, 3)]

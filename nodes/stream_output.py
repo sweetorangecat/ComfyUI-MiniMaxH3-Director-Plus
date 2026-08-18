@@ -162,19 +162,18 @@ def _iter_ai_upscale_frame_chunks(
             for index in range(len(images) - 2, 0, -1):
                 yield index
 
-    pending = []
     try:
         model = _load_upscale_model(selected_model)
-        for index in frame_indices():
-            frame = images[index:index + 1].detach().to(device="cpu", dtype=torch.float32)
-            result = _upscale_image_with_model(model, frame)
+        indices = list(frame_indices())
+        for start in range(0, len(indices), frames_per_chunk):
+            batch_indices = indices[start:start + frames_per_chunk]
+            frame_batch = images[batch_indices].detach().to(device="cpu", dtype=torch.float32)
+            # ImageUpscaleWithModel performs its model-loading check per call.
+            # Pass a bounded batch so long videos do not reload/check RRDBNet
+            # once for every frame or flood the ComfyUI log.
+            result = _upscale_image_with_model(model, frame_batch)
             result = _resize_cpu_chunk(result, int(target_width), int(target_height), method="lanczos")
-            pending.append(result[0].contiguous())
-            if len(pending) >= frames_per_chunk:
-                yield torch.stack(pending, dim=0).contiguous()
-                pending.clear()
-        if pending:
-            yield torch.stack(pending, dim=0).contiguous()
+            yield result.contiguous()
     finally:
         if model is not None:
             _release_upscale_model(model)

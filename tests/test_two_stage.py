@@ -1,3 +1,7 @@
+from contextlib import nullcontext
+import sys
+import types
+
 import pytest
 import torch
 
@@ -62,3 +66,54 @@ def test_two_stage_sampler_exposes_guide_and_two_latent_outputs():
     inputs = MiniMaxH3TwoStageSampler.INPUT_TYPES()
     assert "guide" in inputs["optional"]
     assert MiniMaxH3TwoStageSampler.RETURN_TYPES == ("LATENT", "LATENT")
+
+
+def test_two_stage_refines_first_sampler_output_not_denoised_preview(monkeypatch):
+    import nodes.performance as performance
+
+    sample_output = {"samples": torch.zeros(1, 4, 2, 4, 4)}
+    denoised_preview = {"samples": torch.ones(1, 4, 2, 4, 4)}
+    separate_inputs = []
+    second_latents = []
+
+    class FakeSampler:
+        calls = 0
+
+        @classmethod
+        def execute(cls, noise, guider, sampler, sigmas, latent):
+            cls.calls += 1
+            if cls.calls == 1:
+                return types.SimpleNamespace(result=(sample_output, denoised_preview))
+            second_latents.append(latent)
+            return types.SimpleNamespace(result=(latent, latent))
+
+    class FakeNoise:
+        def __init__(self, seed):
+            self.seed = seed
+
+    def separate(latent):
+        separate_inputs.append(latent)
+        return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
+
+    def concat(video, audio):
+        return types.SimpleNamespace(result=(video,))
+
+    monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
+    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(
+        Noise_RandomNoise=FakeNoise,
+        SamplerCustomAdvanced=FakeSampler,
+    ))
+    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_lt", types.SimpleNamespace(
+        LTXVSeparateAVLatent=types.SimpleNamespace(execute=staticmethod(separate)),
+        LTXVConcatAVLatent=types.SimpleNamespace(execute=staticmethod(concat)),
+    ))
+
+    MiniMaxH3TwoStageSampler().execute(
+        FakeNoise(1), object(), object(), torch.tensor([10.0, 7.0, 4.0, 2.0, 1.0, 0.0]),
+        {"samples": torch.zeros(1, 4, 2, 4, 4)},
+        {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
+    )
+
+    assert len(separate_inputs) == 1
+    assert separate_inputs[0] is sample_output
+    assert second_latents[0]["samples"].shape[-2:] == (6, 6)
