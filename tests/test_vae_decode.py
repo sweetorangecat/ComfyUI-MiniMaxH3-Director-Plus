@@ -2,7 +2,19 @@ import types
 
 import torch
 
-from nodes.vae_decode import MiniMaxH3SafeVAEDecode
+from nodes.vae_decode import MiniMaxH3SafeVAEDecode, should_use_gpu_output
+
+
+def test_safe_decoder_keeps_small_output_on_gpu_when_budget_allows():
+    assert should_use_gpu_output(
+        torch.device("cuda"), (1, 3, 48, 1088, 1920), free_memory=12 * 1024**3
+    ) is True
+
+
+def test_safe_decoder_uses_cpu_buffer_for_long_high_resolution_output():
+    assert should_use_gpu_output(
+        torch.device("cuda"), (1, 3, 362, 1440, 2560), free_memory=24 * 1024**3
+    ) is False
 
 
 def test_safe_video_vae_decode_uses_cpu_fp16_output_and_restores_vae(monkeypatch):
@@ -10,6 +22,7 @@ def test_safe_video_vae_decode_uses_cpu_fp16_output_and_restores_vae(monkeypatch
 
     class FakeVAE:
         output_device = torch.device("cuda")
+        device = torch.device("cuda")
 
         def vae_output_dtype(self):
             return torch.float32
