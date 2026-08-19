@@ -51,7 +51,7 @@ if __package__:
         "MiniMaxH3ColorGuard": "H3 曝光与色彩连续性保护",
         "MiniMaxH3VideoUpscale": "H3 低显存 CPU 分块放大",
         "MiniMaxH3StreamingVideoCombine": "H3 低显存流式放大与 MP4 输出",
-        "MiniMaxH3SafeVAEDecode": "H3 自适应视频 VAE 解码（GPU/CPU FP16）",
+        "MiniMaxH3SafeVAEDecode": "H3 安全视频 VAE 解码（GPU计算 / CPU帧缓存 FP16）",
     }
 
     register_routes()
