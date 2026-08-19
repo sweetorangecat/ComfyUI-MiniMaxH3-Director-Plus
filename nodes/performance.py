@@ -30,8 +30,10 @@ PRESETS = {
     # U15-inspired quality route: the sampler splits the native sigma path,
     # enlarges only the video latent, then completes a lower-sigma refinement.
     "quality_two_stage": {
-        "steps": 14,
-        "two_stage_steps": 6,
+        # Match U15's actual split: 3 high-sigma steps + 5 low-sigma
+        # refinement steps. The shared schedule therefore remains 8 steps.
+        "steps": 8,
+        "two_stage_steps": 5,
         "two_stage_scale": 1.5,
         "use_sage": True,
         "use_cache": False,
@@ -321,7 +323,7 @@ class MiniMaxH3PerformancePreset:
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
-            "quality_two_stage": "质量优先二采样：14 步连续 sigma（首阶段 8 步 + 二阶段 6 步）+ 1.5 倍视频 latent 细化，音频 latent 保持不变",
+            "quality_two_stage": "质量优先二采样：总 8 步（首阶段 3 步 + 放大后二阶段 5 步）+ 1.5 倍视频 latent 细化，音频 latent 保持不变",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
