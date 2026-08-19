@@ -423,7 +423,25 @@ def test_all_non_low_vram_presets_cap_long_h3_sampling_to_official_canvas(preset
         "16:9",
     )
 
-    assert (native_width, native_height) == (1344, 768)
+    if preset == "质量优先二采样":
+        assert (native_width, native_height) == calculate_resolution("0.20 MP", "16:9")
+    else:
+        assert (native_width, native_height) == (1344, 768)
+    assert upscale_required is True
+
+
+def test_two_stage_uses_u15_safe_native_canvas_before_latent_upscale():
+    native_width, native_height, upscale_required = native_resolution_for_request(
+        2560,
+        1440,
+        15,
+        "质量优先二采样",
+        "16:9",
+    )
+    expected_width, expected_height = calculate_resolution("0.20 MP", "16:9")
+
+    assert (native_width, native_height) == (expected_width, expected_height)
+    assert native_width * native_height <= 0.21 * 1024 * 1024
     assert upscale_required is True
 
 

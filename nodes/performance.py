@@ -35,7 +35,10 @@ PRESETS = {
         "steps": 8,
         "two_stage_steps": 5,
         "two_stage_scale": 1.5,
-        "use_sage": True,
+        # Keep the two-stage route on ComfyUI's native attention kernels.
+        # H3/KJ Sage patches are optional acceleration paths and can wedge the
+        # CUDA context during the enlarged second-stage long-sequence pass.
+        "use_sage": False,
         "use_cache": False,
         "interpolate": False,
         "clip_device": "dynamic",
@@ -203,7 +206,7 @@ def _node_model(result):
 def _apply_sage_attention(model, guide):
     """Apply SageAttention with an RTX 30xx-safe kernel."""
     preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
-    if preset in {"quality_sage", "quality_two_stage", "low_vram"}:
+    if preset in {"quality_sage", "low_vram"}:
         # The generic KJ override keeps full Q/K/V tensors alive and can add
         # multiple GiB of temporary memory on long H3 sequences. The H3
         # patch quantizes the packed attention path and splits independent
@@ -278,7 +281,7 @@ def memory_policy(guide):
         guide.get("performance_preset", "quality"),
         guide.get("performance_preset", "quality"),
     )
-    if preset not in {"low_vram", "quality_sage", "quality_two_stage"}:
+    if preset not in {"low_vram", "quality_sage"}:
         yield
         return
 
@@ -323,7 +326,7 @@ class MiniMaxH3PerformancePreset:
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
-            "quality_two_stage": "质量优先二采样：总 8 步（首阶段 3 步 + 放大后二阶段 5 步）+ 1.5 倍视频 latent 细化，音频 latent 保持不变",
+            "quality_two_stage": "质量优先二采样：总 8 步（首阶段 3 步 + 放大后二阶段 5 步）+ 1.5 倍视频 latent 细化；使用原生注意力避免 CUDA 内核冲突，音频 latent 保持不变",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",

@@ -86,6 +86,18 @@ def native_resolution_for_request(
         native_width, native_height = int(requested_width), int(requested_height)
         capped = False
 
+    # The U15 latent two-stage route enlarges the video latent by 1.5x before
+    # its second sampler. Keep its first-stage canvas at U15's ~0.20 MP
+    # reference size; applying the normal 0.83 MP H3 canvas here would make
+    # the second-stage working set roughly 5x larger and can wedge the CUDA
+    # driver on long clips. The requested 2K/4K dimensions remain output
+    # targets for the postprocess encoder.
+    if performance_preset in {"质量优先二采样", "quality_two_stage"}:
+        two_stage_width, two_stage_height = calculate_resolution("0.20 MP", aspect_ratio, custom_width, custom_height)
+        if requested_area <= two_stage_width * two_stage_height:
+            return int(requested_width), int(requested_height), capped
+        return two_stage_width, two_stage_height, True
+
     if performance_preset != "low_vram":
         return native_width, native_height, capped
 

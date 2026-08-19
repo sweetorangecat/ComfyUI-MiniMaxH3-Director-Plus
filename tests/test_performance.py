@@ -126,7 +126,7 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     })
 
     assert values["steps"] >= 4
-    assert values["use_sage"] is (preset in {"quality_sage", "quality_two_stage", "fast_4step", "reference_fast", "low_vram"})
+    assert values["use_sage"] is (preset in {"quality_sage", "fast_4step", "reference_fast", "low_vram"})
     expected_cache = preset in {"fast_4step", "reference_fast"} and not (mode == "T2VA" and preset == "fast_4step")
     assert values["use_cache"] is expected_cache
     assert plan["backend"] == backend
@@ -154,6 +154,15 @@ def test_quality_priority_preset_uses_dynamic_safe_policy_without_quality_change
     assert values["clip_device"] == "dynamic"
     assert values["vae_device"] == "dynamic"
     assert values["fish_device"] == "cpu"
+
+
+def test_quality_two_stage_avoids_custom_cuda_patches_and_global_low_vram_policy():
+    values = preset_values("quality_two_stage")
+
+    assert values["steps"] == 8
+    assert values["two_stage_steps"] == 5
+    assert values["use_sage"] is False
+    assert values["use_cache"] is False
 
 
 def test_t2va_fast_uses_official_h3_turbo_contract():
@@ -328,7 +337,7 @@ def test_reference_fast_uses_safe_steps_when_requested_acceleration_fails(monkey
     assert steps == 8
 
 
-@pytest.mark.parametrize("preset", ["low_vram", "quality_sage", "quality_two_stage"])
+@pytest.mark.parametrize("preset", ["low_vram", "quality_sage"])
 def test_memory_policy_restores_comfy_state(monkeypatch, preset):
     class VramState:
         NORMAL_VRAM = "normal"
@@ -342,6 +351,20 @@ def test_memory_policy_restores_comfy_state(monkeypatch, preset):
     with memory_policy({"performance_preset": preset}):
         assert mm.vram_state == VramState.LOW_VRAM
     assert mm.vram_state == VramState.NORMAL_VRAM
+
+
+def test_two_stage_memory_policy_keeps_comfy_native_vram_state(monkeypatch):
+    class VramState:
+        NORMAL_VRAM = "normal"
+        LOW_VRAM = "low"
+
+    mm = type("ModelManagement", (), {"vram_state": VramState.NORMAL_VRAM, "VRAMState": VramState})()
+    import sys
+    monkeypatch.setitem(sys.modules, "comfy", type("Comfy", (), {"model_management": mm})())
+    monkeypatch.setitem(sys.modules, "comfy.model_management", mm)
+
+    with memory_policy({"performance_preset": "quality_two_stage"}):
+        assert mm.vram_state == VramState.NORMAL_VRAM
 
 
 def test_non_two_stage_preset_explicitly_bypasses_refinement():

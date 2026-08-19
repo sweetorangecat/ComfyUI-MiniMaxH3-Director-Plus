@@ -14,7 +14,7 @@
 
 API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递增、递减、随机属于 ComfyUI 客户端的连续运行状态，不作为无状态 API 入参公开；需要批量生成时，由调用方为每个请求明确传入 seed。
 
-`performance_preset` 支持 `稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。`质量优先二采样` 固定总 8 步，按 U15 的连续 sigma 路线执行首阶段 3 步，再将视频 latent 放大 1.5 倍完成 5 步低 sigma 细化，音频 latent 不放大；不额外插入随机“边界采样”。该档位不提供给低显存或 Fish S2 锁定路线，显存不足时应改用“质量优先加速”或“低显存”。
+`performance_preset` 支持 `稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。`质量优先二采样` 固定总 8 步，按 U15 的连续 sigma 路线执行首阶段 3 步，再将视频 latent 放大 1.5 倍完成 5 步低 sigma 细化，音频 latent 不放大；不额外插入随机“边界采样”，也不启用 H3/KJ Sage 自定义 CUDA 补丁。该档位会将首阶段原生画布限制在约 0.20 MP，最终 2K/4K仍由输出后处理完成。该档位不提供给低显存或 Fish S2 锁定路线，显存不足时应改用“质量优先加速”或“低显存”。
 
 `postprocess_mode` 控制最终视频输出：`native`（原生尺寸直出）、`lanczos`（CPU Lanczos 快速放大）、`ai_upscale`（ComfyUI 通用 AI 超分）或 `rtx_vsr`（RTX VSR AI 细节重建）。`ai_upscale_model` 为 `auto` 或 `models/upscale_models` 中已安装的模型名；`auto` 会按目标倍率优先选择 X2/X4 模型。`rtx_quality` 可选 `HIGH` 或 `ULTRA`，仅在 `rtx_vsr` 时生效。目标尺寸与 H3 原生尺寸相同会自动旁路，目标更小走高质量缩小。最终只保存一个视频；AI 模型或 RTX VSR 依赖缺失时会在生成前明确报错，不会静默退回另一种算法。
 
