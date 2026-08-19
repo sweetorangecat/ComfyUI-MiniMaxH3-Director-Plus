@@ -11,7 +11,7 @@ import torch
 LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus")
 
 
-GPU_OUTPUT_LIMIT_BYTES = 3 * 1024**3
+GPU_OUTPUT_LIMIT_BYTES = 12 * 1024**3
 
 
 def should_use_gpu_output(output_device, frame_shape, free_memory=None):
@@ -23,12 +23,15 @@ def should_use_gpu_output(output_device, frame_shape, free_memory=None):
     elements = 1
     for value in frame_shape:
         elements *= int(value)
-    # The output buffer is FP16; reserve a safety margin for decoder workspaces
-    # and the loaded VAE itself. Long 2K/4K clips stay on the CPU buffer path.
+    # The output buffer is FP16. When ComfyUI can report free VRAM, reserve
+    # half of it for decoder workspaces and the loaded VAE. On older builds
+    # without that API, keep the conservative 3 GiB fallback.
     output_bytes = elements * 2
+    if free_memory is None:
+        return output_bytes <= 3 * 1024**3
     if output_bytes > GPU_OUTPUT_LIMIT_BYTES:
         return False
-    if free_memory is not None and output_bytes * 2 > int(free_memory):
+    if output_bytes * 2 > int(free_memory):
         return False
     return True
 

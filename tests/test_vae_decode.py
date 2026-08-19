@@ -13,8 +13,14 @@ def test_safe_decoder_keeps_small_output_on_gpu_when_budget_allows():
 
 def test_safe_decoder_uses_cpu_buffer_for_long_high_resolution_output():
     assert should_use_gpu_output(
-        torch.device("cuda"), (1, 3, 362, 1440, 2560), free_memory=24 * 1024**3
+        torch.device("cuda"), (1, 3, 362, 1440, 2560), free_memory=12 * 1024**3
     ) is False
+
+
+def test_safe_decoder_keeps_15_second_2k_output_on_gpu_with_32gb_headroom():
+    assert should_use_gpu_output(
+        torch.device("cuda"), (1, 3, 362, 1440, 2560), free_memory=26 * 1024**3
+    ) is True
 
 
 def test_safe_video_vae_decode_uses_cpu_fp16_output_and_restores_vae(monkeypatch):
