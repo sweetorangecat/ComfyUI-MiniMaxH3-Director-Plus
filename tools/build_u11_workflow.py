@@ -383,6 +383,22 @@ def _color_guard_node(node_id, pos):
     }
 
 
+def _replace_video_vae_decoders(workflow):
+    """Use the H3 CPU-FP16 decoder for every visual workflow decode node."""
+    containers = [workflow]
+    containers.extend(workflow.get("definitions", {}).get("subgraphs", []) or [])
+    replaced = 0
+    for container in containers:
+        for node in container.get("nodes", []) or []:
+            if node.get("type") != "VAEDecode":
+                continue
+            node["type"] = "MiniMaxH3SafeVAEDecode"
+            node["properties"] = _properties("MiniMaxH3SafeVAEDecode")
+            node["title"] = node.get("title") or "H3 安全视频 VAE 解码（CPU FP16）"
+            replaced += 1
+    return replaced
+
+
 def _strip_model_path_prefixes(value):
     if isinstance(value, str):
         for prefix in ("MiniMaxH3/", "minimax/"):
@@ -712,6 +728,7 @@ def build_workflow(source):
         _add_link(workflow, allocate_link, director, 8, settings, noise_slot, "INT")
 
     _upgrade_subgraphs(workflow)
+    _replace_video_vae_decoders(workflow)
     workflow = _strip_model_path_prefixes(workflow)
     nodes = workflow["nodes"]
     _rebuild_socket_links(nodes, workflow.get("links", []))
@@ -771,7 +788,7 @@ def build_api_template():
         "19": {"class_type": "MiniMaxH3SamplerRouter", "inputs": {"sampler_name": "res_multistep", "guide": ["10", 0]}, "_meta": {"title": "API H3 实际采样器路由"}},
         "20": {"class_type": "BasicScheduler", "inputs": {"model": ["15", 0], "scheduler": "simple", "steps": ["28", 0], "denoise": 1.0}, "_meta": {"title": "API 调度器"}},
         "21": {"class_type": "MiniMaxH3TwoStageSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0]}, "_meta": {"title": "API H3 U15 二阶段 Latent 细化采样（自动旁路）"}},
-        "22": {"class_type": "VAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 视频解码"}},
+        "22": {"class_type": "MiniMaxH3SafeVAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 安全视频 VAE 解码（CPU FP16）"}},
         "23": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["21", 1], "vae": ["5", 0]}, "_meta": {"title": "API 音频解码"}},
         "29": {"class_type": "MiniMaxH3ColorGuard", "inputs": {"images": ["22", 0], "guide": ["10", 0], "enabled": True, "strength": 1.0}, "_meta": {"title": "曝光与色彩连续性保护"}},
         "24": {"class_type": "MiniMaxH3StreamingVideoCombine", "inputs": {"images": ["29", 0], "guide": ["10", 0], "frame_rate": 24.0, "codec": "H.264", "container": "MP4", "bit_depth": "Auto", "quality": 20, "log_level": "Standard", "pingpong": False, "save_metadata": True, "filename_prefix": "DirectorPlus", "save_output": True, "pass_frames": False, "crop_to_audio": False, "audio_codec": "Auto", "audio_bitrate": "192k", "save_first_frame": False, "save_last_frame": False, "audio": ["23", 0]}, "_meta": {"title": "预览与输出"}},

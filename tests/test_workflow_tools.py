@@ -399,6 +399,30 @@ def test_api_template_streams_final_target_into_output_node():
     assert output["inputs"]["guide"] == ["10", 0]
 
 
+def test_api_template_uses_safe_video_vae_decode():
+    from tools.build_u11_workflow import build_api_template
+
+    assert build_api_template()["22"]["class_type"] == "MiniMaxH3SafeVAEDecode"
+
+
+def test_builder_replaces_video_vae_decode_with_safe_decoder():
+    source = {
+        "last_node_id": 3,
+        "last_link_id": 0,
+        "nodes": [
+            {"id": 1, "type": "VAEDecode", "title": "视频解码", "pos": [0, 0], "size": [230, 60], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+        ],
+        "links": [],
+        "groups": [],
+        "definitions": {"subgraphs": []},
+    }
+    built = build_workflow(source)
+    decoder = next(node for node in built["nodes"] if node["id"] == 1)
+    assert decoder["type"] == "MiniMaxH3SafeVAEDecode"
+
+
 def test_builder_makes_director_the_only_resolution_and_seed_control_surface():
     subgraph_inputs = [
         {"id": "fps", "name": "value_3", "type": "FLOAT", "linkIds": [101]},

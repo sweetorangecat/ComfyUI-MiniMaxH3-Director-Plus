@@ -17,6 +17,7 @@ if __package__:
     from .nodes.color_guard import MiniMaxH3ColorGuard
     from .nodes.upscale import MiniMaxH3VideoUpscale
     from .nodes.stream_output import MiniMaxH3StreamingVideoCombine
+    from .nodes.vae_decode import MiniMaxH3SafeVAEDecode
 
     NODE_CLASS_MAPPINGS = {
         "MiniMaxH3DirectorPlus": MiniMaxH3DirectorPlus,
@@ -33,6 +34,7 @@ if __package__:
         "MiniMaxH3ColorGuard": MiniMaxH3ColorGuard,
         "MiniMaxH3VideoUpscale": MiniMaxH3VideoUpscale,
         "MiniMaxH3StreamingVideoCombine": MiniMaxH3StreamingVideoCombine,
+        "MiniMaxH3SafeVAEDecode": MiniMaxH3SafeVAEDecode,
     }
 
     NODE_DISPLAY_NAME_MAPPINGS = {
@@ -49,6 +51,7 @@ if __package__:
         "MiniMaxH3ColorGuard": "H3 曝光与色彩连续性保护",
         "MiniMaxH3VideoUpscale": "H3 低显存 CPU 分块放大",
         "MiniMaxH3StreamingVideoCombine": "H3 低显存流式放大与 MP4 输出",
+        "MiniMaxH3SafeVAEDecode": "H3 安全视频 VAE 解码（CPU FP16）",
     }
 
     register_routes()

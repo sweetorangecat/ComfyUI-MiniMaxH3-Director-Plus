@@ -434,7 +434,7 @@
     }
   },
   "22": {
-    "class_type": "VAEDecode",
+    "class_type": "MiniMaxH3SafeVAEDecode",
     "inputs": {
       "samples": [
         "21",
