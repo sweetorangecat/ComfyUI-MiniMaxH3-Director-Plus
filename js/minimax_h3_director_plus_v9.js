@@ -597,7 +597,7 @@ function install(node) {
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = "质量优先二采样已锁定 RTX VSR：先用 H3 VAE 图像重绘恢复细节，再用 RTX VSR 输出目标尺寸；不叠加 OmniSR/Lanczos。";
+      postprocessNote.textContent = "质量优先二采样已锁定 RTX VSR：首阶段会按目标尺寸自动选源分辨率，先用 H3 VAE 图像重绘恢复细节，再用 RTX VSR 输出目标尺寸；二采后线性放大约控制在 1.9 倍内，不叠加 OmniSR/Lanczos。";
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {

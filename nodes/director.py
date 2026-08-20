@@ -14,6 +14,12 @@ from .upscale import _available_upscale_models, resolve_upscale_model_name
 
 BASE_MODES = {"T2VA", "I2VA", "FL2VA", "L2VA"}
 
+# U09 redraws the decoded video at 1.5x before the final output stage. Keep
+# the final RTX VSR enlargement near 2x per axis so it is not asked to turn a
+# thumbnail-sized H3 render into a 2K/4K video.
+TWO_STAGE_IMAGE_SCALE = 1.5
+TWO_STAGE_MAX_VSR_SCALE = 1.9
+
 
 def _uploaded_files(content_types):
     try:
@@ -86,14 +92,36 @@ def native_resolution_for_request(
         native_width, native_height = int(requested_width), int(requested_height)
         capped = False
 
-    # The U15 latent two-stage route enlarges the video latent by 1.5x before
-    # its second sampler. Keep its first-stage canvas at U15's ~0.20 MP
-    # reference size; applying the normal 0.83 MP H3 canvas here would make
-    # the second-stage working set roughly 5x larger and can wedge the CUDA
-    # driver on long clips. The requested 2K/4K dimensions remain output
-    # targets for the postprocess encoder.
+    # U09 decodes and redraws the clean video at 1.5x before final encoding.
+    # Pick the first-stage MP from the requested target so that the remaining
+    # RTX VSR enlargement is no more than roughly 2x per axis. This avoids
+    # hard-expanding a 0.20 MP thumbnail into 2K while retaining H3's native
+    # canvas cap for long clips.
     if performance_preset in {"质量优先二采样", "quality_two_stage"}:
-        two_stage_width, two_stage_height = calculate_resolution("0.20 MP", aspect_ratio, custom_width, custom_height)
+        required_native_area = requested_area / (
+            TWO_STAGE_IMAGE_SCALE * TWO_STAGE_MAX_VSR_SCALE
+        ) ** 2
+        native_preset = "2.10 MP"
+        for preset in MEGAPIXELS:
+            if preset in {"2K QHD", "4K UHD"}:
+                continue
+            candidate_width, candidate_height = calculate_resolution(
+                preset,
+                aspect_ratio,
+                custom_width,
+                custom_height,
+            )
+            if candidate_width * candidate_height >= required_native_area:
+                native_preset = preset
+                break
+        two_stage_width, two_stage_height = calculate_resolution(
+            native_preset,
+            aspect_ratio,
+            custom_width,
+            custom_height,
+        )
+        two_stage_width = min(two_stage_width, official_width)
+        two_stage_height = min(two_stage_height, official_height)
         if requested_area <= two_stage_width * two_stage_height:
             return int(requested_width), int(requested_height), capped
         return two_stage_width, two_stage_height, True
@@ -378,6 +406,22 @@ class MiniMaxH3DirectorPlus:
         else:
             postprocess_path = "native_bypass"
 
+        if (
+            request["performance_preset"] == "quality_two_stage"
+            and postprocess_path == "rtx_vsr"
+        ):
+            redraw_width = max(16, int(round(native_width * TWO_STAGE_IMAGE_SCALE / 16.0)) * 16)
+            redraw_height = max(16, int(round(native_height * TWO_STAGE_IMAGE_SCALE / 16.0)) * 16)
+            vsr_scale = max(
+                requested_width / max(1, redraw_width),
+                requested_height / max(1, redraw_height),
+            )
+            request["warnings"].append(
+                "U09 二采源分辨率已按目标比例选择："
+                f"首阶段 {native_width}×{native_height}，二采后约 {redraw_width}×{redraw_height}，"
+                f"RTX VSR 线性放大约 {vsr_scale:.2f} 倍。"
+            )
+
         if postprocess_path == "native_bypass" and (
             requested_width != native_width or requested_height != native_height
         ):
@@ -462,6 +506,8 @@ class MiniMaxH3DirectorPlus:
             "native_width": int(native_width),
             "native_height": int(native_height),
             "native_cap_applied": bool(native_capped),
+            "two_stage_image_scale": TWO_STAGE_IMAGE_SCALE,
+            "two_stage_max_vsr_scale": TWO_STAGE_MAX_VSR_SCALE,
             "requested_width": int(requested_width),
             "requested_height": int(requested_height),
             "target_width": int(final_target_width),

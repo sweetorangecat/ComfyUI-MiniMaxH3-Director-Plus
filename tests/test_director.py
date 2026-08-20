@@ -3,7 +3,7 @@ import json
 import pytest
 
 from nodes.director import MiniMaxH3DirectorPlus, align_frame_count, native_resolution_for_request
-from nodes.resolution import calculate_resolution
+from nodes.resolution import calculate_resolution, h3_native_canvas
 from nodes.schema import RequestError
 
 
@@ -424,7 +424,7 @@ def test_all_non_low_vram_presets_cap_long_h3_sampling_to_official_canvas(preset
     )
 
     if preset == "质量优先二采样":
-        assert (native_width, native_height) == calculate_resolution("0.20 MP", "16:9")
+        assert (native_width, native_height) == calculate_resolution("0.26 MP", "16:9")
     else:
         assert (native_width, native_height) == (1344, 768)
     assert upscale_required is True
@@ -438,11 +438,28 @@ def test_two_stage_uses_u15_safe_native_canvas_before_latent_upscale():
         "质量优先二采样",
         "16:9",
     )
-    expected_width, expected_height = calculate_resolution("0.20 MP", "16:9")
+    expected_width, expected_height = calculate_resolution("0.50 MP", "16:9")
 
     assert (native_width, native_height) == (expected_width, expected_height)
-    assert native_width * native_height <= 0.21 * 1024 * 1024
+    assert native_width * native_height >= 0.49 * 1024 * 1024
     assert upscale_required is True
+
+
+def test_two_stage_native_canvas_scales_with_final_target_to_bound_vsr_ratio():
+    width, height, _ = native_resolution_for_request(
+        3840,
+        2160,
+        15,
+        "质量优先二采样",
+        "16:9",
+    )
+    expected_width, expected_height = h3_native_canvas("16:9")
+
+    assert (width, height) == (expected_width, expected_height)
+    # U09's 1.5x image-space redraw plus RTX VSR stays within roughly 2x
+    # linear enlargement for a 4K target.
+    post_redraw_area = width * height * 1.5 ** 2
+    assert (3840 * 2160 / post_redraw_area) ** 0.5 <= 2.0
 
 
 def test_low_vram_keeps_small_target_without_unnecessary_upscale():
