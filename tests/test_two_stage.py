@@ -179,7 +179,7 @@ def test_two_stage_returns_final_denoised_latent_for_video_and_audio(monkeypatch
     assert result[1] is final_denoised
 
 
-def test_two_stage_final_refinement_uses_empty_noise(monkeypatch):
+def test_two_stage_final_refinement_uses_boundary_noise_then_empty_noise(monkeypatch):
     import nodes.performance as performance
 
     calls = []
@@ -221,17 +221,19 @@ def test_two_stage_final_refinement_uses_empty_noise(monkeypatch):
         {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert isinstance(calls[0], FakeRandomNoise)
-    assert isinstance(calls[1], FakeEmptyNoise)
+    assert isinstance(calls[1], FakeRandomNoise)
+    assert isinstance(calls[2], FakeEmptyNoise)
 
 
-def test_two_stage_does_not_run_extra_boundary_sampler(monkeypatch):
+def test_two_stage_runs_u15_boundary_sampler_without_adding_effective_steps(monkeypatch):
     import nodes.performance as performance
 
     calls = []
     first_sampled = {"samples": torch.zeros(1, 4, 2, 4, 4)}
     first_denoised = {"samples": torch.ones(1, 4, 2, 4, 4)}
+    boundary_sampled = {"samples": torch.full((1, 4, 2, 6, 6), 2.0)}
     final_denoised = {"samples": torch.full((1, 4, 2, 6, 6), 3.0)}
 
     class FakeRandomNoise:
@@ -247,7 +249,9 @@ def test_two_stage_does_not_run_extra_boundary_sampler(monkeypatch):
             calls.append((noise, sigmas.clone(), latent))
             if len(calls) == 1:
                 return types.SimpleNamespace(result=(first_sampled, first_denoised))
-            return types.SimpleNamespace(result=(latent, final_denoised))
+            if len(calls) == 2:
+                return types.SimpleNamespace(result=(boundary_sampled, boundary_sampled))
+            return types.SimpleNamespace(result=(boundary_sampled, final_denoised))
 
     def separate(latent):
         if latent is first_sampled:
@@ -274,7 +278,10 @@ def test_two_stage_does_not_run_extra_boundary_sampler(monkeypatch):
         {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
     )
 
-    assert len(calls) == 2
-    assert isinstance(calls[1][0], FakeEmptyNoise)
-    assert calls[1][1].shape == (3,)
+    assert len(calls) == 3
+    assert isinstance(calls[1][0], FakeRandomNoise)
+    assert calls[1][1].shape == (1,)
     assert calls[1][2]["samples"].shape[-2:] == (6, 6)
+    assert isinstance(calls[2][0], FakeEmptyNoise)
+    assert calls[2][1].shape == (3,)
+    assert calls[2][2] is boundary_sampled

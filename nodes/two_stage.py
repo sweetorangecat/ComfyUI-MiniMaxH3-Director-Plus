@@ -76,7 +76,7 @@ class MiniMaxH3TwoStageSampler:
         return bool((guide or {}).get("two_stage_enabled"))
 
     def execute(self, noise, guider, sampler, sigmas, latent_image, guide=None):
-        from comfy_extras.nodes_custom_sampler import Noise_EmptyNoise, SamplerCustomAdvanced
+        from comfy_extras.nodes_custom_sampler import Noise_EmptyNoise, Noise_RandomNoise, SamplerCustomAdvanced
         from comfy_extras.nodes_lt import LTXVConcatAVLatent, LTXVSeparateAVLatent
         from .performance import memory_policy
 
@@ -112,12 +112,23 @@ class MiniMaxH3TwoStageSampler:
             # The audio stream is intentionally never resized; H3's AV concat
             # node aligns it back to the refined video stream.
             video_latent = upscale_video_latent(video_latent, scale)
+            # U15's boundary sampler has one sigma only, so it adds no
+            # effective user-visible step. It is nevertheless required to
+            # convert the upscaled denoised latent back to the sigma boundary
+            # expected by the low-sigma continuation. Skipping this conversion
+            # produces the grey/noise decode reported on long clips.
+            boundary_noise = Noise_RandomNoise(int(getattr(noise, "seed", 0)))
+            boundary = SamplerCustomAdvanced.execute(
+                boundary_noise,
+                guider,
+                sampler,
+                second_sigmas[:1],
+                video_latent,
+            )
+            video_latent = _node_output(boundary, 0)
             merged = _node_output(LTXVConcatAVLatent.execute(video_latent, audio_latent), 0)
-            # Continue directly from the upscaled denoised video. U15's
-            # boundary SplitSigmas output contains only the shared sigma and
-            # does not represent an additional effective sampling step.
-            # Injecting a random boundary pass here is not an H3 requirement
-            # and can destabilize the decoded range (grey output).
+            # The final continuation uses empty noise, matching U15 after its
+            # boundary conversion rather than injecting a second random field.
             second_noise = Noise_EmptyNoise()
             second = SamplerCustomAdvanced.execute(second_noise, guider, sampler, second_sigmas, merged)
         # U15 decodes the final denoised AV latent (slot 1) for both video and
