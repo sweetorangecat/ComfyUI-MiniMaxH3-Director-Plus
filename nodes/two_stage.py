@@ -50,8 +50,41 @@ def _node_output(result, index=0):
     return result[index] if isinstance(result, (tuple, list)) else result[index]
 
 
+def _image_space_refine(video_latent, video_vae, scale):
+    """Decode, resize, and re-encode one H3 video stream for U09-style redraw."""
+    samples = video_latent["samples"]
+    decoded = video_vae.decode(samples)
+    if not isinstance(decoded, torch.Tensor):
+        raise ValueError("H3 VAE 解码未返回 Tensor")
+    if decoded.ndim == 5:
+        # The VAE wrapper returns [B,T,H,W,C]; direct H3 VAE implementations
+        # may return [B,C,T,H,W]. Accept both forms.
+        if decoded.shape[1] in (1, 3, 4) and decoded.shape[-1] not in (1, 3, 4):
+            decoded = decoded.movedim(1, -1)
+        decoded = decoded.reshape(-1, decoded.shape[-3], decoded.shape[-2], decoded.shape[-1])
+    if decoded.ndim != 4 or decoded.shape[-1] < 3:
+        raise ValueError(f"H3 二采重绘需要 [帧,高,宽,通道] 图像，实际为 {tuple(decoded.shape)}")
+    height, width = int(decoded.shape[1]), int(decoded.shape[2])
+    target_height = max(16, int(round(height * float(scale) / 16.0)) * 16)
+    target_width = max(16, int(round(width * float(scale) / 16.0)) * 16)
+    if (target_height, target_width) != (height, width):
+        pixels = F.interpolate(
+            decoded[..., :3].movedim(-1, 1).to(dtype=torch.float32),
+            size=(target_height, target_width),
+            mode="bicubic",
+            align_corners=False,
+        ).movedim(1, -1).clamp(0.0, 1.0)
+    else:
+        pixels = decoded[..., :3].to(dtype=torch.float32).clamp(0.0, 1.0)
+    encoded = video_vae.encode(pixels)
+    refined = dict(video_latent)
+    refined["samples"] = encoded
+    refined.pop("noise_mask", None)
+    return refined
+
+
 class MiniMaxH3TwoStageSampler:
-    """Run U15-style continuous sigma refinement without extra user wiring."""
+    """Run the U09 image-space redraw without extra user wiring."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -63,7 +96,10 @@ class MiniMaxH3TwoStageSampler:
                 "sigmas": ("SIGMAS",),
                 "latent_image": ("LATENT",),
             },
-            "optional": {"guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",)},
+            "optional": {
+                "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
+                "video_vae": ("VAE",),
+            },
         }
 
     RETURN_TYPES = ("LATENT", "LATENT")
@@ -75,7 +111,7 @@ class MiniMaxH3TwoStageSampler:
     def _enabled(guide):
         return bool((guide or {}).get("two_stage_enabled"))
 
-    def execute(self, noise, guider, sampler, sigmas, latent_image, guide=None):
+    def execute(self, noise, guider, sampler, sigmas, latent_image, guide=None, video_vae=None):
         from comfy_extras.nodes_custom_sampler import Noise_EmptyNoise, Noise_RandomNoise, SamplerCustomAdvanced
         from comfy_extras.nodes_lt import LTXVConcatAVLatent, LTXVSeparateAVLatent
         from .performance import memory_policy
@@ -93,17 +129,17 @@ class MiniMaxH3TwoStageSampler:
         try:
             first_sigmas, second_sigmas = split_refinement_sigmas(sigmas, refinement_steps)
         except ValueError as exc:
-            raise ValueError(f"U15 二阶段 sigma 轨迹无效：{exc}") from exc
+            raise ValueError(f"U09 二采 sigma 轨迹无效：{exc}") from exc
         if scale <= 1.0:
-            raise ValueError("U15 二阶段视频 latent 放大倍率必须大于 1.0")
-        guide["two_stage_status"] = "U15 二阶段 latent 细化"
+            raise ValueError("U09 二采视频放大倍率必须大于 1.0")
+        guide["two_stage_status"] = "U09 图像空间二采重绘"
         guide["two_stage_enabled"] = True
 
         with memory_policy(guide):
             first = SamplerCustomAdvanced.execute(noise, guider, sampler, first_sigmas, latent_image)
             sampled = _node_output(first, 0)
             denoised = _node_output(first, 1)
-            # Match U15's actual AV split: refine the clean x0 video stream,
+            # Match the H3 AV split: refine the clean x0 video stream,
             # but preserve the sampler-path audio stream for the final AV
             # continuation. Upscaling slot 0's noisy video produces the flat
             # grey output seen after VAE decode.
@@ -111,8 +147,31 @@ class MiniMaxH3TwoStageSampler:
             video_latent, _ = LTXVSeparateAVLatent.execute(denoised)
             # The audio stream is intentionally never resized; H3's AV concat
             # node aligns it back to the refined video stream.
+            if video_vae is not None:
+                # U09's quality path is an image-space redraw, not a second
+                # generic upscaler.  Decode the clean first-pass x0, enlarge
+                # it on 16px H3 boundaries, and re-encode before low-denoise
+                # refinement.  The legacy latent path remains available for
+                # legacy workflows that have no VAE socket.
+                video_latent = _image_space_refine(video_latent, video_vae, scale)
+                second_sigmas = _node_output(
+                    __import__("comfy_extras.nodes_custom_sampler", fromlist=["BasicScheduler"])
+                    .BasicScheduler.execute(
+                        guider.model_patcher,
+                        "simple",
+                        2,
+                        0.2,
+                    ),
+                    0,
+                )
+                merged = _node_output(LTXVConcatAVLatent.execute(video_latent, audio_latent), 0)
+                second_noise = Noise_RandomNoise(int(getattr(noise, "seed", 0)))
+                second = SamplerCustomAdvanced.execute(second_noise, guider, sampler, second_sigmas, merged)
+                guide["two_stage_status"] = "U09 图像空间二采重绘"
+                final_denoised = _node_output(second, 1)
+                return final_denoised, final_denoised
             video_latent = upscale_video_latent(video_latent, scale)
-            # U15's boundary sampler has one sigma only, so it adds no
+            # Legacy latent fallback retains U15's boundary sampler. It has one sigma only, so it adds no
             # effective user-visible step. It is nevertheless required to
             # convert the upscaled denoised latent back to the sigma boundary
             # expected by the low-sigma continuation. Skipping this conversion
@@ -127,11 +186,11 @@ class MiniMaxH3TwoStageSampler:
             )
             video_latent = _node_output(boundary, 0)
             merged = _node_output(LTXVConcatAVLatent.execute(video_latent, audio_latent), 0)
-            # The final continuation uses empty noise, matching U15 after its
+            # The final continuation uses empty noise, matching the legacy boundary path after its
             # boundary conversion rather than injecting a second random field.
             second_noise = Noise_EmptyNoise()
             second = SamplerCustomAdvanced.execute(second_noise, guider, sampler, second_sigmas, merged)
-        # U15 decodes the final denoised AV latent (slot 1) for both video and
+        # The legacy latent fallback decodes the final denoised AV latent (slot 1) for both video and
         # audio. Slot 0 is still the sampler path output and can contain noise,
         # which produces a grey/noisy video when sent directly to VAEDecode.
         final_denoised = _node_output(second, 1)

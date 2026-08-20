@@ -40,6 +40,27 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
     "reference": ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram"),
 }
 
+# These routes are intentionally explicit.  A quality two-stage pass already
+# performs the image-space H3 re-render; stacking a generic frame upscaler or
+# a native bypass on that route either discards the refinement or creates a
+# second, incompatible reconstruction path.  Other presets still expose one
+# selectable final-output method at a time.
+POSTPROCESS_MODES_BY_PERFORMANCE = {
+    "quality_two_stage": ("rtx_vsr",),
+    "quality": POSTPROCESS_MODES,
+    "quality_sage": POSTPROCESS_MODES,
+    "fast_4step": POSTPROCESS_MODES,
+    "reference_fast": POSTPROCESS_MODES,
+    "low_vram": POSTPROCESS_MODES,
+    "custom": POSTPROCESS_MODES,
+}
+
+
+def allowed_postprocess_modes(performance_preset):
+    """Return final-output methods compatible with a normalized preset."""
+    preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
+    return POSTPROCESS_MODES_BY_PERFORMANCE.get(preset, POSTPROCESS_MODES)
+
 
 def allowed_performance_presets(mode, voice_mode="none"):
     """Return the safe, user-facing presets for the active H3 route."""
@@ -169,6 +190,18 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的性能预设：{request['performance_preset']}")
     request["performance_preset"] = preset
 
+    allowed_postprocess = allowed_postprocess_modes(preset)
+    if request["postprocess_mode"] not in allowed_postprocess:
+        if preset == "quality_two_stage":
+            raise RequestError(
+                "质量优先二采样已包含 U09 图像重绘，只能搭配 RTX VSR；"
+                "请将最终输出切换为 RTX VSR（HIGH 或 ULTRA）"
+            )
+        raise RequestError(
+            f"性能预设 {request['performance_preset']} 不支持后处理模式 "
+            f"{request['postprocess_mode']}"
+        )
+
     request["warnings"] = []
     allowed = allowed_performance_presets(request["mode"], request["voice_mode"])
     if preset not in allowed and preset != "custom":
@@ -229,6 +262,10 @@ def public_schema():
                 "enum": list(POSTPROCESS_MODES),
                 "default": "native",
                 "description": "四种最终输出路线：原生尺寸直出、Lanczos 快速放大、通用 AI 自动超分、NVIDIA RTX VSR AI 细节重建。",
+                "allowed_by_performance": {
+                    "质量优先二采样": ["rtx_vsr"],
+                    "其他性能预设": list(POSTPROCESS_MODES),
+                },
             },
             "rtx_quality": {
                 "中文名称": "RTX VSR 质量",

@@ -66,6 +66,14 @@ def test_ui_exposes_one_final_output_postprocess_surface():
     assert "同尺寸自动旁路" in text
 
 
+def test_ui_locks_quality_two_stage_to_rtx_vsr():
+    text = source()
+    assert "POSTPROCESS_MODES_BY_PERFORMANCE" in text
+    assert '"质量优先二采样": [["rtx_vsr"' in text
+    assert "allowedPostprocessModes(preset)" in text
+    assert "质量优先二采样已锁定 RTX VSR" in text
+
+
 def test_frontend_filters_performance_presets_by_mode_and_voice():
     text = source()
     assert '"质量优先二采样"' in text

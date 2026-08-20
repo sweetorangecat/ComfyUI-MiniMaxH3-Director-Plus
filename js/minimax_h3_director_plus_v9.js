@@ -60,6 +60,9 @@ const POSTPROCESS_MODES = [
   ["ai_upscale", "AI 自动超分"],
   ["rtx_vsr", "AI 细节重建（RTX VSR）"],
 ];
+const POSTPROCESS_MODES_BY_PERFORMANCE = {
+  "质量优先二采样": [["rtx_vsr", "AI 细节重建（RTX VSR）"]],
+};
 const RTX_QUALITIES = [
   ["HIGH", "HIGH（质量）"],
   ["ULTRA", "ULTRA（更高质量）"],
@@ -124,11 +127,15 @@ function allowedPerformancePresets(mode, voiceMode) {
 }
 
 function performancePresetHint(preset) {
-  if (preset === "质量优先二采样") return "14 步连续 sigma + 1.5 倍视频 latent 二阶段细化（高显存）";
+  if (preset === "质量优先二采样") return "U09 图像解码重绘 + 低 denoise 二采样 + RTX VSR（高显存）";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
   if (preset === "低显存") return "动态分层加载，适合显存受限设备";
   if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
   return "模式与加速预设";
+}
+
+function allowedPostprocessModes(preset) {
+  return POSTPROCESS_MODES_BY_PERFORMANCE[preset] || POSTPROCESS_MODES;
 }
 
 function keepPromptAssistantReadable(anchor) {
@@ -496,6 +503,12 @@ function install(node) {
       preset = "稳定质量";
       setWidget(node, "performance_preset", preset, false);
     }
+    const postprocessOptions = allowedPostprocessModes(preset);
+    let postprocessMode = widget(node, "postprocess_mode")?.value || "native";
+    if (!postprocessOptions.some(([value]) => value === postprocessMode)) {
+      postprocessMode = postprocessOptions[0][0];
+      setWidget(node, "postprocess_mode", postprocessMode, false);
+    }
     const aspect = widget(node, "aspect_ratio")?.value || "16:9";
     const resolutionPreset = widget(node, "resolution_preset")?.value || "0.83 MP";
     const [resolvedWidth, resolvedHeight] = syncResolution(node);
@@ -548,9 +561,8 @@ function install(node) {
     );
     const postprocessGrid = document.createElement("div");
     postprocessGrid.className = "h3p-grid";
-    const postprocessMode = widget(node, "postprocess_mode")?.value || "native";
     postprocessGrid.append(
-      valueControl("最终输出", "postprocess_mode", POSTPROCESS_MODES, postprocessMode),
+      valueControl("最终输出", "postprocess_mode", postprocessOptions, postprocessMode),
       postprocessMode === "ai_upscale"
         ? valueControl("AI 超分模型", "ai_upscale_model", [["auto", "自动选择"]], widget(node, "ai_upscale_model")?.value || "auto")
         : postprocessMode === "rtx_vsr"
@@ -584,6 +596,9 @@ function install(node) {
       rtx_vsr: "RTX VSR：目标尺寸大于 H3 原生尺寸时逐帧使用 NVIDIA RTX VSR；首次使用前请安装 nvidia-vfx、NVIDIA Broadcast SDK 与匹配驱动，导演节点会在生成前检查；同尺寸自动旁路。",
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
+    if (preset === "质量优先二采样") {
+      postprocessNote.textContent = "质量优先二采样已锁定 RTX VSR：先用 H3 VAE 图像重绘恢复细节，再用 RTX VSR 输出目标尺寸；不叠加 OmniSR/Lanczos。";
+    }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {
       specGrid.append(

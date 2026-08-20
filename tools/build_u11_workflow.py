@@ -561,7 +561,7 @@ def _upgrade_subgraphs(workflow):
                     exposed_inputs[guide_slot]["linkIds"].append(guide_link)
 
             # Keep one sampler socket layout while routing the selected preset
-            # through the self-contained U15 two-stage node. It automatically
+            # through the self-contained U09 redraw node. It automatically
             # bypasses the second stage for every other performance preset.
             for sampler in [
                 item for item in subgraph.get("nodes", [])
@@ -569,7 +569,7 @@ def _upgrade_subgraphs(workflow):
             ]:
                 old_inputs = {item.get("name"): item for item in sampler.get("inputs", [])}
                 sampler["type"] = "MiniMaxH3TwoStageSampler"
-                sampler["title"] = "H3 U15 二阶段 Latent 细化采样（自动旁路）"
+                sampler["title"] = "H3 U09 图像空间二采重绘（自动旁路）"
                 sampler["properties"] = _properties("MiniMaxH3TwoStageSampler")
                 sampler["inputs"] = [
                     {**old_inputs.get("noise", _socket("noise", "NOISE")), "name": "noise", "type": "NOISE"},
@@ -578,6 +578,7 @@ def _upgrade_subgraphs(workflow):
                     {**old_inputs.get("sigmas", _socket("sigmas", "SIGMAS")), "name": "sigmas", "type": "SIGMAS"},
                     {**old_inputs.get("latent_image", _socket("latent_image", "LATENT")), "name": "latent_image", "type": "LATENT"},
                     _socket("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"),
+                    _socket("video_vae", "VAE"),
                 ]
                 sampler["outputs"] = [
                     _output("输出Latent", "LATENT"),
@@ -609,6 +610,30 @@ def _upgrade_subgraphs(workflow):
                 sampler["inputs"][5]["link"] = guide_link
                 if guide_link not in exposed_inputs[guide_slot].setdefault("linkIds", []):
                     exposed_inputs[guide_slot]["linkIds"].append(guide_link)
+
+                # Reuse the guide's existing VideoVAE source.  This keeps the
+                # VAE connection internal to the generated workflow; users do
+                # not have to add or reconnect a second VAE node.
+                guide_node = next((item for item in subgraph.get("nodes", [])
+                                   if item.get("type") == "MiniMaxH3DirectorPlusGuide"), None)
+                vae_link = None
+                if guide_node is not None:
+                    vae_link = next((_link_value(raw) for raw in subgraph.get("links", [])
+                                     if _link_value(raw)[3] == guide_node.get("id")
+                                     and _link_value(raw)[4] == 1
+                                     and _link_value(raw)[5] == "VAE"), None)
+                if vae_link is not None:
+                    link_id = next_link_id
+                    next_link_id += 1
+                    subgraph.setdefault("links", []).append({
+                        "id": link_id,
+                        "origin_id": vae_link[1],
+                        "origin_slot": vae_link[2],
+                        "target_id": sampler["id"],
+                        "target_slot": 6,
+                        "type": "VAE",
+                    })
+                    sampler["inputs"][6]["link"] = link_id
         _disable_legacy_acceleration_switches(subgraph)
         node_ids = {item.get("id") for item in subgraph.get("nodes", [])}
         subgraph["links"] = [
@@ -787,7 +812,7 @@ def build_api_template():
         "18": {"class_type": "RandomNoise", "inputs": {"noise_seed": 0}, "_meta": {"title": "API 随机种子"}},
         "19": {"class_type": "MiniMaxH3SamplerRouter", "inputs": {"sampler_name": "res_multistep", "guide": ["10", 0]}, "_meta": {"title": "API H3 实际采样器路由"}},
         "20": {"class_type": "BasicScheduler", "inputs": {"model": ["15", 0], "scheduler": "simple", "steps": ["28", 0], "denoise": 1.0}, "_meta": {"title": "API 调度器"}},
-        "21": {"class_type": "MiniMaxH3TwoStageSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0]}, "_meta": {"title": "API H3 U15 二阶段 Latent 细化采样（自动旁路）"}},
+        "21": {"class_type": "MiniMaxH3TwoStageSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0], "video_vae": ["4", 0]}, "_meta": {"title": "API U09 图像空间二采重绘（自动旁路）"}},
         "22": {"class_type": "MiniMaxH3SafeVAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 安全视频 VAE 解码（GPU计算 / CPU帧缓存 FP16）"}},
         "23": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["21", 1], "vae": ["5", 0]}, "_meta": {"title": "API 音频解码"}},
         "29": {"class_type": "MiniMaxH3ColorGuard", "inputs": {"images": ["22", 0], "guide": ["10", 0], "enabled": True, "strength": 1.0}, "_meta": {"title": "曝光与色彩连续性保护"}},

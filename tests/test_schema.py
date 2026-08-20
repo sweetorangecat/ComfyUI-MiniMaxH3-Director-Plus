@@ -4,6 +4,7 @@ from nodes.schema import (
     PUBLIC_API_KEYS,
     RequestError,
     allowed_performance_presets,
+    allowed_postprocess_modes,
     low_vram_target_limit,
     normalize_request,
     public_schema,
@@ -20,6 +21,7 @@ def test_schema_exposes_final_postprocess_controls():
     assert schema["postprocess_mode"]["enum"] == ["native", "lanczos", "ai_upscale", "rtx_vsr"]
     assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA"]
     assert schema["ai_upscale_model"]["default"] == "auto"
+    assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["rtx_vsr"]
 
 
 def test_normalize_request_defaults_to_native_postprocess():
@@ -39,6 +41,31 @@ def test_normalize_request_accepts_generic_upscale_model_override():
 
     assert request["postprocess_mode"] == "ai_upscale"
     assert request["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+
+
+def test_quality_two_stage_only_allows_rtx_vsr_postprocess():
+    assert allowed_postprocess_modes("quality_two_stage") == ("rtx_vsr",)
+
+
+@pytest.mark.parametrize("postprocess_mode", ["native", "lanczos", "ai_upscale"])
+def test_quality_two_stage_rejects_incompatible_postprocess(postprocess_mode):
+    with pytest.raises(RequestError, match="质量优先二采样.*RTX VSR"):
+        normalize_request({
+            "mode": "T2VA",
+            "performance_preset": "质量优先二采样",
+            "postprocess_mode": postprocess_mode,
+        })
+
+
+def test_quality_two_stage_accepts_rtx_vsr_postprocess():
+    request = normalize_request({
+        "mode": "T2VA",
+        "performance_preset": "质量优先二采样",
+        "postprocess_mode": "rtx_vsr",
+        "rtx_quality": "ULTRA",
+    })
+    assert request["performance_preset"] == "quality_two_stage"
+    assert request["postprocess_mode"] == "rtx_vsr"
 
 
 def test_normalize_request_rejects_unknown_postprocess_mode():
@@ -167,7 +194,11 @@ def test_reference_mode_never_accepts_copy_semantics():
     ],
 )
 def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
-    request = normalize_request({"mode": "REF2VA", "performance_preset": preset})
+    request = normalize_request({
+        "mode": "REF2VA",
+        "performance_preset": preset,
+        "postprocess_mode": "rtx_vsr" if expected == "quality_two_stage" else "native",
+    })
 
     assert request["performance_preset"] == expected
 

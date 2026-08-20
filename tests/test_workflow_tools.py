@@ -174,6 +174,7 @@ def test_api_template_scopes_low_vram_policy_around_sampling():
 
     assert sampler["class_type"] == "MiniMaxH3TwoStageSampler"
     assert sampler["inputs"]["guide"] == ["10", 0]
+    assert sampler["inputs"]["video_vae"] == ["4", 0]
 
 
 def test_builder_routes_color_guard_through_streaming_output():
