@@ -140,7 +140,12 @@ def test_two_stage_image_refine_decodes_reencodes_and_uses_low_denoise(monkeypat
     assert result[0] is final_denoised
     assert ("encode", (2, 32, 32, 3)) in calls
     assert ("scheduler", "simple", 2, 0.2) in calls
-    assert len([item for item in calls if item[0] == "sample"]) == 2
+    sample_calls = [item for item in calls if item[0] == "sample"]
+    assert len(sample_calls) == 2
+    assert torch.equal(
+        sample_calls[0][1],
+        torch.tensor([10.0, 8.0, 7.0, 5.0, 4.0, 2.0, 1.0, 0.5, 0.0]),
+    )
     assert isinstance(calls[-1][2], FakeRandomNoise)
 
 

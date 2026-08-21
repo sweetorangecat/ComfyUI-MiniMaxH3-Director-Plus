@@ -135,8 +135,14 @@ class MiniMaxH3TwoStageSampler:
         guide["two_stage_status"] = "U09 图像空间二采重绘"
         guide["two_stage_enabled"] = True
 
+        # The image-space U09 route needs a fully denoised first-pass image.
+        # Feeding only the high-sigma prefix into VAE decode produces a soft,
+        # melted preview that the two low-denoise redraw steps cannot recover.
+        # Keep the split schedule only for the legacy latent fallback below.
+        first_pass_sigmas = sigmas if video_vae is not None else first_sigmas
+
         with memory_policy(guide):
-            first = SamplerCustomAdvanced.execute(noise, guider, sampler, first_sigmas, latent_image)
+            first = SamplerCustomAdvanced.execute(noise, guider, sampler, first_pass_sigmas, latent_image)
             sampled = _node_output(first, 0)
             denoised = _node_output(first, 1)
             # Match the H3 AV split: refine the clean x0 video stream,
