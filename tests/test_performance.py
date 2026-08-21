@@ -156,13 +156,69 @@ def test_quality_priority_preset_uses_dynamic_safe_policy_without_quality_change
     assert values["fish_device"] == "cpu"
 
 
-def test_quality_two_stage_avoids_custom_cuda_patches_and_global_low_vram_policy():
+def test_quality_two_stage_uses_exact_head_chunking_without_sage_or_cache():
     values = preset_values("quality_two_stage")
 
     assert values["steps"] == 8
     assert values["two_stage_steps"] == 5
     assert values["use_sage"] is False
     assert values["use_cache"] is False
+    assert values["use_head_chunking"] is True
+    assert values["minimax_head_chunks"] == 8
+
+
+def test_quality_two_stage_applies_only_exact_low_vram_attention(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        performance,
+        "_apply_minimax_reuse_attention",
+        lambda model, guide: calls.append((model, guide["performance_preset"])) or f"{model}:head-chunks",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        performance,
+        "_apply_sage_attention",
+        lambda *args: (_ for _ in ()).throw(AssertionError("二采不得启用 Sage")),
+    )
+
+    guide = {
+        "mode": "T2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "fl2va_model",
+    }
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert result[0] == "model:head-chunks"
+    assert result[2] is True
+    assert calls == [("model", "quality_two_stage")]
+    assert guide["head_chunking_applied"] is True
+    assert guide["sage_applied"] is False
+
+
+def test_quality_two_stage_head_chunk_failure_bypasses_second_pass(monkeypatch):
+    monkeypatch.setattr(
+        performance,
+        "_apply_minimax_reuse_attention",
+        lambda model, guide: (_ for _ in ()).throw(RuntimeError("KJ patch missing")),
+        raising=False,
+    )
+    guide = {
+        "mode": "T2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "fl2va_model",
+    }
+
+    acceleration = MiniMaxH3AccelerationRouter().apply("model", guide)
+    preset = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=acceleration[2])
+
+    assert acceleration[0] == "model"
+    assert acceleration[2] is False
+    assert guide["head_chunking_applied"] is False
+    assert guide["two_stage_enabled"] is False
+    assert guide["two_stage_steps"] == 0
+    assert preset[0] == 8
+    assert "单采" in preset[3]
 
 
 def test_t2va_fast_uses_official_h3_turbo_contract():
@@ -242,6 +298,39 @@ def test_quality_priority_uses_h3_memory_efficient_sage_patch(monkeypatch):
         ("sage", "model"),
         ("chunks", "model:h3sage", 8),
     ]
+
+
+def test_exact_low_vram_attention_uses_internal_reuse_patch(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        performance,
+        "apply_h3_reuse_attention",
+        lambda model, head_chunks: calls.append((model, head_chunks)) or f"{model}:reuse",
+        raising=False,
+    )
+
+    result = performance._apply_minimax_reuse_attention(
+        "model",
+        {"minimax_head_chunks": 8},
+    )
+
+    assert result == "model:reuse"
+    assert calls == [("model", 8)]
+
+
+def test_quality_two_stage_without_verified_patch_fails_closed():
+    guide = {
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": "quality_two_stage",
+    }
+
+    result = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=None)
+
+    assert result[0] == 8
+    assert guide["two_stage_enabled"] is False
+    assert guide["two_stage_steps"] == 0
+    assert guide["two_stage_scale"] == 1.0
 
 
 def test_low_vram_uses_h3_memory_efficient_sage_patch_with_more_head_chunks(monkeypatch):

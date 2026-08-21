@@ -9,6 +9,7 @@ import logging
 import sys
 from pathlib import Path
 
+from .h3_reuse_attention import apply_h3_reuse_attention
 from .schema import allowed_performance_presets
 
 
@@ -35,9 +36,10 @@ PRESETS = {
         "steps": 8,
         "two_stage_steps": 5,
         "two_stage_scale": 1.5,
-        # Keep the two-stage route on ComfyUI's native attention kernels.
-        # H3/KJ Sage patches are optional acceleration paths and can wedge the
-        # CUDA context during the enlarged second-stage long-sequence pass.
+        # Keep native attention math, release the large normalized input, use
+        # the consumed Q region as scratch, and process heads in small groups.
+        "use_head_chunking": True,
+        "minimax_head_chunks": 8,
         "use_sage": False,
         "use_cache": False,
         "interpolate": False,
@@ -228,6 +230,12 @@ def _apply_sage_attention(model, guide):
     return node.patch(model, mode, allow_compile=False)[0]
 
 
+def _apply_minimax_reuse_attention(model, guide):
+    """Reduce H3 attention peak by reusing consumed fused-QKV storage."""
+    chunks = max(1, int(guide.get("minimax_head_chunks", 8)))
+    return apply_h3_reuse_attention(model, chunks)
+
+
 def _apply_easy_cache(model, guide):
     """Apply ComfyUI's native EasyCache wrapper to the routed model."""
     node_module = importlib.import_module("comfy_extras.nodes_easycache")
@@ -326,7 +334,7 @@ class MiniMaxH3PerformancePreset:
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
-            "quality_two_stage": "质量优先二采样：H3 专用 latent 二采（首阶段 3 步 + 放大后低噪 5 步）；不解码整段帧，锁定首采音频，并同步参考图条件",
+            "quality_two_stage": "质量优先二采样：H3 专用 latent 二采（首阶段 3 步 + 放大后低噪 5 步）+ 精确分头低显存注意力；不解码整段帧",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
@@ -334,7 +342,12 @@ class MiniMaxH3PerformancePreset:
         }
         if mode == "T2VA" and name == "fast_4step":
             descriptions[name] = "T2VA 极速 4 步：官方 H3 Turbo + Sage，关闭 EasyCache 以减少细节损失"
-        guide["two_stage_enabled"] = name == "quality_two_stage"
+        two_stage_enabled = name == "quality_two_stage" and acceleration_ready is True
+        if name == "quality_two_stage" and not two_stage_enabled:
+            values["two_stage_steps"] = 0
+            values["two_stage_scale"] = 1.0
+            descriptions[name] = "二采精确低显存注意力不可用，已在采样前回退为 8 步单采，避免第二阶段显存溢出"
+        guide["two_stage_enabled"] = two_stage_enabled
         guide["two_stage_steps"] = int(values.get("two_stage_steps", 0))
         guide["two_stage_scale"] = float(values.get("two_stage_scale", 1.0))
         guide["two_stage_status"] = "待执行" if guide["two_stage_enabled"] else "旁路"
@@ -383,12 +396,18 @@ def _apply_acceleration(model, guide):
     values = _runtime_preset_values(guide, plan["preset"])
     sage_requested = bool(values.get("use_sage"))
     cache_requested = bool(values.get("use_cache"))
+    head_chunking_requested = bool(values.get("use_head_chunking"))
+    if head_chunking_requested:
+        guide["minimax_head_chunks"] = int(values.get("minimax_head_chunks", 8))
     guide["sage_requested"] = sage_requested
     guide["cache_requested"] = cache_requested
+    guide["head_chunking_requested"] = head_chunking_requested
     guide["sage_applied"] = False
     guide["easycache_applied"] = False
+    guide["head_chunking_applied"] = False
     guide.pop("sage_error", None)
     guide.pop("easycache_error", None)
+    guide.pop("head_chunking_error", None)
 
     original_model = model
     if plan["use_turbo_lora"]:
@@ -415,6 +434,15 @@ def _apply_acceleration(model, guide):
             LOGGER.warning("[H3 acceleration] SageAttention unavailable: %s", exc)
             return original_model, "SageAttention 加速失败，已回退原生模型", False
 
+    if head_chunking_requested:
+        try:
+            model = _apply_minimax_reuse_attention(model, guide)
+            guide["head_chunking_applied"] = True
+        except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            guide["head_chunking_error"] = str(exc)
+            LOGGER.warning("[H3 acceleration] exact head chunking unavailable: %s", exc)
+            return original_model, "二采精确低显存注意力不可用，将在采样前回退单采", False
+
     if cache_requested:
         try:
             model = _apply_easy_cache(model, guide)
@@ -424,10 +452,12 @@ def _apply_acceleration(model, guide):
             LOGGER.warning("[H3 acceleration] EasyCache unavailable: %s", exc)
             return original_model, "EasyCache 加速失败，已回退原生模型", False
 
-    requested = plan["use_turbo_lora"] or sage_requested or cache_requested
+    requested = plan["use_turbo_lora"] or sage_requested or cache_requested or head_chunking_requested
     ready = (not plan["use_turbo_lora"] or guide["turbo_lora_applied"]) and (
         not sage_requested or guide["sage_applied"]
-    ) and (not cache_requested or guide["easycache_applied"])
+    ) and (not cache_requested or guide["easycache_applied"]) and (
+        not head_chunking_requested or guide["head_chunking_applied"]
+    )
     if requested:
         label = "REF2VA Turbo 4 步 LoRA" if plan["backend"] == "ref2va_model" else "H3 Turbo 4 步 LoRA"
         if plan["preset"] == "quality_sage":
@@ -437,10 +467,10 @@ def _apply_acceleration(model, guide):
         elif not plan["use_turbo_lora"]:
             label = "参考图 Sage/EasyCache"
         LOGGER.info(
-            "[H3 acceleration] preset=%s backend=%s turbo=%s sage=%s easycache=%s",
-            plan["preset"], plan["backend"], guide["turbo_lora_applied"], guide["sage_applied"], guide["easycache_applied"],
+            "[H3 acceleration] preset=%s backend=%s turbo=%s sage=%s easycache=%s head_chunks=%s",
+            plan["preset"], plan["backend"], guide["turbo_lora_applied"], guide["sage_applied"], guide["easycache_applied"], guide["head_chunking_applied"],
         )
-        return model, f"{label} 已启用；Turbo/Sage/EasyCache 状态已写入指南", ready
+        return model, f"{label} 已启用；加速与低显存状态已写入指南", ready
     return model, "当前预设保持原生模型", False
 
 

@@ -27,7 +27,7 @@ def test_quality_two_stage_is_high_vram_only_route():
 
 def test_performance_node_marks_two_stage_guide():
     guide = {"mode": "T2VA", "voice_mode": "none", "performance_preset": "quality_two_stage"}
-    result = MiniMaxH3PerformancePreset().apply(guide)
+    result = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True)
     assert result[0] == 8
     assert guide["two_stage_enabled"] is True
     assert guide["two_stage_steps"] == 5
