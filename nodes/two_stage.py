@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import copy
+import gc
+import logging
+
 import torch
 import torch.nn.functional as F
+
+
+LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus.TwoStage")
 
 
 def split_refinement_sigmas(sigmas, refinement_steps):
@@ -28,11 +35,20 @@ def upscale_video_latent(video_latent, scale):
     if not isinstance(samples, torch.Tensor) or samples.ndim != 5:
         raise ValueError("H3 视频 latent 必须是 [B,C,T,H,W] 五维张量")
     batch, channels, frames, height, width = samples.shape
-    target_height = max(1, round(height * scale))
-    target_width = max(1, round(width * scale))
+    # MiniMax H3 spatial patch size is 2x2 in latent space. An odd latent
+    # height/width can fail later while the DiT builds its token grid.
+    target_height = max(2, ((round(height * scale) + 1) // 2) * 2)
+    target_width = max(2, ((round(width * scale) + 1) // 2) * 2)
     # Interpolate each temporal slice as an image so time remains untouched.
     image_batch = samples.permute(0, 2, 1, 3, 4).reshape(batch * frames, channels, height, width)
-    upscaled = F.interpolate(image_batch, size=(target_height, target_width), mode="nearest-exact")
+    # Interpolate in fp32. Nearest interpolation in bf16/fp16 leaves repeated
+    # quantized latent blocks that become speckles after the second sampler.
+    original_dtype = image_batch.dtype
+    upscaled = F.interpolate(
+        image_batch.float(),
+        size=(target_height, target_width),
+        mode="nearest-exact",
+    ).to(dtype=original_dtype)
     upscaled = upscaled.reshape(batch, frames, channels, target_height, target_width).permute(0, 2, 1, 3, 4)
     result = dict(video_latent)
     result["samples"] = upscaled
@@ -50,41 +66,170 @@ def _node_output(result, index=0):
     return result[index] if isinstance(result, (tuple, list)) else result[index]
 
 
-def _image_space_refine(video_latent, video_vae, scale):
-    """Decode, resize, and re-encode one H3 video stream for U09-style redraw."""
-    samples = video_latent["samples"]
-    decoded = video_vae.decode(samples)
-    if not isinstance(decoded, torch.Tensor):
-        raise ValueError("H3 VAE 解码未返回 Tensor")
-    if decoded.ndim == 5:
-        # The VAE wrapper returns [B,T,H,W,C]; direct H3 VAE implementations
-        # may return [B,C,T,H,W]. Accept both forms.
-        if decoded.shape[1] in (1, 3, 4) and decoded.shape[-1] not in (1, 3, 4):
-            decoded = decoded.movedim(1, -1)
-        decoded = decoded.reshape(-1, decoded.shape[-3], decoded.shape[-2], decoded.shape[-1])
-    if decoded.ndim != 4 or decoded.shape[-1] < 3:
-        raise ValueError(f"H3 二采重绘需要 [帧,高,宽,通道] 图像，实际为 {tuple(decoded.shape)}")
-    height, width = int(decoded.shape[1]), int(decoded.shape[2])
-    target_height = max(16, int(round(height * float(scale) / 16.0)) * 16)
-    target_width = max(16, int(round(width * float(scale) / 16.0)) * 16)
-    if (target_height, target_width) != (height, width):
-        pixels = F.interpolate(
-            decoded[..., :3].movedim(-1, 1).to(dtype=torch.float32),
-            size=(target_height, target_width),
-            mode="bicubic",
-            align_corners=False,
-        ).movedim(1, -1).clamp(0.0, 1.0)
-    else:
-        pixels = decoded[..., :3].to(dtype=torch.float32).clamp(0.0, 1.0)
-    encoded = video_vae.encode(pixels)
-    refined = dict(video_latent)
-    refined["samples"] = encoded
-    refined.pop("noise_mask", None)
-    return refined
+def _nested_members(samples):
+    if getattr(samples, "is_nested", False):
+        members = list(samples.unbind())
+        if not members:
+            raise ValueError("H3 AV latent 为空")
+        return members, True
+    if isinstance(samples, torch.Tensor):
+        return [samples], False
+    raise TypeError(f"H3 latent 必须是 Tensor 或 NestedTensor，实际为 {type(samples)!r}")
+
+
+def _wrap_members(members, nested):
+    if nested:
+        from comfy.nested_tensor import NestedTensor
+
+        return NestedTensor(members)
+    if len(members) != 1:
+        raise ValueError("普通 latent 只能包含一个张量")
+    return members[0]
+
+
+def _upscale_visual_tensor(latent, scale):
+    if not isinstance(latent, torch.Tensor) or latent.ndim not in (4, 5):
+        raise ValueError("H3 参考图/关键帧 latent 必须是四维或五维张量")
+    is_image = latent.ndim == 4
+    source = latent.unsqueeze(2) if is_image else latent
+    upscaled = upscale_video_latent({"samples": source}, scale)["samples"]
+    return upscaled.squeeze(2) if is_image else upscaled
+
+
+def _upscale_reference_block(block, scale):
+    result = dict(block)
+    if result.get("kind") == "audio" or result.get("latent") is None:
+        return result
+    latent = _upscale_visual_tensor(result["latent"], scale)
+    result["latent"] = latent
+    result["latent_h"] = int(latent.shape[-2])
+    result["latent_w"] = int(latent.shape[-1])
+    if latent.ndim == 5 and "latent_t" in result:
+        result["latent_t"] = int(latent.shape[2])
+    return result
+
+
+def _upscale_keyframe(keyframe, scale):
+    result = dict(keyframe)
+    if result.get("latent") is not None:
+        result["latent"] = _upscale_visual_tensor(result["latent"], scale)
+    return result
+
+
+def upscale_h3_guider(guider, scale):
+    """Clone a Guider and keep H3 reference/keyframe metadata on the new grid."""
+    original = getattr(guider, "original_conds", None)
+    if not isinstance(original, dict):
+        return guider
+    result = copy.copy(guider)
+    result.original_conds = {}
+    for name, entries in original.items():
+        scaled_entries = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                scaled_entries.append(entry)
+                continue
+            scaled = dict(entry)
+            if entry.get("minimax_refs") is not None:
+                scaled["minimax_refs"] = [
+                    _upscale_reference_block(block, scale) for block in entry["minimax_refs"]
+                ]
+            if entry.get("minimax_keyframes") is not None:
+                scaled["minimax_keyframes"] = [
+                    _upscale_keyframe(keyframe, scale) for keyframe in entry["minimax_keyframes"]
+                ]
+            scaled_entries.append(scaled)
+        result.original_conds[name] = scaled_entries
+    return result
+
+
+def _nonzero(samples):
+    members, _ = _nested_members(samples)
+    return any(torch.count_nonzero(member) > 0 for member in members)
+
+
+def prepare_h3_two_stage_latent(latent, model, noise, sigmas, scale):
+    """Upscale and CONST re-noise an H3 AV latent for a DisableNoise pass.
+
+    This is intentionally latent-only. It follows the H3-specific two-pass
+    requirements documented by these GPL-3.0 reference implementations:
+    https://github.com/rockerBOO/h3-latent-upscaler and
+    https://github.com/Tr1dae/ComfyUI-MiniMaxH3_LatentUpscaler
+    resize only the video stream, pre-cancel CONST's second noise scaling,
+    and lock the already-generated audio with a zero denoise mask.
+    """
+    if not isinstance(sigmas, torch.Tensor) or sigmas.numel() == 0:
+        return latent
+    samples = latent.get("samples")
+    members, nested = _nested_members(samples)
+    if not nested or len(members) < 2:
+        raise ValueError("H3 二采需要包含视频和音频的 AV NestedTensor latent")
+
+    source_video_shape = tuple(members[0].shape)
+    video = upscale_video_latent({"samples": members[0]}, scale)["samples"]
+    LOGGER.info(
+        "H3 latent 二采准备：视频 %s -> %s；全程不调用 VideoVAE",
+        source_video_shape,
+        tuple(video.shape),
+    )
+    upscaled_members = [video, *members[1:]]
+    upscaled = dict(latent)
+    upscaled["samples"] = _wrap_members(upscaled_members, True)
+    upscaled.pop("noise_mask", None)
+
+    generated_noise = noise.generate_noise(upscaled)
+    noise_members, noise_nested = _nested_members(generated_noise)
+    if not noise_nested or len(noise_members) != len(upscaled_members):
+        raise ValueError("H3 二采随机噪声与 AV latent 结构不一致")
+
+    model_sampling = model.get_model_object("model_sampling")
+    process_latent_in = model.get_model_object("process_latent_in")
+    process_latent_out = model.get_model_object("process_latent_out")
+    latent_for_mix = process_latent_in(upscaled["samples"]) if _nonzero(upscaled["samples"]) else upscaled["samples"]
+    latent_members, _ = _nested_members(latent_for_mix)
+    sigma = sigmas[0]
+    mixed_members = []
+    for index, (source, random_field) in enumerate(zip(latent_members, noise_members)):
+        # Preserve pass-one audio; only the enlarged video stream receives new noise.
+        if index > 0:
+            random_field = torch.zeros_like(random_field)
+        mixed = model_sampling.noise_scaling(sigma, random_field, source)
+        if hasattr(model_sampling, "inverse_noise_scaling"):
+            mixed = model_sampling.inverse_noise_scaling(sigma, mixed)
+        mixed_members.append(mixed)
+    mixed = process_latent_out(_wrap_members(mixed_members, True))
+    mixed_members, _ = _nested_members(mixed)
+
+    result = dict(upscaled)
+    result["samples"] = _wrap_members(
+        [torch.nan_to_num(member, nan=0.0, posinf=0.0, neginf=0.0).detach().cpu() for member in mixed_members],
+        True,
+    )
+    masks = [
+        torch.ones((video.shape[0], 1, *video.shape[2:]), dtype=torch.float32),
+        *[
+            torch.zeros((member.shape[0], 1, *member.shape[2:]), dtype=torch.float32)
+            for member in upscaled_members[1:]
+        ],
+    ]
+    result["noise_mask"] = _wrap_members(masks, True)
+
+    # Do not unload the quantized H3 model between passes. Parking the small
+    # latent on CPU and clearing allocator fragments is sufficient and avoids
+    # the process-killing full VAE round trip used by the previous route.
+    gc.collect()
+    try:
+        import comfy.model_management as model_management
+
+        model_management.soft_empty_cache()
+    except Exception:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    return result
 
 
 class MiniMaxH3TwoStageSampler:
-    """Run the U09 image-space redraw without extra user wiring."""
+    """Run the full-clip H3 latent two-pass route without extra user wiring."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -113,7 +258,6 @@ class MiniMaxH3TwoStageSampler:
 
     def execute(self, noise, guider, sampler, sigmas, latent_image, guide=None, video_vae=None):
         from comfy_extras.nodes_custom_sampler import Noise_EmptyNoise, Noise_RandomNoise, SamplerCustomAdvanced
-        from comfy_extras.nodes_lt import LTXVConcatAVLatent, LTXVSeparateAVLatent
         from .performance import memory_policy
 
         guide = guide or {}
@@ -129,75 +273,35 @@ class MiniMaxH3TwoStageSampler:
         try:
             first_sigmas, second_sigmas = split_refinement_sigmas(sigmas, refinement_steps)
         except ValueError as exc:
-            raise ValueError(f"U09 二采 sigma 轨迹无效：{exc}") from exc
+            raise ValueError(f"H3 latent 二采 sigma 轨迹无效：{exc}") from exc
         if scale <= 1.0:
-            raise ValueError("U09 二采视频放大倍率必须大于 1.0")
-        guide["two_stage_status"] = "U09 图像空间二采重绘"
+            raise ValueError("H3 latent 二采视频放大倍率必须大于 1.0")
+        guide["two_stage_status"] = "H3 专用 latent 二采"
         guide["two_stage_enabled"] = True
 
-        # The image-space U09 route needs a fully denoised first-pass image.
-        # Feeding only the high-sigma prefix into VAE decode produces a soft,
-        # melted preview that the two low-denoise redraw steps cannot recover.
-        # Keep the split schedule only for the legacy latent fallback below.
-        first_pass_sigmas = sigmas if video_vae is not None else first_sigmas
-
         with memory_policy(guide):
-            first = SamplerCustomAdvanced.execute(noise, guider, sampler, first_pass_sigmas, latent_image)
-            sampled = _node_output(first, 0)
+            first = SamplerCustomAdvanced.execute(noise, guider, sampler, first_sigmas, latent_image)
             denoised = _node_output(first, 1)
-            # Match the H3 AV split: refine the clean x0 video stream,
-            # but preserve the sampler-path audio stream for the final AV
-            # continuation. Upscaling slot 0's noisy video produces the flat
-            # grey output seen after VAE decode.
-            _, audio_latent = LTXVSeparateAVLatent.execute(sampled)
-            video_latent, _ = LTXVSeparateAVLatent.execute(denoised)
-            # The audio stream is intentionally never resized; H3's AV concat
-            # node aligns it back to the refined video stream.
-            if video_vae is not None:
-                # U09's quality path is an image-space redraw, not a second
-                # generic upscaler.  Decode the clean first-pass x0, enlarge
-                # it on 16px H3 boundaries, and re-encode before low-denoise
-                # refinement.  The legacy latent path remains available for
-                # legacy workflows that have no VAE socket.
-                video_latent = _image_space_refine(video_latent, video_vae, scale)
-                second_sigmas = _node_output(
-                    __import__("comfy_extras.nodes_custom_sampler", fromlist=["BasicScheduler"])
-                    .BasicScheduler.execute(
-                        guider.model_patcher,
-                        "simple",
-                        2,
-                        0.2,
-                    ),
-                    0,
-                )
-                merged = _node_output(LTXVConcatAVLatent.execute(video_latent, audio_latent), 0)
-                second_noise = Noise_RandomNoise(int(getattr(noise, "seed", 0)))
-                second = SamplerCustomAdvanced.execute(second_noise, guider, sampler, second_sigmas, merged)
-                guide["two_stage_status"] = "U09 图像空间二采重绘"
-                final_denoised = _node_output(second, 1)
-                return final_denoised, final_denoised
-            video_latent = upscale_video_latent(video_latent, scale)
-            # Legacy latent fallback retains U15's boundary sampler. It has one sigma only, so it adds no
-            # effective user-visible step. It is nevertheless required to
-            # convert the upscaled denoised latent back to the sigma boundary
-            # expected by the low-sigma continuation. Skipping this conversion
-            # produces the grey/noise decode reported on long clips.
-            boundary_noise = Noise_RandomNoise(int(getattr(noise, "seed", 0)))
-            boundary = SamplerCustomAdvanced.execute(
-                boundary_noise,
-                guider,
-                sampler,
-                second_sigmas[:1],
-                video_latent,
+            second_random_noise = Noise_RandomNoise(int(getattr(noise, "seed", 0)))
+            prepared = prepare_h3_two_stage_latent(
+                denoised,
+                guider.model_patcher,
+                second_random_noise,
+                second_sigmas,
+                scale,
             )
-            video_latent = _node_output(boundary, 0)
-            merged = _node_output(LTXVConcatAVLatent.execute(video_latent, audio_latent), 0)
-            # The final continuation uses empty noise, matching the legacy boundary path after its
-            # boundary conversion rather than injecting a second random field.
+            second_guider = upscale_h3_guider(guider, scale)
+            # prepare_h3_two_stage_latent already injected the correctly
+            # inverse-scaled CONST noise, so the continuation must use empty
+            # noise. Adding random noise here a second time creates grey/noise.
             second_noise = Noise_EmptyNoise()
-            second = SamplerCustomAdvanced.execute(second_noise, guider, sampler, second_sigmas, merged)
-        # The legacy latent fallback decodes the final denoised AV latent (slot 1) for both video and
-        # audio. Slot 0 is still the sampler path output and can contain noise,
-        # which produces a grey/noisy video when sent directly to VAEDecode.
+            second = SamplerCustomAdvanced.execute(
+                second_noise,
+                second_guider,
+                sampler,
+                second_sigmas,
+                prepared,
+            )
+        guide["two_stage_status"] = "H3 专用 latent 二采完成"
         final_denoised = _node_output(second, 1)
         return final_denoised, final_denoised

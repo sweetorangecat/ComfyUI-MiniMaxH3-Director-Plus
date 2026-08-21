@@ -127,7 +127,7 @@ function allowedPerformancePresets(mode, voiceMode) {
 }
 
 function performancePresetHint(preset) {
-  if (preset === "质量优先二采样") return "U09 图像解码重绘 + 低 denoise 二采样 + RTX VSR（高显存）";
+  if (preset === "质量优先二采样") return "H3 专用 latent 二采：3 步首采 + 5 步低噪细化 + RTX VSR（高显存）";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
   if (preset === "低显存") return "动态分层加载，适合显存受限设备";
   if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";

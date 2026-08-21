@@ -14,11 +14,21 @@ from .upscale import _available_upscale_models, resolve_upscale_model_name
 
 BASE_MODES = {"T2VA", "I2VA", "FL2VA", "L2VA"}
 
-# U09 redraws the decoded video at 1.5x before the final output stage. Keep
-# the final RTX VSR enlargement near 2x per axis so it is not asked to turn a
-# thumbnail-sized H3 render into a 2K/4K video.
+# The H3-specific second pass enlarges the video latent by about 1.5x before
+# final output. Keep the remaining RTX VSR enlargement near 2x per axis so it
+# is not asked to turn a thumbnail-sized H3 render into a 2K/4K video.
 TWO_STAGE_IMAGE_SCALE = 1.5
 TWO_STAGE_MAX_VSR_SCALE = 1.9
+
+
+def _two_stage_pixel_size(size):
+    """Apply the H3 latent 2x2 grid alignment and convert back to pixels."""
+    latent_size = max(2, int(round(int(size) / 16.0)))
+    target_latent = max(
+        2,
+        ((round(latent_size * TWO_STAGE_IMAGE_SCALE) + 1) // 2) * 2,
+    )
+    return target_latent * 16
 
 
 def _uploaded_files(content_types):
@@ -92,7 +102,7 @@ def native_resolution_for_request(
         native_width, native_height = int(requested_width), int(requested_height)
         capped = False
 
-    # U09 decodes and redraws the clean video at 1.5x before final encoding.
+    # H3 redraws the clean video latent at about 1.5x before final encoding.
     # Pick the first-stage MP from the requested target so that the remaining
     # RTX VSR enlargement is no more than roughly 2x per axis. This avoids
     # hard-expanding a 0.20 MP thumbnail into 2K while retaining H3's native
@@ -410,14 +420,14 @@ class MiniMaxH3DirectorPlus:
             request["performance_preset"] == "quality_two_stage"
             and postprocess_path == "rtx_vsr"
         ):
-            redraw_width = max(16, int(round(native_width * TWO_STAGE_IMAGE_SCALE / 16.0)) * 16)
-            redraw_height = max(16, int(round(native_height * TWO_STAGE_IMAGE_SCALE / 16.0)) * 16)
+            redraw_width = _two_stage_pixel_size(native_width)
+            redraw_height = _two_stage_pixel_size(native_height)
             vsr_scale = max(
                 requested_width / max(1, redraw_width),
                 requested_height / max(1, redraw_height),
             )
             request["warnings"].append(
-                "U09 二采源分辨率已按目标比例选择："
+                "H3 latent 二采源分辨率已按目标比例选择："
                 f"首阶段 {native_width}×{native_height}，二采后约 {redraw_width}×{redraw_height}，"
                 f"RTX VSR 线性放大约 {vsr_scale:.2f} 倍。"
             )

@@ -27,12 +27,11 @@ PRESETS = {
         "vae_device": "dynamic",
         "fish_device": "cpu",
     },
-    # U09 quality route: the sampler decodes the clean video stream, enlarges
-    # it in image space, re-encodes it, then completes a low-denoise redraw.
+    # Full-clip H3 latent route: split one schedule, upscale the clean video
+    # latent, inject CONST-correct noise, then finish the low-sigma tail.
     "quality_two_stage": {
-        # Complete all 8 first-pass sigma steps before VAE decode. The five
-        # refinement steps below are retained only by the legacy latent path;
-        # the image-space U09 path builds its own 2-step, denoise 0.2 schedule.
+        # Three high-sigma steps form the first-pass x0 estimate and the final
+        # five steps redraw it on the enlarged latent grid.
         "steps": 8,
         "two_stage_steps": 5,
         "two_stage_scale": 1.5,
@@ -327,7 +326,7 @@ class MiniMaxH3PerformancePreset:
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
-            "quality_two_stage": "质量优先二采样：U09 图像空间重绘（首阶段完整 8 步 + 放大后 2 步、denoise 0.2）；使用原生注意力避免 CUDA 内核冲突，音频保持不变",
+            "quality_two_stage": "质量优先二采样：H3 专用 latent 二采（首阶段 3 步 + 放大后低噪 5 步）；不解码整段帧，锁定首采音频，并同步参考图条件",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
@@ -434,7 +433,7 @@ def _apply_acceleration(model, guide):
         if plan["preset"] == "quality_sage":
             label = "质量优先 SageAttention"
         elif plan["preset"] == "quality_two_stage":
-            label = "质量优先二采样（U09 图像空间重绘）"
+            label = "质量优先二采样（H3 专用 latent 二采）"
         elif not plan["use_turbo_lora"]:
             label = "参考图 Sage/EasyCache"
         LOGGER.info(

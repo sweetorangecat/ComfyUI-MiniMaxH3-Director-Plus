@@ -45,7 +45,7 @@ if __package__:
         "MiniMaxH3PerformancePreset": "H3 性能预设应用",
         "MiniMaxH3AccelerationRouter": "H3 兼容加速模型路由",
         "MiniMaxH3MemoryAwareSampler": "H3 低显存采样保护",
-        "MiniMaxH3TwoStageSampler": "H3 U09 图像空间二采重绘（自动旁路）",
+        "MiniMaxH3TwoStageSampler": "H3 专用 Latent 二采（自动旁路）",
         "MiniMaxH3ResolutionPlus": "H3 横竖比例与分辨率",
         "MiniMaxH3DirectorPlusStatus": "H3 能力与模型状态",
         "MiniMaxH3ColorGuard": "H3 曝光与色彩连续性保护",

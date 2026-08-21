@@ -561,7 +561,7 @@ def _upgrade_subgraphs(workflow):
                     exposed_inputs[guide_slot]["linkIds"].append(guide_link)
 
             # Keep one sampler socket layout while routing the selected preset
-            # through the self-contained U09 redraw node. It automatically
+            # through the self-contained H3 latent two-pass node. It automatically
             # bypasses the second stage for every other performance preset.
             for sampler in [
                 item for item in subgraph.get("nodes", [])
@@ -569,7 +569,7 @@ def _upgrade_subgraphs(workflow):
             ]:
                 old_inputs = {item.get("name"): item for item in sampler.get("inputs", [])}
                 sampler["type"] = "MiniMaxH3TwoStageSampler"
-                sampler["title"] = "H3 U09 图像空间二采重绘（自动旁路）"
+                sampler["title"] = "H3 专用 Latent 二采（自动旁路）"
                 sampler["properties"] = _properties("MiniMaxH3TwoStageSampler")
                 sampler["inputs"] = [
                     {**old_inputs.get("noise", _socket("noise", "NOISE")), "name": "noise", "type": "NOISE"},
@@ -812,7 +812,7 @@ def build_api_template():
         "18": {"class_type": "RandomNoise", "inputs": {"noise_seed": 0}, "_meta": {"title": "API 随机种子"}},
         "19": {"class_type": "MiniMaxH3SamplerRouter", "inputs": {"sampler_name": "res_multistep", "guide": ["10", 0]}, "_meta": {"title": "API H3 实际采样器路由"}},
         "20": {"class_type": "BasicScheduler", "inputs": {"model": ["15", 0], "scheduler": "simple", "steps": ["28", 0], "denoise": 1.0}, "_meta": {"title": "API 调度器"}},
-        "21": {"class_type": "MiniMaxH3TwoStageSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0], "video_vae": ["4", 0]}, "_meta": {"title": "API U09 图像空间二采重绘（自动旁路）"}},
+        "21": {"class_type": "MiniMaxH3TwoStageSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0], "video_vae": ["4", 0]}, "_meta": {"title": "API H3 专用 Latent 二采（自动旁路）"}},
         "22": {"class_type": "MiniMaxH3SafeVAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 安全视频 VAE 解码（GPU计算 / CPU帧缓存 FP16）"}},
         "23": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["21", 1], "vae": ["5", 0]}, "_meta": {"title": "API 音频解码"}},
         "29": {"class_type": "MiniMaxH3ColorGuard", "inputs": {"images": ["22", 0], "guide": ["10", 0], "enabled": True, "strength": 1.0}, "_meta": {"title": "曝光与色彩连续性保护"}},

@@ -31,7 +31,7 @@ def test_performance_node_marks_two_stage_guide():
     assert result[0] == 8
     assert guide["two_stage_enabled"] is True
     assert guide["two_stage_steps"] == 5
-    assert "U09" in result[3]
+    assert "latent" in result[3]
 
 
 def test_split_refinement_sigmas_keeps_continuous_boundary():
@@ -45,6 +45,12 @@ def test_upscale_video_latent_changes_spatial_shape_only():
     video = torch.zeros(1, 24, 5, 8, 12)
     result = upscale_video_latent({"samples": video}, 1.5)
     assert result["samples"].shape == (1, 24, 5, 12, 18)
+
+
+def test_upscale_video_latent_snaps_target_to_h3_spatial_patch_grid():
+    video = torch.zeros(1, 24, 5, 34, 60)
+    result = upscale_video_latent({"samples": video}, 1.5)
+    assert result["samples"].shape == (1, 24, 5, 52, 90)
 
 
 def test_real_av_nodes_keep_audio_shape_during_video_refinement():
@@ -69,200 +75,78 @@ def test_two_stage_sampler_exposes_guide_and_two_latent_outputs():
     assert MiniMaxH3TwoStageSampler.RETURN_TYPES == ("LATENT", "LATENT")
 
 
-def test_two_stage_image_refine_decodes_reencodes_and_uses_low_denoise(monkeypatch):
-    import nodes.performance as performance
+def test_prepare_h3_two_stage_latent_stays_in_latent_space_and_locks_audio():
+    import nodes.two_stage as two_stage
+    from comfy.nested_tensor import NestedTensor
 
-    first_sampled = {"samples": torch.zeros(1, 4, 2, 1, 1)}
-    first_denoised = {"samples": torch.ones(1, 4, 2, 1, 1)}
-    final_denoised = {"samples": torch.full((1, 4, 2, 2, 2), 3.0)}
-    calls = []
-
-    class FakeVAE:
-        def decode(self, samples):
-            assert samples.shape == (1, 4, 2, 1, 1)
-            return torch.ones(1, 3, 2, 16, 16)
-
-        def encode(self, frames):
-            calls.append(("encode", frames.shape))
-            assert frames.shape == (2, 32, 32, 3)
-            return torch.zeros(1, 4, 2, 2, 2)
-
-    class FakeRandomNoise:
-        def __init__(self, seed):
-            self.seed = seed
-
-    class FakeEmptyNoise:
-        seed = 0
-
-    class FakeSampler:
-        count = 0
-
-        @classmethod
-        def execute(cls, noise, guider, sampler, sigmas, latent):
-            cls.count += 1
-            calls.append(("sample", sigmas.clone(), noise))
-            if cls.count == 1:
-                return types.SimpleNamespace(result=(first_sampled, first_denoised))
-            return types.SimpleNamespace(result=(latent, final_denoised))
-
-    class FakeScheduler:
-        @classmethod
-        def execute(cls, model, scheduler, steps, denoise):
-            calls.append(("scheduler", scheduler, steps, denoise))
-            return types.SimpleNamespace(result=(torch.tensor([4.0, 1.0, 0.0]),))
-
-    def separate(latent):
-        return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
-
-    def concat(video, audio):
-        return types.SimpleNamespace(result=(video,))
-
-    monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
-    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(
-        Noise_RandomNoise=FakeRandomNoise,
-        Noise_EmptyNoise=FakeEmptyNoise,
-        BasicScheduler=FakeScheduler,
-        SamplerCustomAdvanced=FakeSampler,
-    ))
-    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_lt", types.SimpleNamespace(
-        LTXVSeparateAVLatent=types.SimpleNamespace(execute=staticmethod(separate)),
-        LTXVConcatAVLatent=types.SimpleNamespace(execute=staticmethod(concat)),
-    ))
-
-    result = MiniMaxH3TwoStageSampler().execute(
-        FakeRandomNoise(9), types.SimpleNamespace(model_patcher=object()), object(),
-        torch.tensor([10.0, 8.0, 7.0, 5.0, 4.0, 2.0, 1.0, 0.5, 0.0]),
-        {"samples": torch.zeros(1, 4, 2, 1, 1)},
-        {"two_stage_enabled": True, "two_stage_steps": 5, "two_stage_scale": 1.5},
-        video_vae=FakeVAE(),
-    )
-
-    assert result[0] is final_denoised
-    assert ("encode", (2, 32, 32, 3)) in calls
-    assert ("scheduler", "simple", 2, 0.2) in calls
-    sample_calls = [item for item in calls if item[0] == "sample"]
-    assert len(sample_calls) == 2
-    assert torch.equal(
-        sample_calls[0][1],
-        torch.tensor([10.0, 8.0, 7.0, 5.0, 4.0, 2.0, 1.0, 0.5, 0.0]),
-    )
-    assert isinstance(calls[-1][2], FakeRandomNoise)
-
-
-def test_two_stage_refines_denoised_video_and_preserves_sampled_audio(monkeypatch):
-    import nodes.performance as performance
-
-    sample_output = {"samples": torch.zeros(1, 4, 2, 4, 4)}
-    denoised_preview = {"samples": torch.ones(1, 4, 2, 4, 4)}
-    separate_inputs = []
-    second_latents = []
-    sampled_audio = {"samples": torch.full((1, 2, 2, 1, 1), 7.0)}
-    denoised_audio = {"samples": torch.full((1, 2, 2, 1, 1), 9.0)}
-
-    class FakeSampler:
-        calls = 0
-
-        @classmethod
-        def execute(cls, noise, guider, sampler, sigmas, latent):
-            cls.calls += 1
-            if cls.calls == 1:
-                return types.SimpleNamespace(result=(sample_output, denoised_preview))
-            second_latents.append(latent)
-            return types.SimpleNamespace(result=(latent, latent))
+    prepare = getattr(two_stage, "prepare_h3_two_stage_latent", None)
+    assert callable(prepare), "缺少 H3 专用 latent 重加噪准备"
 
     class FakeNoise:
-        def __init__(self, seed):
-            self.seed = seed
+        def generate_noise(self, latent):
+            video, audio = latent["samples"].unbind()
+            return NestedTensor([torch.ones_like(video), torch.ones_like(audio)])
 
-    class FakeEmptyNoise:
-        seed = 0
+    class FakeSampling:
+        def noise_scaling(self, sigma, noise, latent):
+            return sigma * noise + (1.0 - sigma) * latent
 
-    def separate(latent):
-        separate_inputs.append(latent)
-        audio = sampled_audio if latent is sample_output else denoised_audio
-        return latent, audio
+        def inverse_noise_scaling(self, sigma, samples):
+            return samples / (1.0 - sigma)
 
-    def concat(video, audio):
-        assert video is not sample_output
-        assert audio is sampled_audio
-        return types.SimpleNamespace(result=(video,))
+    class FakeModel:
+        objects = {
+            "model_sampling": FakeSampling(),
+            "process_latent_in": lambda value: value,
+            "process_latent_out": lambda value: value,
+        }
 
-    monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
-    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(
-        Noise_RandomNoise=FakeNoise,
-        Noise_EmptyNoise=FakeEmptyNoise,
-        SamplerCustomAdvanced=FakeSampler,
-    ))
-    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_lt", types.SimpleNamespace(
-        LTXVSeparateAVLatent=types.SimpleNamespace(execute=staticmethod(separate)),
-        LTXVConcatAVLatent=types.SimpleNamespace(execute=staticmethod(concat)),
-    ))
+        def get_model_object(self, name):
+            return self.objects[name]
 
-    MiniMaxH3TwoStageSampler().execute(
-        FakeNoise(1), object(), object(), torch.tensor([10.0, 7.0, 4.0, 2.0, 1.0, 0.0]),
-        {"samples": torch.zeros(1, 4, 2, 4, 4)},
-        {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
+    video = torch.ones(1, 24, 5, 34, 60)
+    audio = torch.full((1, 32, 2, 20), 7.0)
+    latent = {"samples": NestedTensor([video, audio])}
+    result = prepare(latent, FakeModel(), FakeNoise(), torch.tensor([0.25, 0.0]), 1.5)
+    video_out, audio_out = result["samples"].unbind()
+    video_mask, audio_mask = result["noise_mask"].unbind()
+
+    assert video_out.shape == (1, 24, 5, 52, 90)
+    assert torch.allclose(audio_out, audio)
+    assert torch.count_nonzero(video_mask) == video_mask.numel()
+    assert torch.count_nonzero(audio_mask) == 0
+    assert video_out.device.type == "cpu"
+    assert audio_out.device.type == "cpu"
+
+
+def test_upscale_h3_guider_scales_reference_metadata_without_mutating_source():
+    import nodes.two_stage as two_stage
+
+    upscale_guider = getattr(two_stage, "upscale_h3_guider", None)
+    assert callable(upscale_guider), "缺少 REF2VA/I2VA 二采 conditioning 同步"
+
+    ref = {"kind": "image", "latent": torch.ones(1, 24, 1, 3, 5), "latent_h": 3, "latent_w": 5}
+    guider = types.SimpleNamespace(
+        original_conds={"positive": [{"minimax_refs": [ref]}]},
+        model_patcher=object(),
     )
+    result = upscale_guider(guider, 1.5)
+    scaled = result.original_conds["positive"][0]["minimax_refs"][0]
 
-    assert separate_inputs == [sample_output, denoised_preview]
-    assert second_latents[0]["samples"].shape[-2:] == (6, 6)
+    assert result is not guider
+    assert scaled["latent"].shape[-2:] == (4, 8)
+    assert (scaled["latent_h"], scaled["latent_w"]) == (4, 8)
+    assert ref["latent"].shape[-2:] == (3, 5)
 
 
-def test_two_stage_returns_final_denoised_latent_for_video_and_audio(monkeypatch):
+def test_two_stage_uses_latent_resample_and_two_sampler_calls(monkeypatch):
     import nodes.performance as performance
+    import nodes.two_stage as two_stage
 
     first_sampled = {"samples": torch.zeros(1, 4, 2, 4, 4)}
     first_denoised = {"samples": torch.ones(1, 4, 2, 4, 4)}
-    final_sampled = {"samples": torch.full((1, 4, 2, 6, 6), 2.0)}
+    prepared = {"samples": torch.ones(1, 4, 2, 6, 6)}
     final_denoised = {"samples": torch.full((1, 4, 2, 6, 6), 3.0)}
-
-    class FakeSampler:
-        calls = 0
-
-        @classmethod
-        def execute(cls, noise, guider, sampler, sigmas, latent):
-            cls.calls += 1
-            if cls.calls == 1:
-                return types.SimpleNamespace(result=(first_sampled, first_denoised))
-            return types.SimpleNamespace(result=(final_sampled, final_denoised))
-
-    class FakeNoise:
-        def __init__(self, seed):
-            self.seed = seed
-
-    class FakeEmptyNoise:
-        seed = 0
-
-    def separate(latent):
-        return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
-
-    def concat(video, audio):
-        return types.SimpleNamespace(result=(video,))
-
-    monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
-    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(
-        Noise_RandomNoise=FakeNoise,
-        Noise_EmptyNoise=FakeEmptyNoise,
-        SamplerCustomAdvanced=FakeSampler,
-    ))
-    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_lt", types.SimpleNamespace(
-        LTXVSeparateAVLatent=types.SimpleNamespace(execute=staticmethod(separate)),
-        LTXVConcatAVLatent=types.SimpleNamespace(execute=staticmethod(concat)),
-    ))
-
-    result = MiniMaxH3TwoStageSampler().execute(
-        FakeNoise(1), object(), object(), torch.tensor([10.0, 7.0, 4.0, 2.0, 1.0, 0.0]),
-        {"samples": torch.zeros(1, 4, 2, 4, 4)},
-        {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
-    )
-
-    assert result[0] is final_denoised
-    assert result[1] is final_denoised
-
-
-def test_two_stage_final_refinement_uses_boundary_noise_then_empty_noise(monkeypatch):
-    import nodes.performance as performance
-
     calls = []
 
     class FakeRandomNoise:
@@ -275,94 +159,40 @@ def test_two_stage_final_refinement_uses_boundary_noise_then_empty_noise(monkeyp
     class FakeSampler:
         @classmethod
         def execute(cls, noise, guider, sampler, sigmas, latent):
-            calls.append(noise)
-            sample = {"samples": torch.zeros(1, 4, 2, 4, 4)}
-            return types.SimpleNamespace(result=(sample, sample))
-
-    def separate(latent):
-        return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
-
-    def concat(video, audio):
-        return types.SimpleNamespace(result=(video,))
-
-    monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
-    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(
-        Noise_RandomNoise=FakeRandomNoise,
-        Noise_EmptyNoise=FakeEmptyNoise,
-        SamplerCustomAdvanced=FakeSampler,
-    ))
-    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_lt", types.SimpleNamespace(
-        LTXVSeparateAVLatent=types.SimpleNamespace(execute=staticmethod(separate)),
-        LTXVConcatAVLatent=types.SimpleNamespace(execute=staticmethod(concat)),
-    ))
-
-    MiniMaxH3TwoStageSampler().execute(
-        FakeRandomNoise(1), object(), object(), torch.tensor([10.0, 7.0, 4.0, 2.0, 1.0, 0.0]),
-        {"samples": torch.zeros(1, 4, 2, 4, 4)},
-        {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
-    )
-
-    assert len(calls) == 3
-    assert isinstance(calls[0], FakeRandomNoise)
-    assert isinstance(calls[1], FakeRandomNoise)
-    assert isinstance(calls[2], FakeEmptyNoise)
-
-
-def test_two_stage_runs_u15_boundary_sampler_without_adding_effective_steps(monkeypatch):
-    import nodes.performance as performance
-
-    calls = []
-    first_sampled = {"samples": torch.zeros(1, 4, 2, 4, 4)}
-    first_denoised = {"samples": torch.ones(1, 4, 2, 4, 4)}
-    boundary_sampled = {"samples": torch.full((1, 4, 2, 6, 6), 2.0)}
-    final_denoised = {"samples": torch.full((1, 4, 2, 6, 6), 3.0)}
-
-    class FakeRandomNoise:
-        def __init__(self, seed):
-            self.seed = seed
-
-    class FakeEmptyNoise:
-        seed = 0
-
-    class FakeSampler:
-        @classmethod
-        def execute(cls, noise, guider, sampler, sigmas, latent):
-            calls.append((noise, sigmas.clone(), latent))
+            calls.append((noise, sigmas.clone(), latent, guider))
             if len(calls) == 1:
                 return types.SimpleNamespace(result=(first_sampled, first_denoised))
-            if len(calls) == 2:
-                return types.SimpleNamespace(result=(boundary_sampled, boundary_sampled))
-            return types.SimpleNamespace(result=(boundary_sampled, final_denoised))
+            return types.SimpleNamespace(result=(prepared, final_denoised))
 
-    def separate(latent):
-        if latent is first_sampled:
-            return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
-        return latent, {"samples": torch.zeros(1, 2, 2, 1, 1)}
+    class ForbiddenVAE:
+        def decode(self, _samples):
+            raise AssertionError("15 秒整段二采不得进入 VAE 图像空间")
 
-    def concat(video, audio):
-        return types.SimpleNamespace(result=(video,))
+        def encode(self, _pixels):
+            raise AssertionError("15 秒整段二采不得进入 VAE 图像空间")
 
+    fake_guider = types.SimpleNamespace(model_patcher=object(), original_conds={"positive": []})
     monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
+    monkeypatch.setattr(two_stage, "prepare_h3_two_stage_latent", lambda *args: prepared, raising=False)
+    monkeypatch.setattr(two_stage, "upscale_h3_guider", lambda guider, scale: guider, raising=False)
     monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(
         Noise_RandomNoise=FakeRandomNoise,
         Noise_EmptyNoise=FakeEmptyNoise,
         SamplerCustomAdvanced=FakeSampler,
     ))
-    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_lt", types.SimpleNamespace(
-        LTXVSeparateAVLatent=types.SimpleNamespace(execute=staticmethod(separate)),
-        LTXVConcatAVLatent=types.SimpleNamespace(execute=staticmethod(concat)),
-    ))
 
-    MiniMaxH3TwoStageSampler().execute(
-        FakeRandomNoise(1), object(), object(), torch.tensor([10.0, 7.0, 4.0, 2.0, 1.0, 0.0]),
+    result = MiniMaxH3TwoStageSampler().execute(
+        FakeRandomNoise(9), fake_guider, object(),
+        torch.tensor([10.0, 7.0, 4.0, 2.0, 1.0, 0.0]),
         {"samples": torch.zeros(1, 4, 2, 4, 4)},
         {"two_stage_enabled": True, "two_stage_steps": 2, "two_stage_scale": 1.5},
+        video_vae=ForbiddenVAE(),
     )
 
-    assert len(calls) == 3
-    assert isinstance(calls[1][0], FakeRandomNoise)
-    assert calls[1][1].shape == (1,)
-    assert calls[1][2]["samples"].shape[-2:] == (6, 6)
-    assert isinstance(calls[2][0], FakeEmptyNoise)
-    assert calls[2][1].shape == (3,)
-    assert calls[2][2] is boundary_sampled
+    assert result == (final_denoised, final_denoised)
+    assert len(calls) == 2
+    assert isinstance(calls[0][0], FakeRandomNoise)
+    assert torch.equal(calls[0][1], torch.tensor([10.0, 7.0, 4.0, 2.0]))
+    assert isinstance(calls[1][0], FakeEmptyNoise)
+    assert torch.equal(calls[1][1], torch.tensor([2.0, 1.0, 0.0]))
+    assert calls[1][2] is prepared

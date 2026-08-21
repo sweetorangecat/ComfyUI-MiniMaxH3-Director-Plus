@@ -40,11 +40,10 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
     "reference": ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram"),
 }
 
-# These routes are intentionally explicit.  A quality two-stage pass already
-# performs the image-space H3 re-render; stacking a generic frame upscaler or
-# a native bypass on that route either discards the refinement or creates a
-# second, incompatible reconstruction path.  Other presets still expose one
-# selectable final-output method at a time.
+# These routes are intentionally explicit. A quality two-stage pass already
+# enlarges and redraws the H3 latent; it is paired with exactly one final RTX
+# VSR output stage. Other presets still expose one selectable final-output
+# method at a time.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
     "quality_two_stage": ("rtx_vsr",),
     "quality": POSTPROCESS_MODES,
@@ -194,7 +193,7 @@ def normalize_request(raw=None):
     if request["postprocess_mode"] not in allowed_postprocess:
         if preset == "quality_two_stage":
             raise RequestError(
-                "质量优先二采样已包含 U09 图像重绘，只能搭配 RTX VSR；"
+                "质量优先二采样已包含 H3 latent 放大重绘，只能搭配 RTX VSR；"
                 "请将最终输出切换为 RTX VSR（HIGH 或 ULTRA）"
             )
         raise RequestError(

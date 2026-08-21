@@ -456,7 +456,7 @@ def test_two_stage_native_canvas_scales_with_final_target_to_bound_vsr_ratio():
     expected_width, expected_height = h3_native_canvas("16:9")
 
     assert (width, height) == (expected_width, expected_height)
-    # U09's 1.5x image-space redraw plus RTX VSR stays within roughly 2x
+    # H3's 1.5x latent redraw plus RTX VSR stays within roughly 2x
     # linear enlargement for a 4K target.
     post_redraw_area = width * height * 1.5 ** 2
     assert (3840 * 2160 / post_redraw_area) ** 0.5 <= 2.0

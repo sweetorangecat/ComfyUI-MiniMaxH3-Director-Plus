@@ -14,7 +14,7 @@
 
 API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递增、递减、随机属于 ComfyUI 客户端的连续运行状态，不作为无状态 API 入参公开；需要批量生成时，由调用方为每个请求明确传入 seed。
 
-`performance_preset` 支持 `稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。`质量优先二采样` 固定 U09 图像空间二采路线：首阶段完整执行 8 步，VideoVAE 解码后按 1.5 倍放大并重新编码，再以 2 步、denoise 0.2 低噪声重绘。该档位强制 `postprocess_mode=rtx_vsr`，只允许 HIGH/ULTRA；若传入 native、lanczos 或 ai_upscale，API 会在 H3 采样前拒绝请求。首阶段画布会根据最终目标自动选择，按二采后到 RTX VSR 的线性放大比例约 1.9 倍控制，不再固定用 0.20 MP 硬放大到 2K/4K；15 秒 2K 通常约 0.50 MP 首阶段，4K 会接近 H3 原生画布上限。该档位不提供给低显存或 Fish S2 锁定路线，显存不足时应改用“质量优先加速”或“低显存”。
+`performance_preset` 支持 `稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。`质量优先二采样` 固定 H3 专用 latent 二采路线：8 步轨迹拆为首阶段 3 步和放大后的低噪 5 步，视频 latent 放大约 1.5 倍、对齐 H3 空间网格并以 CONST 专用方式重加噪；首采音频锁定，参考图和关键帧 conditioning 同步放大。整段视频不会进行 VideoVAE 解码/重编码。该档位强制 `postprocess_mode=rtx_vsr`，只允许 HIGH/ULTRA；若传入 native、lanczos 或 ai_upscale，API 会在 H3 采样前拒绝请求。首阶段画布会根据最终目标自动选择，按二采后到 RTX VSR 的线性放大比例约 1.9 倍控制，不再固定用 0.20 MP 硬放大到 2K/4K。该档位不提供给低显存或 Fish S2 锁定路线，显存不足时应改用“质量优先加速”或“低显存”。
 
 `postprocess_mode` 控制最终视频输出：`native`（原生尺寸直出）、`lanczos`（CPU Lanczos 快速放大）、`ai_upscale`（ComfyUI 通用 AI 超分）或 `rtx_vsr`（RTX VSR AI 细节重建）。但 `performance_preset=质量优先二采样` 时只允许 `rtx_vsr`，不能把二采重绘与 OmniSR/Lanczos 串联；其他预设仍一次只执行选中的一种最终路线。`ai_upscale_model` 为 `auto` 或 `models/upscale_models` 中已安装的模型名；`auto` 会按目标倍率优先选择 X2/X4 模型。`rtx_quality` 可选 `HIGH` 或 `ULTRA`，仅在 `rtx_vsr` 时生效。目标尺寸与 H3 原生尺寸相同会自动旁路，目标更小走高质量缩小。最终只保存一个视频；AI 模型或 RTX VSR 依赖缺失时会在生成前明确报错，不会静默退回另一种算法。
 
