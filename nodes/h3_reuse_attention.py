@@ -4,7 +4,8 @@ The enlarged second pass can have more than 200k packed tokens. Allocating an
 additional ``[tokens, hidden]`` attention output at that size costs roughly
 2.81 GiB for the reported 15-second 2K job. This patch releases the normalized
 input immediately, writes independent head groups into the consumed Q region,
-and chunks the final output projection over tokens.
+chunks the final output projection, and runs the row-independent MLP over
+bounded token groups instead of materializing its full 11+ GiB intermediate.
 """
 
 from __future__ import annotations
@@ -120,6 +121,23 @@ def minimax_attn_reuse_forward(self, x, rope_freqs=None, transformer_options=Non
 minimax_attn_reuse_forward._uses_optimized_attention = True
 
 
+def minimax_mlp_reuse_forward(self, x, token_chunks=16):
+    """Run the row-independent H3 MLP in bounded chunks, reusing its input."""
+    sequence = x.shape[0]
+    chunk_count = min(max(1, int(token_chunks)), sequence)
+    rows_per_chunk = (sequence + chunk_count - 1) // chunk_count
+    for row_start in range(0, sequence, rows_per_chunk):
+        row_end = min(sequence, row_start + rows_per_chunk)
+        projected = comfy.ops.linear_input_act(
+            self.fc2,
+            self.fc1(x[row_start:row_end]),
+            "swiglu",
+        )
+        x[row_start:row_end].copy_(projected)
+        del projected
+    return x
+
+
 def minimax_block_reuse_forward(
     self,
     x,
@@ -165,6 +183,12 @@ def apply_h3_reuse_attention(model, head_chunks=8):
     for index, block in enumerate(blocks):
         if not hasattr(block, "attn") or not hasattr(block.attn, "qkv_proj"):
             raise RuntimeError(f"MiniMax H3 第 {index} 个 block 缺少 attention 结构")
+        if (
+            not hasattr(block, "mlp")
+            or not hasattr(block.mlp, "fc1")
+            or not hasattr(block.mlp, "fc2")
+        ):
+            raise RuntimeError(f"MiniMax H3 第 {index} 个 block 缺少 MLP 结构")
         patched.add_object_patch(
             f"diffusion_model.blocks.{index}.forward",
             types.MethodType(minimax_block_reuse_forward, block),
@@ -172,6 +196,10 @@ def apply_h3_reuse_attention(model, head_chunks=8):
         patched.add_object_patch(
             f"diffusion_model.blocks.{index}.attn.forward",
             types.MethodType(minimax_attn_reuse_forward, block.attn),
+        )
+        patched.add_object_patch(
+            f"diffusion_model.blocks.{index}.mlp.forward",
+            types.MethodType(minimax_mlp_reuse_forward, block.mlp),
         )
 
     return patched

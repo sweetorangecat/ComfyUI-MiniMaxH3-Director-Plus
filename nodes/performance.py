@@ -37,7 +37,7 @@ PRESETS = {
         "two_stage_steps": 5,
         "two_stage_scale": 1.5,
         # Keep native attention math, release the large normalized input, use
-        # the consumed Q region as scratch, and process heads in small groups.
+        # the consumed Q region as scratch, and chunk both attention and MLP.
         "use_head_chunking": True,
         "minimax_head_chunks": 8,
         "use_sage": False,
@@ -334,7 +334,7 @@ class MiniMaxH3PerformancePreset:
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
-            "quality_two_stage": "质量优先二采样：H3 专用 latent 二采（首阶段 3 步 + 放大后低噪 5 步）+ 精确分头低显存注意力；不解码整段帧",
+            "quality_two_stage": "质量优先二采样：H3 专用 latent 二采（首阶段 3 步 + 放大后低噪 5 步）+ 精确分块注意力/MLP；不解码整段帧",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",

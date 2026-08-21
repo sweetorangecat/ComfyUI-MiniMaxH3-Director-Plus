@@ -60,6 +60,39 @@ def test_attention_supports_h3_hidden_width_different_from_inner_width(monkeypat
     assert attention.projection_calls == 2
 
 
+class _FakeMLP:
+    @staticmethod
+    def fc1(value):
+        return value
+
+    fc2 = object()
+
+
+def test_mlp_chunks_tokens_and_reuses_input_buffer(monkeypatch):
+    chunk_sizes = []
+
+    def fake_linear_input_act(fc2, intermediate, activation):
+        assert fc2 is _FakeMLP.fc2
+        assert activation == "swiglu"
+        chunk_sizes.append(intermediate.shape[0])
+        return intermediate + 1
+
+    monkeypatch.setattr(h3_reuse_attention.comfy.ops, "linear_input_act", fake_linear_input_act)
+    original = torch.arange(30, dtype=torch.float32).reshape(10, 3)
+    source = original.clone()
+    source_pointer = source.data_ptr()
+
+    result = h3_reuse_attention.minimax_mlp_reuse_forward(
+        _FakeMLP(),
+        source,
+        token_chunks=4,
+    )
+
+    assert result.data_ptr() == source_pointer
+    assert torch.equal(result, original + 1)
+    assert chunk_sizes == [3, 3, 3, 1]
+
+
 class _FakePatcher:
     def __init__(self, diffusion_model):
         self.diffusion_model = diffusion_model
@@ -79,7 +112,8 @@ class _FakePatcher:
 
 def _fake_h3_model():
     attention = types.SimpleNamespace(qkv_proj=object())
-    block = types.SimpleNamespace(attn=attention)
+    mlp = types.SimpleNamespace(fc1=object(), fc2=object())
+    block = types.SimpleNamespace(attn=attention, mlp=mlp)
     return types.SimpleNamespace(blocks=[block])
 
 
@@ -93,6 +127,7 @@ def test_apply_patch_records_every_required_forward_and_runtime_option():
     assert result.model_options["transformer_options"]["minimax_projection_chunks"] == 16
     assert "diffusion_model.blocks.0.forward" in result.object_patches
     assert "diffusion_model.blocks.0.attn.forward" in result.object_patches
+    assert "diffusion_model.blocks.0.mlp.forward" in result.object_patches
 
 
 def test_apply_patch_rejects_non_h3_model_instead_of_silent_success():

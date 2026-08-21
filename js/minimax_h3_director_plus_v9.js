@@ -135,7 +135,7 @@ function allowedPerformancePresets(mode, voiceMode) {
 }
 
 function performancePresetHint(preset) {
-  if (preset === "质量优先二采样") return "H3 latent 二采：3+5 步 + 精确复用低显存注意力 + RTX VSR";
+  if (preset === "质量优先二采样") return "H3 latent 二采：3+5 步 + 精确分块注意力/MLP + RTX VSR";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
   if (preset === "低显存") return "动态分层加载，适合显存受限设备";
   if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
@@ -621,7 +621,7 @@ function install(node) {
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = "质量优先二采样已锁定 RTX VSR：先提高 H3 实际首采尺寸，再用精确复用低显存注意力执行 latent 二采，最后以较低倍率逐帧 RTX VSR 输出目标尺寸。补丁未确认成功时会在采样前回退 8 步单采；运动平滑默认关闭。";
+      postprocessNote.textContent = "质量优先二采样已锁定 RTX VSR：先提高 H3 实际首采尺寸，再用精确分块注意力与 MLP 执行 latent 二采，最后以较低倍率逐帧 RTX VSR 输出目标尺寸。补丁未确认成功时会在采样前回退 8 步单采；运动平滑默认关闭。";
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {
