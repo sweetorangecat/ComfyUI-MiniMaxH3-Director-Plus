@@ -165,10 +165,11 @@ def test_api_template_has_clean_output_prefix_and_all_reference_slots():
     assert all(f"API 音色参考音频{index}" in titles for index in range(1, 4))
     assert prompt["24"]["inputs"]["filename_prefix"] == "DirectorPlus"
     assert "reference_image_9" in controller
-    assert controller["motion_smoothing"] == "auto"
+    assert controller["motion_smoothing"] == "off"
+    assert controller["audio_loudness"] == "auto"
 
 
-def test_generated_director_defaults_motion_smoothing_to_auto():
+def test_generated_director_appends_safe_output_defaults_without_shifting_timeline():
     source = {
         "last_node_id": 3,
         "last_link_id": 0,
@@ -188,7 +189,7 @@ def test_generated_director_defaults_motion_smoothing_to_auto():
     )
 
     assert director["widgets_values"][18] == '{"version":1,"items":[]}'
-    assert director["widgets_values"][-1] == "auto"
+    assert director["widgets_values"][-2:] == ["off", "auto"]
 
 
 def test_api_template_scopes_low_vram_policy_around_sampling():

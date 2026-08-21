@@ -62,7 +62,7 @@ def test_ui_exposes_one_final_output_postprocess_surface():
     assert 'valueControl("AI 超分模型", "ai_upscale_model"' in text
     assert 'postprocessMode === "ai_upscale"' in text
     assert 'const aiModelOptions' in text
-    assert '"postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "timeline_data"' in text
+    assert '"postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness", "timeline_data"' in text
     assert "同尺寸自动旁路" in text
 
 
@@ -78,11 +78,18 @@ def test_ui_exposes_compatible_chinese_motion_smoothing_control():
     text = source()
     assert 'valueControl("运动平滑", "motion_smoothing"' in text
     assert "allowedMotionSmoothing" in text
-    assert '["auto", "自动（推荐）"]' in text
+    assert '["off", "关闭（默认，保留原始帧）"]' in text
     assert '["rife_x2", "RIFE 2x（48 FPS）"]' in text
     assert 'preset === "低显存"' in text
     assert 'postprocessMode !== "rtx_vsr"' in text
-    assert '"motion_smoothing", "timeline_data"' in text
+    assert '"motion_smoothing", "audio_loudness", "timeline_data"' in text
+
+
+def test_ui_exposes_final_audio_loudness_control():
+    text = source()
+    assert 'valueControl("最终音频", "audio_loudness"' in text
+    assert '["auto", "自动增强响度"]' in text
+    assert '["original", "保持原始响度"]' in text
 
 
 def test_frontend_filters_performance_presets_by_mode_and_voice():

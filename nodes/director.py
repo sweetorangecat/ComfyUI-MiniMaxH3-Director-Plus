@@ -16,10 +16,10 @@ from .upscale import _available_upscale_models, resolve_upscale_model_name
 BASE_MODES = {"T2VA", "I2VA", "FL2VA", "L2VA"}
 
 # The H3-specific second pass enlarges the video latent by about 1.5x before
-# final output. Keep the remaining RTX VSR enlargement near 2x per axis so it
-# is not asked to turn a thumbnail-sized H3 render into a 2K/4K video.
+# final output. Keep the remaining RTX VSR enlargement near 1.4x per axis so
+# the H3 stages retain enough real detail before the final output resize.
 TWO_STAGE_IMAGE_SCALE = 1.5
-TWO_STAGE_MAX_VSR_SCALE = 1.9
+TWO_STAGE_MAX_VSR_SCALE = 1.4
 
 
 def _two_stage_pixel_size(size):
@@ -105,7 +105,7 @@ def native_resolution_for_request(
 
     # H3 redraws the clean video latent at about 1.5x before final encoding.
     # Pick the first-stage MP from the requested target so that the remaining
-    # RTX VSR enlargement is no more than roughly 2x per axis. This avoids
+    # RTX VSR enlargement is no more than roughly 1.4x per axis. This avoids
     # hard-expanding a 0.20 MP thumbnail into 2K while retaining H3's native
     # canvas cap for long clips.
     if performance_preset in {"质量优先二采样", "quality_two_stage"}:
@@ -223,7 +223,8 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_7_file": (image_files, {"image_upload": True}),
                 "reference_image_8_file": (image_files, {"image_upload": True}),
                 "reference_image_9_file": (image_files, {"image_upload": True}),
-                "motion_smoothing": (["auto", "off", "rife_x2"], {"default": "auto", "tooltip": "运动平滑：质量优先二采样可自动启用流式 RIFE 2x；低显存模式只允许关闭"}),
+                "motion_smoothing": (["off", "rife_x2"], {"default": "off", "tooltip": "运动平滑：默认关闭以保留原始帧；需要 48 FPS 时手动启用流式 RIFE 2x；低显存模式只允许关闭"}),
+                "audio_loudness": (["auto", "original"], {"default": "auto", "tooltip": "最终音频：自动增强过小的 H3 音量，或保持原始响度"}),
                 "first_image": ("IMAGE",),
                 "last_image": ("IMAGE",),
                 "voice_reference_audio": ("AUDIO",),
@@ -262,7 +263,8 @@ class MiniMaxH3DirectorPlus:
         postprocess_mode="native",
         rtx_quality="HIGH",
         ai_upscale_model="auto",
-        motion_smoothing="auto",
+        motion_smoothing="off",
+        audio_loudness="auto",
         fish_model_path="s2-pro-w4a16 (auto download)",
         aspect_ratio="16:9",
         resolution_preset="0.83 MP",
@@ -388,6 +390,7 @@ class MiniMaxH3DirectorPlus:
             "rtx_quality": rtx_quality,
             "ai_upscale_model": ai_upscale_model,
             "motion_smoothing": motion_smoothing,
+            "audio_loudness": audio_loudness,
         })
 
         if request["performance_preset"] == "low_vram":
@@ -544,6 +547,7 @@ class MiniMaxH3DirectorPlus:
             "rtx_quality": request["rtx_quality"],
             "ai_upscale_model": request["ai_upscale_model"],
             "motion_smoothing": request["motion_smoothing"],
+            "audio_loudness": request["audio_loudness"],
             "rife_model": DEFAULT_RIFE_MODEL,
             "output_frame_multiplier": 2 if request["motion_smoothing"] == "rife_x2" else 1,
             "postprocess_path": postprocess_path,

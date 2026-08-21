@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from nodes.director import MiniMaxH3DirectorPlus, align_frame_count, native_resolution_for_request
+from nodes.director import MiniMaxH3DirectorPlus, _two_stage_pixel_size, align_frame_count, native_resolution_for_request
 from nodes.resolution import calculate_resolution, h3_native_canvas
 from nodes.schema import RequestError
 
@@ -34,11 +34,14 @@ def test_director_exposes_postprocess_widgets():
     assert "AI 细节重建（RTX VSR）" in required["postprocess_mode"][1]["tooltip"]
     assert required["rtx_quality"][0] == ["HIGH", "ULTRA"]
     assert required["ai_upscale_model"][0][0] == "auto"
-    assert optional["motion_smoothing"][0] == ["auto", "off", "rife_x2"]
+    assert optional["motion_smoothing"][0] == ["off", "rife_x2"]
+    assert optional["motion_smoothing"][1]["default"] == "off"
     assert "运动平滑" in optional["motion_smoothing"][1]["tooltip"]
+    assert optional["audio_loudness"][0] == ["auto", "original"]
+    assert optional["audio_loudness"][1]["default"] == "auto"
 
 
-def test_quality_two_stage_auto_motion_smoothing_preflights_rife(monkeypatch):
+def test_legacy_auto_motion_smoothing_stays_off_without_loading_rife(monkeypatch):
     checked = []
     monkeypatch.setattr("nodes.director.probe_vsr_capability", lambda *args, **kwargs: None)
     monkeypatch.setattr(
@@ -63,9 +66,10 @@ def test_quality_two_stage_auto_motion_smoothing_preflights_rife(monkeypatch):
         reference_transcript="",
     )
 
-    assert checked == ["rife_v4.26.safetensors"]
-    assert guide["motion_smoothing"] == "rife_x2"
-    assert guide["output_frame_multiplier"] == 2
+    assert checked == []
+    assert guide["motion_smoothing"] == "off"
+    assert guide["output_frame_multiplier"] == 1
+    assert guide["audio_loudness"] == "auto"
 
 
 @pytest.mark.parametrize("postprocess_mode, expected_path", [("lanczos", "lanczos"), ("ai_upscale", "ai_upscale")])
@@ -457,13 +461,13 @@ def test_all_non_low_vram_presets_cap_long_h3_sampling_to_official_canvas(preset
     )
 
     if preset == "质量优先二采样":
-        assert (native_width, native_height) == calculate_resolution("0.26 MP", "16:9")
+        assert (native_width, native_height) == calculate_resolution("0.50 MP", "16:9")
     else:
         assert (native_width, native_height) == (1344, 768)
     assert upscale_required is True
 
 
-def test_two_stage_uses_u15_safe_native_canvas_before_latent_upscale():
+def test_two_stage_uses_detail_preserving_native_canvas_before_latent_upscale():
     native_width, native_height, upscale_required = native_resolution_for_request(
         2560,
         1440,
@@ -471,11 +475,29 @@ def test_two_stage_uses_u15_safe_native_canvas_before_latent_upscale():
         "质量优先二采样",
         "16:9",
     )
-    expected_width, expected_height = calculate_resolution("0.50 MP", "16:9")
+    expected_width, expected_height = calculate_resolution("0.83 MP", "16:9")
 
     assert (native_width, native_height) == (expected_width, expected_height)
-    assert native_width * native_height >= 0.49 * 1024 * 1024
+    assert native_width * native_height >= 0.80 * 1024 * 1024
     assert upscale_required is True
+
+    redraw_width = _two_stage_pixel_size(native_width)
+    redraw_height = _two_stage_pixel_size(native_height)
+    assert max(2560 / redraw_width, 1440 / redraw_height) <= 1.4
+
+
+def test_two_stage_portrait_2k_also_bounds_actual_vsr_scale():
+    native_width, native_height, _ = native_resolution_for_request(
+        1440,
+        2560,
+        15,
+        "质量优先二采样",
+        "9:16",
+    )
+
+    redraw_width = _two_stage_pixel_size(native_width)
+    redraw_height = _two_stage_pixel_size(native_height)
+    assert max(1440 / redraw_width, 2560 / redraw_height) <= 1.4
 
 
 def test_two_stage_native_canvas_scales_with_final_target_to_bound_vsr_ratio():

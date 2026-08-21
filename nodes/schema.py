@@ -10,11 +10,12 @@ VOICE_MODES = ("none", "h3_reference", "fish_lock")
 POSTPROCESS_MODES = ("native", "lanczos", "ai_upscale", "rtx_vsr")
 RTX_QUALITIES = ("HIGH", "ULTRA")
 MOTION_SMOOTHING_MODES = ("auto", "off", "rife_x2")
+AUDIO_LOUDNESS_MODES = ("auto", "original")
 PUBLIC_API_KEYS = (
     "mode", "prompt", "duration", "aspect_ratio", "resolution_preset", "custom_width", "custom_height",
     "seed", "first_image", "last_image", "references", "voice_mode", "voice_reference_audio", "voice_reference_audios", "voice_reference_names",
     "target_dialogue", "reference_transcript", "fish_model_path", "ref_image_size", "performance_preset",
-    "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing",
+    "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness",
 )
 PERFORMANCE_PRESETS = {
     "稳定质量": "quality",
@@ -135,7 +136,8 @@ DEFAULT_REQUEST = {
     "postprocess_mode": "native",
     "rtx_quality": "HIGH",
     "ai_upscale_model": "auto",
-    "motion_smoothing": "auto",
+    "motion_smoothing": "off",
+    "audio_loudness": "auto",
     "postprocess": {},
     "output": {},
 }
@@ -172,10 +174,13 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的后处理模式：{request['postprocess_mode']}")
     if request["rtx_quality"] not in RTX_QUALITIES:
         raise RequestError(f"不支持的 RTX VSR 质量：{request['rtx_quality']}")
-    requested_motion_smoothing = str(request.get("motion_smoothing") or "auto")
+    requested_motion_smoothing = str(request.get("motion_smoothing") or "off")
     if requested_motion_smoothing not in MOTION_SMOOTHING_MODES:
         raise RequestError(f"不支持的运动平滑模式：{requested_motion_smoothing}")
     request["motion_smoothing_requested"] = requested_motion_smoothing
+    request["audio_loudness"] = str(request.get("audio_loudness") or "auto")
+    if request["audio_loudness"] not in AUDIO_LOUDNESS_MODES:
+        raise RequestError(f"不支持的最终音频响度模式：{request['audio_loudness']}")
     request["ai_upscale_model"] = str(request.get("ai_upscale_model") or "auto").strip() or "auto"
 
     try:
@@ -225,11 +230,7 @@ def normalize_request(raw=None):
 
     resolved_preset = request["performance_preset"]
     if requested_motion_smoothing == "auto":
-        request["motion_smoothing"] = (
-            "rife_x2"
-            if resolved_preset == "quality_two_stage" and request["postprocess_mode"] == "rtx_vsr"
-            else "off"
-        )
+        request["motion_smoothing"] = "off"
     else:
         request["motion_smoothing"] = requested_motion_smoothing
     if request["motion_smoothing"] not in allowed_motion_smoothing(
@@ -312,14 +313,20 @@ def public_schema():
             "motion_smoothing": {
                 "中文名称": "运动平滑",
                 "enum": list(MOTION_SMOOTHING_MODES),
-                "default": "auto",
-                "description": "自动模式在质量优先二采样 + RTX VSR 时启用流式 RIFE 2x；低显存模式只允许关闭。",
+                "default": "off",
+                "description": "默认关闭以保留 H3 原始帧；可手动启用流式 RIFE 2x，旧 auto 值按关闭处理。低显存模式只允许关闭。",
                 "allowed_by_performance": {
                     "质量优先二采样 + RTX VSR": ["auto", "off", "rife_x2"],
                     "低显存": ["off"],
                     "其他 RTX VSR": ["auto", "off", "rife_x2"],
                     "非 RTX VSR": ["auto", "off"],
                 },
+            },
+            "audio_loudness": {
+                "中文名称": "最终音频响度",
+                "enum": list(AUDIO_LOUDNESS_MODES),
+                "default": "auto",
+                "description": "自动模式在最终编码前安全提升过小的 H3 音频响度；original 保持原始波形。",
             },
             "custom_width": {"中文名称": "自定义宽度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 16},
             "custom_height": {"中文名称": "自定义高度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 9},

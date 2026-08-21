@@ -17,9 +17,12 @@ class _Folders:
         return output_dir, prefix, 0, "", None
 
 
-def _fake_dasiwa(captured, audio_value=None, encode_calls=None):
+def _fake_dasiwa(captured, audio_value=None, encode_calls=None, audio_inputs=None):
     def audio_file(audio):
-        assert audio is audio_value
+        if audio_inputs is None:
+            assert audio is audio_value
+        else:
+            audio_inputs.append(audio)
         if audio_value is None:
             return None, None
         return ("audio.wav", 48000, 1), 2.0
@@ -52,11 +55,11 @@ def _fake_dasiwa(captured, audio_value=None, encode_calls=None):
     )
 
 
-def _combine(monkeypatch, guide, images, captured, audio=None, encode_calls=None, **kwargs):
+def _combine(monkeypatch, guide, images, captured, audio=None, encode_calls=None, audio_inputs=None, **kwargs):
     monkeypatch.setattr(
         stream_output,
         "_dasiwa_video_module",
-        lambda: _fake_dasiwa(captured, audio, encode_calls),
+        lambda: _fake_dasiwa(captured, audio, encode_calls, audio_inputs),
     )
     monkeypatch.setattr(stream_output.os, "unlink", lambda path: None)
     return stream_output.MiniMaxH3StreamingVideoCombine().combine(
@@ -179,7 +182,6 @@ def test_rife_motion_smoothing_streams_seven_frames_at_48fps(monkeypatch):
         lambda model_name: probe_calls.append(model_name),
         raising=False,
     )
-
     def fake_rife_frames(source, model_name, pingpong=False):
         rife_inputs.append((source, model_name, pingpong))
         yield source[0]
@@ -229,6 +231,72 @@ def test_rife_motion_smoothing_streams_seven_frames_at_48fps(monkeypatch):
     assert result["ui"]["gifs"][0]["source_fps"] == 24.0
     assert result["ui"]["gifs"][0]["motion_smoothing"] == "rife_x2"
     assert active_processors == []
+
+
+def test_auto_audio_loudness_is_applied_before_dasiwa_encoding(monkeypatch):
+    waveform = torch.full((1, 2, 320), 10 ** (-31 / 20), dtype=torch.float32)
+    audio = {"waveform": waveform, "sample_rate": 32000}
+    audio_inputs = []
+
+    _combine(
+        monkeypatch,
+        {
+            "target_width": 3,
+            "target_height": 2,
+            "postprocess_path": "native_bypass",
+            "audio_loudness": "auto",
+        },
+        torch.rand(3, 2, 3, 3),
+        [],
+        audio=audio,
+        audio_inputs=audio_inputs,
+    )
+
+    assert len(audio_inputs) == 1
+    normalized = audio_inputs[0]
+    assert normalized is not audio
+    assert normalized["sample_rate"] == 32000
+    assert torch.max(torch.abs(normalized["waveform"])).item() == pytest.approx(
+        10 ** (-1.5 / 20), rel=1e-5
+    )
+    assert torch.equal(audio["waveform"], waveform)
+
+
+def test_original_audio_loudness_preserves_audio_object():
+    audio = {"waveform": torch.rand(1, 2, 16), "sample_rate": 32000}
+    assert stream_output._normalize_output_audio(audio, "original") is audio
+
+
+def test_auto_audio_loudness_keeps_silence_and_caps_gain():
+    silent = {"waveform": torch.zeros(1, 1, 16), "sample_rate": 32000}
+    assert stream_output._normalize_output_audio(silent, "auto") is silent
+
+    quiet = {"waveform": torch.full((1, 1, 16), 1e-6), "sample_rate": 32000}
+    normalized = stream_output._normalize_output_audio(quiet, "auto")
+    assert normalized["waveform"].abs().max().item() == pytest.approx(
+        1e-6 * 10 ** (30 / 20), rel=1e-5
+    )
+
+
+def test_auto_audio_loudness_attenuates_clipping_source():
+    audio = {"waveform": torch.ones(1, 1, 16), "sample_rate": 32000}
+    normalized = stream_output._normalize_output_audio(audio, "auto")
+    assert normalized["waveform"].abs().max().item() == pytest.approx(
+        10 ** (-1.5 / 20), rel=1e-5
+    )
+
+
+def test_auto_audio_loudness_sanitizes_non_finite_samples():
+    waveform = torch.tensor([[[float("nan"), float("inf"), -float("inf"), 0.1]]])
+    audio = {"waveform": waveform, "sample_rate": 32000}
+
+    normalized = stream_output._normalize_output_audio(audio, "auto")
+
+    assert torch.isfinite(normalized["waveform"]).all()
+    assert torch.equal(normalized["waveform"][..., :3], torch.zeros(1, 1, 3))
+    assert normalized["waveform"].abs().max().item() == pytest.approx(
+        10 ** (-1.5 / 20), rel=1e-5
+    )
 
 
 def test_motion_smoothing_off_never_loads_rife(monkeypatch):

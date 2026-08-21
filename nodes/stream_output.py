@@ -27,6 +27,44 @@ class _VsrProcessingError(RuntimeError):
     """Distinguish VSR dependency/runtime failures from FFmpeg retry errors."""
 
 
+_AUDIO_TARGET_PEAK = 10 ** (-1.5 / 20)
+_AUDIO_MAX_GAIN = 10 ** (30 / 20)
+
+
+def _normalize_output_audio(audio, mode):
+    """Apply bounded peak normalization without modifying the source AUDIO."""
+    mode = str(mode or "original")
+    if audio is None or mode == "original":
+        return audio
+    if mode != "auto":
+        raise ValueError(f"不支持的最终音频响度模式：{mode}")
+    if not isinstance(audio, dict) or not isinstance(audio.get("waveform"), torch.Tensor):
+        raise ValueError("自动音频响度需要标准 ComfyUI AUDIO 波形")
+
+    waveform = audio["waveform"]
+    if not torch.is_floating_point(waveform):
+        raise ValueError("自动音频响度只支持浮点 AUDIO 波形")
+    finite = bool(torch.isfinite(waveform).all().item())
+    clean_waveform = waveform if finite else torch.nan_to_num(
+        waveform,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
+    peak = float(clean_waveform.detach().abs().max().item()) if clean_waveform.numel() else 0.0
+    if peak <= 1e-8:
+        if finite:
+            return audio
+        sanitized = dict(audio)
+        sanitized["waveform"] = clean_waveform
+        return sanitized
+
+    gain = min(_AUDIO_TARGET_PEAK / peak, _AUDIO_MAX_GAIN)
+    normalized = dict(audio)
+    normalized["waveform"] = (clean_waveform * gain).clamp(-1.0, 1.0)
+    return normalized
+
+
 def _dasiwa_video_module():
     """Return DaSiWa's already-loaded encoder helper module."""
     for name, module in list(sys.modules.items()):
@@ -568,7 +606,11 @@ class MiniMaxH3StreamingVideoCombine:
                     close()
 
         metadata_path = dasiwa._metadata_file(prompt, extra_pnginfo) if save_metadata else None
-        audio_path, audio_duration = dasiwa._audio_file(audio)
+        output_audio = _normalize_output_audio(
+            audio,
+            guide.get("audio_loudness", "original"),
+        )
+        audio_path, audio_duration = dasiwa._audio_file(output_audio)
         attempts = []
         output_path = None
         selected_container = None
@@ -693,6 +735,7 @@ class MiniMaxH3StreamingVideoCombine:
                 "format": output_mime_type, "codec": selected_codec, "bit_depth": selected_bit_depth,
                 "container": selected_container, "width": target_width, "height": target_height, "fps": output_frame_rate,
                 "source_fps": float(frame_rate), "motion_smoothing": motion_smoothing,
+                "audio_loudness": str(guide.get("audio_loudness") or "original"),
                 "postprocess_path": postprocess_path,
             }]
         return {"ui": ui, "result": (output_frames, output_path)}

@@ -24,7 +24,9 @@ def test_schema_exposes_final_postprocess_controls():
     assert schema["ai_upscale_model"]["default"] == "auto"
     assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["rtx_vsr"]
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
-    assert schema["motion_smoothing"]["default"] == "auto"
+    assert schema["motion_smoothing"]["default"] == "off"
+    assert schema["audio_loudness"]["enum"] == ["auto", "original"]
+    assert schema["audio_loudness"]["default"] == "auto"
 
 
 def test_normalize_request_defaults_to_native_postprocess():
@@ -33,6 +35,8 @@ def test_normalize_request_defaults_to_native_postprocess():
     assert request["postprocess_mode"] == "native"
     assert request["rtx_quality"] == "HIGH"
     assert request["ai_upscale_model"] == "auto"
+    assert request["motion_smoothing"] == "off"
+    assert request["audio_loudness"] == "auto"
 
 
 def test_normalize_request_accepts_generic_upscale_model_override():
@@ -71,7 +75,7 @@ def test_quality_two_stage_accepts_rtx_vsr_postprocess():
     assert request["postprocess_mode"] == "rtx_vsr"
 
 
-def test_quality_two_stage_auto_motion_smoothing_resolves_to_rife_x2():
+def test_legacy_auto_motion_smoothing_resolves_to_off():
     request = normalize_request({
         "mode": "T2VA",
         "performance_preset": "质量优先二采样",
@@ -79,10 +83,15 @@ def test_quality_two_stage_auto_motion_smoothing_resolves_to_rife_x2():
         "motion_smoothing": "auto",
     })
 
-    assert request["motion_smoothing"] == "rife_x2"
+    assert request["motion_smoothing"] == "off"
     allowed_motion_smoothing = getattr(schema_module, "allowed_motion_smoothing", None)
     assert callable(allowed_motion_smoothing), "缺少运动平滑兼容矩阵"
     assert allowed_motion_smoothing("quality_two_stage", "rtx_vsr") == ("off", "rife_x2")
+
+
+def test_normalize_request_rejects_unknown_audio_loudness_mode():
+    with pytest.raises(RequestError, match="音频响度"):
+        normalize_request({"mode": "T2VA", "audio_loudness": "maximum"})
 
 
 def test_normal_preset_auto_motion_smoothing_stays_off():
