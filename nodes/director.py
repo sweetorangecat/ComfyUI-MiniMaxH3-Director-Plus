@@ -8,6 +8,7 @@ import os
 from .prompting import build_reference_prompt
 from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution, h3_native_canvas
 from .rtx_vsr_stream import probe_vsr_capability
+from .rife_stream import DEFAULT_RIFE_MODEL, probe_rife_capability
 from .schema import PERFORMANCE_PRESETS, RequestError, low_vram_target_limit, normalize_request
 from .upscale import _available_upscale_models, resolve_upscale_model_name
 
@@ -222,6 +223,7 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_7_file": (image_files, {"image_upload": True}),
                 "reference_image_8_file": (image_files, {"image_upload": True}),
                 "reference_image_9_file": (image_files, {"image_upload": True}),
+                "motion_smoothing": (["auto", "off", "rife_x2"], {"default": "auto", "tooltip": "运动平滑：质量优先二采样可自动启用流式 RIFE 2x；低显存模式只允许关闭"}),
                 "first_image": ("IMAGE",),
                 "last_image": ("IMAGE",),
                 "voice_reference_audio": ("AUDIO",),
@@ -260,6 +262,7 @@ class MiniMaxH3DirectorPlus:
         postprocess_mode="native",
         rtx_quality="HIGH",
         ai_upscale_model="auto",
+        motion_smoothing="auto",
         fish_model_path="s2-pro-w4a16 (auto download)",
         aspect_ratio="16:9",
         resolution_preset="0.83 MP",
@@ -384,6 +387,7 @@ class MiniMaxH3DirectorPlus:
             "postprocess_mode": postprocess_mode,
             "rtx_quality": rtx_quality,
             "ai_upscale_model": ai_upscale_model,
+            "motion_smoothing": motion_smoothing,
         })
 
         if request["performance_preset"] == "low_vram":
@@ -445,6 +449,19 @@ class MiniMaxH3DirectorPlus:
                 probe_vsr_capability(request["rtx_quality"], device_id=0)
             except Exception as exc:
                 raise RequestError(f"RTX VSR 前置检查失败，尚未开始 H3 视频生成：{exc}") from exc
+        if request["motion_smoothing"] == "rife_x2":
+            if postprocess_path != "rtx_vsr":
+                if request.get("motion_smoothing_requested") == "auto":
+                    request["motion_smoothing"] = "off"
+                else:
+                    raise RequestError("RIFE 2x 运动平滑只能搭配实际执行的 RTX VSR 输出")
+            else:
+                try:
+                    probe_rife_capability(DEFAULT_RIFE_MODEL)
+                except Exception as exc:
+                    raise RequestError(
+                        f"RIFE 运动平滑前置检查失败，尚未开始 H3 视频生成：{exc}"
+                    ) from exc
         if postprocess_path == "ai_upscale":
             try:
                 request["ai_upscale_model"] = resolve_upscale_model_name(
@@ -526,6 +543,9 @@ class MiniMaxH3DirectorPlus:
             "postprocess_mode": request["postprocess_mode"],
             "rtx_quality": request["rtx_quality"],
             "ai_upscale_model": request["ai_upscale_model"],
+            "motion_smoothing": request["motion_smoothing"],
+            "rife_model": DEFAULT_RIFE_MODEL,
+            "output_frame_multiplier": 2 if request["motion_smoothing"] == "rife_x2" else 1,
             "postprocess_path": postprocess_path,
             "upscale_method": {
                 "rtx_vsr": "rtx_vsr",

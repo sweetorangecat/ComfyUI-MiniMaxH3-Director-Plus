@@ -28,11 +28,44 @@ def test_resolution_preset_is_labeled_as_the_final_output_target():
 
 def test_director_exposes_postprocess_widgets():
     required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
+    optional = MiniMaxH3DirectorPlus.INPUT_TYPES()["optional"]
 
     assert required["postprocess_mode"][0] == ["native", "lanczos", "ai_upscale", "rtx_vsr"]
     assert "AI 细节重建（RTX VSR）" in required["postprocess_mode"][1]["tooltip"]
     assert required["rtx_quality"][0] == ["HIGH", "ULTRA"]
     assert required["ai_upscale_model"][0][0] == "auto"
+    assert optional["motion_smoothing"][0] == ["auto", "off", "rife_x2"]
+    assert "运动平滑" in optional["motion_smoothing"][1]["tooltip"]
+
+
+def test_quality_two_stage_auto_motion_smoothing_preflights_rife(monkeypatch):
+    checked = []
+    monkeypatch.setattr("nodes.director.probe_vsr_capability", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "nodes.director.probe_rife_capability",
+        lambda model_name="rife_v4.26.safetensors": checked.append(model_name),
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="一个连续的缓慢推进镜头。",
+        duration=15,
+        width=2560,
+        height=1440,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="质量优先二采样",
+        postprocess_mode="rtx_vsr",
+        motion_smoothing="auto",
+        resolution_preset="2K QHD",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert checked == ["rife_v4.26.safetensors"]
+    assert guide["motion_smoothing"] == "rife_x2"
+    assert guide["output_frame_multiplier"] == 2
 
 
 @pytest.mark.parametrize("postprocess_mode, expected_path", [("lanczos", "lanczos"), ("ai_upscale", "ai_upscale")])

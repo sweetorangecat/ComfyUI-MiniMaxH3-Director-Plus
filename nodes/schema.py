@@ -9,11 +9,12 @@ MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA")
 VOICE_MODES = ("none", "h3_reference", "fish_lock")
 POSTPROCESS_MODES = ("native", "lanczos", "ai_upscale", "rtx_vsr")
 RTX_QUALITIES = ("HIGH", "ULTRA")
+MOTION_SMOOTHING_MODES = ("auto", "off", "rife_x2")
 PUBLIC_API_KEYS = (
     "mode", "prompt", "duration", "aspect_ratio", "resolution_preset", "custom_width", "custom_height",
     "seed", "first_image", "last_image", "references", "voice_mode", "voice_reference_audio", "voice_reference_audios", "voice_reference_names",
     "target_dialogue", "reference_transcript", "fish_model_path", "ref_image_size", "performance_preset",
-    "postprocess_mode", "rtx_quality", "ai_upscale_model",
+    "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing",
 )
 PERFORMANCE_PRESETS = {
     "稳定质量": "quality",
@@ -59,6 +60,14 @@ def allowed_postprocess_modes(performance_preset):
     """Return final-output methods compatible with a normalized preset."""
     preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
     return POSTPROCESS_MODES_BY_PERFORMANCE.get(preset, POSTPROCESS_MODES)
+
+
+def allowed_motion_smoothing(performance_preset, postprocess_mode):
+    """Return resolved motion-smoothing paths compatible with this route."""
+    preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
+    if preset == "low_vram" or postprocess_mode != "rtx_vsr":
+        return ("off",)
+    return ("off", "rife_x2")
 
 
 def allowed_performance_presets(mode, voice_mode="none"):
@@ -126,6 +135,7 @@ DEFAULT_REQUEST = {
     "postprocess_mode": "native",
     "rtx_quality": "HIGH",
     "ai_upscale_model": "auto",
+    "motion_smoothing": "auto",
     "postprocess": {},
     "output": {},
 }
@@ -162,6 +172,10 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的后处理模式：{request['postprocess_mode']}")
     if request["rtx_quality"] not in RTX_QUALITIES:
         raise RequestError(f"不支持的 RTX VSR 质量：{request['rtx_quality']}")
+    requested_motion_smoothing = str(request.get("motion_smoothing") or "auto")
+    if requested_motion_smoothing not in MOTION_SMOOTHING_MODES:
+        raise RequestError(f"不支持的运动平滑模式：{requested_motion_smoothing}")
+    request["motion_smoothing_requested"] = requested_motion_smoothing
     request["ai_upscale_model"] = str(request.get("ai_upscale_model") or "auto").strip() or "auto"
 
     try:
@@ -208,6 +222,23 @@ def normalize_request(raw=None):
         request["warnings"].append(
             f"{request['mode']} / {request['voice_mode']} 不支持性能预设 {preset}，已自动切换为稳定质量。"
         )
+
+    resolved_preset = request["performance_preset"]
+    if requested_motion_smoothing == "auto":
+        request["motion_smoothing"] = (
+            "rife_x2"
+            if resolved_preset == "quality_two_stage" and request["postprocess_mode"] == "rtx_vsr"
+            else "off"
+        )
+    else:
+        request["motion_smoothing"] = requested_motion_smoothing
+    if request["motion_smoothing"] not in allowed_motion_smoothing(
+        resolved_preset,
+        request["postprocess_mode"],
+    ):
+        if resolved_preset == "low_vram":
+            raise RequestError("低显存模式不支持 RIFE 运动平滑，请将运动平滑切换为关闭")
+        raise RequestError("RIFE 2x 运动平滑只能搭配 RTX VSR 最终输出")
 
     request["resolved_backend"] = (
         "ref2va_model"
@@ -277,6 +308,18 @@ def public_schema():
                 "type": "string",
                 "default": "auto",
                 "description": "自动选择或指定 models/upscale_models 中的通用 AI 超分模型，仅在 ai_upscale 模式生效。",
+            },
+            "motion_smoothing": {
+                "中文名称": "运动平滑",
+                "enum": list(MOTION_SMOOTHING_MODES),
+                "default": "auto",
+                "description": "自动模式在质量优先二采样 + RTX VSR 时启用流式 RIFE 2x；低显存模式只允许关闭。",
+                "allowed_by_performance": {
+                    "质量优先二采样 + RTX VSR": ["auto", "off", "rife_x2"],
+                    "低显存": ["off"],
+                    "其他 RTX VSR": ["auto", "off", "rife_x2"],
+                    "非 RTX VSR": ["auto", "off"],
+                },
             },
             "custom_width": {"中文名称": "自定义宽度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 16},
             "custom_height": {"中文名称": "自定义高度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 9},

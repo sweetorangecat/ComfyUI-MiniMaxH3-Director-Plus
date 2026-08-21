@@ -1,4 +1,5 @@
 import pytest
+import nodes.schema as schema_module
 
 from nodes.schema import (
     PUBLIC_API_KEYS,
@@ -22,6 +23,8 @@ def test_schema_exposes_final_postprocess_controls():
     assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA"]
     assert schema["ai_upscale_model"]["default"] == "auto"
     assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["rtx_vsr"]
+    assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
+    assert schema["motion_smoothing"]["default"] == "auto"
 
 
 def test_normalize_request_defaults_to_native_postprocess():
@@ -66,6 +69,51 @@ def test_quality_two_stage_accepts_rtx_vsr_postprocess():
     })
     assert request["performance_preset"] == "quality_two_stage"
     assert request["postprocess_mode"] == "rtx_vsr"
+
+
+def test_quality_two_stage_auto_motion_smoothing_resolves_to_rife_x2():
+    request = normalize_request({
+        "mode": "T2VA",
+        "performance_preset": "质量优先二采样",
+        "postprocess_mode": "rtx_vsr",
+        "motion_smoothing": "auto",
+    })
+
+    assert request["motion_smoothing"] == "rife_x2"
+    allowed_motion_smoothing = getattr(schema_module, "allowed_motion_smoothing", None)
+    assert callable(allowed_motion_smoothing), "缺少运动平滑兼容矩阵"
+    assert allowed_motion_smoothing("quality_two_stage", "rtx_vsr") == ("off", "rife_x2")
+
+
+def test_normal_preset_auto_motion_smoothing_stays_off():
+    request = normalize_request({
+        "mode": "T2VA",
+        "performance_preset": "稳定质量",
+        "postprocess_mode": "rtx_vsr",
+        "motion_smoothing": "auto",
+    })
+
+    assert request["motion_smoothing"] == "off"
+
+
+def test_low_vram_rejects_forced_rife_motion_smoothing():
+    with pytest.raises(RequestError, match="低显存.*运动平滑"):
+        normalize_request({
+            "mode": "T2VA",
+            "performance_preset": "低显存",
+            "postprocess_mode": "rtx_vsr",
+            "motion_smoothing": "rife_x2",
+        })
+
+
+def test_rife_motion_smoothing_requires_rtx_vsr():
+    with pytest.raises(RequestError, match="RIFE 2x.*RTX VSR"):
+        normalize_request({
+            "mode": "T2VA",
+            "performance_preset": "稳定质量",
+            "postprocess_mode": "native",
+            "motion_smoothing": "rife_x2",
+        })
 
 
 def test_normalize_request_rejects_unknown_postprocess_mode():

@@ -160,6 +160,186 @@ def test_rtx_vsr_path_processes_frames_and_preserves_frame_count(monkeypatch):
     assert instances == []
 
 
+def test_rife_motion_smoothing_streams_seven_frames_at_48fps(monkeypatch):
+    images = torch.stack([
+        torch.full((2, 3, 3), float(index), dtype=torch.float32)
+        for index in range(4)
+    ])
+    captured = []
+    processed = []
+    encode_calls = []
+    rife_inputs = []
+    probe_calls = []
+    active_processors = []
+
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+    monkeypatch.setattr(
+        stream_output,
+        "probe_rife_capability",
+        lambda model_name: probe_calls.append(model_name),
+        raising=False,
+    )
+
+    def fake_rife_frames(source, model_name, pingpong=False):
+        rife_inputs.append((source, model_name, pingpong))
+        yield source[0]
+        for index in range(len(source) - 1):
+            yield (source[index] + source[index + 1]) / 2
+            yield source[index + 1]
+
+    monkeypatch.setattr(stream_output, "iter_rife_frames", fake_rife_frames, raising=False)
+
+    class FakeVsrProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            active_processors.append(self)
+            self.width, self.height = width, height
+
+        def process(self, frame):
+            processed.append(float(frame.mean()))
+            return torch.full((self.height, self.width, 3), float(frame.mean()))
+
+        def close(self):
+            active_processors.remove(self)
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", FakeVsrProcessor)
+
+    result = _combine(
+        monkeypatch,
+        {
+            "target_width": 6,
+            "target_height": 4,
+            "postprocess_path": "rtx_vsr",
+            "rtx_quality": "ULTRA",
+            "motion_smoothing": "rife_x2",
+            "rife_model": "rife_v4.26.safetensors",
+            "output_frame_multiplier": 2,
+        },
+        images,
+        captured,
+        encode_calls=encode_calls,
+    )
+
+    assert probe_calls == ["rife_v4.26.safetensors"]
+    assert len(rife_inputs) == 1
+    assert processed == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    assert sum(len(chunk) for chunk in captured) == 7
+    assert all(len(chunk) <= 4 for chunk in captured)
+    assert encode_calls[0][0][5] == 48.0
+    assert result["ui"]["gifs"][0]["fps"] == 48.0
+    assert result["ui"]["gifs"][0]["source_fps"] == 24.0
+    assert result["ui"]["gifs"][0]["motion_smoothing"] == "rife_x2"
+    assert active_processors == []
+
+
+def test_motion_smoothing_off_never_loads_rife(monkeypatch):
+    images = torch.rand(3, 2, 3, 3)
+    captured = []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+    monkeypatch.setattr(
+        stream_output,
+        "probe_rife_capability",
+        lambda *args: (_ for _ in ()).throw(AssertionError("RIFE probe")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stream_output,
+        "iter_rife_frames",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("RIFE frames")),
+        raising=False,
+    )
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            return frame.movedim(0, -1).contiguous()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", FakeProcessor)
+
+    result = _combine(
+        monkeypatch,
+        {
+            "target_width": 3,
+            "target_height": 2,
+            "postprocess_path": "rtx_vsr",
+            "motion_smoothing": "off",
+        },
+        images,
+        captured,
+    )
+
+    assert sum(len(chunk) for chunk in captured) == 3
+    assert result["ui"]["gifs"][0]["fps"] == 24.0
+
+
+def test_rife_failure_does_not_retry_other_video_codecs(monkeypatch):
+    images = torch.rand(3, 2, 3, 3)
+    encode_attempts = []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+    monkeypatch.setattr(stream_output, "probe_rife_capability", lambda model: model)
+
+    def failing_rife_frames(*args, **kwargs):
+        yield images[0]
+        raise stream_output.RifeProcessingError("RIFE 推理测试失败")
+
+    monkeypatch.setattr(stream_output, "iter_rife_frames", failing_rife_frames)
+
+    class FakeVsrProcessor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            return frame.movedim(0, -1).contiguous()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", FakeVsrProcessor)
+    dasiwa = _fake_dasiwa([])
+    dasiwa._codec_candidates = lambda codec: ["H.264", "VP9"]
+
+    def encode(*args, **kwargs):
+        encode_attempts.append(args[1])
+        list(args[6]())
+
+    dasiwa._encode_with_available_encoder = encode
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+    monkeypatch.setattr(stream_output.os, "unlink", lambda path: None)
+
+    with pytest.raises(RuntimeError, match="RIFE 推理测试失败"):
+        stream_output.MiniMaxH3StreamingVideoCombine().combine(
+            images=images,
+            guide={
+                "target_width": 6,
+                "target_height": 4,
+                "postprocess_path": "rtx_vsr",
+                "motion_smoothing": "rife_x2",
+            },
+            frame_rate=24.0,
+            codec="Auto",
+            container="Auto",
+            bit_depth="8-bit",
+            quality=20,
+            log_level="Standard",
+            pingpong=False,
+            save_metadata=False,
+            filename_prefix="stream-test",
+            save_output=True,
+            pass_frames=False,
+            crop_to_audio=False,
+            audio_codec="Auto",
+            audio_bitrate="192k",
+            save_first_frame=False,
+            save_last_frame=False,
+        )
+
+    assert encode_attempts == ["H.264"]
+
+
 def test_output_path_never_materializes_full_target_batch(monkeypatch):
     images = torch.rand(9, 2, 3, 3)
     captured = []
@@ -212,6 +392,40 @@ def test_vsr_iterator_preserves_pingpong_order(monkeypatch):
 
     assert processed == [0, 1, 2, 3, 4, 3, 2, 1]
     assert sum(len(chunk) for chunk in chunks) == 8
+
+
+def test_vsr_stream_closes_upstream_generator_when_consumer_stops(monkeypatch):
+    closed = []
+    processor_closed = []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            return frame.movedim(0, -1).contiguous()
+
+        def close(self):
+            processor_closed.append(True)
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", FakeProcessor)
+
+    def frames():
+        try:
+            while True:
+                yield torch.zeros(2, 3, 3)
+        finally:
+            closed.append(True)
+
+    chunks = stream_output._iter_vsr_frame_stream(
+        frames(), 3, 2, max_chunk_bytes=2 * 3 * 3,
+    )
+    next(chunks)
+    chunks.close()
+
+    assert closed == [True]
+    assert processor_closed == [True]
 
 
 def test_downscale_path_uses_cpu_resize_without_loading_vsr(monkeypatch):

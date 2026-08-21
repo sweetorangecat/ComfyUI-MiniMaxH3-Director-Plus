@@ -165,6 +165,30 @@ def test_api_template_has_clean_output_prefix_and_all_reference_slots():
     assert all(f"API 音色参考音频{index}" in titles for index in range(1, 4))
     assert prompt["24"]["inputs"]["filename_prefix"] == "DirectorPlus"
     assert "reference_image_9" in controller
+    assert controller["motion_smoothing"] == "auto"
+
+
+def test_generated_director_defaults_motion_smoothing_to_auto():
+    source = {
+        "last_node_id": 3,
+        "last_link_id": 0,
+        "nodes": [
+            {"id": 1, "type": "Settings", "title": "Settings", "pos": [0, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+        ],
+        "links": [],
+        "groups": [],
+        "definitions": {"subgraphs": []},
+    }
+
+    director = next(
+        node for node in build_workflow(source)["nodes"]
+        if node["type"] == "MiniMaxH3DirectorPlus"
+    )
+
+    assert director["widgets_values"][18] == '{"version":1,"items":[]}'
+    assert director["widgets_values"][-1] == "auto"
 
 
 def test_api_template_scopes_low_vram_policy_around_sampling():

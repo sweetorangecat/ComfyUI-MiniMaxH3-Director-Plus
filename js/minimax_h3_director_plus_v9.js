@@ -67,6 +67,11 @@ const RTX_QUALITIES = [
   ["HIGH", "HIGH（质量）"],
   ["ULTRA", "ULTRA（更高质量）"],
 ];
+const MOTION_SMOOTHING = [
+  ["auto", "自动（推荐）"],
+  ["off", "关闭"],
+  ["rife_x2", "RIFE 2x（48 FPS）"],
+];
 const VOICE_REFERENCE_LABELS = ["音色参考 1", "音色参考 2", "音色参考 3"];
 const AUDIO_REFERENCE_HINT = "<Audio 1> / <Audio 2> / <Audio 3>";
 const FISH_MODELS = [
@@ -136,6 +141,14 @@ function performancePresetHint(preset) {
 
 function allowedPostprocessModes(preset) {
   return POSTPROCESS_MODES_BY_PERFORMANCE[preset] || POSTPROCESS_MODES;
+}
+
+function allowedMotionSmoothing(preset, postprocessMode) {
+  if (preset === "低显存") return [["off", "关闭（低显存固定）"]];
+  if (postprocessMode !== "rtx_vsr") {
+    return MOTION_SMOOTHING.filter(([value]) => value !== "rife_x2");
+  }
+  return MOTION_SMOOTHING;
 }
 
 function keepPromptAssistantReadable(anchor) {
@@ -480,7 +493,7 @@ function install(node) {
 
   const hidden = [
     "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset", "custom_width", "custom_height", "seed", "seed_mode", "voice_mode", "fish_model_path",
-    "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data",
+    "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "timeline_data",
     "target_dialogue", "reference_transcript", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
     "first_image_file", "last_image_file", "voice_reference_audio_file", "voice_reference_audio_2_file", "voice_reference_audio_3_file",
     "reference_image_1_file", "reference_image_2_file", "reference_image_3_file", "reference_image_4_file", "reference_image_5_file",
@@ -508,6 +521,12 @@ function install(node) {
     if (!postprocessOptions.some(([value]) => value === postprocessMode)) {
       postprocessMode = postprocessOptions[0][0];
       setWidget(node, "postprocess_mode", postprocessMode, false);
+    }
+    const motionOptions = allowedMotionSmoothing(preset, postprocessMode);
+    let motionSmoothing = widget(node, "motion_smoothing")?.value || "auto";
+    if (!motionOptions.some(([value]) => value === motionSmoothing)) {
+      motionSmoothing = motionOptions[0][0];
+      setWidget(node, "motion_smoothing", motionSmoothing, false);
     }
     const aspect = widget(node, "aspect_ratio")?.value || "16:9";
     const resolutionPreset = widget(node, "resolution_preset")?.value || "0.83 MP";
@@ -568,6 +587,7 @@ function install(node) {
         : postprocessMode === "rtx_vsr"
           ? valueControl("RTX VSR 质量", "rtx_quality", RTX_QUALITIES, widget(node, "rtx_quality")?.value || "HIGH")
           : document.createElement("span"),
+      valueControl("运动平滑", "motion_smoothing", motionOptions, motionSmoothing),
     );
     if (postprocessMode === "ai_upscale") {
       const modelField = postprocessGrid.lastElementChild;
@@ -597,7 +617,7 @@ function install(node) {
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = "质量优先二采样已锁定 RTX VSR：首阶段会按目标尺寸自动选源分辨率，先用 H3 VAE 图像重绘恢复细节，再用 RTX VSR 输出目标尺寸；二采后线性放大约控制在 1.9 倍内，不叠加 OmniSR/Lanczos。";
+      postprocessNote.textContent = "质量优先二采样已锁定 RTX VSR：先执行 H3 专用 latent 二采；运动平滑为自动时，再以流式 RIFE 2x 补帧并用 48 FPS 编码，时长和音频不变，最后逐帧 RTX VSR 输出目标尺寸。";
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {
@@ -830,7 +850,7 @@ function install(node) {
   requestAnimationFrame(bindMountedControls);
   setTimeout(bindMountedControls, 250);
 
-  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "rtx_quality", "aspect_ratio", "resolution_preset", "seed_mode"].forEach((name) => {
+  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "rtx_quality", "motion_smoothing", "aspect_ratio", "resolution_preset", "seed_mode"].forEach((name) => {
     const item = widget(node, name);
     if (!item) return;
     const original = item.callback;

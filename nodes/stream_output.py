@@ -14,6 +14,13 @@ from PIL import Image
 
 from .upscale import resolve_upscale_model_name
 from .rtx_vsr_stream import VsrFrameProcessor, load_vsr_api
+from .rife_stream import (
+    DEFAULT_RIFE_MODEL,
+    RifeProcessingError,
+    iter_rife_frames,
+    probe_rife_capability,
+    smoothed_frame_count,
+)
 
 
 class _VsrProcessingError(RuntimeError):
@@ -205,15 +212,35 @@ def _iter_vsr_frame_chunks(
     device_id=0,
 ):
     """Run RTX VSR one frame at a time and yield bounded CPU HWC chunks."""
+    def frame_stream():
+        yield from (images[index] for index in range(len(images)))
+        if pingpong:
+            yield from (images[index] for index in range(len(images) - 2, 0, -1))
+
+    yield from _iter_vsr_frame_stream(
+        frame_stream(),
+        target_width,
+        target_height,
+        quality=quality,
+        max_chunk_bytes=max_chunk_bytes,
+        bytes_per_channel=bytes_per_channel,
+        device_id=device_id,
+    )
+
+
+def _iter_vsr_frame_stream(
+    frames,
+    target_width,
+    target_height,
+    quality="HIGH",
+    max_chunk_bytes=64 * 1024 * 1024,
+    bytes_per_channel=1,
+    device_id=0,
+):
+    """Apply one VSR processor to an arbitrary lazy HWC frame stream."""
     target_frame_bytes = max(1, int(target_width) * int(target_height) * 3 * int(bytes_per_channel))
     frames_per_chunk = max(1, min(4, int(max_chunk_bytes) // target_frame_bytes))
     processor = None
-
-    def frame_indices():
-        yield from range(len(images))
-        if pingpong:
-            for index in range(len(images) - 2, 0, -1):
-                yield index
 
     pending = []
     try:
@@ -224,10 +251,10 @@ def _iter_vsr_frame_chunks(
             )
         except Exception as exc:
             raise _VsrProcessingError(str(exc)) from exc
-        for index in frame_indices():
+        for frame in frames:
             # The processor owns the CUDA conversion; keep only one source
             # frame and a small CPU output chunk alive at a time.
-            chw_frame = images[index, ..., :3].detach().movedim(-1, 0).contiguous()
+            chw_frame = frame[..., :3].detach().movedim(-1, 0).contiguous()
             try:
                 pending.append(processor.process(chw_frame))
             except Exception as exc:
@@ -238,13 +265,24 @@ def _iter_vsr_frame_chunks(
         if pending:
             yield torch.stack(pending, dim=0).contiguous()
     finally:
+        active_error = sys.exc_info()[1]
+        upstream_error = None
+        close_frames = getattr(frames, "close", None)
+        if callable(close_frames):
+            try:
+                close_frames()
+            except Exception as exc:
+                upstream_error = exc
         if processor is not None:
-            active_error = sys.exc_info()[1]
             try:
                 processor.close()
             except Exception as exc:
                 if active_error is None or isinstance(active_error, GeneratorExit):
                     raise _VsrProcessingError(str(exc)) from exc
+        if upstream_error is not None and (
+            active_error is None or isinstance(active_error, GeneratorExit)
+        ):
+            raise upstream_error
 
 
 def _resolve_postprocess_path(guide, source_width, source_height):
@@ -418,6 +456,11 @@ class MiniMaxH3StreamingVideoCombine:
         target_width = int(guide.get("target_width") or source.shape[2])
         target_height = int(guide.get("target_height") or source.shape[1])
         postprocess_path = _resolve_postprocess_path(guide, source_width, source_height)
+        motion_smoothing = str(guide.get("motion_smoothing") or "off")
+        if motion_smoothing not in {"off", "rife_x2"}:
+            raise ValueError(f"不支持的运动平滑路径：{motion_smoothing}")
+        if motion_smoothing == "rife_x2" and postprocess_path != "rtx_vsr":
+            raise ValueError("RIFE 2x 运动平滑只能在 RTX VSR 输出链路中执行")
         # Fail before creating an output path/encoder when the strict VSR
         # dependency is unavailable. The frame iterator is still responsible
         # for creating and closing the per-attempt processor.
@@ -426,6 +469,8 @@ class MiniMaxH3StreamingVideoCombine:
                 load_vsr_api()
             except Exception as exc:
                 raise _VsrProcessingError(str(exc)) from exc
+        if motion_smoothing == "rife_x2":
+            probe_rife_capability(guide.get("rife_model", DEFAULT_RIFE_MODEL))
         if postprocess_path == "ai_upscale":
             try:
                 resolve_upscale_model_name(
@@ -450,7 +495,10 @@ class MiniMaxH3StreamingVideoCombine:
         if not ffmpeg:
             raise RuntimeError("未找到 FFmpeg，无法保存 MP4")
 
-        total_frames = dasiwa._encoded_frame_count(source, pingpong)
+        source_frame_count = dasiwa._encoded_frame_count(source, pingpong)
+        frame_multiplier = 2 if motion_smoothing == "rife_x2" else 1
+        total_frames = smoothed_frame_count(source_frame_count, frame_multiplier)
+        output_frame_rate = float(frame_rate) * frame_multiplier
         try:
             import comfy.utils
 
@@ -460,7 +508,7 @@ class MiniMaxH3StreamingVideoCombine:
 
         def report_encode_progress(encoded_seconds):
             if progress_bar is not None:
-                progress_bar.update_absolute(min(total_frames, max(0, int(encoded_seconds * frame_rate))))
+                progress_bar.update_absolute(min(total_frames, max(0, int(encoded_seconds * output_frame_rate))))
 
         def frame_chunks():
             chunk_kwargs = {
@@ -487,14 +535,30 @@ class MiniMaxH3StreamingVideoCombine:
                     **chunk_kwargs,
                 )
             else:
-                chunks = _iter_vsr_frame_chunks(
-                    source,
-                    target_width,
-                    target_height,
-                    quality=guide.get("rtx_quality", "HIGH"),
-                    device_id=guide.get("device_id", 0),
-                    **chunk_kwargs,
-                )
+                if motion_smoothing == "rife_x2":
+                    rife_frames = iter_rife_frames(
+                        source,
+                        model_name=guide.get("rife_model", DEFAULT_RIFE_MODEL),
+                        pingpong=pingpong,
+                    )
+                    chunks = _iter_vsr_frame_stream(
+                        rife_frames,
+                        target_width,
+                        target_height,
+                        quality=guide.get("rtx_quality", "HIGH"),
+                        device_id=guide.get("device_id", 0),
+                        max_chunk_bytes=chunk_kwargs["max_chunk_bytes"],
+                        bytes_per_channel=chunk_kwargs["bytes_per_channel"],
+                    )
+                else:
+                    chunks = _iter_vsr_frame_chunks(
+                        source,
+                        target_width,
+                        target_height,
+                        quality=guide.get("rtx_quality", "HIGH"),
+                        device_id=guide.get("device_id", 0),
+                        **chunk_kwargs,
+                    )
             try:
                 for chunk in chunks:
                     yield dasiwa._frame_bytes(chunk, selected_bit_depth)
@@ -516,7 +580,7 @@ class MiniMaxH3StreamingVideoCombine:
                 output_path = os.path.join(output_folder, dasiwa._output_filename(filename, counter, animated_settings[0], False))
                 encoder = dasiwa._encode_animated_image(
                     ffmpeg, container, selected_bit_depth, target_width, target_height,
-                    frame_rate, frame_chunks, output_path, quality, report_encode_progress,
+                    output_frame_rate, frame_chunks, output_path, quality, report_encode_progress,
                 )
                 selected_container = container
                 selected_codec = container
@@ -531,14 +595,14 @@ class MiniMaxH3StreamingVideoCombine:
                         try:
                             encoder = dasiwa._encode_with_available_encoder(
                                 ffmpeg, selected_codec, selected_bit_depth, target_width, target_height,
-                                frame_rate, frame_chunks, output_path, selected_container, quality, quality,
+                                output_frame_rate, frame_chunks, output_path, selected_container, quality, quality,
                                 metadata_path, audio_path, audio_duration, crop_to_audio,
                                 audio_codec, audio_bitrate, report_encode_progress,
                             )
                             break
                         except RuntimeError as error:
                             attempts.append(f"{selected_codec}/{selected_container}: {error}")
-                            if isinstance(error, _VsrProcessingError):
+                            if isinstance(error, (_VsrProcessingError, RifeProcessingError)):
                                 raise
                             if codec != "Auto":
                                 raise
@@ -554,7 +618,7 @@ class MiniMaxH3StreamingVideoCombine:
                     )
                     encoder = dasiwa._encode_with_available_encoder(
                         ffmpeg, selected_codec, selected_bit_depth, target_width, target_height,
-                        frame_rate, frame_chunks, output_path, selected_container, quality, quality,
+                        output_frame_rate, frame_chunks, output_path, selected_container, quality, quality,
                         metadata_path, audio_path, audio_duration, crop_to_audio,
                         audio_codec, audio_bitrate, report_encode_progress,
                     )
@@ -627,7 +691,8 @@ class MiniMaxH3StreamingVideoCombine:
             ui["gifs"] = [{
                 "filename": os.path.basename(output_path), "subfolder": subfolder, "type": output_type,
                 "format": output_mime_type, "codec": selected_codec, "bit_depth": selected_bit_depth,
-                "container": selected_container, "width": target_width, "height": target_height, "fps": frame_rate,
+                "container": selected_container, "width": target_width, "height": target_height, "fps": output_frame_rate,
+                "source_fps": float(frame_rate), "motion_smoothing": motion_smoothing,
                 "postprocess_path": postprocess_path,
             }]
         return {"ui": ui, "result": (output_frames, output_path)}

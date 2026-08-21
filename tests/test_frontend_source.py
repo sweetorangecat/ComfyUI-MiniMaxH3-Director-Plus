@@ -62,7 +62,7 @@ def test_ui_exposes_one_final_output_postprocess_surface():
     assert 'valueControl("AI 超分模型", "ai_upscale_model"' in text
     assert 'postprocessMode === "ai_upscale"' in text
     assert 'const aiModelOptions' in text
-    assert '"postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data"' in text
+    assert '"postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "timeline_data"' in text
     assert "同尺寸自动旁路" in text
 
 
@@ -72,6 +72,17 @@ def test_ui_locks_quality_two_stage_to_rtx_vsr():
     assert '"质量优先二采样": [["rtx_vsr"' in text
     assert "allowedPostprocessModes(preset)" in text
     assert "质量优先二采样已锁定 RTX VSR" in text
+
+
+def test_ui_exposes_compatible_chinese_motion_smoothing_control():
+    text = source()
+    assert 'valueControl("运动平滑", "motion_smoothing"' in text
+    assert "allowedMotionSmoothing" in text
+    assert '["auto", "自动（推荐）"]' in text
+    assert '["rife_x2", "RIFE 2x（48 FPS）"]' in text
+    assert 'preset === "低显存"' in text
+    assert 'postprocessMode !== "rtx_vsr"' in text
+    assert '"motion_smoothing", "timeline_data"' in text
 
 
 def test_frontend_filters_performance_presets_by_mode_and_voice():
