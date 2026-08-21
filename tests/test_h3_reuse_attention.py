@@ -22,15 +22,16 @@ class _FakeAttention:
         self.projection_calls = 0
 
     def qkv_proj(self, value):
-        self.qkv = torch.cat((value, value, value), dim=-1)
+        inner = torch.cat((value, value[:, :2]), dim=-1)
+        self.qkv = torch.cat((inner, inner, inner), dim=-1)
         return self.qkv
 
     def out_proj(self, value):
         self.projection_calls += 1
-        return value
+        return value[:, :6].clone()
 
 
-def test_attention_reuses_qkv_storage_and_chunks_output_projection(monkeypatch):
+def test_attention_supports_h3_hidden_width_different_from_inner_width(monkeypatch):
     calls = []
 
     def fake_attention(q, k, v, heads, **kwargs):
@@ -38,7 +39,7 @@ def test_attention_reuses_qkv_storage_and_chunks_output_projection(monkeypatch):
         return v.transpose(1, 2).reshape(1, v.shape[2], heads * v.shape[3])
 
     monkeypatch.setattr(h3_reuse_attention, "optimized_attention", fake_attention)
-    original = torch.arange(40, dtype=torch.float32).reshape(5, 8)
+    original = torch.arange(30, dtype=torch.float32).reshape(5, 6)
     source = [original.clone()]
     attention = _FakeAttention()
 
@@ -53,7 +54,8 @@ def test_attention_reuses_qkv_storage_and_chunks_output_projection(monkeypatch):
 
     assert source == []
     assert result.data_ptr() == attention.qkv.data_ptr()
-    assert result.shape == (5, 8)
+    assert result.shape == (5, 6)
+    assert torch.equal(result, original)
     assert calls == [2, 2]
     assert attention.projection_calls == 2
 

@@ -32,16 +32,12 @@ def minimax_attn_reuse_forward(self, x, rope_freqs=None, transformer_options=Non
 
     normalized = x.pop()
     sequence, hidden = normalized.shape
-    expected_hidden = self.heads * self.head_dim
-    if hidden != expected_hidden:
-        raise RuntimeError(
-            f"MiniMax H3 注意力维度不匹配：{hidden} != {expected_hidden}"
-        )
+    inner = self.heads * self.head_dim
 
     device = normalized.device
     qkv = self.qkv_proj(normalized)
     del normalized
-    q, k, v = qkv.split(expected_hidden, dim=-1)
+    q, k, v = qkv.split(inner, dim=-1)
     v = v.view(sequence, self.heads, self.head_dim)
 
     if rope_freqs is not None:
@@ -87,7 +83,7 @@ def minimax_attn_reuse_forward(self, x, rope_freqs=None, transformer_options=Non
         self.heads // group_count + (1 if index < self.heads % group_count else 0)
         for index in range(group_count)
     ]
-    attention_buffer = qkv[:, :expected_hidden]
+    attention_buffer = qkv[:, :inner]
 
     head_start = 0
     for group_size in group_sizes:
@@ -116,9 +112,9 @@ def minimax_attn_reuse_forward(self, x, rope_freqs=None, transformer_options=Non
     for row_start in range(0, sequence, rows_per_chunk):
         row_end = min(sequence, row_start + rows_per_chunk)
         projected = self.out_proj(attention_buffer[row_start:row_end])
-        attention_buffer[row_start:row_end].copy_(projected)
+        attention_buffer[row_start:row_end, :hidden].copy_(projected)
         del projected
-    return attention_buffer
+    return attention_buffer[:, :hidden]
 
 
 minimax_attn_reuse_forward._uses_optimized_attention = True
