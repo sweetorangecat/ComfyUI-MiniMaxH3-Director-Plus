@@ -497,6 +497,12 @@ class MiniMaxH3StreamingVideoCombine:
         motion_smoothing = str(guide.get("motion_smoothing") or "off")
         if motion_smoothing not in {"off", "rife_x2"}:
             raise ValueError(f"不支持的运动平滑路径：{motion_smoothing}")
+        performance_preset = str(guide.get("performance_preset") or "")
+        if motion_smoothing == "rife_x2" and performance_preset in {
+            "quality_two_stage",
+            "质量优先二采样",
+        }:
+            raise ValueError("质量优先二采样不兼容 RIFE 运动平滑，必须保留原始 24 FPS 以避免重影")
         if motion_smoothing == "rife_x2" and postprocess_path != "rtx_vsr":
             raise ValueError("RIFE 2x 运动平滑只能在 RTX VSR 输出链路中执行")
         # Fail before creating an output path/encoder when the strict VSR

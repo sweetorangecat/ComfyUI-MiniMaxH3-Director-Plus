@@ -80,6 +80,8 @@ def test_ui_exposes_compatible_chinese_motion_smoothing_control():
     assert "allowedMotionSmoothing" in text
     assert '["off", "关闭（默认，保留原始帧）"]' in text
     assert '["rife_x2", "RIFE 2x（48 FPS）"]' in text
+    assert 'preset === "质量优先二采样"' in text
+    assert '关闭（二采固定，避免重影）' in text
     assert 'preset === "低显存"' in text
     assert 'postprocessMode !== "rtx_vsr"' in text
     assert '"motion_smoothing", "audio_loudness", "timeline_data"' in text

@@ -344,6 +344,28 @@ def test_motion_smoothing_off_never_loads_rife(monkeypatch):
     assert result["ui"]["gifs"][0]["fps"] == 24.0
 
 
+def test_quality_two_stage_rejects_rife_before_output_model_loading(monkeypatch):
+    monkeypatch.setattr(
+        stream_output,
+        "load_vsr_api",
+        lambda: (_ for _ in ()).throw(AssertionError("不得加载 VSR")),
+    )
+
+    with pytest.raises(ValueError, match="质量优先二采样.*RIFE"):
+        _combine(
+            monkeypatch,
+            {
+                "performance_preset": "quality_two_stage",
+                "target_width": 6,
+                "target_height": 4,
+                "postprocess_path": "rtx_vsr",
+                "motion_smoothing": "rife_x2",
+            },
+            torch.rand(3, 2, 3, 3),
+            [],
+        )
+
+
 def test_rife_failure_does_not_retry_other_video_codecs(monkeypatch):
     images = torch.rand(3, 2, 3, 3)
     encode_attempts = []

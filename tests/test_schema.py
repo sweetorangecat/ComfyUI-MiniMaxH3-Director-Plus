@@ -86,7 +86,17 @@ def test_legacy_auto_motion_smoothing_resolves_to_off():
     assert request["motion_smoothing"] == "off"
     allowed_motion_smoothing = getattr(schema_module, "allowed_motion_smoothing", None)
     assert callable(allowed_motion_smoothing), "缺少运动平滑兼容矩阵"
-    assert allowed_motion_smoothing("quality_two_stage", "rtx_vsr") == ("off", "rife_x2")
+    assert allowed_motion_smoothing("quality_two_stage", "rtx_vsr") == ("off",)
+
+
+def test_quality_two_stage_rejects_forced_rife_motion_smoothing():
+    with pytest.raises(RequestError, match="质量优先二采样.*RIFE"):
+        normalize_request({
+            "mode": "T2VA",
+            "performance_preset": "质量优先二采样",
+            "postprocess_mode": "rtx_vsr",
+            "motion_smoothing": "rife_x2",
+        })
 
 
 def test_normalize_request_rejects_unknown_audio_loudness_mode():

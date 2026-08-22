@@ -147,6 +147,7 @@ function allowedPostprocessModes(preset) {
 }
 
 function allowedMotionSmoothing(preset, postprocessMode) {
+  if (preset === "质量优先二采样") return [["off", "关闭（二采固定，避免重影）"]];
   if (preset === "低显存") return [["off", "关闭（低显存固定）"]];
   if (postprocessMode !== "rtx_vsr") {
     return MOTION_SMOOTHING.filter(([value]) => value !== "rife_x2");
@@ -621,7 +622,7 @@ function install(node) {
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = "质量优先二采样已锁定 RTX VSR：先提高 H3 实际首采尺寸，再用精确分块注意力与 MLP 执行 latent 二采，最后以较低倍率逐帧 RTX VSR 输出目标尺寸。补丁未确认成功时会在采样前回退 8 步单采；运动平滑默认关闭。";
+      postprocessNote.textContent = "质量优先二采样已锁定 RTX VSR：先提高 H3 实际首采尺寸，再用精确分块注意力与 MLP 执行 latent 二采，最后以较低倍率逐帧 RTX VSR 输出目标尺寸。RIFE 已固定关闭以避免动态云雾和大视差建筑重影。";
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {

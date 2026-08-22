@@ -66,7 +66,7 @@ def allowed_postprocess_modes(performance_preset):
 def allowed_motion_smoothing(performance_preset, postprocess_mode):
     """Return resolved motion-smoothing paths compatible with this route."""
     preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
-    if preset == "low_vram" or postprocess_mode != "rtx_vsr":
+    if preset in {"low_vram", "quality_two_stage"} or postprocess_mode != "rtx_vsr":
         return ("off",)
     return ("off", "rife_x2")
 
@@ -237,6 +237,8 @@ def normalize_request(raw=None):
         resolved_preset,
         request["postprocess_mode"],
     ):
+        if resolved_preset == "quality_two_stage":
+            raise RequestError("质量优先二采样固定关闭 RIFE 运动平滑，以避免动态云雾和大视差建筑产生重影")
         if resolved_preset == "low_vram":
             raise RequestError("低显存模式不支持 RIFE 运动平滑，请将运动平滑切换为关闭")
         raise RequestError("RIFE 2x 运动平滑只能搭配 RTX VSR 最终输出")
@@ -314,9 +316,9 @@ def public_schema():
                 "中文名称": "运动平滑",
                 "enum": list(MOTION_SMOOTHING_MODES),
                 "default": "off",
-                "description": "默认关闭以保留 H3 原始帧；可手动启用流式 RIFE 2x，旧 auto 值按关闭处理。低显存模式只允许关闭。",
+                "description": "默认关闭以保留 H3 原始帧；可手动启用流式 RIFE 2x，旧 auto 值按关闭处理。质量优先二采样和低显存模式只允许关闭。",
                 "allowed_by_performance": {
-                    "质量优先二采样 + RTX VSR": ["auto", "off", "rife_x2"],
+                    "质量优先二采样 + RTX VSR": ["auto", "off"],
                     "低显存": ["off"],
                     "其他 RTX VSR": ["auto", "off", "rife_x2"],
                     "非 RTX VSR": ["auto", "off"],
