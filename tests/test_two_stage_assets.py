@@ -7,6 +7,7 @@ from nodes.two_stage_assets import (
     LATENT_UPSCALER_MODEL,
     REF_STAGE_LORA,
     dependency_report,
+    run_trained_latent_upscaler,
     resolve_two_stage_route,
 )
 
@@ -85,3 +86,38 @@ def test_bypass_route_has_no_required_assets(tmp_path):
     report = dependency_report(tmp_path, "bypass", node_mappings={})
     assert report["ready"] is True
     assert report["missing"] == []
+
+
+def test_trained_upscaler_adapter_uses_model_scale_cuda_bf16_and_chunking(monkeypatch):
+    import types
+    import torch
+    import nodes.two_stage_assets as assets
+
+    calls = []
+
+    class Upscaler:
+        @classmethod
+        def execute(cls, latent, model_name, mode, align, enable_chunking, device, precision):
+            calls.append((latent, model_name, mode, align, enable_chunking, device, precision))
+            return types.SimpleNamespace(result=({"samples": torch.ones(1, 24, 2, 6, 6)},))
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": Upscaler},
+        raising=False,
+    )
+    latent = {"samples": torch.zeros(1, 24, 2, 4, 4)}
+
+    result = run_trained_latent_upscaler(latent, 1.5)
+
+    assert result["samples"].shape == (1, 24, 2, 6, 6)
+    assert calls == [(
+        latent,
+        LATENT_UPSCALER_MODEL,
+        {"mode": "scale by multiplier", "scale": 1.5},
+        32,
+        True,
+        "cuda",
+        "bf16",
+    )]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 
@@ -71,3 +72,55 @@ def dependency_report(comfy_root, route, node_mappings=None):
         "upscaler_node_id": upscaler_node_id,
         "required_assets": [LATENT_UPSCALER_MODEL, *loras],
     }
+
+
+def _comfy_node_mappings():
+    import nodes as comfy_nodes
+
+    return getattr(comfy_nodes, "NODE_CLASS_MAPPINGS", {})
+
+
+def _unwrap_node_output(result):
+    result = getattr(result, "result", result)
+    if isinstance(result, (tuple, list)):
+        return result[0]
+    return result
+
+
+def run_trained_latent_upscaler(video_latent, scale):
+    """Run the installed learned H3 3D upscaler on video latent only."""
+    mappings = _comfy_node_mappings()
+    node_id = next((name for name in UPSCALE_NODE_IDS if name in mappings), None)
+    if node_id is None:
+        raise RuntimeError("缺少 MinimaxH3LatentUpscaler3D，请先安装训练型 H3 latent 放大节点")
+    node_class = mappings[node_id]
+    node = node_class()
+    function_name = getattr(node, "FUNCTION", getattr(node_class, "FUNCTION", "execute"))
+    function = getattr(node, function_name)
+    parameters = inspect.signature(function).parameters
+    kwargs = {
+        "latent": video_latent,
+        "model_name": LATENT_UPSCALER_MODEL,
+        "device": "cuda",
+        "precision": "bf16",
+    }
+    if "mode" in parameters:
+        kwargs.update(
+            mode={"mode": "scale by multiplier", "scale": float(scale)},
+            align=32,
+            enable_chunking=True,
+        )
+    else:
+        kwargs["scale"] = float(scale)
+        if "align" in parameters:
+            kwargs["align"] = 32
+        if "enable_chunking" in parameters:
+            kwargs["enable_chunking"] = True
+    kwargs = {name: value for name, value in kwargs.items() if name in parameters}
+    result = _unwrap_node_output(function(**kwargs))
+    samples = result.get("samples") if isinstance(result, dict) else None
+    if samples is None or getattr(samples, "ndim", 0) not in (4, 5):
+        raise RuntimeError("训练型 H3 latent 放大节点返回了无效结果")
+    if int(samples.shape[1]) != 24:
+        raise RuntimeError(f"训练型 H3 latent 放大结果通道数错误：{samples.shape[1]}，应为 24")
+    return result
