@@ -6,6 +6,15 @@ import json
 import importlib
 from pathlib import Path
 
+from .two_stage_assets import (
+    FL_STAGE1_LORA,
+    FL_STAGE2_LORA,
+    LATENT_UPSCALER_MODEL,
+    REF_STAGE_LORA,
+    UPSCALE_NODE_IDS,
+    dependency_report,
+)
+
 
 def _directory_names(path):
     if not path.is_dir():
@@ -48,7 +57,16 @@ def _rtx_vsr_status():
     }
 
 
-def detect_capabilities(comfy_root):
+def _runtime_node_mappings():
+    try:
+        import nodes as comfy_nodes
+
+        return getattr(comfy_nodes, "NODE_CLASS_MAPPINGS", {})
+    except (AttributeError, ImportError):
+        return {}
+
+
+def detect_capabilities(comfy_root, node_mappings=None):
     root = Path(comfy_root)
     models = root / "models"
     custom_nodes = root / "custom_nodes"
@@ -59,6 +77,9 @@ def detect_capabilities(comfy_root):
 
     fish_node = "comfyui-fish-audio-s2" in node_names
     fish_model = any(item.is_file() for item in fish_models.rglob("*")) if fish_models.is_dir() else False
+    mappings = _runtime_node_mappings() if node_mappings is None else node_mappings
+    trained_fl = dependency_report(root, "trained_latent_fl", mappings)
+    trained_reference = dependency_report(root, "trained_latent_ref", mappings)
 
     return {
         "version": "1.0",
@@ -79,6 +100,16 @@ def detect_capabilities(comfy_root):
             "easycache": any("easycache" in name or "dasiwa" in name for name in node_names),
             "first_block_cache": any("minimaxh3-firstblockcache" in name or "minimax-h3-blockcache" in name for name in node_names),
             "uniblockswap": any("uniblockswap" in name for name in node_names),
+            "trained_latent_two_stage": {
+                "fl": trained_fl,
+                "reference": trained_reference,
+                "accepted_node_ids": list(UPSCALE_NODE_IDS),
+                "model_directory": "models/latent_upscale_models",
+                "model_name": LATENT_UPSCALER_MODEL,
+                "fl_stage1_lora": FL_STAGE1_LORA,
+                "fl_stage2_lora": FL_STAGE2_LORA,
+                "reference_lora": REF_STAGE_LORA,
+            },
         },
         "postprocess": {
             "rife": any("frame-interpolation" in name for name in node_names),
@@ -105,7 +136,13 @@ def status_summary(status):
     models = status["models"]
     h3_text = f"H3 模型：FL2VA {'可用' if models['fl2va'] else '缺失'} / REF2VA {'可用' if models['ref2va'] else '缺失'}"
     rtx_text = f"RTX VSR：{status['postprocess']['rtx_vsr']['message']}"
-    return f"{h3_text}\n{fish_text}\n{rtx_text}"
+    trained = status["acceleration"]["trained_latent_two_stage"]
+    trained_text = (
+        "训练型二采：FL 已就绪 / Reference 已就绪"
+        if trained["fl"]["ready"] and trained["reference"]["ready"]
+        else "训练型二采：依赖未完整安装"
+    )
+    return f"{h3_text}\n{fish_text}\n{trained_text}\n{rtx_text}"
 
 
 class MiniMaxH3DirectorPlusStatus:

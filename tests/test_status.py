@@ -2,6 +2,12 @@ from types import SimpleNamespace
 
 import nodes.status as status_module
 from nodes.status import detect_capabilities, status_summary
+from nodes.two_stage_assets import (
+    FL_STAGE1_LORA,
+    FL_STAGE2_LORA,
+    LATENT_UPSCALER_MODEL,
+    REF_STAGE_LORA,
+)
 
 
 def test_status_distinguishes_fish_node_from_model(tmp_path):
@@ -80,3 +86,28 @@ def test_status_reports_rtx_vsr_when_windows_dll_is_missing(monkeypatch, tmp_pat
 
     assert status["postprocess"]["rtx_vsr"]["dependency_available"] is False
     assert "安装后重启" in status["postprocess"]["rtx_vsr"]["message"]
+
+
+def test_status_reports_trained_two_stage_assets_by_route(tmp_path):
+    latent_models = tmp_path / "models" / "latent_upscale_models"
+    loras = tmp_path / "models" / "loras"
+    latent_models.mkdir(parents=True)
+    loras.mkdir(parents=True)
+    (latent_models / LATENT_UPSCALER_MODEL).write_bytes(b"x")
+    (loras / FL_STAGE1_LORA).write_bytes(b"x")
+    (loras / FL_STAGE2_LORA).write_bytes(b"x")
+    (loras / REF_STAGE_LORA).write_bytes(b"x")
+
+    status = detect_capabilities(
+        tmp_path,
+        node_mappings={
+            "MinimaxH3LatentUpscaler3D": object(),
+            "H3SigmaRefiner": object(),
+        },
+    )
+
+    trained = status["acceleration"]["trained_latent_two_stage"]
+    assert trained["fl"]["ready"] is True
+    assert trained["reference"]["ready"] is True
+    assert trained["model_directory"] == "models/latent_upscale_models"
+    assert trained["model_name"] == LATENT_UPSCALER_MODEL
