@@ -4,32 +4,43 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 from .prompting import build_reference_prompt
 from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution, h3_native_canvas
 from .rtx_vsr_stream import probe_vsr_capability
 from .rife_stream import DEFAULT_RIFE_MODEL, probe_rife_capability
 from .schema import PERFORMANCE_PRESETS, RequestError, low_vram_target_limit, normalize_request
+from .two_stage_assets import dependency_report, resolve_two_stage_route
 from .upscale import _available_upscale_models, resolve_upscale_model_name
+from .vram_budget import plan_two_stage_dimensions
 
 
 BASE_MODES = {"T2VA", "I2VA", "FL2VA", "L2VA"}
 
-# The H3-specific second pass enlarges the video latent by about 1.5x before
-# final output. Keep the remaining RTX VSR enlargement near 1.4x per axis so
-# the H3 stages retain enough real detail before the final output resize.
 TWO_STAGE_IMAGE_SCALE = 1.5
-TWO_STAGE_MAX_VSR_SCALE = 1.4
 
 
-def _two_stage_pixel_size(size):
-    """Apply the H3 latent 2x2 grid alignment and convert back to pixels."""
-    latent_size = max(2, int(round(int(size) / 16.0)))
-    target_latent = max(
-        2,
-        ((round(latent_size * TWO_STAGE_IMAGE_SCALE) + 1) // 2) * 2,
-    )
-    return target_latent * 16
+def _cuda_memory_gb():
+    """Return current free/total CUDA memory for the active generation GPU."""
+    try:
+        import torch
+
+        free_bytes, total_bytes = torch.cuda.mem_get_info(0)
+        return total_bytes / 2**30, free_bytes / 2**30
+    except Exception:
+        return 0.0, 0.0
+
+
+def _trained_two_stage_dependency_report(route):
+    try:
+        import nodes as comfy_nodes
+
+        mappings = getattr(comfy_nodes, "NODE_CLASS_MAPPINGS", {})
+    except (AttributeError, ImportError):
+        mappings = {}
+    comfy_root = Path(__file__).resolve().parents[3]
+    return dependency_report(comfy_root, route, mappings)
 
 
 def _uploaded_files(content_types):
@@ -102,40 +113,6 @@ def native_resolution_for_request(
     else:
         native_width, native_height = int(requested_width), int(requested_height)
         capped = False
-
-    # H3 redraws the clean video latent at about 1.5x before final encoding.
-    # Pick the first-stage MP from the requested target so that the remaining
-    # RTX VSR enlargement is no more than roughly 1.4x per axis. This avoids
-    # hard-expanding a 0.20 MP thumbnail into 2K while retaining H3's native
-    # canvas cap for long clips.
-    if performance_preset in {"质量优先二采样", "quality_two_stage"}:
-        required_native_area = requested_area / (
-            TWO_STAGE_IMAGE_SCALE * TWO_STAGE_MAX_VSR_SCALE
-        ) ** 2
-        native_preset = "2.10 MP"
-        for preset in MEGAPIXELS:
-            if preset in {"2K QHD", "4K UHD"}:
-                continue
-            candidate_width, candidate_height = calculate_resolution(
-                preset,
-                aspect_ratio,
-                custom_width,
-                custom_height,
-            )
-            if candidate_width * candidate_height >= required_native_area:
-                native_preset = preset
-                break
-        two_stage_width, two_stage_height = calculate_resolution(
-            native_preset,
-            aspect_ratio,
-            custom_width,
-            custom_height,
-        )
-        two_stage_width = min(two_stage_width, official_width)
-        two_stage_height = min(two_stage_height, official_height)
-        if requested_area <= two_stage_width * two_stage_height:
-            return int(requested_width), int(requested_height), capped
-        return two_stage_width, two_stage_height, True
 
     if performance_preset != "low_vram":
         return native_width, native_height, capped
@@ -405,15 +382,44 @@ class MiniMaxH3DirectorPlus:
                     f"{limit_width}×{limit_height}"
                 )
 
-        native_width, native_height, native_capped = native_resolution_for_request(
-            requested_width,
-            requested_height,
-            duration,
-            request["performance_preset"],
-            aspect_ratio,
-            custom_width,
-            custom_height,
-        )
+        two_stage_plan = None
+        resolved_two_stage_route = "bypass"
+        required_assets = []
+        if request["performance_preset"] == "quality_two_stage":
+            resolved_two_stage_route = resolve_two_stage_route(request)
+            dependencies = _trained_two_stage_dependency_report(resolved_two_stage_route)
+            if not dependencies.get("ready"):
+                missing = "、".join(str(item) for item in dependencies.get("missing", []))
+                raise RequestError(f"训练型二采依赖缺失：{missing}")
+            total_vram_gb, free_vram_gb = _cuda_memory_gb()
+            if total_vram_gb <= 0:
+                raise RequestError("无法读取当前 GPU 显存，已阻止训练型二采启动")
+            two_stage_plan = plan_two_stage_dimensions(
+                requested_width,
+                requested_height,
+                duration,
+                total_vram_gb,
+                free_vram_gb,
+            )
+            if not two_stage_plan["allowed"]:
+                raise RequestError(f"训练型二采显存前置检查失败：{two_stage_plan['reason']}")
+            native_width = int(two_stage_plan["first_stage_width"])
+            native_height = int(two_stage_plan["first_stage_height"])
+            native_capped = (native_width, native_height) != (
+                int(requested_width),
+                int(requested_height),
+            )
+            required_assets = list(dependencies.get("required_assets", []))
+        else:
+            native_width, native_height, native_capped = native_resolution_for_request(
+                requested_width,
+                requested_height,
+                duration,
+                request["performance_preset"],
+                aspect_ratio,
+                custom_width,
+                custom_height,
+            )
         if requested_width == native_width and requested_height == native_height:
             postprocess_path = "native_bypass"
         elif requested_width < native_width or requested_height < native_height:
@@ -423,20 +429,12 @@ class MiniMaxH3DirectorPlus:
         else:
             postprocess_path = "native_bypass"
 
-        if (
-            request["performance_preset"] == "quality_two_stage"
-            and postprocess_path == "rtx_vsr"
-        ):
-            redraw_width = _two_stage_pixel_size(native_width)
-            redraw_height = _two_stage_pixel_size(native_height)
-            vsr_scale = max(
-                requested_width / max(1, redraw_width),
-                requested_height / max(1, redraw_height),
-            )
+        if two_stage_plan is not None and postprocess_path == "rtx_vsr":
             request["warnings"].append(
-                "H3 latent 二采源分辨率已按目标比例选择："
-                f"首阶段 {native_width}×{native_height}，二采后约 {redraw_width}×{redraw_height}，"
-                f"RTX VSR 线性放大约 {vsr_scale:.2f} 倍。"
+                "训练型 H3 latent 二采已通过显存预算："
+                f"首采 {native_width}×{native_height}，神经二采 "
+                f"{two_stage_plan['second_stage_width']}×{two_stage_plan['second_stage_height']}，"
+                f"最终 RTX VSR 约 {two_stage_plan['final_scale']:.2f} 倍。"
             )
 
         if postprocess_path == "native_bypass" and (
@@ -487,7 +485,7 @@ class MiniMaxH3DirectorPlus:
             final_target_width, final_target_height = requested_width, requested_height
             final_upscale_required = True
 
-        if native_capped:
+        if native_capped and two_stage_plan is None:
             request["warnings"].append(
                 f"H3 原生采样受官方画布上限限制为 {native_width}×{native_height}；最终目标为 {requested_width}×{requested_height}。"
             )
@@ -537,7 +535,28 @@ class MiniMaxH3DirectorPlus:
             "native_height": int(native_height),
             "native_cap_applied": bool(native_capped),
             "two_stage_image_scale": TWO_STAGE_IMAGE_SCALE,
-            "two_stage_max_vsr_scale": TWO_STAGE_MAX_VSR_SCALE,
+            "resolved_two_stage_route": resolved_two_stage_route,
+            "first_stage_width": int(native_width),
+            "first_stage_height": int(native_height),
+            "second_stage_width": int(
+                two_stage_plan["second_stage_width"] if two_stage_plan else native_width
+            ),
+            "second_stage_height": int(
+                two_stage_plan["second_stage_height"] if two_stage_plan else native_height
+            ),
+            "final_upscale_scale_x": float(
+                two_stage_plan["final_scale_x"] if two_stage_plan else 1.0
+            ),
+            "final_upscale_scale_y": float(
+                two_stage_plan["final_scale_y"] if two_stage_plan else 1.0
+            ),
+            "vram_safety_tier": (
+                two_stage_plan["vram_safety_tier"] if two_stage_plan else "not_applicable"
+            ),
+            "quality_basis": (
+                two_stage_plan["quality_basis"] if two_stage_plan else "H3 原生"
+            ),
+            "required_assets": required_assets,
             "requested_width": int(requested_width),
             "requested_height": int(requested_height),
             "target_width": int(final_target_width),

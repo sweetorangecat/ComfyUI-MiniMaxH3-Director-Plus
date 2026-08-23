@@ -148,8 +148,8 @@ def test_normalize_request_rejects_unknown_rtx_quality():
 @pytest.mark.parametrize(
     ("duration", "expected"),
     [
-        (4, (2560, 1440)),
-        (6, (2560, 1440)),
+        (4, (1920, 1080)),
+        (6, (1920, 1080)),
         (7, (1920, 1080)),
         (8, (1920, 1080)),
         (15, (1920, 1080)),

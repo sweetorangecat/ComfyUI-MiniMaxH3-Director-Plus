@@ -2,9 +2,28 @@ import json
 
 import pytest
 
-from nodes.director import MiniMaxH3DirectorPlus, _two_stage_pixel_size, align_frame_count, native_resolution_for_request
+from nodes.director import MiniMaxH3DirectorPlus, align_frame_count, native_resolution_for_request
 from nodes.resolution import calculate_resolution, h3_native_canvas
 from nodes.schema import RequestError
+
+
+@pytest.fixture(autouse=True)
+def trained_two_stage_test_environment(monkeypatch):
+    monkeypatch.setattr(
+        "nodes.director._cuda_memory_gb",
+        lambda: (32.0, 29.0),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report",
+        lambda route: {
+            "route": route,
+            "ready": True,
+            "missing": [],
+            "required_assets": ["test-upscaler", "test-lora"],
+        },
+        raising=False,
+    )
 
 
 def test_director_exposes_native_upload_widgets_for_each_media_role():
@@ -450,7 +469,7 @@ def test_low_vram_native_resolution_scales_with_clip_duration(duration, safe_pre
     assert upscale_required is True
 
 
-@pytest.mark.parametrize("preset", ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "参考图加速"])
+@pytest.mark.parametrize("preset", ["稳定质量", "质量优先加速", "极速4步", "参考图加速"])
 def test_all_non_low_vram_presets_cap_long_h3_sampling_to_official_canvas(preset):
     native_width, native_height, upscale_required = native_resolution_for_request(
         1920,
@@ -460,61 +479,131 @@ def test_all_non_low_vram_presets_cap_long_h3_sampling_to_official_canvas(preset
         "16:9",
     )
 
-    if preset == "质量优先二采样":
-        assert (native_width, native_height) == calculate_resolution("0.50 MP", "16:9")
-    else:
-        assert (native_width, native_height) == (1344, 768)
+    assert (native_width, native_height) == (1344, 768)
     assert upscale_required is True
 
 
-def test_two_stage_uses_detail_preserving_native_canvas_before_latent_upscale():
-    native_width, native_height, upscale_required = native_resolution_for_request(
-        2560,
-        1440,
-        15,
-        "质量优先二采样",
-        "16:9",
-    )
-    expected_width, expected_height = calculate_resolution("0.83 MP", "16:9")
+def test_two_stage_build_reports_first_second_and_final_sizes(monkeypatch):
+    monkeypatch.setattr("nodes.director.probe_vsr_capability", lambda *args, **kwargs: True)
 
-    assert (native_width, native_height) == (expected_width, expected_height)
-    assert native_width * native_height >= 0.80 * 1024 * 1024
-    assert upscale_required is True
-
-    redraw_width = _two_stage_pixel_size(native_width)
-    redraw_height = _two_stage_pixel_size(native_height)
-    assert max(2560 / redraw_width, 1440 / redraw_height) <= 1.4
-
-
-def test_two_stage_portrait_2k_also_bounds_actual_vsr_scale():
-    native_width, native_height, _ = native_resolution_for_request(
-        1440,
-        2560,
-        15,
-        "质量优先二采样",
-        "9:16",
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=15,
+        width=2560,
+        height=1440,
+        aspect_ratio="16:9",
+        resolution_preset="2K QHD",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="质量优先二采样",
+        postprocess_mode="rtx_vsr",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
     )
 
-    redraw_width = _two_stage_pixel_size(native_width)
-    redraw_height = _two_stage_pixel_size(native_height)
-    assert max(1440 / redraw_width, 2560 / redraw_height) <= 1.4
+    assert (guide["first_stage_width"], guide["first_stage_height"]) == (1280, 704)
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (1920, 1056)
+    assert (guide["target_width"], guide["target_height"]) == (2560, 1440)
+    assert guide["quality_basis"] == "H3 神经 latent 二采"
+    assert guide["vram_safety_tier"] == "28gb_plus"
+    assert guide["resolved_two_stage_route"] == "trained_latent_fl"
+    assert guide["final_upscale_scale_x"] == pytest.approx(2560 / 1920)
+    assert guide["final_upscale_scale_y"] == pytest.approx(1440 / 1056)
+    assert guide["required_assets"] == ["test-upscaler", "test-lora"]
 
 
-def test_two_stage_native_canvas_scales_with_final_target_to_bound_vsr_ratio():
-    width, height, _ = native_resolution_for_request(
-        3840,
-        2160,
-        15,
-        "质量优先二采样",
-        "16:9",
+def test_two_stage_4k_build_uses_1080p_neural_basis(monkeypatch):
+    monkeypatch.setattr("nodes.director.probe_vsr_capability", lambda *args, **kwargs: True)
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=15,
+        width=3840,
+        height=2160,
+        aspect_ratio="16:9",
+        resolution_preset="4K UHD",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="质量优先二采样",
+        postprocess_mode="rtx_vsr",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
     )
-    expected_width, expected_height = h3_native_canvas("16:9")
 
-    assert (width, height) == (expected_width, expected_height)
-    # H3's 1.5x latent redraw plus RTX VSR stays within roughly 2x
-    # linear enlargement for a 4K target.
-    post_redraw_area = width * height * 1.5 ** 2
-    assert (3840 * 2160 / post_redraw_area) ** 0.5 <= 2.0
+    assert (guide["first_stage_width"], guide["first_stage_height"]) == (1280, 704)
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (1920, 1056)
+    assert guide["final_upscale_scale_x"] == pytest.approx(2.0)
+    assert guide["final_upscale_scale_y"] == pytest.approx(2160 / 1056)
+
+
+def test_two_stage_rejects_busy_gpu_before_vsr_probe(monkeypatch):
+    checked = []
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (32.0, 8.0))
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda *args, **kwargs: checked.append(True),
+    )
+
+    with pytest.raises(RequestError, match="当前可用显存"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA",
+            prompt="镜头缓慢推进。",
+            duration=15,
+            width=2560,
+            height=1440,
+            aspect_ratio="16:9",
+            resolution_preset="2K QHD",
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="质量优先二采样",
+            postprocess_mode="rtx_vsr",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
+
+    assert checked == []
+
+
+def test_two_stage_rejects_missing_route_assets_before_vsr_probe(monkeypatch):
+    checked = []
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report",
+        lambda route: {
+            "route": route,
+            "ready": False,
+            "missing": ["minimax_h3_latent_upscaler_3d_bf16.safetensors"],
+            "required_assets": [],
+        },
+    )
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda *args, **kwargs: checked.append(True),
+    )
+
+    with pytest.raises(RequestError, match="训练型二采依赖缺失.*latent_upscaler"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA",
+            prompt="镜头缓慢推进。",
+            duration=15,
+            width=2560,
+            height=1440,
+            aspect_ratio="16:9",
+            resolution_preset="2K QHD",
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="质量优先二采样",
+            postprocess_mode="rtx_vsr",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
+
+    assert checked == []
 
 
 def test_low_vram_keeps_small_target_without_unnecessary_upscale():

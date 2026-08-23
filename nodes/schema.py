@@ -90,8 +90,6 @@ def low_vram_target_limit(duration):
         raise RequestError("视频时长必须是整数秒") from exc
     if duration < 4 or duration > 15:
         raise RequestError("视频时长必须在 4 到 15 秒之间")
-    if duration <= 6:
-        return 2560, 1440
     return 1920, 1080
 
 
