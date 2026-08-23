@@ -93,7 +93,7 @@ def test_api_template_routes_acceleration_status_into_performance_preset():
 
     prompt = build_api_template()
     performance = next(node for node in prompt.values() if node["class_type"] == "MiniMaxH3PerformancePreset")
-    scheduler = next(node for node in prompt.values() if node["class_type"] == "BasicScheduler")
+    scheduler = next(node for node in prompt.values() if node["class_type"] == "MiniMaxH3SchedulerRouter")
 
     assert performance["inputs"]["acceleration_ready"] == ["15", 2]
     assert scheduler["inputs"]["steps"] == ["28", 0]
@@ -146,7 +146,7 @@ def test_patch_template_exposes_seed_and_preset_sampling():
     template = {
         **deepcopy(BASE_TEMPLATE),
         "18": {"class_type": "RandomNoise", "inputs": {"noise_seed": 0}, "_meta": {"title": "API 随机种子"}},
-        "20": {"class_type": "BasicScheduler", "inputs": {"steps": 20}, "_meta": {"title": "API 调度器"}},
+        "20": {"class_type": "MiniMaxH3SchedulerRouter", "inputs": {"steps": 20}, "_meta": {"title": "API 调度器"}},
     }
     prompt = patch_template(template, {"mode": "T2VA", "voice_mode": "none", "performance_preset": "fast_4step", "seed": 123})
     assert prompt["18"]["inputs"]["noise_seed"] == 123

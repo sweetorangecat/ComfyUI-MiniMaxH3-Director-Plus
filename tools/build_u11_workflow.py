@@ -160,7 +160,12 @@ def _acceleration_node(node_id, pos):
         "id": node_id, "type": "MiniMaxH3AccelerationRouter", "title": "兼容加速路由",
         "pos": pos, "size": [300, 110], "flags": {"collapsed": True}, "order": 101, "mode": 0,
         "inputs": [_socket("model", "MODEL"), _socket("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")],
-        "outputs": [_output("加速后模型", "MODEL"), _output("加速说明", "STRING"), _output("加速成功", "BOOLEAN")],
+        "outputs": [
+            _output("第一阶段模型", "MODEL"),
+            _output("加速说明", "STRING"),
+            _output("加速成功", "BOOLEAN"),
+            _output("第二阶段模型", "MODEL"),
+        ],
         "properties": _properties("MiniMaxH3AccelerationRouter"), "widgets_values": [], "color": "#24353d", "bgcolor": "#344b55",
     }
 
@@ -476,7 +481,7 @@ def _upgrade_subgraphs(workflow):
     for subgraph in workflow.get("definitions", {}).get("subgraphs", []) or []:
         _remove_subgraph_inputs(
             subgraph,
-            {"resolution_preset", "aspect_preset_when_not_image", "swap_aspect_when_not_image"},
+            {"resolution_preset", "aspect_preset_when_not_image", "swap_aspect_when_not_image", "scheduler"},
         )
         exposed_inputs = subgraph.setdefault("inputs", [])
         generated_slot = next((index for index, item in enumerate(exposed_inputs) if item.get("name") == "generated_voice_audio"), None)
@@ -532,6 +537,62 @@ def _upgrade_subgraphs(workflow):
 
         guide_slot = next((index for index, item in enumerate(exposed_inputs) if item.get("name") == "guide"), None)
         if guide_slot is not None:
+            second_model_slot = next((
+                index for index, item in enumerate(exposed_inputs)
+                if item.get("name") == "second_model"
+            ), None)
+            if second_model_slot is None:
+                second_model_slot = len(exposed_inputs)
+                exposed_inputs.append({
+                    "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{subgraph.get('id')}:second_model")),
+                    "name": "second_model",
+                    "type": "MODEL",
+                    "linkIds": [],
+                    "label": "训练型二采第二阶段模型",
+                })
+
+            for scheduler in [
+                item for item in subgraph.get("nodes", [])
+                if item.get("type") in {"BasicScheduler", "MiniMaxH3SchedulerRouter"}
+            ]:
+                old_inputs = {item.get("name"): item for item in scheduler.get("inputs", [])}
+                model_link = old_inputs.get("model", {}).get("link")
+                steps_link = old_inputs.get("steps", {}).get("link")
+                rewritten = []
+                for raw in subgraph.get("links", []):
+                    link = _link_value(raw)
+                    if link[3] != scheduler["id"]:
+                        rewritten.append(raw)
+                    elif link[0] == model_link:
+                        _set_link_field(raw, 4, 0)
+                        _set_link_field(raw, 5, "MODEL")
+                        rewritten.append(raw)
+                    elif link[0] == steps_link:
+                        _set_link_field(raw, 4, 1)
+                        _set_link_field(raw, 5, "INT")
+                        rewritten.append(raw)
+                subgraph["links"] = rewritten
+                scheduler["type"] = "MiniMaxH3SchedulerRouter"
+                scheduler["title"] = "H3 匹配调度器（自动路由）"
+                scheduler["properties"] = _properties("MiniMaxH3SchedulerRouter")
+                scheduler["inputs"] = [
+                    {**old_inputs.get("model", _socket("model", "MODEL")), "name": "model", "type": "MODEL", "link": model_link},
+                    {**old_inputs.get("steps", _socket("steps", "INT")), "name": "steps", "type": "INT", "link": steps_link},
+                    _socket("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"),
+                ]
+                guide_link = next_link_id
+                next_link_id += 1
+                subgraph.setdefault("links", []).append({
+                    "id": guide_link,
+                    "origin_id": -10,
+                    "origin_slot": guide_slot,
+                    "target_id": scheduler["id"],
+                    "target_slot": 2,
+                    "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
+                })
+                scheduler["inputs"][2]["link"] = guide_link
+                exposed_inputs[guide_slot].setdefault("linkIds", []).append(guide_link)
+
             sampler = next((item for item in subgraph.get("nodes", []) if item.get("type") == "KSamplerSelect"), None)
             if sampler is not None:
                 sampler["type"] = "MiniMaxH3SamplerRouter"
@@ -579,7 +640,7 @@ def _upgrade_subgraphs(workflow):
                     {**old_inputs.get("sigmas", _socket("sigmas", "SIGMAS")), "name": "sigmas", "type": "SIGMAS"},
                     {**old_inputs.get("latent_image", _socket("latent_image", "LATENT")), "name": "latent_image", "type": "LATENT"},
                     _socket("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"),
-                    _socket("video_vae", "VAE"),
+                    _socket("second_model", "MODEL"),
                 ]
                 sampler["outputs"] = [
                     _output("输出Latent", "LATENT"),
@@ -612,29 +673,32 @@ def _upgrade_subgraphs(workflow):
                 if guide_link not in exposed_inputs[guide_slot].setdefault("linkIds", []):
                     exposed_inputs[guide_slot]["linkIds"].append(guide_link)
 
-                # Reuse the guide's existing VideoVAE source.  This keeps the
-                # VAE connection internal to the generated workflow; users do
-                # not have to add or reconnect a second VAE node.
-                guide_node = next((item for item in subgraph.get("nodes", [])
-                                   if item.get("type") == "MiniMaxH3DirectorPlusGuide"), None)
-                vae_link = None
-                if guide_node is not None:
-                    vae_link = next((_link_value(raw) for raw in subgraph.get("links", [])
-                                     if _link_value(raw)[3] == guide_node.get("id")
-                                     and _link_value(raw)[4] == 1
-                                     and _link_value(raw)[5] == "VAE"), None)
-                if vae_link is not None:
-                    link_id = next_link_id
+                obsolete_link = old_inputs.get("video_vae", {}).get("link")
+                if obsolete_link is not None:
+                    subgraph["links"] = [
+                        raw for raw in subgraph.get("links", [])
+                        if _link_value(raw)[0] != obsolete_link
+                    ]
+                second_link = next((
+                    _link_value(raw)[0] for raw in subgraph.get("links", [])
+                    if _link_value(raw)[1] == -10
+                    and _link_value(raw)[2] == second_model_slot
+                    and _link_value(raw)[3] == sampler.get("id")
+                ), None)
+                if second_link is None:
+                    second_link = next_link_id
                     next_link_id += 1
                     subgraph.setdefault("links", []).append({
-                        "id": link_id,
-                        "origin_id": vae_link[1],
-                        "origin_slot": vae_link[2],
+                        "id": second_link,
+                        "origin_id": -10,
+                        "origin_slot": second_model_slot,
                         "target_id": sampler["id"],
                         "target_slot": 6,
-                        "type": "VAE",
+                        "type": "MODEL",
                     })
-                    sampler["inputs"][6]["link"] = link_id
+                sampler["inputs"][6]["link"] = second_link
+                if second_link not in exposed_inputs[second_model_slot].setdefault("linkIds", []):
+                    exposed_inputs[second_model_slot]["linkIds"].append(second_link)
         _disable_legacy_acceleration_switches(subgraph)
         node_ids = {item.get("id") for item in subgraph.get("nodes", [])}
         subgraph["links"] = [
@@ -704,7 +768,7 @@ def build_workflow(source):
 
     if settings is not None:
         legacy_resolution_names = {
-            "resolution_preset", "aspect_preset_when_not_image", "swap_aspect_when_not_image",
+            "resolution_preset", "aspect_preset_when_not_image", "swap_aspect_when_not_image", "scheduler",
         }
         settings_subgraph = next((
             subgraph for subgraph in workflow.get("definitions", {}).get("subgraphs", []) or []
@@ -752,6 +816,8 @@ def build_workflow(source):
         _add_link(workflow, allocate_link, fish, 0, settings, generated_slot, "AUDIO")
         noise_slot = _append_input(settings, "noise_seed", "INT")
         _add_link(workflow, allocate_link, director, 8, settings, noise_slot, "INT")
+        second_model_slot = _append_input(settings, "second_model", "MODEL")
+        _add_link(workflow, allocate_link, acceleration, 3, settings, second_model_slot, "MODEL")
 
     _upgrade_subgraphs(workflow)
     _replace_video_vae_decoders(workflow)
@@ -813,8 +879,8 @@ def build_api_template():
         "17": {"class_type": "BasicGuider", "inputs": {"model": ["15", 0], "conditioning": ["16", 0]}, "_meta": {"title": "API 采样引导"}},
         "18": {"class_type": "RandomNoise", "inputs": {"noise_seed": 0}, "_meta": {"title": "API 随机种子"}},
         "19": {"class_type": "MiniMaxH3SamplerRouter", "inputs": {"sampler_name": "res_multistep", "guide": ["10", 0]}, "_meta": {"title": "API H3 实际采样器路由"}},
-        "20": {"class_type": "BasicScheduler", "inputs": {"model": ["15", 0], "scheduler": "simple", "steps": ["28", 0], "denoise": 1.0}, "_meta": {"title": "API 调度器"}},
-        "21": {"class_type": "MiniMaxH3TwoStageSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0], "video_vae": ["4", 0]}, "_meta": {"title": "API H3 专用 Latent 二采（自动旁路）"}},
+        "20": {"class_type": "MiniMaxH3SchedulerRouter", "inputs": {"model": ["15", 0], "steps": ["28", 0], "guide": ["10", 0]}, "_meta": {"title": "API 调度器"}},
+        "21": {"class_type": "MiniMaxH3TwoStageSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0], "second_model": ["15", 3]}, "_meta": {"title": "API 训练型 3D Latent 二采（自动旁路）"}},
         "22": {"class_type": "MiniMaxH3SafeVAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 安全视频 VAE 解码（GPU计算 / CPU帧缓存 FP16）"}},
         "23": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["21", 1], "vae": ["5", 0]}, "_meta": {"title": "API 音频解码"}},
         "29": {"class_type": "MiniMaxH3ColorGuard", "inputs": {"images": ["22", 0], "guide": ["10", 0], "enabled": True, "strength": 1.0}, "_meta": {"title": "曝光与色彩连续性保护"}},

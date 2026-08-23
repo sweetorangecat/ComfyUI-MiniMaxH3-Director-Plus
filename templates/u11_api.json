@@ -386,18 +386,20 @@
     }
   },
   "20": {
-    "class_type": "BasicScheduler",
+    "class_type": "MiniMaxH3SchedulerRouter",
     "inputs": {
       "model": [
         "15",
         0
       ],
-      "scheduler": "simple",
       "steps": [
         "28",
         0
       ],
-      "denoise": 1.0
+      "guide": [
+        "10",
+        0
+      ]
     },
     "_meta": {
       "title": "API 调度器"
@@ -430,13 +432,13 @@
         "10",
         0
       ],
-      "video_vae": [
-        "4",
-        0
+      "second_model": [
+        "15",
+        3
       ]
     },
     "_meta": {
-      "title": "API H3 专用 Latent 二采（自动旁路）"
+      "title": "API 训练型 3D Latent 二采（自动旁路）"
     }
   },
   "22": {

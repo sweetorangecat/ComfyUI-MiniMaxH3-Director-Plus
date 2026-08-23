@@ -1,6 +1,10 @@
 import pytest
 
-from tools.build_u11_workflow import build_workflow, _disable_legacy_acceleration_switches
+from tools.build_u11_workflow import (
+    build_workflow,
+    _disable_legacy_acceleration_switches,
+    _upgrade_subgraphs,
+)
 from tools.validate_workflow import WorkflowError, validate_workflow
 
 
@@ -199,7 +203,85 @@ def test_api_template_scopes_low_vram_policy_around_sampling():
 
     assert sampler["class_type"] == "MiniMaxH3TwoStageSampler"
     assert sampler["inputs"]["guide"] == ["10", 0]
-    assert sampler["inputs"]["video_vae"] == ["4", 0]
+    assert sampler["inputs"]["second_model"] == ["15", 3]
+    assert "video_vae" not in sampler["inputs"]
+
+
+def test_api_template_wires_matched_scheduler_and_second_model_automatically():
+    from tools.build_u11_workflow import build_api_template
+
+    prompt = build_api_template()
+    scheduler = prompt["20"]
+    sampler = prompt["21"]
+
+    assert scheduler["class_type"] == "MiniMaxH3SchedulerRouter"
+    assert scheduler["inputs"] == {
+        "model": ["15", 0],
+        "steps": ["28", 0],
+        "guide": ["10", 0],
+    }
+    assert sampler["inputs"]["sigmas"] == ["20", 0]
+    assert sampler["inputs"]["second_model"] == ["15", 3]
+
+
+def test_subgraph_upgrade_replaces_scheduler_and_wires_second_model():
+    subgraph = {
+        "id": "settings",
+        "inputs": [
+            {"id": "guide", "name": "guide", "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE", "linkIds": [11]},
+            {"id": "model", "name": "model", "type": "MODEL", "linkIds": [12]},
+            {"id": "steps", "name": "steps", "type": "INT", "linkIds": [13]},
+        ],
+        "outputs": [],
+        "nodes": [
+            {
+                "id": 100,
+                "type": "BasicScheduler",
+                "inputs": [
+                    {"name": "model", "type": "MODEL", "link": 12},
+                    {"name": "scheduler", "type": "COMBO", "link": None},
+                    {"name": "steps", "type": "INT", "link": 13},
+                ],
+                "outputs": [{"name": "SIGMAS", "type": "SIGMAS", "links": [14]}],
+            },
+            {
+                "id": 101,
+                "type": "SamplerCustomAdvanced",
+                "inputs": [
+                    {"name": "noise", "type": "NOISE", "link": None},
+                    {"name": "guider", "type": "GUIDER", "link": None},
+                    {"name": "sampler", "type": "SAMPLER", "link": None},
+                    {"name": "sigmas", "type": "SIGMAS", "link": 14},
+                    {"name": "latent_image", "type": "LATENT", "link": None},
+                ],
+                "outputs": [],
+            },
+        ],
+        "links": [
+            {"id": 12, "origin_id": -10, "origin_slot": 1, "target_id": 100, "target_slot": 0, "type": "MODEL"},
+            {"id": 13, "origin_id": -10, "origin_slot": 2, "target_id": 100, "target_slot": 2, "type": "INT"},
+            {"id": 14, "origin_id": 100, "origin_slot": 0, "target_id": 101, "target_slot": 3, "type": "SIGMAS"},
+        ],
+    }
+    workflow = {"definitions": {"subgraphs": [subgraph]}}
+
+    _upgrade_subgraphs(workflow)
+
+    scheduler = next(node for node in subgraph["nodes"] if node["id"] == 100)
+    sampler = next(node for node in subgraph["nodes"] if node["id"] == 101)
+    second_slot = next(index for index, item in enumerate(subgraph["inputs"]) if item["name"] == "second_model")
+    links = [
+        (link["origin_id"], link["origin_slot"], link["target_id"], link["target_slot"], link["type"])
+        for link in subgraph["links"]
+    ]
+
+    assert scheduler["type"] == "MiniMaxH3SchedulerRouter"
+    assert [item["name"] for item in scheduler["inputs"]] == ["model", "steps", "guide"]
+    assert sampler["type"] == "MiniMaxH3TwoStageSampler"
+    assert [item["name"] for item in sampler["inputs"]][-2:] == ["guide", "second_model"]
+    assert (-10, second_slot, 101, 6, "MODEL") in links
+    assert (-10, 0, 100, 2, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE") in links
+    assert not any(item["name"] == "video_vae" for item in sampler["inputs"])
 
 
 def test_builder_routes_color_guard_through_streaming_output():
