@@ -63,3 +63,11 @@ def test_docs_explain_vram_limits_true_2k_4k_and_install_commands():
         "codeload.github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler",
     ):
         assert text in combined
+
+
+def test_autodl_install_keeps_huggingface_hub_compatible_with_transformers():
+    usage = (DOCS / "使用说明.md").read_text(encoding="utf-8")
+
+    assert "\npython -m pip install -U huggingface_hub\n" not in usage
+    assert 'pip install "huggingface-hub>=0.34.0,<1.0"' in usage
+    assert 'pip install --force-reinstall "huggingface-hub>=0.34.0,<1.0"' in usage
