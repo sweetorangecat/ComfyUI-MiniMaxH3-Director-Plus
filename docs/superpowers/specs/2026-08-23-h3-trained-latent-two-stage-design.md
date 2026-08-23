@@ -86,7 +86,7 @@ FL 后端采用 U17 的核心组合：
 导演台继续只公开一个“质量优先二采样”预设。后端根据生成模式和音色模式自动解析为：
 
 1. `trained_latent_fl`：FL 模型、FL 两阶段 LoRA、beta/Euler、4+4。
-2. `trained_latent_ref`：REF 模型、REF LoRA、H3SigmaRefiner、Euler、4+4。
+2. `trained_latent_ref`：REF 模型、REF LoRA、H3SigmaRefiner、Euler、首采4步 + 尾段强化后的二采5步。
 3. `bypass`：Fish S2、低显存长视频或不满足安全条件的组合不执行二采。
 
 用户不能在 UI 中混选 FL LoRA、REF LoRA、调度器或二采后处理。API 收到不兼容组合时，在排队前返回中文参数错误。
@@ -230,7 +230,7 @@ API 用户只提交生成模式、音色模式、性能预设、最终目标、�
 
 - 路由矩阵：FL模式、REF2VA、H3原生音色、Fish S2和低显存组合。
 - LoRA契约：两个阶段的模型、LoRA、强度、调度器和采样器必须匹配。
-- Sigma契约：FL为beta 8步4+4；Reference为尾段强化后的4+4。
+- Sigma契约：FL为beta 8步4+4；Reference从8步轨迹的第4步切分，并由尾段强化新增1步，实际为4+5。
 - AV契约：第二阶段音频 latent 与第一阶段音频 latent 内容、形状和时间轴保持一致。
 - 放大契约：质量二采必须调用训练型3D latent放大器，不得调用双线性、双三次或最近邻作为质量路线。
 - 显存预算：危险组合在首采前拒绝；安全组合返回实际三段尺寸。
