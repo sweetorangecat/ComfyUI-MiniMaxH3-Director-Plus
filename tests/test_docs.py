@@ -69,5 +69,6 @@ def test_autodl_install_keeps_huggingface_hub_compatible_with_transformers():
     usage = (DOCS / "使用说明.md").read_text(encoding="utf-8")
 
     assert "\npython -m pip install -U huggingface_hub\n" not in usage
-    assert 'pip install "huggingface-hub>=0.34.0,<1.0"' in usage
-    assert 'pip install --force-reinstall "huggingface-hub>=0.34.0,<1.0"' in usage
+    assert '--index-url https://pypi.org/simple "huggingface-hub==0.36.0"' in usage
+    assert "--force-reinstall --no-deps" in usage
+    assert "https://files.pythonhosted.org/packages/cb/bd/1a875e0d592d447cbc02805fd3fe0f497714d6a2583f59d14fa9ebad96eb/huggingface_hub-0.36.0-py3-none-any.whl" in usage
