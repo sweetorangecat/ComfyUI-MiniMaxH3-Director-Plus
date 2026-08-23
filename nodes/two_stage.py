@@ -41,13 +41,15 @@ def upscale_video_latent(video_latent, scale):
     target_width = max(2, ((round(width * scale) + 1) // 2) * 2)
     # Interpolate each temporal slice as an image so time remains untouched.
     image_batch = samples.permute(0, 2, 1, 3, 4).reshape(batch * frames, channels, height, width)
-    # Interpolate in fp32. Nearest interpolation in bf16/fp16 leaves repeated
-    # quantized latent blocks that become speckles after the second sampler.
+    # Interpolate in fp32 with bilinear blending. Nearest-neighbor interpolation
+    # duplicates latent cells; the low-sigma redraw then turns those cell
+    # boundaries into coarse grain and RTX VSR makes them more visible.
     original_dtype = image_batch.dtype
     upscaled = F.interpolate(
         image_batch.float(),
         size=(target_height, target_width),
-        mode="nearest-exact",
+        mode="bilinear",
+        align_corners=False,
     ).to(dtype=original_dtype)
     upscaled = upscaled.reshape(batch, frames, channels, target_height, target_width).permute(0, 2, 1, 3, 4)
     result = dict(video_latent)
@@ -268,7 +270,7 @@ class MiniMaxH3TwoStageSampler:
             guide["two_stage_status"] = "旁路"
             return _node_output(result, 0), _node_output(result, 1)
 
-        refinement_steps = int(guide.get("two_stage_steps", 5))
+        refinement_steps = int(guide.get("two_stage_steps", 2))
         scale = float(guide.get("two_stage_scale", 1.5))
         try:
             first_sigmas, second_sigmas = split_refinement_sigmas(sigmas, refinement_steps)

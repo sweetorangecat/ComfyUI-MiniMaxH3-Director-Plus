@@ -21,7 +21,7 @@ def test_quality_two_stage_is_high_vram_only_route():
     assert "quality_two_stage" not in allowed_performance_presets("T2VA", "fish_lock")
     values = preset_values("quality_two_stage")
     assert values["steps"] == 8
-    assert values["two_stage_steps"] == 5
+    assert values["two_stage_steps"] == 2
     assert values["two_stage_scale"] == pytest.approx(1.5)
 
 
@@ -30,7 +30,7 @@ def test_performance_node_marks_two_stage_guide():
     result = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True)
     assert result[0] == 8
     assert guide["two_stage_enabled"] is True
-    assert guide["two_stage_steps"] == 5
+    assert guide["two_stage_steps"] == 2
     assert "latent" in result[3]
 
 
@@ -51,6 +51,15 @@ def test_upscale_video_latent_snaps_target_to_h3_spatial_patch_grid():
     video = torch.zeros(1, 24, 5, 34, 60)
     result = upscale_video_latent({"samples": video}, 1.5)
     assert result["samples"].shape == (1, 24, 5, 52, 90)
+
+
+def test_upscale_video_latent_blends_neighbors_instead_of_repeating_blocks():
+    video = torch.tensor([[[[[0.0, 1.0], [2.0, 3.0]]]]])
+
+    result = upscale_video_latent({"samples": video}, 2.0)["samples"]
+
+    assert result.shape == (1, 1, 1, 4, 4)
+    assert result[0, 0, 0, 1, 1].item() == pytest.approx(0.75)
 
 
 def test_real_av_nodes_keep_audio_shape_during_video_refinement():

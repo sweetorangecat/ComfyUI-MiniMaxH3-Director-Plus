@@ -31,10 +31,11 @@ PRESETS = {
     # Full-clip H3 latent route: split one schedule, upscale the clean video
     # latent, inject CONST-correct noise, then finish the low-sigma tail.
     "quality_two_stage": {
-        # Three high-sigma steps form the first-pass x0 estimate and the final
-        # five steps redraw it on the enlarged latent grid.
+        # Six steps establish a stable x0 estimate. Only the final two
+        # low-sigma steps run on the enlarged grid, matching U09's gentle
+        # redraw semantics instead of repainting the clip at high denoise.
         "steps": 8,
-        "two_stage_steps": 5,
+        "two_stage_steps": 2,
         "two_stage_scale": 1.5,
         # Keep native attention math, release the large normalized input, use
         # the consumed Q region as scratch, and chunk both attention and MLP.
@@ -334,7 +335,7 @@ class MiniMaxH3PerformancePreset:
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
-            "quality_two_stage": "质量优先二采样：H3 专用 latent 二采（首阶段 3 步 + 放大后低噪 5 步）+ 精确分块注意力/MLP；不解码整段帧",
+            "quality_two_stage": "质量优先二采样：H3 专用 latent 二采（前 6 步定结构 + 双线性放大 + 最后 2 步低噪细化）+ 精确分块注意力/MLP；不解码整段帧",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",

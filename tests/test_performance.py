@@ -160,7 +160,7 @@ def test_quality_two_stage_uses_exact_head_chunking_without_sage_or_cache():
     values = preset_values("quality_two_stage")
 
     assert values["steps"] == 8
-    assert values["two_stage_steps"] == 5
+    assert values["two_stage_steps"] == 2
     assert values["use_sage"] is False
     assert values["use_cache"] is False
     assert values["use_head_chunking"] is True
