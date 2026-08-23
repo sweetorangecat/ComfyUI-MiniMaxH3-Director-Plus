@@ -25,3 +25,41 @@ def test_docs_explain_runtime_status_and_output_retrieval():
     assert "history" in api
     assert "模型未就绪" in troubleshooting
 
+
+def test_docs_describe_trained_two_stage_assets_and_routes():
+    usage = (DOCS / "使用说明.md").read_text(encoding="utf-8")
+    api = (DOCS / "API说明.md").read_text(encoding="utf-8")
+    combined = usage + api
+
+    for text in (
+        "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+        "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors",
+        "minimax_h3_fl2v_turbo_4step_v1.1_768p_comfyui_bf16.safetensors",
+        "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+        "trained_latent_fl",
+        "trained_latent_ref",
+        "H3SigmaRefiner",
+    ):
+        assert text in combined
+
+    assert "前 6 步定结构" not in usage
+    assert "前 6 步定结构" not in api
+    assert "双线性放大后的最后 2 步" not in usage
+    assert "双线性放大后的最后 2 步" not in api
+
+
+def test_docs_explain_vram_limits_true_2k_4k_and_install_commands():
+    usage = (DOCS / "使用说明.md").read_text(encoding="utf-8")
+    troubleshooting = (DOCS / "故障排查.md").read_text(encoding="utf-8")
+    combined = usage + troubleshooting
+
+    for text in (
+        "8–12GB",
+        "低显存不开放 4K",
+        "2560×1440",
+        "3840×2160",
+        "4K 不是 H3 原生采样",
+        "hf download LBH-123-AI/Minimax_h3_latent_Upscaler",
+        "codeload.github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler",
+    ):
+        assert text in combined

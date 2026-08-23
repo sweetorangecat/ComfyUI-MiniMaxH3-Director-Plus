@@ -18,6 +18,12 @@ except ImportError:
 
 PLUGIN_ID = "ComfyUI-MiniMaxH3-Director-Plus"
 
+LEGACY_WORKFLOW_INPUT_NAMES = {
+    "enabled_2", "enabled_3", "enabled_4", "model_name",
+    "enabled_5", "enabled_6", "watermark_path", "upload",
+    "enabled", "enabled_1",
+}
+
 
 def _find_node(nodes, *, node_type=None, title=None):
     for node in nodes:
@@ -477,11 +483,99 @@ def _disable_legacy_acceleration_switches(subgraph):
                 socket["link"] = None
 
 
+def _prune_legacy_bypass_nodes(subgraph):
+    """Collapse U10's bypass-only model/output chains to their native sources.
+
+    These nodes were muted in U11, but ComfyUI still had to know every custom
+    node type to open the graph. The Director Plus output node now owns the one
+    selected postprocess route, so keeping the old RIFE/upscale/watermark chain
+    only creates missing-node errors and ambiguous route combinations.
+    """
+    acceleration_types = {
+        "EasyCache",
+        "PathchSageAttentionKJ",
+        "MiniMaxH3MemoryEfficientSageAttentionPatch",
+    }
+    nodes = list(subgraph.get("nodes", []))
+
+    # Each legacy acceleration node is a single MODEL-in/MODEL-out bypass.
+    # Preserve the outgoing link id while replacing its origin with the native
+    # upstream model, then remove the now-unused incoming link and node.
+    for node in [item for item in nodes if item.get("type") in acceleration_types]:
+        node_id = node.get("id")
+        incoming = next((
+            raw for raw in subgraph.get("links", [])
+            if _link_value(raw)[3] == node_id and int(_link_value(raw)[4]) == 0
+        ), None)
+        if incoming is None:
+            continue
+        source = _link_value(incoming)
+        for raw in subgraph.get("links", []):
+            link = _link_value(raw)
+            if link[1] == node_id:
+                _set_link_field(raw, 1, source[1])
+                _set_link_field(raw, 2, source[2])
+        subgraph["links"] = [
+            raw for raw in subgraph.get("links", [])
+            if _link_value(raw)[0] != source[0]
+        ]
+        subgraph["nodes"] = [item for item in subgraph.get("nodes", []) if item.get("id") != node_id]
+
+    output_types = {
+        "ComfyMathExpression",
+        "DaSiWa_RTX_UpscalerRefiner",
+        "DaSiWa_TorchResize",
+        "DaSiWa_Watermark",
+        "FrameInterpolate",
+        "FrameInterpolationModelLoader",
+        "ImageUpscaleWithModel",
+        "UpscaleModelLoader",
+    }
+    current_nodes = list(subgraph.get("nodes", []))
+    frame_ids = {node.get("id") for node in current_nodes if node.get("type") == "FrameInterpolate"}
+    math_ids = {node.get("id") for node in current_nodes if node.get("type") == "ComfyMathExpression"}
+
+    image_source = next((
+        _link_value(raw) for raw in subgraph.get("links", [])
+        if _link_value(raw)[3] in frame_ids and int(_link_value(raw)[4]) == 1
+    ), None)
+    fps_source = next((
+        _link_value(raw) for raw in subgraph.get("links", [])
+        if _link_value(raw)[3] in math_ids and int(_link_value(raw)[4]) == 0
+    ), None)
+
+    for output in subgraph.get("outputs", []) or []:
+        data_type = output.get("type")
+        source = image_source if data_type == "IMAGE" else fps_source if data_type == "FLOAT" else None
+        if source is None:
+            continue
+        for link_id in output.get("linkIds", []) or []:
+            raw = next((item for item in subgraph.get("links", []) if _link_value(item)[0] == link_id), None)
+            if raw is not None:
+                _set_link_field(raw, 1, source[1])
+                _set_link_field(raw, 2, source[2])
+
+    removed_ids = {
+        node.get("id") for node in subgraph.get("nodes", [])
+        if node.get("type") in output_types or node.get("type") == "DaSiWa_NodeStatusSwitch"
+    }
+    subgraph["nodes"] = [node for node in subgraph.get("nodes", []) if node.get("id") not in removed_ids]
+    subgraph["links"] = [
+        raw for raw in subgraph.get("links", [])
+        if _link_value(raw)[1] not in removed_ids and _link_value(raw)[3] not in removed_ids
+    ]
+
+
 def _upgrade_subgraphs(workflow):
     for subgraph in workflow.get("definitions", {}).get("subgraphs", []) or []:
+        _prune_legacy_bypass_nodes(subgraph)
         _remove_subgraph_inputs(
             subgraph,
-            {"resolution_preset", "aspect_preset_when_not_image", "swap_aspect_when_not_image", "scheduler"},
+            {
+                "resolution_preset", "aspect_preset_when_not_image",
+                "swap_aspect_when_not_image", "scheduler",
+                *LEGACY_WORKFLOW_INPUT_NAMES,
+            },
         )
         exposed_inputs = subgraph.setdefault("inputs", [])
         generated_slot = next((index for index, item in enumerate(exposed_inputs) if item.get("name") == "generated_voice_audio"), None)
@@ -631,7 +725,7 @@ def _upgrade_subgraphs(workflow):
             ]:
                 old_inputs = {item.get("name"): item for item in sampler.get("inputs", [])}
                 sampler["type"] = "MiniMaxH3TwoStageSampler"
-                sampler["title"] = "H3 专用 Latent 二采（自动旁路）"
+                sampler["title"] = "H3 训练型 3D Latent 二采（自动旁路）"
                 sampler["properties"] = _properties("MiniMaxH3TwoStageSampler")
                 sampler["inputs"] = [
                     {**old_inputs.get("noise", _socket("noise", "NOISE")), "name": "noise", "type": "NOISE"},
@@ -749,7 +843,7 @@ def build_workflow(source):
     )
     acceleration_note = _note_node(
         allocate_node(), "加速与后处理说明", [-400, 2470], [950, 270],
-        "## 已整合能力\n\n- 极速4步：T2VA/FL2VA 使用官方 H3 Turbo，REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler。\n- 参考图加速：实际路由模型应用 SageAttention + ComfyUI 原生 EasyCache。\n- 低显存：分辨率档位代表最终输出目标；4/8/12/15 秒分别最多按约 1.00/0.50/0.30/0.26 MP 原生生成，再在最终编码阶段按小块 CPU 放大。\n- 目标档位包含 2K QHD（2560×1440）和 4K UHD（3840×2160）；4K 不会创建整段 4K 图像批次，直接流式写入 FFmpeg。\n- RTX 30 系列使用 BF16 兼容的 Sage FP16 PV 内核；不再激活旧的死分支。\n- 原 U10 的 RIFE 插帧、RTX/模型超分、水印与高级保存继续保留。\n- LTX 二段超分属于独立高显存链路，保留为可选扩展而非默认执行。",
+        "## 已整合能力\n\n- 训练型 3D latent 二采：自动区分 FL 与 Reference，执行匹配 LoRA 首采、神经 latent 放大和低 sigma 二采；不再使用双线性硬放大。\n- 极速4步：T2VA/FL2VA 使用官方 H3 Turbo，REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler。\n- 参考图加速：只在 Reference 兼容路线应用 SageAttention + ComfyUI 原生 EasyCache。\n- 低显存：按时长限制 H3 原生采样，低显存不开放 4K；最终最多 1080p。\n- 2K/4K 是最终 MP4 像素尺寸；4K 不是 H3 原生采样，而是神经二采细节基准后逐帧 RTX VSR。\n- 每次只执行一种兼容的性能路线；二采固定关闭 RIFE，避免重影与跳帧。",
     )
     nodes.extend([router, acceleration, performance, status, fish, color_guard, materials_note, acceleration_note])
 
@@ -769,6 +863,7 @@ def build_workflow(source):
     if settings is not None:
         legacy_resolution_names = {
             "resolution_preset", "aspect_preset_when_not_image", "swap_aspect_when_not_image", "scheduler",
+            *LEGACY_WORKFLOW_INPUT_NAMES,
         }
         settings_subgraph = next((
             subgraph for subgraph in workflow.get("definitions", {}).get("subgraphs", []) or []
@@ -809,9 +904,8 @@ def build_workflow(source):
     _add_link(workflow, allocate_link, director, 5, fish, 1, "AUDIO")
 
     if settings is not None:
-        for source_slot, name, data_type in ((0, "steps", "INT"), (1, "enabled", "BOOLEAN"), (2, "enabled_1", "BOOLEAN")):
-            target_slot = _append_input(settings, name, data_type, widget=True)
-            _add_link(workflow, allocate_link, performance, source_slot, settings, target_slot, data_type)
+        steps_slot = _append_input(settings, "steps", "INT", widget=True)
+        _add_link(workflow, allocate_link, performance, 0, settings, steps_slot, "INT")
         generated_slot = _append_input(settings, "generated_voice_audio", "AUDIO")
         _add_link(workflow, allocate_link, fish, 0, settings, generated_slot, "AUDIO")
         noise_slot = _append_input(settings, "noise_seed", "INT")
@@ -832,7 +926,7 @@ def build_workflow(source):
         {"id": "u11-assets", "title": "自动素材与加速", "bounding": [-430, 2030, 2560, 620], "color": "#4c6f62", "font_size": 24, "flags": {}},
     ]
     workflow.setdefault("extra", {})["u11_director_plus"] = {
-        "version": "1.2",
+        "version": "1.3",
         "source": "U10-DaSiWa-MiniMaxH3-MythicAlchemy-v12导演台.json",
         "voice_semantics": "reference_only",
     }
@@ -896,11 +990,11 @@ def main():
     source = json.loads(args.source.read_text(encoding="utf-8"))
     built = build_workflow(source)
     validate_workflow(built, require_sections=True)
-    args.output.write_text(json.dumps(built, ensure_ascii=False, indent=2), encoding="utf-8")
+    args.output.write_text(json.dumps(built, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     api_template = build_api_template()
     template_path = Path(__file__).resolve().parents[1] / "templates" / "u11_api.json"
     template_path.parent.mkdir(parents=True, exist_ok=True)
-    template_path.write_text(json.dumps(api_template, ensure_ascii=False, indent=2), encoding="utf-8")
+    template_path.write_text(json.dumps(api_template, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"U11 已生成：{args.output}")
     print(f"API 模板已生成：{template_path}")
 

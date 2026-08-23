@@ -1,6 +1,6 @@
 # ComfyUI MiniMax H3 Director Plus
 
-独立的中文优先 MiniMax H3 导演台插件。它保留 U10 的深色分区风格和稳定布局，集中提供 4-15 秒时长、横竖分辨率、四种种子模式、最多 9 张 REF2VA 图片、3 路编号音色、I2VA/FL2VA 的 H3 原生 reference 路由、兼容加速预设、本机能力状态和简化 HTTP API。
+独立的中文优先 MiniMax H3 导演台插件。它保留 U10 的深色分区风格和稳定布局，集中提供 4-15 秒时长、横竖分辨率、四种种子模式、最多 9 张 REF2VA 图片、3 路编号音色、I2VA/FL2VA 的 H3 原生 reference 路由、按 FL/Reference 隔离的训练型 3D latent 二采、显存安全预算、本机能力状态和简化 HTTP API。
 
 安装后导入：
 

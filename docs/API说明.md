@@ -14,15 +14,17 @@
 
 API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递增、递减、随机属于 ComfyUI 客户端的连续运行状态，不作为无状态 API 入参公开；需要批量生成时，由调用方为每个请求明确传入 seed。
 
-`performance_preset` 支持 `稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。`质量优先二采样` 固定 H3 专用 latent 二采路线：8 步轨迹拆为前 6 步定结构和双线性放大后的最后 2 步低噪细化，视频 latent 放大约 1.5 倍、对齐 H3 空间网格并以 CONST 专用方式重加噪；首采音频锁定，参考图和关键帧 conditioning 同步放大。双线性插值避免最近邻复制 latent 方块，2 步低噪尾段避免大幅重绘稳定结构。两阶段使用节点内置的 MiniMax H3 精确低峰值补丁：释放已消费的归一化输入，独立 heads 分组计算并写入已消费的 Q 区域，分块执行输出投影；MLP 同样按 token 分块并复用输入，避免完整约 2.81 GiB 注意力输出和约 11.24 GiB `fc1` 中间张量。不启用 Sage，不改变逐行 MLP 和独立 heads 的数学结果。该档位强制 `postprocess_mode=rtx_vsr`；2K 16:9 使用约 0.83 MP 首采，二采后 RTX VSR 约放大 1.36 倍。补丁必须明确确认成功，否则 API 图会在采样前回退为 8 步单采，不会运行高显存第二阶段。
+`performance_preset` 支持 `稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。`质量优先二采样` 自动解析训练型路线：FL/T2VA/硬首尾帧后端使用 `trained_latent_fl`，依次应用 `minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors` 与 `minimax_h3_fl2v_turbo_4step_v1.1_768p_comfyui_bf16.safetensors`；REF2VA 或 H3 原生音色参考后端使用 `trained_latent_ref`，两阶段应用 `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`，并通过 `H3SigmaRefiner` 强化尾段 sigma。两条路线都先完成匹配 LoRA 首采，再把 AV latent 分为视频/音频，仅用 `minimax_h3_latent_upscaler_3d_bf16.safetensors` 对 24 通道视频 latent 做约 1.5 倍训练型放大，保留原音频后执行匹配低 sigma 二采。Fish S2 与训练型二采互斥；Sage、EasyCache、RIFE 不叠加到该路线。
 
-`postprocess_mode` 控制最终视频输出：`native`（原生尺寸直出）、`lanczos`（CPU Lanczos 快速放大）、`ai_upscale`（ComfyUI 通用 AI 超分）或 `rtx_vsr`（RTX VSR AI 细节重建）。但 `performance_preset=质量优先二采样` 时只允许 `rtx_vsr`，不能把二采重绘与 OmniSR/Lanczos 串联；其他预设仍一次只执行选中的一种最终路线。`ai_upscale_model` 为 `auto` 或 `models/upscale_models` 中已安装的模型名；`auto` 会按目标倍率优先选择 X2/X4 模型。`rtx_quality` 可选 `HIGH` 或 `ULTRA`，仅在 `rtx_vsr` 时生效。目标尺寸与 H3 原生尺寸相同会自动旁路，目标更小走高质量缩小。最终只保存一个视频；AI 模型或 RTX VSR 依赖缺失时会在生成前明确报错，不会静默退回另一种算法。
+`postprocess_mode` 控制最终视频输出：`native`（原生尺寸直出）、`lanczos`（CPU Lanczos 快速放大）、`ai_upscale`（ComfyUI 通用 AI 超分）或 `rtx_vsr`（RTX VSR AI 细节重建）。但 `performance_preset=质量优先二采样` 时只允许 `rtx_vsr`，不能把二采重绘与 OmniSR/Lanczos 串联；若神经二采尺寸已等于最终目标则自动旁路 VSR。其他预设仍一次只执行选中的一种最终路线。`ai_upscale_model` 为 `auto` 或 `models/upscale_models` 中已安装的模型名；`auto` 会按目标倍率优先选择 X2/X4 模型。`rtx_quality` 可选 `HIGH` 或 `ULTRA`，仅在 `rtx_vsr` 时生效。最终只保存一个视频；AI 模型或 RTX VSR 依赖缺失时会在生成前明确报错，不会静默退回另一种算法。
 
 `motion_smoothing` 控制最终运动平滑，可选 `off`、`rife_x2`，默认 `off`。后端继续接受旧值 `auto`，但会按关闭处理，不再自动加载 RIFE。`rife_x2` 只允许与 RTX VSR 搭配；质量优先二采样固定关闭，以避免动态云雾和大视差建筑重影，低显存模式也强制关闭。其他兼容预设中，RIFE 按相邻帧逐对处理，不会在内存中构造完整双倍帧视频；N 帧输出为 `2N-1` 帧，帧率同步从 24 FPS 提高到 48 FPS，因此视频时长和音频时长不变。硬切镜头会自动旁路插值。启用前必须安装 `models/frame_interpolation/rife_v4.26.safetensors`，缺失时会在 H3 采样前报错。
 
 `audio_loudness` 控制最终编码前的音频处理，默认 `auto`：将过小的 H3 音轨峰值安全提升到 -1.5 dBFS，最大增益 30 dB；静音保持静音。设为 `original` 时保持原始波形。该处理只影响最终 MP4 音轨，不改变 H3 参考音色或生成内容。
 
-API 中的 `resolution_preset` 表示请求的最终输出目标，支持 `2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。选择 `低显存` 后，H3 原生采样尺寸会按时长降低；四种 `postprocess_mode` 都由同一个流式 MP4 输出节点保存，不需要修改 API 模板或连接第二个输出节点。`native` 输出实际原生尺寸，其余路线在目标更大时按对应算法逐帧放大。
+API 中的 `resolution_preset` 表示请求的最终输出目标，支持 `2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。4K 不是 H3 原生采样，而是约 1080p 神经二采细节基准后的逐帧 RTX VSR 输出。8–12GB 档位不执行训练型二采，低显存不开放 4K且最终上限为 1080p；16–24GB 只开放 8 秒以内的 2K 二采；28GB 以上才允许通过前置显存检查后请求长视频 2K/4K。四种 `postprocess_mode` 都由同一个流式 MP4 输出节点保存，不需要修改 API 模板或连接第二个输出节点。`native` 输出实际生成尺寸，其余路线在目标更大时按对应算法逐帧放大。
+
+`GET /schema` 的 `resolved_outputs` 描述运行前可观察结果：`resolved_two_stage_route`、`first_stage_width/height`、`second_stage_width/height`、`final_upscale_scale_x/y`、`vram_safety_tier`、`quality_basis` 与 `required_assets`。实际 `generate` 响应和任务元数据应使用这些解析值展示“首采 -> 神经二采 -> 最终输出”，不要只显示最终 2K/4K 标签。
 
 `voice_mode = "fish_lock"` 时只使用 `voice_reference_audios` 的第 1 路作为 Fish 音色样本，`target_dialogue` 是要新生成的对白，`reference_transcript` 是样本音频原文（建议填写），`fish_model_path` 默认使用 `s2-pro-w4a16 (auto download)`。Fish 失败会返回明确错误，不会静默回退到 H3 原生音色。
 

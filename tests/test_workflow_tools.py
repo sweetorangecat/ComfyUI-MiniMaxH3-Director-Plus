@@ -3,6 +3,7 @@ import pytest
 from tools.build_u11_workflow import (
     build_workflow,
     _disable_legacy_acceleration_switches,
+    _prune_legacy_bypass_nodes,
     _upgrade_subgraphs,
 )
 from tools.validate_workflow import WorkflowError, validate_workflow
@@ -38,6 +39,56 @@ def test_legacy_acceleration_switches_do_not_control_dead_subgraph_nodes():
     switch = next(node for node in subgraph["nodes"] if node["id"] == 2)
     assert switch["inputs"][1]["link"] is None
     assert subgraph["links"] == []
+
+
+def test_legacy_bypass_nodes_are_collapsed_to_native_model_image_and_fps_sources():
+    subgraph = {
+        "outputs": [
+            {"name": "IMAGE", "type": "IMAGE", "linkIds": [17]},
+            {"name": "FLOAT", "type": "FLOAT", "linkIds": [21]},
+        ],
+        "nodes": [
+            {"id": 1, "type": "UNETLoader", "inputs": [], "outputs": []},
+            {"id": 2, "type": "EasyCache", "inputs": [], "outputs": []},
+            {"id": 3, "type": "MiniMaxH3MemoryEfficientSageAttentionPatch", "inputs": [], "outputs": []},
+            {"id": 4, "type": "PathchSageAttentionKJ", "inputs": [], "outputs": []},
+            {"id": 5, "type": "ModelPatchTorchSettings", "inputs": [], "outputs": []},
+            {"id": 10, "type": "ComfySwitchNode", "inputs": [], "outputs": []},
+            {"id": 11, "type": "FrameInterpolationModelLoader", "inputs": [], "outputs": []},
+            {"id": 12, "type": "FrameInterpolate", "inputs": [], "outputs": []},
+            {"id": 13, "type": "DaSiWa_TorchResize", "inputs": [], "outputs": []},
+            {"id": 14, "type": "ImageUpscaleWithModel", "inputs": [], "outputs": []},
+            {"id": 15, "type": "DaSiWa_RTX_UpscalerRefiner", "inputs": [], "outputs": []},
+            {"id": 16, "type": "DaSiWa_Watermark", "inputs": [], "outputs": []},
+            {"id": 20, "type": "PrimitiveFloat", "inputs": [], "outputs": []},
+            {"id": 21, "type": "ComfyMathExpression", "inputs": [], "outputs": []},
+            {"id": 30, "type": "DaSiWa_NodeStatusSwitch", "inputs": [], "outputs": []},
+        ],
+        "links": [
+            [1, 1, 0, 2, 0, "MODEL"],
+            [2, 2, 0, 3, 0, "MODEL"],
+            [3, 3, 0, 4, 0, "MODEL"],
+            [4, 4, 0, 5, 0, "MODEL"],
+            [10, 10, 0, 12, 1, "IMAGE"],
+            [11, 11, 0, 12, 0, "MODEL"],
+            [12, 12, 0, 13, 0, "IMAGE"],
+            [13, 13, 0, 14, 1, "IMAGE"],
+            [14, 14, 0, 15, 0, "IMAGE"],
+            [15, 15, 0, 16, 0, "IMAGE"],
+            [17, 16, 0, -20, 0, "IMAGE"],
+            [20, 20, 0, 21, 0, "FLOAT"],
+            [21, 21, 0, -20, 1, "FLOAT"],
+        ],
+    }
+
+    _prune_legacy_bypass_nodes(subgraph)
+
+    remaining_types = {node["type"] for node in subgraph["nodes"]}
+    assert remaining_types == {"UNETLoader", "ModelPatchTorchSettings", "ComfySwitchNode", "PrimitiveFloat"}
+    links = [list(link) for link in subgraph["links"]]
+    assert [4, 1, 0, 5, 0, "MODEL"] in links
+    assert [17, 10, 0, -20, 0, "IMAGE"] in links
+    assert [21, 20, 0, -20, 1, "FLOAT"] in links
 
 
 def test_validator_rejects_read_only_subgraph_display_name():
@@ -86,6 +137,32 @@ def test_built_workflow_has_three_primary_sections():
     built = build_workflow(source)
     titles = {node.get("title") for node in built["nodes"]}
     assert {"快速设置 / API 入参", "导演与素材区", "预览与输出"} <= titles
+    assert built["extra"]["u11_director_plus"]["version"] == "1.3"
+
+
+def test_built_workflow_describes_only_the_trained_two_stage_route():
+    source = {
+        "last_node_id": 10,
+        "last_link_id": 20,
+        "nodes": [
+            {"id": 1, "type": "Settings", "title": "Settings", "pos": [0, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+        ],
+        "links": [],
+        "groups": [],
+        "definitions": {"subgraphs": []},
+    }
+
+    built = build_workflow(source)
+    notes = "\n".join(
+        str(node.get("widgets_values", [""])[0])
+        for node in built["nodes"]
+        if node.get("type") == "MarkdownNote"
+    )
+    assert "训练型 3D latent 二采" in notes
+    assert "低显存不开放 4K" in notes
+    assert "LTX 二段超分" not in notes
 
 
 def test_visual_workflow_embeds_media_uploads_in_director():
@@ -455,7 +532,7 @@ def test_builder_connects_fish_bridge_through_settings_to_all_guides():
     assert all(node["inputs"][4]["link"] is not None for node in upgraded_guides)
 
 
-def test_performance_preset_does_not_override_manual_postprocessing_switches():
+def test_workflow_removes_manual_postprocessing_switches_and_keeps_automatic_acceleration():
     source = {
         "last_node_id": 10,
         "last_link_id": 20,
@@ -473,9 +550,8 @@ def test_performance_preset_does_not_override_manual_postprocessing_switches():
     performance = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3PerformancePreset")
     acceleration = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3AccelerationRouter")
     settings = next(node for node in built["nodes"] if node.get("title") == "Settings")
-    interpolation_slot = next(index for index, item in enumerate(settings["inputs"]) if item["name"] == "enabled_2")
-
-    assert not any(link[1:5] == [performance["id"], 3, settings["id"], interpolation_slot] for link in built["links"])
+    input_names = {item["name"] for item in settings["inputs"]}
+    assert {"enabled", "enabled_1", "enabled_2"}.isdisjoint(input_names)
     assert any(link[1:5] == [acceleration["id"], 2, performance["id"], 1] for link in built["links"])
 
 
