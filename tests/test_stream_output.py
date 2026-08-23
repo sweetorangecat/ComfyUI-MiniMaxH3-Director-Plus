@@ -108,6 +108,49 @@ def test_same_size_rtx_request_is_reported_as_native_bypass(monkeypatch):
     assert stream_output._resolve_postprocess_path(guide, 3, 2) == "native_bypass"
 
 
+def test_two_stage_actual_second_size_bypasses_redundant_vsr():
+    guide = {
+        "native_width": 896,
+        "native_height": 512,
+        "second_stage_width": 1344,
+        "second_stage_height": 768,
+        "target_width": 1344,
+        "target_height": 768,
+        "postprocess_path": "rtx_vsr",
+    }
+    assert stream_output._resolve_postprocess_path(guide, 1344, 768) == "native_bypass"
+
+
+def test_prepare_postprocess_releases_h3_before_vsr(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        stream_output,
+        "release_sampling_models",
+        lambda: calls.append("released"),
+        raising=False,
+    )
+    stream_output._prepare_postprocess_runtime(
+        {"performance_preset": "quality_two_stage"},
+        "rtx_vsr",
+    )
+    assert calls == ["released"]
+
+
+def test_prepare_postprocess_does_not_unload_for_native_output(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        stream_output,
+        "release_sampling_models",
+        lambda: calls.append("released"),
+        raising=False,
+    )
+    stream_output._prepare_postprocess_runtime(
+        {"performance_preset": "quality_two_stage"},
+        "native_bypass",
+    )
+    assert calls == []
+
+
 @pytest.mark.parametrize("path", ["lanczos", "ai_upscale"])
 def test_generic_upscale_paths_are_preserved_for_larger_targets(path):
     guide = {

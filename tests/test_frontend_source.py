@@ -74,6 +74,18 @@ def test_ui_locks_quality_two_stage_to_rtx_vsr():
     assert "质量优先二采样已锁定 RTX VSR" in text
 
 
+def test_two_stage_ui_names_trained_route_and_real_size_stages():
+    text = source()
+    assert "训练型 3D latent 二采" in text
+    assert "H3首采" in text
+    assert "神经latent二采" in text
+    assert "最终输出" in text
+    assert "双线性放大" not in text
+    assert "前 6 步" not in text
+    assert "最后 2 步" not in text
+    assert "twoStageSizeHint" in text
+
+
 def test_ui_exposes_compatible_chinese_motion_smoothing_control():
     text = source()
     assert 'valueControl("运动平滑", "motion_smoothing"' in text

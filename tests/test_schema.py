@@ -54,6 +54,17 @@ def test_quality_two_stage_only_allows_rtx_vsr_postprocess():
     assert allowed_postprocess_modes("quality_two_stage") == ("rtx_vsr",)
 
 
+def test_public_schema_exposes_read_only_two_stage_execution_metadata():
+    resolved = public_schema()["resolved_outputs"]
+    assert resolved["resolved_two_stage_route"]["中文名称"] == "实际训练型二采路线"
+    assert resolved["first_stage_width"]["中文名称"] == "H3首采宽度"
+    assert resolved["second_stage_width"]["中文名称"] == "神经latent二采宽度"
+    assert resolved["final_upscale_scale_x"]["中文名称"] == "最终横向放大倍率"
+    assert resolved["vram_safety_tier"]["中文名称"] == "显存安全档位"
+    assert resolved["quality_basis"]["中文名称"] == "清晰度基础"
+    assert resolved["required_assets"]["中文名称"] == "本次所需模型资产"
+
+
 @pytest.mark.parametrize("postprocess_mode", ["native", "lanczos", "ai_upscale"])
 def test_quality_two_stage_rejects_incompatible_postprocess(postprocess_mode):
     with pytest.raises(RequestError, match="质量优先二采样.*RTX VSR"):

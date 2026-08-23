@@ -87,6 +87,14 @@ def plan_two_stage_dimensions(
     )
     second_width = max(32, int(round(first_width * 1.5 / 32.0)) * 32)
     second_height = max(32, int(round(first_height * 1.5 / 32.0)) * 32)
+    if second_width > final_width or second_height > final_height:
+        # A learned second-stage grid must never exceed the final target. A
+        # later downscale would throw away reconstructed detail and ask the
+        # final postprocessor to operate on an invalid ratio.
+        first_width = max(32, int(math.floor(final_width / 1.5 / 32.0)) * 32)
+        first_height = max(32, int(math.floor(final_height / 1.5 / 32.0)) * 32)
+        second_width = max(32, int(round(first_width * 1.5 / 32.0)) * 32)
+        second_height = max(32, int(round(first_height * 1.5 / 32.0)) * 32)
     scale_x = float(final_width) / float(second_width)
     scale_y = float(final_height) / float(second_height)
     return {

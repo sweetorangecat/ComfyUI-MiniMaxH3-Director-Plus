@@ -540,6 +540,38 @@ def test_two_stage_4k_build_uses_1080p_neural_basis(monkeypatch):
     assert guide["final_upscale_scale_y"] == pytest.approx(2160 / 1056)
 
 
+def test_small_two_stage_target_uses_neural_output_without_redundant_vsr(monkeypatch):
+    checked = []
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda *args, **kwargs: checked.append(True),
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=4,
+        width=1152,
+        height=768,
+        aspect_ratio="3:2",
+        resolution_preset="0.83 MP",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="质量优先二采样",
+        postprocess_mode="rtx_vsr",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert (guide["first_stage_width"], guide["first_stage_height"]) == (768, 512)
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (1152, 768)
+    assert (guide["target_width"], guide["target_height"]) == (1152, 768)
+    assert guide["postprocess_path"] == "native_bypass"
+    assert guide["upscale_required"] is False
+    assert checked == []
+
+
 def test_two_stage_rejects_busy_gpu_before_vsr_probe(monkeypatch):
     checked = []
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (32.0, 8.0))

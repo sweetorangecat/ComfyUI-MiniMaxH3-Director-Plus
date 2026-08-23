@@ -331,4 +331,16 @@ def public_schema():
             "custom_width": {"中文名称": "自定义宽度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 16},
             "custom_height": {"中文名称": "自定义高度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 9},
         },
+        "resolved_outputs": {
+            "resolved_two_stage_route": {"中文名称": "实际训练型二采路线", "type": "string", "readOnly": True},
+            "first_stage_width": {"中文名称": "H3首采宽度", "type": "integer", "readOnly": True},
+            "first_stage_height": {"中文名称": "H3首采高度", "type": "integer", "readOnly": True},
+            "second_stage_width": {"中文名称": "神经latent二采宽度", "type": "integer", "readOnly": True},
+            "second_stage_height": {"中文名称": "神经latent二采高度", "type": "integer", "readOnly": True},
+            "final_upscale_scale_x": {"中文名称": "最终横向放大倍率", "type": "number", "readOnly": True},
+            "final_upscale_scale_y": {"中文名称": "最终纵向放大倍率", "type": "number", "readOnly": True},
+            "vram_safety_tier": {"中文名称": "显存安全档位", "type": "string", "readOnly": True},
+            "quality_basis": {"中文名称": "清晰度基础", "type": "string", "readOnly": True},
+            "required_assets": {"中文名称": "本次所需模型资产", "type": "array", "readOnly": True},
+        },
     }

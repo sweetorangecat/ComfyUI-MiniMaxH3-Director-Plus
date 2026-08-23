@@ -105,3 +105,18 @@ def test_portrait_target_preserves_orientation_and_scale():
     assert plan["final_scale_y"] == pytest.approx(
         2560 / plan["second_stage_height"]
     )
+
+
+def test_small_final_target_caps_neural_second_stage_instead_of_downscaling():
+    plan = plan_two_stage_dimensions(
+        1344,
+        768,
+        4,
+        total_vram_gb=32,
+        free_vram_gb=29,
+    )
+
+    assert plan["allowed"] is True
+    assert (plan["first_stage_width"], plan["first_stage_height"]) == (896, 512)
+    assert (plan["second_stage_width"], plan["second_stage_height"]) == (1344, 768)
+    assert plan["final_scale"] == pytest.approx(1.0)

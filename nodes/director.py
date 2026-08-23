@@ -420,9 +420,15 @@ class MiniMaxH3DirectorPlus:
                 custom_width,
                 custom_height,
             )
-        if requested_width == native_width and requested_height == native_height:
+        postprocess_source_width = int(
+            two_stage_plan["second_stage_width"] if two_stage_plan else native_width
+        )
+        postprocess_source_height = int(
+            two_stage_plan["second_stage_height"] if two_stage_plan else native_height
+        )
+        if requested_width == postprocess_source_width and requested_height == postprocess_source_height:
             postprocess_path = "native_bypass"
-        elif requested_width < native_width or requested_height < native_height:
+        elif requested_width < postprocess_source_width or requested_height < postprocess_source_height:
             postprocess_path = "downscale"
         elif request["postprocess_mode"] in {"lanczos", "ai_upscale", "rtx_vsr"}:
             postprocess_path = request["postprocess_mode"]
@@ -436,13 +442,18 @@ class MiniMaxH3DirectorPlus:
                 f"{two_stage_plan['second_stage_width']}×{two_stage_plan['second_stage_height']}，"
                 f"最终 RTX VSR 约 {two_stage_plan['final_scale']:.2f} 倍。"
             )
+        elif two_stage_plan is not None and postprocess_path == "native_bypass":
+            request["warnings"].append(
+                "训练型神经 latent 二采已达到最终目标尺寸，无需重复执行 RTX VSR。"
+            )
 
         if postprocess_path == "native_bypass" and (
-            requested_width != native_width or requested_height != native_height
+            requested_width != postprocess_source_width
+            or requested_height != postprocess_source_height
         ):
             request["warnings"].append(
                 "当前为原生尺寸直出，2K/4K 最终目标不会放大；"
-                f"实际保存尺寸为 {native_width}×{native_height}。"
+                f"实际保存尺寸为 {postprocess_source_width}×{postprocess_source_height}。"
             )
 
         if postprocess_path == "rtx_vsr":
@@ -476,7 +487,7 @@ class MiniMaxH3DirectorPlus:
                 raise RequestError(f"通用 AI 超分前置检查失败，尚未开始 H3 视频生成：{exc}") from exc
 
         if postprocess_path == "native_bypass":
-            final_target_width, final_target_height = native_width, native_height
+            final_target_width, final_target_height = postprocess_source_width, postprocess_source_height
             final_upscale_required = False
         elif postprocess_path == "downscale":
             final_target_width, final_target_height = requested_width, requested_height
@@ -533,6 +544,8 @@ class MiniMaxH3DirectorPlus:
             "height": int(native_height),
             "native_width": int(native_width),
             "native_height": int(native_height),
+            "postprocess_source_width": int(postprocess_source_width),
+            "postprocess_source_height": int(postprocess_source_height),
             "native_cap_applied": bool(native_capped),
             "two_stage_image_scale": TWO_STAGE_IMAGE_SCALE,
             "resolved_two_stage_route": resolved_two_stage_route,

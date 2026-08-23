@@ -135,7 +135,7 @@ function allowedPerformancePresets(mode, voiceMode) {
 }
 
 function performancePresetHint(preset) {
-  if (preset === "质量优先二采样") return "H3 latent 二采：前 6 步定结构 + 双线性放大 + 最后 2 步低噪细化 + RTX VSR";
+  if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 4 步 + 神经 latent 放大 + 匹配低 sigma 二采";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
   if (preset === "低显存") return "动态分层加载，适合显存受限设备";
   if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
@@ -260,6 +260,29 @@ function syncResolution(node) {
   setWidget(node, "width", width);
   setWidget(node, "height", height);
   return [width, height];
+}
+
+function twoStageSizeHint(finalWidth, finalHeight, backend) {
+  const ratio = finalWidth / Math.max(1, finalHeight);
+  const baseArea = 0.90 * 1000 * 1000;
+  const snap = (value) => Math.max(32, Math.round(value / 32) * 32);
+  const floorSnap = (value) => Math.max(32, Math.floor(value / 32) * 32);
+  let firstWidth = snap(Math.sqrt(baseArea * ratio));
+  let firstHeight = snap(Math.sqrt(baseArea / ratio));
+  let secondWidth = snap(firstWidth * 1.5);
+  let secondHeight = snap(firstHeight * 1.5);
+  if (secondWidth > finalWidth || secondHeight > finalHeight) {
+    firstWidth = floorSnap(finalWidth / 1.5);
+    firstHeight = floorSnap(finalHeight / 1.5);
+    secondWidth = snap(firstWidth * 1.5);
+    secondHeight = snap(firstHeight * 1.5);
+  }
+  const scale = Math.max(finalWidth / secondWidth, finalHeight / secondHeight);
+  const route = backend === "ref2va_model"
+    ? "Reference 训练型 3D latent 二采（Ref LoRA + Sigma 尾段强化）"
+    : "FL 训练型 3D latent 二采（8步 LoRA 首采 + 768p LoRA 二采）";
+  const finalStage = scale <= 1.01 ? "神经二采已到目标尺寸，RTX VSR 自动旁路" : `RTX VSR 约 ${scale.toFixed(2)}x`;
+  return `${route}；最终输出 ${finalWidth}×${finalHeight}；H3首采 ${firstWidth}×${firstHeight}；神经latent二采 ${secondWidth}×${secondHeight}；${finalStage}`;
 }
 
 function material(title, description) {
@@ -622,7 +645,7 @@ function install(node) {
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = "质量优先二采样已锁定 RTX VSR：前 6 步先稳定结构，双线性放大 latent 后只做最后 2 步低噪细化，再以较低倍率逐帧 RTX VSR 输出目标尺寸。这样避免最近邻方块和高 denoise 重绘造成颗粒；RIFE 固定关闭以避免重影。";
+      postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR（同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 import sys
 from pathlib import Path
@@ -21,6 +22,9 @@ from .rife_stream import (
     probe_rife_capability,
     smoothed_frame_count,
 )
+
+
+LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus.StreamOutput")
 
 
 class _VsrProcessingError(RuntimeError):
@@ -329,12 +333,12 @@ def _resolve_postprocess_path(guide, source_width, source_height):
     if path in {"native_bypass", "downscale", "lanczos", "ai_upscale", "rtx_vsr"}:
         # Equal native/target dimensions are always a bypass, even if an old
         # guide requested RTX VSR as a mode rather than a resolved path.
-        native_width = int(guide.get("native_width") or source_width)
-        native_height = int(guide.get("native_height") or source_height)
         target_width = int(guide.get("target_width") or source_width)
         target_height = int(guide.get("target_height") or source_height)
-        if target_width == native_width and target_height == native_height:
+        if target_width == int(source_width) and target_height == int(source_height):
             return "native_bypass"
+        if target_width < int(source_width) or target_height < int(source_height):
+            return "downscale"
         return path
 
     target_width = int(guide.get("target_width") or source_width)
@@ -344,6 +348,21 @@ def _resolve_postprocess_path(guide, source_width, source_height):
     # Legacy workflows used upscale_required plus CPU bicubic for all size
     # changes. Keep that behavior under the downscale iterator name.
     return "downscale"
+
+
+def release_sampling_models():
+    """Release H3 patchers before constructing the CUDA RTX VSR effect."""
+    import comfy.model_management as model_management
+
+    model_management.unload_all_models()
+    model_management.soft_empty_cache()
+    LOGGER.info("[H3 output] H3 sampling models released before RTX VSR")
+
+
+def _prepare_postprocess_runtime(guide, postprocess_path):
+    preset = str((guide or {}).get("performance_preset") or "")
+    if preset in {"quality_two_stage", "质量优先二采样"} and postprocess_path == "rtx_vsr":
+        release_sampling_models()
 
 
 def _save_resized_frame(source, index, target_width, target_height, output_path, suffix):
@@ -526,6 +545,7 @@ class MiniMaxH3StreamingVideoCombine:
                 )
             except Exception as exc:
                 raise RuntimeError(f"通用 AI 超分前置检查失败：{exc}") from exc
+        _prepare_postprocess_runtime(guide, postprocess_path)
         if postprocess_path == "downscale":
             source = source.to(device="cpu", dtype=torch.float32)
         selected_bit_depth = dasiwa._selected_bit_depth(codec, bit_depth, source)
@@ -744,4 +764,17 @@ class MiniMaxH3StreamingVideoCombine:
                 "audio_loudness": str(guide.get("audio_loudness") or "original"),
                 "postprocess_path": postprocess_path,
             }]
+        LOGGER.info(
+            "[H3 output] source=%sx%s final=%sx%s frames=%s fps=%.3f video=%s/%s audio=%s path=%s",
+            source_width,
+            source_height,
+            target_width,
+            target_height,
+            total_frames,
+            output_frame_rate,
+            selected_codec,
+            selected_container,
+            audio_codec if audio_path is not None else "none",
+            output_path,
+        )
         return {"ui": ui, "result": (output_frames, output_path)}
