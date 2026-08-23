@@ -11,6 +11,13 @@ from pathlib import Path
 
 from .h3_reuse_attention import apply_h3_reuse_attention
 from .schema import allowed_performance_presets
+from .two_stage_assets import (
+    FL_STAGE1_LORA,
+    FL_STAGE2_LORA,
+    REF_STAGE_LORA,
+    SIGMA_REFINER_NODE_ID,
+    resolve_two_stage_route,
+)
 
 
 LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus")
@@ -28,14 +35,11 @@ PRESETS = {
         "vae_device": "dynamic",
         "fish_device": "cpu",
     },
-    # Full-clip H3 latent route: split one schedule, upscale the clean video
-    # latent, inject CONST-correct noise, then finish the low-sigma tail.
+    # Trained H3 latent route: the first pass establishes the composition,
+    # then the route-specific learned 3D upscaler feeds a matched tail model.
     "quality_two_stage": {
-        # Six steps establish a stable x0 estimate. Only the final two
-        # low-sigma steps run on the enlarged grid, matching U09's gentle
-        # redraw semantics instead of repainting the clip at high denoise.
         "steps": 8,
-        "two_stage_steps": 2,
+        "two_stage_split_step": 4,
         "two_stage_scale": 1.5,
         # Keep native attention math, release the large normalized input, use
         # the consumed Q region as scratch, and chunk both attention and MLP.
@@ -86,7 +90,7 @@ PRESET_LABELS = {
 }
 
 
-def _load_lightx2v_lora(model, lora_name=None, low_vram=False):
+def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
     """Apply an official H3 adapter with the H3-aware loader when available.
 
     The stock loader assumes ``model.diffusion_model`` and crashes on the
@@ -103,9 +107,9 @@ def _load_lightx2v_lora(model, lora_name=None, low_vram=False):
     except (ImportError, AttributeError, OSError, RuntimeError):
         # Older installs may not include the companion H3 Turbo node.
         import nodes
-        return nodes.LoraLoaderModelOnly().load_lora_model_only(model, lora_name, 1.0)[0]
+        return nodes.LoraLoaderModelOnly().load_lora_model_only(model, lora_name, float(strength))[0]
     try:
-        return turbo().apply_lora(model, lora_name, 1.0, low_vram)[0]
+        return turbo().apply_lora(model, lora_name, float(strength), low_vram)[0]
     except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
         raise RuntimeError(f"Turbo LoRA 注入失败: {exc}") from exc
 
@@ -335,7 +339,7 @@ class MiniMaxH3PerformancePreset:
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
-            "quality_two_stage": "质量优先二采样：H3 专用 latent 二采（前 6 步定结构 + 双线性放大 + 最后 2 步低噪细化）+ 精确分块注意力/MLP；不解码整段帧",
+            "quality_two_stage": "质量优先二采样：匹配 LoRA 首采 4 步 + 训练型 3D latent 放大 + 低 sigma 二采；自动保留音频 latent",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
@@ -345,11 +349,11 @@ class MiniMaxH3PerformancePreset:
             descriptions[name] = "T2VA 极速 4 步：官方 H3 Turbo + Sage，关闭 EasyCache 以减少细节损失"
         two_stage_enabled = name == "quality_two_stage" and acceleration_ready is True
         if name == "quality_two_stage" and not two_stage_enabled:
-            values["two_stage_steps"] = 0
+            values["two_stage_split_step"] = 0
             values["two_stage_scale"] = 1.0
             descriptions[name] = "二采精确低显存注意力不可用，已在采样前回退为 8 步单采，避免第二阶段显存溢出"
         guide["two_stage_enabled"] = two_stage_enabled
-        guide["two_stage_steps"] = int(values.get("two_stage_steps", 0))
+        guide["two_stage_split_step"] = int(values.get("two_stage_split_step", 0))
         guide["two_stage_scale"] = float(values.get("two_stage_scale", 1.0))
         guide["two_stage_status"] = "待执行" if guide["two_stage_enabled"] else "旁路"
         if downgraded:
@@ -371,24 +375,199 @@ def acceleration_plan(guide):
     """Return the model/LoRA/sampler contract shared by U11 nodes."""
     preset, _ = _safe_guide_preset(guide)
     backend = guide.get("resolved_backend", "fl2va_model")
-    use_turbo = preset == "fast_4step"
+    route = resolve_two_stage_route(guide) if preset == "quality_two_stage" else "bypass"
+    use_two_stage = preset == "quality_two_stage" and route != "bypass"
+    use_turbo = preset == "fast_4step" or use_two_stage
     # Official H3 Turbo graphs use ComfyUI's stock Euler sampler for every
     # backend. The legacy custom sampler is intentionally bypassed.
     use_turbo_sampler = False
     if guide.get("turbo_lora_applied") is False:
         use_turbo = False
         use_turbo_sampler = False
-    return {
+    plan = {
         "use_turbo_lora": use_turbo,
         "use_turbo_sampler": use_turbo_sampler,
         "lora_name": REF2VA_TURBO_LORA_NAME if backend == "ref2va_model" else TURBO_LORA_NAME,
         "backend": backend,
         "preset": preset,
+        "route": route,
     }
+    if use_two_stage:
+        if route == "trained_latent_ref":
+            plan.update(
+                first_lora_name=REF_STAGE_LORA,
+                first_lora_strength=0.75,
+                second_lora_name=REF_STAGE_LORA,
+                second_lora_strength=0.75,
+            )
+        else:
+            plan.update(
+                first_lora_name=FL_STAGE1_LORA,
+                first_lora_strength=0.75,
+                second_lora_name=FL_STAGE2_LORA,
+                second_lora_strength=0.70,
+            )
+    return plan
+
+
+def scheduler_plan(guide):
+    """Resolve the schedule used by the selected H3 sampling route."""
+    preset, _ = _safe_guide_preset(guide)
+    if preset == "quality_two_stage":
+        route = resolve_two_stage_route(guide)
+        if route == "trained_latent_ref":
+            return {
+                "scheduler": "simple",
+                "steps": 8,
+                "split_step": 4,
+                "refine_reference_tail": True,
+            }
+        if route == "trained_latent_fl":
+            return {
+                "scheduler": "beta",
+                "steps": 8,
+                "split_step": 4,
+                "refine_reference_tail": False,
+            }
+    return {
+        "scheduler": "simple",
+        "steps": int(_runtime_preset_values(guide, preset)["steps"]),
+        "split_step": 0,
+        "refine_reference_tail": False,
+    }
+
+
+def sampler_name_for_guide(guide, requested):
+    """Use the stock Euler sampler for every official Turbo contract."""
+    plan = acceleration_plan(guide)
+    if plan["preset"] == "quality_two_stage" or (
+        plan["preset"] == "fast_4step" and plan["use_turbo_lora"]
+    ):
+        return "euler"
+    return requested
 
 
 def sampler_route(guide):
     return "h3_turbo" if acceleration_plan(guide)["use_turbo_sampler"] else "native"
+
+
+def _apply_reference_sigma_refiner(sigmas):
+    """Invoke YCNodes' U16-compatible H3 reference tail refiner."""
+    import nodes as comfy_nodes
+
+    mappings = getattr(comfy_nodes, "NODE_CLASS_MAPPINGS", {})
+    node_class = mappings.get(SIGMA_REFINER_NODE_ID)
+    if node_class is None:
+        raise RuntimeError("缺少 H3SigmaRefiner 节点")
+    node = node_class()
+    function_name = getattr(node, "FUNCTION", getattr(node_class, "FUNCTION", "refine_sigmas"))
+    function = getattr(node, function_name)
+    return _node_model(function(sigmas, 1, 0.7, 0.0, "cosine"))
+
+
+class MiniMaxH3SchedulerRouter:
+    """Create the exact FL or Reference schedule selected by the Director."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "model": ("MODEL",),
+            "steps": ("INT", {"default": 8, "min": 1, "max": 100}),
+            "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
+        }}
+
+    RETURN_TYPES = ("SIGMAS",)
+    RETURN_NAMES = ("匹配Sigma序列",)
+    FUNCTION = "route"
+    CATEGORY = "MiniMax H3 导演台 Plus"
+
+    def route(self, model, steps, guide):
+        from comfy_extras.nodes_custom_sampler import BasicScheduler
+
+        plan = scheduler_plan(guide)
+        resolved_steps = int(plan["steps"] if plan["split_step"] else steps)
+        sigmas = _node_model(BasicScheduler.execute(
+            model,
+            plan["scheduler"],
+            resolved_steps,
+            1.0,
+        ))
+        if plan["refine_reference_tail"]:
+            sigmas = _apply_reference_sigma_refiner(sigmas)
+        guide["scheduler_name"] = plan["scheduler"]
+        guide["scheduler_sigma_count"] = len(sigmas)
+        guide["two_stage_split_step"] = int(plan["split_step"])
+        LOGGER.info(
+            "[H3 scheduler] route=%s scheduler=%s steps=%s sigmas=%s split=%s refiner=%s",
+            resolve_two_stage_route(guide),
+            plan["scheduler"],
+            resolved_steps,
+            len(sigmas),
+            plan["split_step"],
+            plan["refine_reference_tail"],
+        )
+        return (sigmas,)
+
+
+def _apply_two_stage_models(model, guide, plan, values):
+    """Build independently patched first/second models for trained sampling."""
+    original_model = model
+    guide["sage_requested"] = False
+    guide["cache_requested"] = False
+    guide["head_chunking_requested"] = True
+    guide["sage_applied"] = False
+    guide["easycache_applied"] = False
+    guide["head_chunking_applied"] = False
+    guide.pop("turbo_lora_error", None)
+    guide.pop("head_chunking_error", None)
+    guide["minimax_head_chunks"] = int(values.get("minimax_head_chunks", 8))
+    try:
+        first_model = _load_lightx2v_lora(
+            original_model,
+            plan["first_lora_name"],
+            strength=plan["first_lora_strength"],
+        )
+        if (
+            plan["second_lora_name"] == plan["first_lora_name"]
+            and plan["second_lora_strength"] == plan["first_lora_strength"]
+        ):
+            second_model = first_model
+        else:
+            second_model = _load_lightx2v_lora(
+                original_model,
+                plan["second_lora_name"],
+                strength=plan["second_lora_strength"],
+            )
+        shared_second_model = second_model is first_model
+        first_model = _apply_minimax_reuse_attention(first_model, guide)
+        if shared_second_model:
+            second_model = first_model
+        else:
+            second_model = _apply_minimax_reuse_attention(second_model, guide)
+    except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        guide["turbo_lora_applied"] = False
+        guide["head_chunking_applied"] = False
+        guide["two_stage_enabled"] = False
+        guide["turbo_lora_error"] = str(exc)
+        guide["head_chunking_error"] = str(exc)
+        LOGGER.warning("[H3 two-stage models] route setup failed: %s", exc)
+        return original_model, "训练型二采模型或精确分块补丁不可用，已在采样前安全旁路", False, original_model
+
+    guide["turbo_lora_applied"] = True
+    guide["head_chunking_applied"] = True
+    guide["first_lora_name"] = plan["first_lora_name"]
+    guide["second_lora_name"] = plan["second_lora_name"]
+    guide["resolved_two_stage_route"] = plan["route"]
+    LOGGER.info(
+        "[H3 two-stage models] route=%s first=%s@%.2f second=%s@%.2f head_chunks=%s",
+        plan["route"],
+        plan["first_lora_name"],
+        plan["first_lora_strength"],
+        plan["second_lora_name"],
+        plan["second_lora_strength"],
+        guide["minimax_head_chunks"],
+    )
+    return first_model, "匹配 LoRA 双模型与精确分块补丁已启用", True, second_model
 
 
 def _apply_acceleration(model, guide):
@@ -411,6 +590,8 @@ def _apply_acceleration(model, guide):
     guide.pop("head_chunking_error", None)
 
     original_model = model
+    if plan["preset"] == "quality_two_stage" and plan.get("route") != "bypass":
+        return _apply_two_stage_models(original_model, guide, plan, values)
     if plan["use_turbo_lora"]:
         try:
             model = _load_lightx2v_lora(
@@ -422,7 +603,7 @@ def _apply_acceleration(model, guide):
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
             guide["turbo_lora_applied"] = False
             guide["turbo_lora_error"] = str(exc)
-            return original_model, "Turbo LoRA 与当前模型不兼容，已回退原生采样", False
+            return original_model, "Turbo LoRA 与当前模型不兼容，已回退原生采样", False, original_model
     else:
         guide["turbo_lora_applied"] = False
 
@@ -433,7 +614,7 @@ def _apply_acceleration(model, guide):
         except (ImportError, AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
             guide["sage_error"] = str(exc)
             LOGGER.warning("[H3 acceleration] SageAttention unavailable: %s", exc)
-            return original_model, "SageAttention 加速失败，已回退原生模型", False
+            return original_model, "SageAttention 加速失败，已回退原生模型", False, original_model
 
     if head_chunking_requested:
         try:
@@ -442,7 +623,7 @@ def _apply_acceleration(model, guide):
         except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
             guide["head_chunking_error"] = str(exc)
             LOGGER.warning("[H3 acceleration] exact head chunking unavailable: %s", exc)
-            return original_model, "二采精确低显存注意力不可用，将在采样前回退单采", False
+            return original_model, "二采精确低显存注意力不可用，将在采样前回退单采", False, original_model
 
     if cache_requested:
         try:
@@ -451,7 +632,7 @@ def _apply_acceleration(model, guide):
         except (ImportError, AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
             guide["easycache_error"] = str(exc)
             LOGGER.warning("[H3 acceleration] EasyCache unavailable: %s", exc)
-            return original_model, "EasyCache 加速失败，已回退原生模型", False
+            return original_model, "EasyCache 加速失败，已回退原生模型", False, original_model
 
     requested = plan["use_turbo_lora"] or sage_requested or cache_requested or head_chunking_requested
     ready = (not plan["use_turbo_lora"] or guide["turbo_lora_applied"]) and (
@@ -471,8 +652,8 @@ def _apply_acceleration(model, guide):
             "[H3 acceleration] preset=%s backend=%s turbo=%s sage=%s easycache=%s head_chunks=%s",
             plan["preset"], plan["backend"], guide["turbo_lora_applied"], guide["sage_applied"], guide["easycache_applied"], guide["head_chunking_applied"],
         )
-        return model, f"{label} 已启用；加速与低显存状态已写入指南", ready
-    return model, "当前预设保持原生模型", False
+        return model, f"{label} 已启用；加速与低显存状态已写入指南", ready, model
+    return model, "当前预设保持原生模型", False, model
 
 
 class MiniMaxH3SamplerRouter:
@@ -510,9 +691,7 @@ class MiniMaxH3SamplerRouter:
         # Official Ref2VA Turbo is specified with the stock Euler sampler.
         # The saved U11 graph keeps its FL2VA-compatible default widget, so
         # override it here instead of requiring a manual node edit.
-        plan = acceleration_plan(guide)
-        if plan["use_turbo_lora"] and plan["preset"] == "fast_4step":
-            sampler_name = "euler"
+        sampler_name = sampler_name_for_guide(guide, sampler_name)
         import comfy.samplers
         guide.setdefault("turbo_sampler_applied", False)
         return (comfy.samplers.sampler_object(sampler_name),)
@@ -556,8 +735,8 @@ class MiniMaxH3AccelerationRouter:
             "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
         }}
 
-    RETURN_TYPES = ("MODEL", "STRING", "BOOLEAN")
-    RETURN_NAMES = ("加速后模型", "加速说明", "加速成功")
+    RETURN_TYPES = ("MODEL", "STRING", "BOOLEAN", "MODEL")
+    RETURN_NAMES = ("第一阶段模型", "加速说明", "加速成功", "第二阶段模型")
     FUNCTION = "apply"
     CATEGORY = "MiniMax H3 导演台 Plus"
 

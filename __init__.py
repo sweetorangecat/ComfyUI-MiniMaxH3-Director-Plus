@@ -10,6 +10,7 @@ if __package__:
         MiniMaxH3MemoryAwareSampler,
         MiniMaxH3PerformancePreset,
         MiniMaxH3SamplerRouter,
+        MiniMaxH3SchedulerRouter,
     )
     from .nodes.two_stage import MiniMaxH3TwoStageSampler
     from .nodes.resolution import MiniMaxH3ResolutionPlus
@@ -29,6 +30,7 @@ if __package__:
         "MiniMaxH3MemoryAwareSampler": MiniMaxH3MemoryAwareSampler,
         "MiniMaxH3TwoStageSampler": MiniMaxH3TwoStageSampler,
         "MiniMaxH3SamplerRouter": MiniMaxH3SamplerRouter,
+        "MiniMaxH3SchedulerRouter": MiniMaxH3SchedulerRouter,
         "MiniMaxH3ResolutionPlus": MiniMaxH3ResolutionPlus,
         "MiniMaxH3DirectorPlusStatus": MiniMaxH3DirectorPlusStatus,
         "MiniMaxH3ColorGuard": MiniMaxH3ColorGuard,
@@ -46,6 +48,7 @@ if __package__:
         "MiniMaxH3AccelerationRouter": "H3 兼容加速模型路由",
         "MiniMaxH3MemoryAwareSampler": "H3 低显存采样保护",
         "MiniMaxH3TwoStageSampler": "H3 专用 Latent 二采（自动旁路）",
+        "MiniMaxH3SchedulerRouter": "H3 匹配调度器（自动路由）",
         "MiniMaxH3ResolutionPlus": "H3 横竖比例与分辨率",
         "MiniMaxH3DirectorPlusStatus": "H3 能力与模型状态",
         "MiniMaxH3ColorGuard": "H3 曝光与色彩连续性保护",

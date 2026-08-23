@@ -6,11 +6,15 @@ from nodes.performance import (
     MiniMaxH3MemoryAwareSampler,
     MiniMaxH3PerformancePreset,
     MiniMaxH3SamplerRouter,
+    MiniMaxH3SchedulerRouter,
     acceleration_plan,
     memory_policy,
     preset_values,
+    sampler_name_for_guide,
     sampler_route,
+    scheduler_plan,
 )
+from nodes.two_stage_assets import FL_STAGE1_LORA, FL_STAGE2_LORA, REF_STAGE_LORA
 
 
 def test_fast_preset_exposes_four_step_sampling_contract():
@@ -35,9 +39,13 @@ def test_turbo_loader_prefers_h3_aware_adapter_for_pruned_models(monkeypatch):
     monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
     monkeypatch.setattr(performance, "_turbo_class", lambda name: TurboLoRA)
 
-    result = performance._load_lightx2v_lora("model", "adapter.safetensors")
+    result = performance._load_lightx2v_lora(
+        "model",
+        "adapter.safetensors",
+        strength=0.75,
+    )
 
-    assert result == "turbo:model:adapter.safetensors:1.0:False"
+    assert result == "turbo:model:adapter.safetensors:0.75:False"
 
 
 def test_turbo_injection_failure_is_not_masked_by_stock_lora_loader(monkeypatch):
@@ -131,10 +139,15 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     assert values["use_cache"] is expected_cache
     assert plan["backend"] == backend
     expected_preset = "quality" if mode == "T2VA" and preset == "reference_fast" else preset
-    assert plan["use_turbo_lora"] is (expected_preset == "fast_4step")
-    assert plan["lora_name"] == (
-        performance.REF2VA_TURBO_LORA_NAME if backend == "ref2va_model" else performance.TURBO_LORA_NAME
-    )
+    assert plan["use_turbo_lora"] is (expected_preset in {"fast_4step", "quality_two_stage"})
+    if expected_preset == "quality_two_stage":
+        assert plan["first_lora_name"] == (
+            REF_STAGE_LORA if backend == "ref2va_model" else FL_STAGE1_LORA
+        )
+    else:
+        assert plan["lora_name"] == (
+            performance.REF2VA_TURBO_LORA_NAME if backend == "ref2va_model" else performance.TURBO_LORA_NAME
+        )
 
 
 def test_low_vram_preset_uses_dynamic_safe_policy_without_cache():
@@ -160,7 +173,7 @@ def test_quality_two_stage_uses_exact_head_chunking_without_sage_or_cache():
     values = preset_values("quality_two_stage")
 
     assert values["steps"] == 8
-    assert values["two_stage_steps"] == 2
+    assert values["two_stage_split_step"] == 4
     assert values["use_sage"] is False
     assert values["use_cache"] is False
     assert values["use_head_chunking"] is True
@@ -172,8 +185,16 @@ def test_quality_two_stage_applies_only_exact_low_vram_attention(monkeypatch):
 
     monkeypatch.setattr(
         performance,
+        "_load_lightx2v_lora",
+        lambda model, name, strength=1.0, low_vram=False: calls.append(
+            ("lora", model, name, strength)
+        ) or f"{model}:{name}:{strength}",
+    )
+
+    monkeypatch.setattr(
+        performance,
         "_apply_minimax_reuse_attention",
-        lambda model, guide: calls.append((model, guide["performance_preset"])) or f"{model}:head-chunks",
+        lambda model, guide: calls.append(("chunks", model, guide["performance_preset"])) or f"{model}:head-chunks",
         raising=False,
     )
     monkeypatch.setattr(
@@ -189,14 +210,26 @@ def test_quality_two_stage_applies_only_exact_low_vram_attention(monkeypatch):
     }
     result = MiniMaxH3AccelerationRouter().apply("model", guide)
 
-    assert result[0] == "model:head-chunks"
+    assert len(result) == 4
+    assert result[0].endswith(":head-chunks")
+    assert result[3].endswith(":head-chunks")
     assert result[2] is True
-    assert calls == [("model", "quality_two_stage")]
+    assert calls == [
+        ("lora", "model", FL_STAGE1_LORA, 0.75),
+        ("lora", "model", FL_STAGE2_LORA, 0.70),
+        ("chunks", f"model:{FL_STAGE1_LORA}:0.75", "quality_two_stage"),
+        ("chunks", f"model:{FL_STAGE2_LORA}:0.7", "quality_two_stage"),
+    ]
     assert guide["head_chunking_applied"] is True
     assert guide["sage_applied"] is False
 
 
 def test_quality_two_stage_head_chunk_failure_bypasses_second_pass(monkeypatch):
+    monkeypatch.setattr(
+        performance,
+        "_load_lightx2v_lora",
+        lambda model, name, strength=1.0, low_vram=False: f"{model}:{name}:{strength}",
+    )
     monkeypatch.setattr(
         performance,
         "_apply_minimax_reuse_attention",
@@ -213,10 +246,11 @@ def test_quality_two_stage_head_chunk_failure_bypasses_second_pass(monkeypatch):
     preset = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=acceleration[2])
 
     assert acceleration[0] == "model"
+    assert acceleration[3] == "model"
     assert acceleration[2] is False
     assert guide["head_chunking_applied"] is False
     assert guide["two_stage_enabled"] is False
-    assert guide["two_stage_steps"] == 0
+    assert guide["two_stage_split_step"] == 0
     assert preset[0] == 8
     assert "单采" in preset[3]
 
@@ -329,8 +363,99 @@ def test_quality_two_stage_without_verified_patch_fails_closed():
 
     assert result[0] == 8
     assert guide["two_stage_enabled"] is False
-    assert guide["two_stage_steps"] == 0
+    assert guide["two_stage_split_step"] == 0
     assert guide["two_stage_scale"] == 1.0
+
+
+def test_fl_two_stage_uses_u17_model_lora_contract():
+    guide = {
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "fl2va_model",
+        "voice_mode": "none",
+    }
+
+    plan = acceleration_plan(guide)
+
+    assert plan["first_lora_name"] == FL_STAGE1_LORA
+    assert plan["first_lora_strength"] == 0.75
+    assert plan["second_lora_name"] == FL_STAGE2_LORA
+    assert plan["second_lora_strength"] == 0.70
+    assert scheduler_plan(guide) == {
+        "scheduler": "beta",
+        "steps": 8,
+        "split_step": 4,
+        "refine_reference_tail": False,
+    }
+
+
+def test_reference_two_stage_uses_u16_model_lora_contract():
+    guide = {
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "ref2va_model",
+        "voice_mode": "h3_reference",
+    }
+
+    plan = acceleration_plan(guide)
+
+    assert plan["first_lora_name"] == REF_STAGE_LORA
+    assert plan["first_lora_strength"] == 0.75
+    assert plan["second_lora_name"] == REF_STAGE_LORA
+    assert plan["second_lora_strength"] == 0.75
+    assert scheduler_plan(guide) == {
+        "scheduler": "simple",
+        "steps": 8,
+        "split_step": 4,
+        "refine_reference_tail": True,
+    }
+
+
+def test_every_trained_two_stage_route_forces_euler():
+    assert sampler_name_for_guide(
+        {"performance_preset": "quality_two_stage"},
+        "res_multistep",
+    ) == "euler"
+
+
+def test_scheduler_router_applies_reference_tail_refiner(monkeypatch):
+    import sys
+    import types
+    import torch
+
+    base = torch.tensor([10.0, 8.0, 6.0, 4.0, 2.0, 1.0, 0.5, 0.2, 0.0])
+    refined = torch.cat((base[:-1], torch.tensor([0.1, 0.0])))
+    calls = []
+
+    class BasicScheduler:
+        @classmethod
+        def execute(cls, model, scheduler, steps, denoise):
+            calls.append(("scheduler", model, scheduler, steps, denoise))
+            return types.SimpleNamespace(result=(base,))
+
+    monkeypatch.setitem(
+        sys.modules,
+        "comfy_extras.nodes_custom_sampler",
+        types.SimpleNamespace(BasicScheduler=BasicScheduler),
+    )
+    monkeypatch.setattr(
+        performance,
+        "_apply_reference_sigma_refiner",
+        lambda sigmas: calls.append(("refiner", sigmas)) or refined,
+        raising=False,
+    )
+
+    result = MiniMaxH3SchedulerRouter().route(
+        "model",
+        8,
+        {
+            "performance_preset": "quality_two_stage",
+            "resolved_backend": "ref2va_model",
+            "voice_mode": "h3_reference",
+        },
+    )
+
+    assert torch.equal(result[0], refined)
+    assert calls[0] == ("scheduler", "model", "simple", 8, 1.0)
+    assert calls[1][0] == "refiner"
 
 
 def test_low_vram_uses_h3_memory_efficient_sage_patch_with_more_head_chunks(monkeypatch):
@@ -460,7 +585,7 @@ def test_non_two_stage_preset_explicitly_bypasses_refinement():
     guide = {"mode": "FL2VA", "voice_mode": "none", "performance_preset": "quality"}
     MiniMaxH3PerformancePreset().apply(guide)
     assert guide["two_stage_enabled"] is False
-    assert guide["two_stage_steps"] == 0
+    assert guide["two_stage_split_step"] == 0
     assert guide["two_stage_scale"] == 1.0
     assert guide["two_stage_status"] == "旁路"
 
