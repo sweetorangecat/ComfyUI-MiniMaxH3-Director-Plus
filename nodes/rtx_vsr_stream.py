@@ -217,6 +217,7 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
     """
     device_id = int(device_id)
     cuda_device = torch.device("cuda", device_id)
+    processor = None
     input_frame = None
     output_frame = None
     try:
@@ -226,19 +227,19 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
             device=cuda_device,
             dtype=torch.float32,
         )
-        with VsrFrameProcessor(
+        processor = VsrFrameProcessor(
             api,
             quality,
             device_id,
             PROBE_OUTPUT_WIDTH,
             PROBE_OUTPUT_HEIGHT,
-        ) as processor:
-            output_frame = processor.process(input_frame)
+        )
+        output_frame = processor.process(input_frame)
 
         expected_shape = (PROBE_OUTPUT_HEIGHT, PROBE_OUTPUT_WIDTH, 3)
         if output_frame.device.type != "cpu" or tuple(output_frame.shape) != expected_shape:
             raise RuntimeError(
-                "NVIDIA RTX VSR 输出尺寸异常："
+                "NVIDIA RTX VSR 探测输出尺寸异常："
                 f"期望 CPU HWC {expected_shape}，实际 "
                 f"{output_frame.device.type} {tuple(output_frame.shape)}"
             )
@@ -262,6 +263,11 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
             "\n如果当前设备不支持该能力，请将‘最终输出’切换为‘原生尺寸直出’，不会影响 H3 生成。"
         ) from exc
     finally:
+        if processor is not None:
+            try:
+                processor.close()
+            except Exception as cleanup_exc:
+                LOGGER.warning("RTX VSR 前置检查效果清理失败：%s", cleanup_exc)
         input_frame = None
         output_frame = None
         if torch.cuda.is_available():
