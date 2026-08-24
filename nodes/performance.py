@@ -536,6 +536,23 @@ class MiniMaxH3SchedulerRouter:
         return (sigmas,)
 
 
+def _reset_h3_acceleration_state(guide, error=None):
+    """Clear stale LoRA route results before a new acceleration attempt."""
+    guide.pop("turbo_lora_applied", None)
+    guide.pop("turbo_lora_error", None)
+    guide.pop("first_lora_name", None)
+    guide.pop("second_lora_name", None)
+    guide.pop("resolved_two_stage_route", None)
+    guide["turbo_sampler_applied"] = False
+    guide["two_stage_enabled"] = False
+    guide["two_stage_status"] = "旁路"
+    guide["two_stage_split_step"] = 0
+    guide["two_stage_scale"] = 1.0
+    if error is not None:
+        guide["turbo_lora_applied"] = False
+        guide["turbo_lora_error"] = str(error)
+
+
 def _apply_two_stage_models(model, guide, plan, values):
     """Build independently patched first/second models for trained sampling."""
     original_model = model
@@ -545,7 +562,6 @@ def _apply_two_stage_models(model, guide, plan, values):
     guide["sage_applied"] = False
     guide["easycache_applied"] = False
     guide["head_chunking_applied"] = False
-    guide.pop("turbo_lora_error", None)
     guide.pop("head_chunking_error", None)
     guide["minimax_head_chunks"] = int(values.get("minimax_head_chunks", 8))
     try:
@@ -572,23 +588,23 @@ def _apply_two_stage_models(model, guide, plan, values):
         else:
             second_model = _apply_minimax_reuse_attention(second_model, guide)
     except H3LoRAApplicationError as exc:
-        guide["turbo_lora_applied"] = False
+        _reset_h3_acceleration_state(guide, exc)
         guide["head_chunking_applied"] = False
-        guide["two_stage_enabled"] = False
-        guide["turbo_lora_error"] = str(exc)
-        LOGGER.error("[H3 two-stage models] official LoRA verification failed: %s", exc)
+        LOGGER.error("[H3 two-stage models] official LoRA application failed: %s", exc)
         raise
     except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-        guide["turbo_lora_applied"] = False
+        _reset_h3_acceleration_state(guide, exc)
         guide["head_chunking_applied"] = False
-        guide["two_stage_enabled"] = False
-        guide["turbo_lora_error"] = str(exc)
         guide["head_chunking_error"] = str(exc)
         LOGGER.warning("[H3 two-stage models] route setup failed: %s", exc)
         return original_model, "训练型二采模型或精确分块补丁不可用，已在采样前安全旁路", False, original_model
 
     guide["turbo_lora_applied"] = True
     guide["head_chunking_applied"] = True
+    guide["two_stage_enabled"] = True
+    guide["two_stage_status"] = "待执行"
+    guide["two_stage_split_step"] = int(values.get("two_stage_split_step", 0))
+    guide["two_stage_scale"] = float(values.get("two_stage_scale", 1.0))
     guide["first_lora_name"] = plan["first_lora_name"]
     guide["second_lora_name"] = plan["second_lora_name"]
     guide["resolved_two_stage_route"] = plan["route"]
@@ -606,6 +622,7 @@ def _apply_two_stage_models(model, guide, plan, values):
 
 def _apply_acceleration(model, guide):
     """Apply all requested accelerators to the model that will actually sample."""
+    _reset_h3_acceleration_state(guide)
     plan = acceleration_plan(guide)
     values = _runtime_preset_values(guide, plan["preset"])
     sage_requested = bool(values.get("use_sage"))
@@ -635,13 +652,11 @@ def _apply_acceleration(model, guide):
             )
             guide["turbo_lora_applied"] = True
         except H3LoRAApplicationError as exc:
-            guide["turbo_lora_applied"] = False
-            guide["turbo_lora_error"] = str(exc)
-            LOGGER.error("[H3 acceleration] official LoRA verification failed: %s", exc)
+            _reset_h3_acceleration_state(guide, exc)
+            LOGGER.error("[H3 acceleration] official LoRA application failed: %s", exc)
             raise
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-            guide["turbo_lora_applied"] = False
-            guide["turbo_lora_error"] = str(exc)
+            _reset_h3_acceleration_state(guide, exc)
             return original_model, "Turbo LoRA 与当前模型不兼容，已回退原生采样", False, original_model
     else:
         guide["turbo_lora_applied"] = False

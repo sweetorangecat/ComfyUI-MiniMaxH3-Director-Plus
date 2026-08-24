@@ -775,15 +775,22 @@ def test_sampler_router_falls_back_if_turbo_node_is_unavailable(monkeypatch):
 def test_acceleration_router_falls_back_without_leaving_turbo_sampler_enabled(monkeypatch):
     model = object()
 
-    def fail(_model):
+    def fail(*_args, **_kwargs):
         raise AttributeError("incompatible H3 model wrapper")
 
-    monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda value, _name: fail(value))
-    guide = {"mode": "I2VA", "performance_preset": "fast_4step", "resolved_backend": "fl2va_model"}
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fail)
+    guide = {
+        "mode": "I2VA",
+        "performance_preset": "fast_4step",
+        "resolved_backend": "fl2va_model",
+        "turbo_sampler_applied": True,
+    }
 
     result = MiniMaxH3AccelerationRouter().apply(model, guide)
     assert result[0] is model
     assert guide["turbo_lora_applied"] is False
+    assert guide["turbo_sampler_applied"] is False
+    assert "incompatible H3 model wrapper" in guide["turbo_lora_error"]
     assert sampler_route(guide) == "native"
     assert "回退" in result[1]
 
@@ -797,13 +804,51 @@ def test_fast_route_stops_when_official_lora_has_no_verified_patches(monkeypatch
         "mode": "FL2VA",
         "performance_preset": "fast_4step",
         "resolved_backend": "fl2va_model",
+        "turbo_lora_error": "old failure",
+        "turbo_sampler_applied": True,
+        "two_stage_enabled": True,
+        "two_stage_status": "待执行",
+        "two_stage_split_step": 4,
+        "two_stage_scale": 1.5,
+        "first_lora_name": "old-first",
+        "second_lora_name": "old-second",
+        "resolved_two_stage_route": "old-route",
     }
 
     with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
         MiniMaxH3AccelerationRouter().apply(object(), guide)
 
     assert guide["turbo_lora_applied"] is False
+    assert guide["turbo_sampler_applied"] is False
+    assert guide["two_stage_enabled"] is False
+    assert guide["two_stage_status"] == "旁路"
+    assert guide["two_stage_split_step"] == 0
+    assert guide["two_stage_scale"] == 1.0
+    assert "first_lora_name" not in guide
+    assert "second_lora_name" not in guide
+    assert "resolved_two_stage_route" not in guide
     assert "未应用任何模型补丁" in guide["turbo_lora_error"]
+
+
+def test_fast_route_retries_official_lora_after_a_previous_failure(monkeypatch):
+    calls = []
+
+    def fail(*_args, **_kwargs):
+        calls.append("lora")
+        raise performance.H3LoRAApplicationError("官方 LoRA 未应用任何模型补丁")
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fail)
+    guide = {
+        "mode": "FL2VA",
+        "performance_preset": "fast_4step",
+        "resolved_backend": "fl2va_model",
+    }
+
+    for _ in range(2):
+        with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
+            MiniMaxH3AccelerationRouter().apply(object(), guide)
+
+    assert calls == ["lora", "lora"]
 
 
 def test_two_stage_route_stops_when_official_lora_has_no_verified_patches(monkeypatch):
@@ -815,13 +860,29 @@ def test_two_stage_route_stops_when_official_lora_has_no_verified_patches(monkey
         "mode": "T2VA",
         "performance_preset": "quality_two_stage",
         "resolved_backend": "fl2va_model",
+        "turbo_lora_error": "old failure",
+        "turbo_sampler_applied": True,
+        "two_stage_enabled": True,
+        "two_stage_status": "待执行",
+        "two_stage_split_step": 4,
+        "two_stage_scale": 1.5,
+        "first_lora_name": "old-first",
+        "second_lora_name": "old-second",
+        "resolved_two_stage_route": "old-route",
     }
 
     with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
         MiniMaxH3AccelerationRouter().apply(object(), guide)
 
     assert guide["turbo_lora_applied"] is False
+    assert guide["turbo_sampler_applied"] is False
     assert guide["two_stage_enabled"] is False
+    assert guide["two_stage_status"] == "旁路"
+    assert guide["two_stage_split_step"] == 0
+    assert guide["two_stage_scale"] == 1.0
+    assert "first_lora_name" not in guide
+    assert "second_lora_name" not in guide
+    assert "resolved_two_stage_route" not in guide
     assert "未应用任何模型补丁" in guide["turbo_lora_error"]
 
 
