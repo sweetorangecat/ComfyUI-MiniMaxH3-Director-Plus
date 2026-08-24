@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
 import torch
+
+
+LOGGER = logging.getLogger(__name__)
+PROBE_INPUT_WIDTH = 640
+PROBE_INPUT_HEIGHT = 360
+PROBE_OUTPUT_WIDTH = 1280
+PROBE_OUTPUT_HEIGHT = 720
 
 
 def _dasiwa_requirements_path() -> Path:
@@ -207,10 +215,44 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
     constructor/load path as frame processing so this failure is reported by
     the director node before any expensive video generation begins.
     """
+    device_id = int(device_id)
+    cuda_device = torch.device("cuda", device_id)
+    input_frame = None
+    output_frame = None
     try:
         api = load_vsr_api()
-        with VsrFrameProcessor(api, quality, int(device_id), 64, 64):
-            return True
+        input_frame = torch.zeros(
+            (3, PROBE_INPUT_HEIGHT, PROBE_INPUT_WIDTH),
+            device=cuda_device,
+            dtype=torch.float32,
+        )
+        with VsrFrameProcessor(
+            api,
+            quality,
+            device_id,
+            PROBE_OUTPUT_WIDTH,
+            PROBE_OUTPUT_HEIGHT,
+        ) as processor:
+            output_frame = processor.process(input_frame)
+
+        expected_shape = (PROBE_OUTPUT_HEIGHT, PROBE_OUTPUT_WIDTH, 3)
+        if output_frame.device.type != "cpu" or tuple(output_frame.shape) != expected_shape:
+            raise RuntimeError(
+                "NVIDIA RTX VSR 输出尺寸异常："
+                f"期望 CPU HWC {expected_shape}，实际 "
+                f"{output_frame.device.type} {tuple(output_frame.shape)}"
+            )
+
+        LOGGER.info(
+            "RTX VSR 前置检查成功：quality=%s gpu=%s input=%sx%s output=%sx%s",
+            quality,
+            device_id,
+            PROBE_INPUT_WIDTH,
+            PROBE_INPUT_HEIGHT,
+            PROBE_OUTPUT_WIDTH,
+            PROBE_OUTPUT_HEIGHT,
+        )
+        return True
     except Exception as exc:
         raise RuntimeError(
             "RTX VSR 前置检查失败，尚未开始 H3 视频生成。"
@@ -219,3 +261,12 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
             "\n请确认 NVIDIA 驱动、NVIDIA Broadcast SDK 与 nvidia-vfx 版本匹配。"
             "\n如果当前设备不支持该能力，请将‘最终输出’切换为‘原生尺寸直出’，不会影响 H3 生成。"
         ) from exc
+    finally:
+        input_frame = None
+        output_frame = None
+        if torch.cuda.is_available():
+            try:
+                with torch.cuda.device(cuda_device):
+                    torch.cuda.empty_cache()
+            except Exception as cleanup_exc:
+                LOGGER.warning("RTX VSR 前置检查 CUDA 缓存清理失败：%s", cleanup_exc)

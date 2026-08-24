@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from nodes import rtx_vsr_stream
 from nodes.rtx_vsr_stream import (
     VsrFrameProcessor,
     _dasiwa_requirements_path,
@@ -55,26 +56,110 @@ def test_load_vsr_api_locates_video_super_res_and_effect_quality(monkeypatch):
     assert load_vsr_api() == (video_super_res, quality_level)
 
 
-def test_probe_vsr_capability_loads_and_closes_effect_before_generation(monkeypatch):
+@pytest.mark.parametrize("quality", ["HIGH", "ULTRA"])
+def test_probe_vsr_capability_runs_a_real_360p_frame_at_the_requested_quality(monkeypatch, quality):
+    calls = []
+    original_zeros = torch.zeros
+
+    class FakeProcessor:
+        def __init__(self, api, received_quality, device_id, output_width, output_height):
+            calls.append(("create", api, received_quality, device_id, output_width, output_height))
+
+        def __enter__(self):
+            calls.append("enter")
+            return self
+
+        def process(self, frame):
+            calls.append(("process", frame))
+            return original_zeros((720, 1280, 3), dtype=torch.float32)
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            calls.append(("exit", exc_type))
+            return False
+
+    def fake_zeros(*args, **kwargs):
+        calls.append(("zeros", args, kwargs))
+        cpu_kwargs = dict(kwargs)
+        cpu_kwargs.pop("device", None)
+        return original_zeros(*args, **cpu_kwargs)
+
+    api = object()
+    monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: api)
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+    monkeypatch.setattr(rtx_vsr_stream.torch, "zeros", fake_zeros)
+    monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "empty_cache", lambda: calls.append("empty_cache"))
+
+    assert probe_vsr_capability(quality, 0) is True
+
+    assert next(call for call in calls if call[0] == "create") == (
+        "create", api, quality, 0, 1280, 720
+    )
+    zeros_call = next(call for call in calls if call[0] == "zeros")
+    assert zeros_call[1] == ((3, 360, 640),)
+    assert zeros_call[2] == {"device": torch.device("cuda", 0), "dtype": torch.float32}
+    processed_frame = next(call[1] for call in calls if call[0] == "process")
+    assert processed_frame.shape == (3, 360, 640)
+    assert calls[-2:] == [("exit", None), "empty_cache"]
+
+
+def test_probe_vsr_capability_cleans_up_when_processing_raises(monkeypatch):
     calls = []
 
-    class FakeEffect:
-        def load(self):
-            calls.append("load")
+    class FakeProcessor:
+        def __init__(self, *args):
+            calls.append("create")
 
-        def close(self):
-            calls.append("close")
+        def __enter__(self):
+            return self
 
-    monkeypatch.setattr(
-        "nodes.rtx_vsr_stream.load_vsr_api",
-        lambda: (lambda *args, **kwargs: FakeEffect(), SimpleNamespace(HIGH="high", ULTRA="ultra")),
-    )
+        def process(self, frame):
+            calls.append("process")
+            raise RuntimeError("kernel refused")
 
-    assert probe_vsr_capability("ULTRA", 0) is True
-    assert calls == ["load", "close"]
+        def __exit__(self, exc_type, exc_value, traceback):
+            calls.append(("exit", exc_type, str(exc_value)))
+            return False
+
+    monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+    monkeypatch.setattr(rtx_vsr_stream.torch, "zeros", lambda *args, **kwargs: torch.ones((3, 360, 640)))
+    monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "empty_cache", lambda: calls.append("empty_cache"))
+
+    with pytest.raises(RuntimeError, match="kernel refused"):
+        probe_vsr_capability("HIGH", 0)
+
+    assert calls == ["create", "process", ("exit", RuntimeError, "kernel refused"), "empty_cache"]
+
+
+def test_probe_vsr_capability_rejects_an_unexpected_output_shape(monkeypatch):
+    original_zeros = torch.zeros
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def process(self, frame):
+            return original_zeros((3, 720, 1280), dtype=torch.float32)
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+    monkeypatch.setattr(rtx_vsr_stream.torch, "zeros", lambda *args, **kwargs: original_zeros((3, 360, 640)))
+
+    with pytest.raises(RuntimeError, match="输出尺寸异常"):
+        probe_vsr_capability("HIGH", 0)
 
 
 def test_probe_vsr_capability_reports_unsupported_sdk_before_generation(monkeypatch):
+    original_zeros = torch.zeros
+
     class FakeEffect:
         def load(self):
             raise RuntimeError("NvVFX_Load failed: The requested feature or capability was not found (code -14)")
@@ -83,6 +168,8 @@ def test_probe_vsr_capability_reports_unsupported_sdk_before_generation(monkeypa
         "nodes.rtx_vsr_stream.load_vsr_api",
         lambda: (lambda *args, **kwargs: FakeEffect(), SimpleNamespace(HIGH="high", ULTRA="ultra")),
     )
+    monkeypatch.setattr(rtx_vsr_stream.torch, "zeros", lambda *args, **kwargs: original_zeros((3, 360, 640)))
+    monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "is_available", lambda: False)
 
     with pytest.raises(RuntimeError, match="code -14"):
         probe_vsr_capability("ULTRA", 0)
