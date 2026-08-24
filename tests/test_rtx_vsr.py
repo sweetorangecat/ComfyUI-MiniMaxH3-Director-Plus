@@ -55,6 +55,7 @@ def _mock_probe_input(monkeypatch):
 
 
 def test_load_vsr_api_reports_actionable_embedded_python_install_steps(monkeypatch):
+    monkeypatch.setattr(rtx_vsr_stream.sys, "platform", "win32")
     monkeypatch.setitem(sys.modules, "nvvfx", None)
 
     with pytest.raises(RuntimeError) as error:
