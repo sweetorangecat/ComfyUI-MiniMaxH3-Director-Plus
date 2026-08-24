@@ -34,13 +34,13 @@ API 中的 `resolution_preset` 表示请求的最终输出目标，支持 `2K QH
 
 探测本机模型和节点能力。Fish S2 分成 `node_available`、`model_available`、`available` 三个状态，不会把空模型目录报成可用。`postprocess.rtx_vsr` 会显示 `node_available`、`dependency_available` 和中文安装提示；状态探测不会下载模型或初始化 VSR。
 
-启用 RTX VSR 前，在 ComfyUI 自带 Python 中安装 DaSiWa 依赖，然后重启 ComfyUI：
+启用 RTX VSR 前，必须在当前 ComfyUI Python 中安装官方 `nvidia-vfx` wheel。以下 DaSiWa 依赖安装命令可作为安装入口，然后重启 ComfyUI：
 
 ```powershell
 D:\ComfyUI_windows_portable-G313\python_embeded\python.exe -m pip install -r D:\ComfyUI_windows_portable-G313\ComfyUI\custom_nodes\ComfyUI-DaSiWa-Nodes\requirements.txt
 ```
 
-还需要 NVIDIA Broadcast SDK 提供的 `nvvfx`/`VideoSuperRes` 运行库。验证命令：
+Linux 请使用 NVIDIA VSR 支持驱动分支 `570.190+`、`580.82+` 或 `590.44+`，不需要 Windows NVIDIA Broadcast SDK。Windows 请检查 NVIDIA 驱动、官方 `nvidia-vfx` wheel 与 NVIDIA Broadcast SDK/Video Effects 运行库兼容。导演台会在 H3 开始前，用真实 `640×360 → 1280×720` 单帧执行 RTX VSR `load + run`；失败会提前停止。验证命令：
 
 ```powershell
 D:\ComfyUI_windows_portable-G313\python_embeded\python.exe -c "import nvvfx; print(nvvfx.VideoSuperRes)"

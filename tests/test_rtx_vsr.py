@@ -71,6 +71,50 @@ def test_load_vsr_api_reports_actionable_embedded_python_install_steps(monkeypat
     assert f'"{sys.executable}" -c "import nvvfx; print(nvvfx.VideoSuperRes)"' in message
 
 
+def test_linux_dependency_error_prefers_driver_and_wheel_guidance(monkeypatch):
+    monkeypatch.setattr(rtx_vsr_stream.sys, "platform", "linux")
+    monkeypatch.setitem(sys.modules, "nvvfx", None)
+
+    with pytest.raises(RuntimeError) as error:
+        load_vsr_api()
+
+    message = str(error.value)
+    assert "570.190+" in message
+    assert "580.82+" in message
+    assert "590.44+" in message
+    assert "nvidia-vfx" in message
+    assert "Broadcast SDK" not in message
+
+
+def test_windows_dependency_error_keeps_video_effects_runtime_guidance(monkeypatch):
+    monkeypatch.setattr(rtx_vsr_stream.sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "nvvfx", None)
+
+    with pytest.raises(RuntimeError) as error:
+        load_vsr_api()
+
+    assert "NVIDIA Broadcast SDK/Video Effects" in str(error.value)
+
+
+def test_linux_probe_failure_includes_platform_runtime_guidance(monkeypatch):
+    monkeypatch.setattr(rtx_vsr_stream.sys, "platform", "linux")
+    monkeypatch.setattr(
+        rtx_vsr_stream,
+        "load_vsr_api",
+        lambda: (_ for _ in ()).throw(RuntimeError("load failed")),
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        probe_vsr_capability("HIGH", 0)
+
+    message = str(error.value)
+    assert "570.190+" in message
+    assert "580.82+" in message
+    assert "590.44+" in message
+    assert "nvidia-vfx" in message
+    assert "Broadcast SDK" not in message
+
+
 def test_load_vsr_api_locates_video_super_res_and_effect_quality(monkeypatch):
     video_super_res = object()
     quality_level = object()

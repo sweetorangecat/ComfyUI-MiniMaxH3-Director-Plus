@@ -4,7 +4,7 @@
 
 **Goal:** 用 NVIDIA 官方建议范围内的真实 360p 单帧取代无效的 64×64 RTX VSR 探测，消除可用服务器上的 `code -14` 假失败。
 
-**Architecture:** `probe_vsr_capability()` 继续复用正式输出的 `VsrFrameProcessor`，但会创建 `640×360` CUDA RGB 帧，执行一次 `1280×720` 的 `load + run`，验证输出形状并在 `finally` 中释放临时资源。错误提示根据 Linux/Windows 平台给出不同依赖建议；导演台、正式输出与 API 字段保持不变。
+**Architecture:** `probe_vsr_capability()` 继续复用正式输出的 `VsrFrameProcessor`，但会创建 `640×360` CUDA RGB 帧，执行一次 `1280×720` 的 `load + run`，验证输出形状并在 `finally` 中显式关闭效果、解除临时输入/输出引用。不得调用全局 `torch.cuda.empty_cache()`，以便后续 H3 或多 GPU 任务复用分配器缓存。错误提示根据 Linux/Windows 平台给出不同依赖建议；导演台、正式输出与 API 字段保持不变。
 
 **Tech Stack:** Python 3.12、PyTorch CUDA、NVIDIA `nvidia-vfx`/`nvvfx`、pytest、Git。
 
@@ -63,13 +63,13 @@ def test_probe_vsr_capability_runs_real_360p_frame_and_cleans_up(monkeypatch, qu
     monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
     monkeypatch.setattr(rtx_vsr_stream.torch, "zeros", fake_zeros)
     monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "empty_cache", lambda: calls.append("empty_cache"))
+    monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "empty_cache", lambda: pytest.fail("probe must not call empty_cache"))
 
     assert probe_vsr_capability(quality, 0) is True
     assert ("zeros", (3, 360, 640), "cuda:0", torch.float32) in calls
     assert ("init", "api", quality, 0, 1280, 720) in calls
     assert ("process", probe_input) in calls
-    assert calls[-2:] == ["close", "empty_cache"]
+    assert calls[-1] == "close"
 
 
 def test_probe_vsr_capability_reports_process_failure_and_still_cleans_up(monkeypatch):
@@ -93,12 +93,12 @@ def test_probe_vsr_capability_reports_process_failure_and_still_cleans_up(monkey
     monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FailingProcessor)
     monkeypatch.setattr(rtx_vsr_stream.torch, "zeros", lambda *args, **kwargs: probe_input)
     monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "empty_cache", lambda: calls.append("empty_cache"))
+    monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "empty_cache", lambda: pytest.fail("probe must not call empty_cache"))
 
     with pytest.raises(RuntimeError, match="NvVFX_Run failed"):
         probe_vsr_capability("ULTRA", 0)
 
-    assert calls == ["close", "empty_cache"]
+    assert calls == ["close"]
 ```
 
 - [ ] **Step 2: 运行测试并确认旧的 64×64 实现失败**
@@ -173,14 +173,10 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
             "\n如果当前设备不支持该能力，请将‘最终输出’切换为‘原生尺寸直出’，不会影响 H3 生成。"
         ) from exc
     finally:
+        if processor is not None:
+            processor.close()
         probe_output = None
         probe_input = None
-        if torch.cuda.is_available():
-            try:
-                with torch.cuda.device(cuda_device):
-                    torch.cuda.empty_cache()
-            except Exception as cleanup_error:
-                LOGGER.warning("[RTX VSR] 前置检查临时显存清理失败: %s", cleanup_error)
 ```
 
 - [ ] **Step 4: 运行目标测试和 RTX VSR 全模块测试**

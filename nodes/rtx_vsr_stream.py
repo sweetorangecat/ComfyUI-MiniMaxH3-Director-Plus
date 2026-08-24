@@ -22,6 +22,18 @@ def _dasiwa_requirements_path() -> Path:
     return custom_nodes / "ComfyUI-DaSiWa-Nodes" / "requirements.txt"
 
 
+def _runtime_guidance() -> str:
+    if sys.platform.startswith("linux"):
+        return (
+            "Linux 请使用 NVIDIA VSR 支持驱动分支：570.190+、580.82+ 或 590.44+，"
+            "并在当前 ComfyUI Python 中安装官方 nvidia-vfx wheel。"
+        )
+    return (
+        "Windows 请确认 NVIDIA 驱动、官方 nvidia-vfx wheel 与 "
+        "NVIDIA Broadcast SDK/Video Effects 运行库兼容。"
+    )
+
+
 def _dependency_error(reason: str) -> RuntimeError:
     requirements = _dasiwa_requirements_path()
     python_executable = Path(sys.executable)
@@ -33,7 +45,7 @@ def _dependency_error(reason: str) -> RuntimeError:
         f"当前 ComfyUI Python：{sys.executable}\n"
         f"DaSiWa 依赖文件（绝对路径）：{requirements}\n"
         f"请安装 nvidia-vfx：{install_command}\n"
-        "部分 nvidia-vfx 版本还需要先安装 NVIDIA Broadcast SDK。\n"
+        f"{_runtime_guidance()}\n"
         f"安装完成后重启 ComfyUI，并运行以下命令验证：{verify_command}"
     )
 
@@ -210,8 +222,8 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
     """Validate the real RTX VSR effect before H3 denoising starts.
 
     Importing ``nvvfx`` only proves that the Python package is present.  The
-    NVIDIA SDK can still reject ``NvVFX_Load`` because the installed driver,
-    Broadcast SDK, GPU, or requested quality is unsupported.  Reuse the same
+    NVIDIA SDK can still reject ``NvVFX_Load`` because the installed runtime,
+    GPU, or requested quality is unsupported.  Reuse the same
     constructor/load path as frame processing so this failure is reported by
     the director node before any expensive video generation begins.
     """
@@ -261,7 +273,7 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
             "RTX VSR 前置检查失败，尚未开始 H3 视频生成。"
             f"\n质量：{quality}；GPU：{device_id}。"
             f"\n详细错误：{exc}"
-            "\n请确认 NVIDIA 驱动、NVIDIA Broadcast SDK 与 nvidia-vfx 版本匹配。"
+            f"\n{_runtime_guidance()}"
             "\n如果当前设备不支持该能力，请将‘最终输出’切换为‘原生尺寸直出’，不会影响 H3 生成。"
         ) from exc
     finally:
