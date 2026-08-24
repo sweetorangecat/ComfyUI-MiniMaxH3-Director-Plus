@@ -91,29 +91,51 @@ PRESET_LABELS = {
 }
 
 
-def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
-    """Apply an official H3 adapter with the H3-aware loader when available.
+class H3LoRAApplicationError(RuntimeError):
+    """Raised when an official H3 LoRA cannot be applied safely."""
 
-    The stock loader assumes ``model.diffusion_model`` and crashes on the
-    direct ``MiniMaxH3Model`` wrapper used by pruned/int8 checkpoints. The
-    bundled H3 Turbo node handles both layouts and curve-mode adapters.
-    """
+
+def _patch_entry_count(model):
+    """Return the number of model patch entries exposed by ComfyUI."""
+    try:
+        patches = model.patches
+        if not isinstance(patches, dict):
+            raise TypeError("patches 不是 dict")
+        return sum(
+            len(entries) if isinstance(entries, (list, tuple)) else int(bool(entries))
+            for entries in patches.values()
+        )
+    except Exception as exc:
+        raise H3LoRAApplicationError(f"无法读取 H3 LoRA 模型补丁: {exc}") from exc
+
+
+def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
+    """Apply an official H3 adapter with ComfyUI's core model-only loader."""
     requested_lora_name = lora_name or TURBO_LORA_NAME
-    lora_name = resolve_registered_model_name("loras", requested_lora_name)
-    if lora_name is None:
-        raise RuntimeError(f"缺少 H3 Turbo LoRA: {requested_lora_name}")
-    if lora_name != requested_lora_name:
-        LOGGER.info("[H3 LoRA] resolved %s -> %s", requested_lora_name, lora_name)
+    resolved_name = resolve_registered_model_name("loras", requested_lora_name)
+    if resolved_name is None:
+        raise H3LoRAApplicationError(f"缺少 H3 Turbo LoRA: {requested_lora_name}")
+    before_count = _patch_entry_count(model)
     try:
-        turbo = _turbo_class("MiniMaxH3TurboLoRA")
-    except (ImportError, AttributeError, OSError, RuntimeError):
-        # Older installs may not include the companion H3 Turbo node.
-        import nodes
-        return nodes.LoraLoaderModelOnly().load_lora_model_only(model, lora_name, float(strength))[0]
-    try:
-        return turbo().apply_lora(model, lora_name, float(strength), low_vram)[0]
-    except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-        raise RuntimeError(f"Turbo LoRA 注入失败: {exc}") from exc
+        import nodes as comfy_nodes
+
+        loaded_model = comfy_nodes.LoraLoaderModelOnly().load_lora_model_only(
+            model,
+            resolved_name,
+            float(strength),
+        )[0]
+    except (AttributeError, ImportError, IndexError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise H3LoRAApplicationError(f"官方 H3 Turbo LoRA 加载失败: {exc}") from exc
+    patch_delta = _patch_entry_count(loaded_model) - before_count
+    if patch_delta <= 0:
+        raise H3LoRAApplicationError("官方 H3 Turbo LoRA 未应用任何模型补丁")
+    LOGGER.info(
+        "[H3 LoRA] loaded name=%s strength=%s patch_delta=%s",
+        resolved_name,
+        float(strength),
+        patch_delta,
+    )
+    return loaded_model
 
 
 def _turbo_class(name):

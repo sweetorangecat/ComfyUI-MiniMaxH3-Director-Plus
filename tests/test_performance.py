@@ -24,88 +24,90 @@ def test_fast_preset_exposes_four_step_sampling_contract():
     assert values["use_sage"] is True
 
 
-def test_turbo_loader_prefers_h3_aware_adapter_for_pruned_models(monkeypatch):
+def test_official_lora_uses_core_loader_with_resolved_name_and_positive_patch_delta(monkeypatch):
     class FolderPaths:
         @staticmethod
         def get_full_path(category, name):
             assert category == "loras"
-            return f"/models/{name}"
-
-    class TurboLoRA:
-        def apply_lora(self, model, name, strength, low_vram):
-            return (f"turbo:{model}:{name}:{strength}:{low_vram}",)
-
-    import sys
-    monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
-    monkeypatch.setattr(performance, "_turbo_class", lambda name: TurboLoRA)
-
-    result = performance._load_lightx2v_lora(
-        "model",
-        "adapter.safetensors",
-        strength=0.75,
-    )
-
-    assert result == "turbo:model:adapter.safetensors:0.75:False"
-
-
-def test_turbo_loader_resolves_lora_from_registered_subfolder(monkeypatch):
-    class FolderPaths:
-        base_path = "/comfy"
+            if name == "minimax/adapter.safetensors":
+                return f"/models/{name}"
+            return None
 
         @staticmethod
         def get_filename_list(category):
             assert category == "loras"
             return ["minimax/adapter.safetensors"]
 
-        @staticmethod
-        def get_full_path(category, name):
-            assert category == "loras"
-            if name == "minimax/adapter.safetensors":
-                return "/models/loras/minimax/adapter.safetensors"
-            return None
+    class Model:
+        def __init__(self, patches):
+            self.patches = patches
 
+    model = Model({"existing": [object()]})
+    loaded_model = Model({"existing": [object()], "adapter": [object()]})
     calls = []
 
-    class TurboLoRA:
-        def apply_lora(self, model, name, strength, low_vram):
-            calls.append((model, name, strength, low_vram))
-            return ("accelerated",)
+    class CoreLoader:
+        def load_lora_model_only(self, received_model, name, strength):
+            calls.append((received_model, name, strength))
+            return (loaded_model,)
 
     import sys
     monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
-    monkeypatch.setattr(performance, "_turbo_class", lambda name: TurboLoRA)
+    monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": CoreLoader})())
+    monkeypatch.setattr(performance, "_turbo_class", lambda *_: pytest.fail("_turbo_class must not be called"))
 
     result = performance._load_lightx2v_lora(
-        "model",
+        model,
         "adapter.safetensors",
-        strength=0.7,
+        strength=0.75,
     )
 
-    assert result == "accelerated"
-    assert calls == [("model", "minimax/adapter.safetensors", 0.7, False)]
+    assert result is loaded_model
+    assert calls == [(model, "minimax/adapter.safetensors", 0.75)]
 
 
-def test_turbo_injection_failure_is_not_masked_by_stock_lora_loader(monkeypatch):
+def test_official_lora_rejects_zero_patch_delta(monkeypatch):
+    class FolderPaths:
+        @staticmethod
+        def get_full_path(category, name):
+            assert category == "loras"
+            return f"/models/{name}"
+
+    class Model:
+        patches = {"adapter": [object()]}
+
+    class CoreLoader:
+        def load_lora_model_only(self, model, name, strength):
+            return (model,)
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
+    monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": CoreLoader})())
+
+    with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
+        performance._load_lightx2v_lora(Model(), "adapter.safetensors")
+
+
+
+def test_official_lora_wraps_core_loader_key_error(monkeypatch):
     class FolderPaths:
         @staticmethod
         def get_full_path(category, name):
             return f"/models/{name}"
 
-    class BrokenTurbo:
-        def apply_lora(self, model, name, strength, low_vram):
-            raise AttributeError("MiniMaxH3Model has no diffusion_model")
+    class Model:
+        patches = {}
 
-    class BrokenStockLoader:
+    class BrokenCoreLoader:
         def load_lora_model_only(self, *args):
-            raise AssertionError("stock loader must not receive H3 injection failures")
+            raise KeyError("missing adapter key")
 
     import sys
     monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
-    monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": BrokenStockLoader})())
-    monkeypatch.setattr(performance, "_turbo_class", lambda name: BrokenTurbo)
+    monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": BrokenCoreLoader})())
 
-    with pytest.raises(RuntimeError, match="Turbo LoRA 注入失败"):
-        performance._load_lightx2v_lora("model", "adapter.safetensors")
+    with pytest.raises(performance.H3LoRAApplicationError, match="官方 H3 Turbo LoRA 加载失败"):
+        performance._load_lightx2v_lora(Model(), "adapter.safetensors")
 
 
 def test_quality_preset_keeps_conservative_sampling():
@@ -632,7 +634,7 @@ def test_memory_aware_sampler_exposes_guide_input():
     assert "guide" in inputs["optional"]
 
 
-def test_fl2va_fast_loads_existing_official_lora(monkeypatch):
+def test_fl2va_fast_loads_registered_adapter(monkeypatch):
     model = object()
     accelerated = object()
     calls = []
@@ -676,7 +678,7 @@ def test_fast_preset_uses_official_ref2va_four_step_contract():
     assert values["use_turbo_sampler"] is False
 
 
-def test_ref2va_plan_uses_official_lora_and_native_sampler():
+def test_ref2va_plan_uses_adapter_and_native_sampler():
     guide = {"performance_preset": "fast_4step", "resolved_backend": "ref2va_model"}
     plan = acceleration_plan(guide)
     assert plan["use_turbo_lora"] is True
