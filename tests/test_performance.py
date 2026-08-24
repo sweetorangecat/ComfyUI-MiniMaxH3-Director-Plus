@@ -826,7 +826,7 @@ def test_fast_route_stops_when_official_lora_has_no_verified_patches(monkeypatch
     assert guide["two_stage_scale"] == 1.0
     assert "first_lora_name" not in guide
     assert "second_lora_name" not in guide
-    assert "resolved_two_stage_route" not in guide
+    assert guide["resolved_two_stage_route"] == "bypass"
     assert "未应用任何模型补丁" in guide["turbo_lora_error"]
 
 
@@ -849,6 +849,33 @@ def test_fast_route_retries_official_lora_after_a_previous_failure(monkeypatch):
             MiniMaxH3AccelerationRouter().apply(object(), guide)
 
     assert calls == ["lora", "lora"]
+
+
+@pytest.mark.parametrize("preset", ["quality", "quality_sage", "reference_fast", "low_vram"])
+def test_non_turbo_routes_refresh_resolved_route_without_changing_request_fields(monkeypatch, preset):
+    def unexpected_loader(*_args, **_kwargs):
+        pytest.fail("non-Turbo presets must not load an official LoRA")
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", unexpected_loader)
+    monkeypatch.setattr(performance, "_apply_sage_attention", lambda model, _guide: model)
+    monkeypatch.setattr(performance, "_apply_easy_cache", lambda model, _guide: model)
+    guide = {
+        "mode": "FL2VA",
+        "voice_mode": "none",
+        "performance_preset": preset,
+        "resolved_backend": "fl2va_model",
+        "turbo_lora_error": "old failure",
+        "resolved_two_stage_route": "old-route",
+    }
+    request_fields = {
+        key: guide[key]
+        for key in ("mode", "voice_mode", "performance_preset", "resolved_backend")
+    }
+
+    MiniMaxH3AccelerationRouter().apply(object(), guide)
+
+    assert guide["resolved_two_stage_route"] == "bypass"
+    assert {key: guide[key] for key in request_fields} == request_fields
 
 
 def test_two_stage_route_stops_when_official_lora_has_no_verified_patches(monkeypatch):
@@ -882,8 +909,32 @@ def test_two_stage_route_stops_when_official_lora_has_no_verified_patches(monkey
     assert guide["two_stage_scale"] == 1.0
     assert "first_lora_name" not in guide
     assert "second_lora_name" not in guide
-    assert "resolved_two_stage_route" not in guide
+    assert guide["resolved_two_stage_route"] == "trained_latent_fl"
     assert "未应用任何模型补丁" in guide["turbo_lora_error"]
+
+
+def test_two_stage_route_retries_official_lora_and_refreshes_route(monkeypatch):
+    calls = []
+
+    def fail(*_args, **_kwargs):
+        calls.append("lora")
+        raise performance.H3LoRAApplicationError("官方 LoRA 未应用任何模型补丁")
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fail)
+    guide = {
+        "mode": "T2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "fl2va_model",
+    }
+    routes = []
+
+    for _ in range(2):
+        with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
+            MiniMaxH3AccelerationRouter().apply(object(), guide)
+        routes.append(guide["resolved_two_stage_route"])
+
+    assert calls == ["lora", "lora"]
+    assert routes == ["trained_latent_fl", "trained_latent_fl"]
 
 
 def test_sampler_router_exposes_valid_sampler_combo():

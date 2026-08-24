@@ -542,7 +542,6 @@ def _reset_h3_acceleration_state(guide, error=None):
     guide.pop("turbo_lora_error", None)
     guide.pop("first_lora_name", None)
     guide.pop("second_lora_name", None)
-    guide.pop("resolved_two_stage_route", None)
     guide["turbo_sampler_applied"] = False
     guide["two_stage_enabled"] = False
     guide["two_stage_status"] = "旁路"
@@ -624,6 +623,7 @@ def _apply_acceleration(model, guide):
     """Apply all requested accelerators to the model that will actually sample."""
     _reset_h3_acceleration_state(guide)
     plan = acceleration_plan(guide)
+    guide["resolved_two_stage_route"] = plan["route"]
     values = _runtime_preset_values(guide, plan["preset"])
     sage_requested = bool(values.get("use_sage"))
     cache_requested = bool(values.get("use_cache"))
