@@ -32,20 +32,36 @@ def _required_assets(route):
     return ()
 
 
-def _registered_asset_exists(comfy_root, category, name):
-    """Check the same model paths registered with the active ComfyUI runtime."""
+def resolve_registered_model_name(category, name, comfy_root=None):
+    """Resolve an exact basename to ComfyUI's registered relative model name."""
     try:
         import folder_paths
 
-        runtime_root = getattr(folder_paths, "base_path", None)
-        if runtime_root is None:
-            return False
-        if Path(runtime_root).resolve() != Path(comfy_root).resolve():
-            return False
-        resolved = folder_paths.get_full_path(category, name)
-        return bool(resolved and Path(resolved).is_file())
+        if comfy_root is not None:
+            runtime_root = getattr(folder_paths, "base_path", None)
+            if runtime_root is None:
+                return None
+            if Path(runtime_root).resolve() != Path(comfy_root).resolve():
+                return None
+
+        if folder_paths.get_full_path(category, name):
+            return name
+
+        basename = Path(name).name
+        for candidate in folder_paths.get_filename_list(category):
+            candidate = str(candidate)
+            if Path(candidate).name != basename:
+                continue
+            if folder_paths.get_full_path(category, candidate):
+                return candidate
     except (AttributeError, ImportError, KeyError, OSError, TypeError, ValueError):
-        return False
+        return None
+    return None
+
+
+def _registered_asset_exists(comfy_root, category, name):
+    """Check the same model paths registered with the active ComfyUI runtime."""
+    return resolve_registered_model_name(category, name, comfy_root) is not None
 
 
 def _asset_exists(comfy_root, category, directory, name):

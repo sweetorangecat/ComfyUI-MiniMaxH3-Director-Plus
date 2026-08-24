@@ -16,6 +16,7 @@ from .two_stage_assets import (
     FL_STAGE2_LORA,
     REF_STAGE_LORA,
     SIGMA_REFINER_NODE_ID,
+    resolve_registered_model_name,
     resolve_two_stage_route,
 )
 
@@ -97,11 +98,12 @@ def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
     direct ``MiniMaxH3Model`` wrapper used by pruned/int8 checkpoints. The
     bundled H3 Turbo node handles both layouts and curve-mode adapters.
     """
-    import folder_paths
-
-    lora_name = lora_name or TURBO_LORA_NAME
-    if not folder_paths.get_full_path("loras", lora_name):
-        raise RuntimeError(f"缺少 H3 Turbo LoRA: {lora_name}")
+    requested_lora_name = lora_name or TURBO_LORA_NAME
+    lora_name = resolve_registered_model_name("loras", requested_lora_name)
+    if lora_name is None:
+        raise RuntimeError(f"缺少 H3 Turbo LoRA: {requested_lora_name}")
+    if lora_name != requested_lora_name:
+        LOGGER.info("[H3 LoRA] resolved %s -> %s", requested_lora_name, lora_name)
     try:
         turbo = _turbo_class("MiniMaxH3TurboLoRA")
     except (ImportError, AttributeError, OSError, RuntimeError):

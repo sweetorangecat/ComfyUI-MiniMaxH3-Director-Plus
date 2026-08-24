@@ -48,6 +48,43 @@ def test_turbo_loader_prefers_h3_aware_adapter_for_pruned_models(monkeypatch):
     assert result == "turbo:model:adapter.safetensors:0.75:False"
 
 
+def test_turbo_loader_resolves_lora_from_registered_subfolder(monkeypatch):
+    class FolderPaths:
+        base_path = "/comfy"
+
+        @staticmethod
+        def get_filename_list(category):
+            assert category == "loras"
+            return ["minimax/adapter.safetensors"]
+
+        @staticmethod
+        def get_full_path(category, name):
+            assert category == "loras"
+            if name == "minimax/adapter.safetensors":
+                return "/models/loras/minimax/adapter.safetensors"
+            return None
+
+    calls = []
+
+    class TurboLoRA:
+        def apply_lora(self, model, name, strength, low_vram):
+            calls.append((model, name, strength, low_vram))
+            return ("accelerated",)
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
+    monkeypatch.setattr(performance, "_turbo_class", lambda name: TurboLoRA)
+
+    result = performance._load_lightx2v_lora(
+        "model",
+        "adapter.safetensors",
+        strength=0.7,
+    )
+
+    assert result == "accelerated"
+    assert calls == [("model", "minimax/adapter.safetensors", 0.7, False)]
+
+
 def test_turbo_injection_failure_is_not_masked_by_stock_lora_loader(monkeypatch):
     class FolderPaths:
         @staticmethod

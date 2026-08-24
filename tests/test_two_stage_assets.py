@@ -117,6 +117,42 @@ def test_registered_comfy_model_paths_satisfy_two_stage_dependencies(tmp_path, m
     assert report["missing"] == []
 
 
+def test_registered_lora_subfolders_satisfy_two_stage_dependencies(tmp_path, monkeypatch):
+    shared_loras = tmp_path.parent / f"{tmp_path.name}-shared-loras" / "minimax"
+    stage1 = shared_loras / FL_STAGE1_LORA
+    stage2 = shared_loras / FL_STAGE2_LORA
+    for path in (stage1, stage2):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x")
+    _touch(tmp_path, f"models/latent_upscale_models/{LATENT_UPSCALER_MODEL}")
+
+    candidates = [f"minimax/{FL_STAGE1_LORA}", f"minimax/{FL_STAGE2_LORA}"]
+
+    def get_full_path(category, name):
+        if category != "loras" or name not in candidates:
+            return None
+        return str(shared_loras / Path(name).name)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "folder_paths",
+        types.SimpleNamespace(
+            base_path=str(tmp_path),
+            get_full_path=get_full_path,
+            get_filename_list=lambda category: candidates if category == "loras" else [],
+        ),
+    )
+
+    report = dependency_report(
+        tmp_path,
+        "trained_latent_fl",
+        node_mappings={"MinimaxH3LatentUpscaler3D": object()},
+    )
+
+    assert report["ready"] is True
+    assert report["missing"] == []
+
+
 def test_bypass_route_has_no_required_assets(tmp_path):
     report = dependency_report(tmp_path, "bypass", node_mappings={})
     assert report["ready"] is True
