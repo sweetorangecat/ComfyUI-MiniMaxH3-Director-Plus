@@ -6,6 +6,7 @@ import json
 import importlib
 from pathlib import Path
 
+from .rtx_vsr_stream import _runtime_guidance
 from .two_stage_assets import (
     FL_STAGE1_LORA,
     FL_STAGE2_LORA,
@@ -41,14 +42,17 @@ def _rtx_vsr_status():
         return {
             "node_available": True,
             "dependency_available": False,
-            "message": f"缺少 nvidia-vfx/nvvfx，请在当前 ComfyUI Python 环境安装后重启：{exc}",
+            "message": (
+                f"缺少 nvidia-vfx/nvvfx，请在当前 ComfyUI Python 环境安装后重启：{exc}\n"
+                f"{_runtime_guidance()}"
+            ),
         }
     video_super_res = getattr(module, "VideoSuperRes", None)
     if video_super_res is None:
         return {
             "node_available": True,
             "dependency_available": False,
-            "message": "已找到 nvvfx，但缺少 VideoSuperRes；请检查 NVIDIA Broadcast SDK 与 DaSiWa 依赖。",
+            "message": f"已找到 nvvfx，但缺少 VideoSuperRes。\n{_runtime_guidance()}",
         }
     return {
         "node_available": True,

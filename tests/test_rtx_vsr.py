@@ -116,6 +116,19 @@ def test_linux_probe_failure_includes_platform_runtime_guidance(monkeypatch):
     assert "Broadcast SDK" not in message
 
 
+def test_probe_does_not_repeat_dependency_runtime_guidance(monkeypatch):
+    monkeypatch.setattr(rtx_vsr_stream.sys, "platform", "linux")
+    monkeypatch.setitem(sys.modules, "nvvfx", None)
+
+    with pytest.raises(RuntimeError) as error:
+        probe_vsr_capability("HIGH", 0)
+
+    message = str(error.value)
+    assert "未找到 nvvfx 模块" in message
+    assert message.count("570.190+") == 1
+    assert isinstance(error.value.__cause__, RuntimeError)
+
+
 def test_load_vsr_api_locates_video_super_res_and_effect_quality(monkeypatch):
     video_super_res = object()
     quality_level = object()

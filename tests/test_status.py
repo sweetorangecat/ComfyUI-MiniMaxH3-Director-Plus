@@ -1,5 +1,8 @@
 from types import SimpleNamespace
 
+import pytest
+
+from nodes import rtx_vsr_stream
 import nodes.status as status_module
 from nodes.status import detect_capabilities, status_summary
 from nodes.two_stage_assets import (
@@ -86,6 +89,39 @@ def test_status_reports_rtx_vsr_when_windows_dll_is_missing(monkeypatch, tmp_pat
 
     assert status["postprocess"]["rtx_vsr"]["dependency_available"] is False
     assert "安装后重启" in status["postprocess"]["rtx_vsr"]["message"]
+
+
+@pytest.mark.parametrize(
+    ("platform", "expected_fragments", "unexpected_fragment"),
+    [
+        ("linux", ("570.190+", "580.82+", "590.44+", "nvidia-vfx"), "Broadcast SDK"),
+        ("win32", ("NVIDIA Broadcast SDK/Video Effects",), None),
+    ],
+)
+@pytest.mark.parametrize("module", [None, SimpleNamespace()])
+def test_status_rtx_vsr_failures_use_platform_runtime_guidance(
+    monkeypatch,
+    tmp_path,
+    platform,
+    expected_fragments,
+    unexpected_fragment,
+    module,
+):
+    monkeypatch.setattr(rtx_vsr_stream.sys, "platform", platform)
+    if module is None:
+        def missing(name):
+            raise ModuleNotFoundError(name)
+
+        monkeypatch.setattr(status_module.importlib, "import_module", missing)
+    else:
+        monkeypatch.setattr(status_module.importlib, "import_module", lambda name: module)
+
+    message = detect_capabilities(tmp_path)["postprocess"]["rtx_vsr"]["message"]
+
+    for fragment in expected_fragments:
+        assert fragment in message
+    if unexpected_fragment is not None:
+        assert unexpected_fragment not in message
 
 
 def test_status_reports_trained_two_stage_assets_by_route(tmp_path):

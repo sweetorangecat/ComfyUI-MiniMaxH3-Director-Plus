@@ -269,11 +269,13 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
         )
         return True
     except Exception as exc:
+        guidance = _runtime_guidance()
+        guidance_message = "" if guidance in str(exc) else f"\n{guidance}"
         raise RuntimeError(
             "RTX VSR 前置检查失败，尚未开始 H3 视频生成。"
             f"\n质量：{quality}；GPU：{device_id}。"
             f"\n详细错误：{exc}"
-            f"\n{_runtime_guidance()}"
+            f"{guidance_message}"
             "\n如果当前设备不支持该能力，请将‘最终输出’切换为‘原生尺寸直出’，不会影响 H3 生成。"
         ) from exc
     finally:
