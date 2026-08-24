@@ -765,14 +765,16 @@ def test_low_vram_target_upscale_selects_rtx_vsr(monkeypatch):
 
 
 def test_rtx_vsr_capability_failure_is_reported_before_generation(monkeypatch):
+    probe_error = RuntimeError(
+        "RTX VSR 前置检查失败，尚未开始 H3 视频生成。\n"
+        "详细错误：NvVFX_Load failed: The requested feature or capability was not found (code -14)"
+    )
     monkeypatch.setattr(
         "nodes.director.probe_vsr_capability",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("NvVFX_Load failed: The requested feature or capability was not found (code -14)")
-        ),
+        lambda *args, **kwargs: (_ for _ in ()).throw(probe_error),
     )
 
-    with pytest.raises(RequestError, match="前置检查失败.*code -14"):
+    with pytest.raises(RequestError) as error:
         MiniMaxH3DirectorPlus().build(
             mode="T2VA",
             prompt="镜头缓慢推进。",
@@ -789,6 +791,10 @@ def test_rtx_vsr_capability_failure_is_reported_before_generation(monkeypatch):
             target_dialogue="",
             reference_transcript="",
         )
+
+    assert str(error.value) == str(probe_error)
+    assert str(error.value).count("RTX VSR 前置检查失败，尚未开始 H3 视频生成") == 1
+    assert error.value.__cause__ is probe_error
 
 
 def test_native_output_warns_when_large_final_target_is_not_upscaled():

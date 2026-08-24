@@ -460,7 +460,7 @@ class MiniMaxH3DirectorPlus:
             try:
                 probe_vsr_capability(request["rtx_quality"], device_id=0)
             except Exception as exc:
-                raise RequestError(f"RTX VSR 前置检查失败，尚未开始 H3 视频生成：{exc}") from exc
+                raise RequestError(str(exc)) from exc
         if request["motion_smoothing"] == "rife_x2":
             if postprocess_path != "rtx_vsr":
                 if request.get("motion_smoothing_requested") == "auto":

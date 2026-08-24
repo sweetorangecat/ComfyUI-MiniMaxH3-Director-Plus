@@ -13,6 +13,10 @@ from nodes.two_stage_assets import (
 )
 
 
+class FakeVideoSuperResWithQualityLevel:
+    QualityLevel = object()
+
+
 def test_status_distinguishes_fish_node_from_model(tmp_path):
     (tmp_path / "custom_nodes" / "ComfyUI-fish-audio-s2").mkdir(parents=True)
     (tmp_path / "models" / "fishaudioS2").mkdir(parents=True)
@@ -71,10 +75,31 @@ def test_status_reports_rtx_vsr_dependency_state(monkeypatch, tmp_path):
     assert status["postprocess"]["rtx_vsr"]["dependency_available"] is False
     assert "安装后重启" in status["postprocess"]["rtx_vsr"]["message"]
 
-    monkeypatch.setattr(
-        status_module.importlib, "import_module", lambda name: SimpleNamespace(VideoSuperRes=object())
-    )
+    monkeypatch.setattr(rtx_vsr_stream.sys, "platform", "linux")
+    monkeypatch.setattr(status_module.importlib, "import_module", lambda name: SimpleNamespace(VideoSuperRes=object()))
+    missing_quality = detect_capabilities(tmp_path)["postprocess"]["rtx_vsr"]
+    assert missing_quality["dependency_available"] is False
+    assert "QualityLevel" in missing_quality["message"]
+    assert "570.190+" in missing_quality["message"]
+    assert "Broadcast SDK" not in missing_quality["message"]
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        SimpleNamespace(
+            VideoSuperRes=object(),
+            effects=SimpleNamespace(QualityLevel=object()),
+        ),
+        SimpleNamespace(VideoSuperRes=FakeVideoSuperResWithQualityLevel),
+    ],
+    ids=["module_effects", "video_super_res_class"],
+)
+def test_status_accepts_each_production_quality_level_source(monkeypatch, tmp_path, module):
+    monkeypatch.setattr(status_module.importlib, "import_module", lambda name: module)
+
     ready = detect_capabilities(tmp_path)["postprocess"]["rtx_vsr"]
+
     assert ready["dependency_available"] is True
     assert ready["message"] == "RTX VSR 依赖已就绪"
 

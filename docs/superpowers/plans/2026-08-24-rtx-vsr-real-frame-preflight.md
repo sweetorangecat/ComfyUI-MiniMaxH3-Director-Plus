@@ -4,7 +4,7 @@
 
 **Goal:** 用 NVIDIA 官方建议范围内的真实 360p 单帧取代无效的 64×64 RTX VSR 探测，消除可用服务器上的 `code -14` 假失败。
 
-**Architecture:** `probe_vsr_capability()` 继续复用正式输出的 `VsrFrameProcessor`，但会创建 `640×360` CUDA RGB 帧，执行一次 `1280×720` 的 `load + run`，验证输出形状并在 `finally` 中显式关闭效果、解除临时输入/输出引用。不得调用全局 `torch.cuda.empty_cache()`，以便后续 H3 或多 GPU 任务复用分配器缓存。错误提示根据 Linux/Windows 平台给出不同依赖建议；导演台、正式输出与 API 字段保持不变。
+**Architecture:** `probe_vsr_capability()` 继续复用正式输出的 `VsrFrameProcessor`，但会创建 `640×360` CUDA RGB 帧，执行一次 `1280×720` 的 `load + run`，验证输出形状并在 `finally` 中显式关闭效果、解除临时输入/输出引用。若单帧其余步骤已成功但关闭失败，仍必须阻止 H3；已有主错误时关闭失败只记录警告并保留主错误。不得调用全局 `torch.cuda.empty_cache()`，以便后续 H3 或多 GPU 任务复用分配器缓存。错误提示根据 Linux/Windows 平台给出不同依赖建议；导演台、正式输出与 API 字段保持不变。
 
 **Tech Stack:** Python 3.12、PyTorch CUDA、NVIDIA `nvidia-vfx`/`nvvfx`、pytest、Git。
 

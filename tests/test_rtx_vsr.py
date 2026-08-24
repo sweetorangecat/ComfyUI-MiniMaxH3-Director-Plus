@@ -298,7 +298,7 @@ def test_probe_vsr_capability_preserves_shape_error_when_close_fails(monkeypatch
     assert "CLEANUP_ERROR" in caplog.text
 
 
-def test_probe_vsr_capability_succeeds_when_close_fails(monkeypatch, caplog):
+def test_probe_vsr_capability_fails_when_close_fails_after_success(monkeypatch):
     original_zeros = torch.zeros
 
     class FakeProcessor:
@@ -314,12 +314,18 @@ def test_probe_vsr_capability_succeeds_when_close_fails(monkeypatch, caplog):
     monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
     monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
     _mock_probe_input(monkeypatch)
-    _mock_probe_cuda(monkeypatch)
+    empty_cache_calls = _mock_probe_cuda(monkeypatch)
 
-    with caplog.at_level(logging.WARNING, logger=rtx_vsr_stream.LOGGER.name):
-        assert probe_vsr_capability("HIGH", 0) is True
+    with pytest.raises(RuntimeError) as error:
+        probe_vsr_capability("HIGH", 0)
 
-    assert "CLEANUP_ERROR" in caplog.text
+    message = str(error.value)
+    assert "RTX VSR 前置检查失败，尚未开始 H3 视频生成" in message
+    assert "质量：HIGH；GPU：0" in message
+    assert "CLEANUP_ERROR" in message
+    assert "原生尺寸直出" in message
+    assert str(error.value.__cause__) == "CLEANUP_ERROR"
+    assert empty_cache_calls == []
 
 
 @pytest.mark.parametrize(

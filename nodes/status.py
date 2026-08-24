@@ -6,7 +6,7 @@ import json
 import importlib
 from pathlib import Path
 
-from .rtx_vsr_stream import _runtime_guidance
+from .rtx_vsr_stream import _quality_level, _runtime_guidance
 from .two_stage_assets import (
     FL_STAGE1_LORA,
     FL_STAGE2_LORA,
@@ -53,6 +53,12 @@ def _rtx_vsr_status():
             "node_available": True,
             "dependency_available": False,
             "message": f"已找到 nvvfx，但缺少 VideoSuperRes。\n{_runtime_guidance()}",
+        }
+    if _quality_level(module, video_super_res) is None:
+        return {
+            "node_available": True,
+            "dependency_available": False,
+            "message": f"已找到 nvvfx VideoSuperRes，但缺少 QualityLevel。\n{_runtime_guidance()}",
         }
     return {
         "node_available": True,

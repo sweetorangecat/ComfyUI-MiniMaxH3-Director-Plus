@@ -50,6 +50,14 @@ def _dependency_error(reason: str) -> RuntimeError:
     )
 
 
+def _quality_level(nvvfx, video_super_res):
+    effects = getattr(nvvfx, "effects", None)
+    quality_level = getattr(effects, "QualityLevel", None)
+    if quality_level is None:
+        quality_level = getattr(video_super_res, "QualityLevel", None)
+    return quality_level
+
+
 def load_vsr_api() -> tuple[object, object]:
     """Load only nvvfx's VideoSuperRes API, with actionable setup guidance."""
     try:
@@ -64,10 +72,7 @@ def load_vsr_api() -> tuple[object, object]:
         except (ImportError, ModuleNotFoundError, OSError) as exc:
             raise _dependency_error("nvvfx 已安装，但缺少 VideoSuperRes。") from exc
 
-    effects = getattr(nvvfx, "effects", None)
-    quality_level = getattr(effects, "QualityLevel", None)
-    if quality_level is None:
-        quality_level = getattr(video_super_res, "QualityLevel", None)
+    quality_level = _quality_level(nvvfx, video_super_res)
     if quality_level is None:
         raise _dependency_error("VideoSuperRes 缺少 QualityLevel。")
 
@@ -218,6 +223,18 @@ class VsrFrameProcessor:
         return False
 
 
+def _probe_failure(quality: str, device_id: int, error: Exception) -> RuntimeError:
+    guidance = _runtime_guidance()
+    guidance_message = "" if guidance in str(error) else f"\n{guidance}"
+    return RuntimeError(
+        "RTX VSR 前置检查失败，尚未开始 H3 视频生成。"
+        f"\n质量：{quality}；GPU：{device_id}。"
+        f"\n详细错误：{error}"
+        f"{guidance_message}"
+        "\n如果当前设备不支持该能力，请将‘最终输出’切换为‘原生尺寸直出’，不会影响 H3 生成。"
+    )
+
+
 def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
     """Validate the real RTX VSR effect before H3 denoising starts.
 
@@ -232,6 +249,8 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
     processor = None
     input_frame = None
     output_frame = None
+    completed = False
+    cleanup_error = None
     try:
         normalized_device_id = int(device_id)
         cuda_device = torch.device("cuda", normalized_device_id)
@@ -267,22 +286,20 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
             PROBE_OUTPUT_WIDTH,
             PROBE_OUTPUT_HEIGHT,
         )
-        return True
+        completed = True
     except Exception as exc:
-        guidance = _runtime_guidance()
-        guidance_message = "" if guidance in str(exc) else f"\n{guidance}"
-        raise RuntimeError(
-            "RTX VSR 前置检查失败，尚未开始 H3 视频生成。"
-            f"\n质量：{quality}；GPU：{device_id}。"
-            f"\n详细错误：{exc}"
-            f"{guidance_message}"
-            "\n如果当前设备不支持该能力，请将‘最终输出’切换为‘原生尺寸直出’，不会影响 H3 生成。"
-        ) from exc
+        raise _probe_failure(quality, device_id, exc) from exc
     finally:
+        input_frame = None
+        output_frame = None
         if processor is not None:
             try:
                 processor.close()
             except Exception as cleanup_exc:
-                LOGGER.warning("RTX VSR 前置检查效果清理失败：%s", cleanup_exc)
-        input_frame = None
-        output_frame = None
+                if completed:
+                    cleanup_error = cleanup_exc
+                else:
+                    LOGGER.warning("RTX VSR 前置检查效果清理失败：%s", cleanup_exc)
+    if cleanup_error is not None:
+        raise _probe_failure(quality, device_id, cleanup_error) from cleanup_error
+    return True
