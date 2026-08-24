@@ -16,7 +16,7 @@ API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递�
 
 `performance_preset` 支持 `稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。`质量优先二采样` 自动解析训练型路线：FL/T2VA/硬首尾帧后端使用 `trained_latent_fl`，依次应用 `minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors` 与 `minimax_h3_fl2v_turbo_4step_v1.1_768p_comfyui_bf16.safetensors`；REF2VA 或 H3 原生音色参考后端使用 `trained_latent_ref`，两阶段应用 `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`，并通过 `H3SigmaRefiner` 强化尾段 sigma。两条路线都先完成匹配 LoRA 首采，再把 AV latent 分为视频/音频，仅用 `minimax_h3_latent_upscaler_3d_bf16.safetensors` 对 24 通道视频 latent 做约 1.5 倍训练型放大，保留原音频后执行匹配低 sigma 二采。Fish S2 与训练型二采互斥；Sage、EasyCache、RIFE 不叠加到该路线。
 
-`performance_preset` 的 API 字段保持不变。依赖官方 LightX2V LoRA 的性能档位，只有在 ComfyUI 内置加载器实际新增模型补丁且 `patch_delta>0` 后才会进入采样；否则请求会在采样前失败，错误包含 LoRA 文件名和具体原因。同一 guide 重试时会重新验证，不复用先前的失败或成功状态。
+`performance_preset` 的 API 字段保持不变。依赖官方 LightX2V LoRA 的性能档位，只有在 ComfyUI 内置加载器实际新增模型补丁且 `patch_delta>0` 后才会进入采样。`POST /generate` 可能已经成功返回 `prompt_id` 并入队；官方 LoRA 会在任务执行到加速节点时验证，若验证不通过，任务会在首个 H3 采样节点前终止，调用方应从任务历史或执行错误读取原因。常见的缺文件、损坏文件和零补丁错误会包含解析后的 LoRA 文件名。上次加载失败后重新执行加速节点会再次验证，不会因旧的 `turbo_lora_applied=false` 绕过检查。
 
 `postprocess_mode` 控制最终视频输出：`native`（原生尺寸直出）、`lanczos`（CPU Lanczos 快速放大）、`ai_upscale`（ComfyUI 通用 AI 超分）或 `rtx_vsr`（RTX VSR AI 细节重建）。但 `performance_preset=质量优先二采样` 时只允许 `rtx_vsr`，不能把二采重绘与 OmniSR/Lanczos 串联；若神经二采尺寸已等于最终目标则自动旁路 VSR。其他预设仍一次只执行选中的一种最终路线。`ai_upscale_model` 为 `auto` 或 `models/upscale_models` 中已安装的模型名；`auto` 会按目标倍率优先选择 X2/X4 模型。`rtx_quality` 可选 `HIGH` 或 `ULTRA`，仅在 `rtx_vsr` 时生效。最终只保存一个视频；AI 模型或 RTX VSR 依赖缺失时会在生成前明确报错，不会静默退回另一种算法。
 
