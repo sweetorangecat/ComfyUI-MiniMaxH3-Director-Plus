@@ -106,6 +106,7 @@ def test_api_template_and_patcher_expose_final_postprocess_controls():
     assert template["10"]["inputs"]["postprocess_mode"] == "native"
     assert template["10"]["inputs"]["rtx_quality"] == "HIGH"
     assert template["10"]["inputs"]["ai_upscale_model"] == "auto"
+    assert template["24"]["inputs"]["quality"] == 16
 
     prompt = patch_template(template, {
         "mode": "T2VA",
