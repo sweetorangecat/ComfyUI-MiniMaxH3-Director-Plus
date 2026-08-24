@@ -74,6 +74,16 @@ def test_ui_locks_quality_two_stage_to_rtx_vsr():
     assert "质量优先二采样已锁定 RTX VSR" in text
 
 
+def test_ui_isolates_high_bitrate_vsr_in_the_existing_quality_control():
+    text = source()
+    assert '["HIGHBITRATE_ULTRA", "HIGHBITRATE_ULTRA（原画源最高保真）"]' in text
+    assert "function allowedRtxQualities(performancePreset)" in text
+    assert 'performancePreset === "质量优先二采样"' in text
+    assert "allowedRtxQualities(preset)" in text
+    assert 'setWidget(node, "rtx_quality", rtxQuality, false)' in text
+    assert text.count('valueControl("RTX VSR 质量", "rtx_quality"') == 1
+
+
 def test_two_stage_ui_names_trained_route_and_real_size_stages():
     text = source()
     assert "训练型 3D latent 二采" in text

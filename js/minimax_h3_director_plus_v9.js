@@ -66,6 +66,7 @@ const POSTPROCESS_MODES_BY_PERFORMANCE = {
 const RTX_QUALITIES = [
   ["HIGH", "HIGH（质量）"],
   ["ULTRA", "ULTRA（更高质量）"],
+  ["HIGHBITRATE_ULTRA", "HIGHBITRATE_ULTRA（原画源最高保真）"],
 ];
 const MOTION_SMOOTHING = [
   ["off", "关闭（默认，保留原始帧）"],
@@ -144,6 +145,12 @@ function performancePresetHint(preset) {
 
 function allowedPostprocessModes(preset) {
   return POSTPROCESS_MODES_BY_PERFORMANCE[preset] || POSTPROCESS_MODES;
+}
+
+function allowedRtxQualities(performancePreset) {
+  return performancePreset === "质量优先二采样"
+    ? RTX_QUALITIES.filter(([value]) => value === "HIGHBITRATE_ULTRA")
+    : RTX_QUALITIES.filter(([value]) => value !== "HIGHBITRATE_ULTRA");
 }
 
 function allowedMotionSmoothing(preset, postprocessMode) {
@@ -549,6 +556,12 @@ function install(node) {
       postprocessMode = postprocessOptions[0][0];
       setWidget(node, "postprocess_mode", postprocessMode, false);
     }
+    const rtxQualityOptions = allowedRtxQualities(preset);
+    let rtxQuality = widget(node, "rtx_quality")?.value || "HIGH";
+    if (!rtxQualityOptions.some(([value]) => value === rtxQuality)) {
+      rtxQuality = preset === "质量优先二采样" ? "HIGHBITRATE_ULTRA" : "ULTRA";
+      setWidget(node, "rtx_quality", rtxQuality, false);
+    }
     const motionOptions = allowedMotionSmoothing(preset, postprocessMode);
     let motionSmoothing = widget(node, "motion_smoothing")?.value || "off";
     if (!motionOptions.some(([value]) => value === motionSmoothing)) {
@@ -612,7 +625,7 @@ function install(node) {
       postprocessMode === "ai_upscale"
         ? valueControl("AI 超分模型", "ai_upscale_model", [["auto", "自动选择"]], widget(node, "ai_upscale_model")?.value || "auto")
         : postprocessMode === "rtx_vsr"
-          ? valueControl("RTX VSR 质量", "rtx_quality", RTX_QUALITIES, widget(node, "rtx_quality")?.value || "HIGH")
+          ? valueControl("RTX VSR 质量", "rtx_quality", rtxQualityOptions, rtxQuality)
           : document.createElement("span"),
       valueControl("运动平滑", "motion_smoothing", motionOptions, motionSmoothing),
       valueControl("最终音频", "audio_loudness", AUDIO_LOUDNESS, widget(node, "audio_loudness")?.value || "auto"),
@@ -645,7 +658,7 @@ function install(node) {
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR（同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
+      postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR HIGHBITRATE_ULTRA（同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {
