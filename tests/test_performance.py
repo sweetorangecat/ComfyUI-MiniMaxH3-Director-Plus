@@ -788,6 +788,43 @@ def test_acceleration_router_falls_back_without_leaving_turbo_sampler_enabled(mo
     assert "回退" in result[1]
 
 
+def test_fast_route_stops_when_official_lora_has_no_verified_patches(monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise performance.H3LoRAApplicationError("官方 LoRA 未应用任何模型补丁")
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fail)
+    guide = {
+        "mode": "FL2VA",
+        "performance_preset": "fast_4step",
+        "resolved_backend": "fl2va_model",
+    }
+
+    with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
+        MiniMaxH3AccelerationRouter().apply(object(), guide)
+
+    assert guide["turbo_lora_applied"] is False
+    assert "未应用任何模型补丁" in guide["turbo_lora_error"]
+
+
+def test_two_stage_route_stops_when_official_lora_has_no_verified_patches(monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise performance.H3LoRAApplicationError("官方 LoRA 未应用任何模型补丁")
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fail)
+    guide = {
+        "mode": "T2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "fl2va_model",
+    }
+
+    with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
+        MiniMaxH3AccelerationRouter().apply(object(), guide)
+
+    assert guide["turbo_lora_applied"] is False
+    assert guide["two_stage_enabled"] is False
+    assert "未应用任何模型补丁" in guide["turbo_lora_error"]
+
+
 def test_sampler_router_exposes_valid_sampler_combo():
     sampler_spec = MiniMaxH3SamplerRouter.INPUT_TYPES()["required"]["sampler_name"]
     assert sampler_spec[0]

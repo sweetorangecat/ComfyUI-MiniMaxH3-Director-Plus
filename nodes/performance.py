@@ -571,6 +571,13 @@ def _apply_two_stage_models(model, guide, plan, values):
             second_model = first_model
         else:
             second_model = _apply_minimax_reuse_attention(second_model, guide)
+    except H3LoRAApplicationError as exc:
+        guide["turbo_lora_applied"] = False
+        guide["head_chunking_applied"] = False
+        guide["two_stage_enabled"] = False
+        guide["turbo_lora_error"] = str(exc)
+        LOGGER.error("[H3 two-stage models] official LoRA verification failed: %s", exc)
+        raise
     except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
         guide["turbo_lora_applied"] = False
         guide["head_chunking_applied"] = False
@@ -627,6 +634,11 @@ def _apply_acceleration(model, guide):
                 low_vram=plan["preset"] == "low_vram",
             )
             guide["turbo_lora_applied"] = True
+        except H3LoRAApplicationError as exc:
+            guide["turbo_lora_applied"] = False
+            guide["turbo_lora_error"] = str(exc)
+            LOGGER.error("[H3 acceleration] official LoRA verification failed: %s", exc)
+            raise
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
             guide["turbo_lora_applied"] = False
             guide["turbo_lora_error"] = str(exc)
