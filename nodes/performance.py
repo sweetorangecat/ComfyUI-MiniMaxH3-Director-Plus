@@ -111,6 +111,7 @@ def _patch_entry_count(model):
 
 def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
     """Apply an official H3 adapter with ComfyUI's core model-only loader."""
+    del low_vram  # ComfyUI's current memory policy owns low-VRAM handling.
     requested_lora_name = lora_name or TURBO_LORA_NAME
     resolved_name = resolve_registered_model_name("loras", requested_lora_name)
     if resolved_name is None:
@@ -124,13 +125,15 @@ def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
             resolved_name,
             float(strength),
         )[0]
-    except (AttributeError, ImportError, IndexError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-        raise H3LoRAApplicationError(f"官方 H3 Turbo LoRA 加载失败: {exc}") from exc
+    except H3LoRAApplicationError:
+        raise
+    except Exception as exc:
+        raise H3LoRAApplicationError(f"官方 H3 Turbo LoRA 加载失败: {resolved_name}: {exc}") from exc
     patch_delta = _patch_entry_count(loaded_model) - before_count
     if patch_delta <= 0:
-        raise H3LoRAApplicationError("官方 H3 Turbo LoRA 未应用任何模型补丁")
+        raise H3LoRAApplicationError(f"官方 H3 Turbo LoRA 未应用任何模型补丁: {resolved_name}")
     LOGGER.info(
-        "[H3 LoRA] loaded name=%s strength=%s patch_delta=%s",
+        "[H3 LoRA] 官方加载成功 name=%s strength=%s patch_delta=%s",
         resolved_name,
         float(strength),
         patch_delta,

@@ -24,7 +24,8 @@ def test_fast_preset_exposes_four_step_sampling_contract():
     assert values["use_sage"] is True
 
 
-def test_official_lora_uses_core_loader_with_resolved_name_and_positive_patch_delta(monkeypatch):
+@pytest.mark.parametrize("in_place", [False, True], ids=["clone", "in_place"])
+def test_official_lora_stacks_same_patch_key_and_logs_positive_delta(monkeypatch, caplog, in_place):
     class FolderPaths:
         @staticmethod
         def get_full_path(category, name):
@@ -42,13 +43,15 @@ def test_official_lora_uses_core_loader_with_resolved_name_and_positive_patch_de
         def __init__(self, patches):
             self.patches = patches
 
-    model = Model({"existing": [object()]})
-    loaded_model = Model({"existing": [object()], "adapter": [object()]})
+    model = Model({"shared.weight": [("old",)]})
+    loaded_model = model if in_place else Model({"shared.weight": [("old",), ("new",)]})
     calls = []
 
     class CoreLoader:
         def load_lora_model_only(self, received_model, name, strength):
             calls.append((received_model, name, strength))
+            if in_place:
+                received_model.patches["shared.weight"].append(("new",))
             return (loaded_model,)
 
     import sys
@@ -56,6 +59,8 @@ def test_official_lora_uses_core_loader_with_resolved_name_and_positive_patch_de
     monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": CoreLoader})())
     monkeypatch.setattr(performance, "_turbo_class", lambda *_: pytest.fail("_turbo_class must not be called"))
 
+    caplog.set_level("INFO", logger="MiniMaxH3.DirectorPlus")
+    before_count = performance._patch_entry_count(model)
     result = performance._load_lightx2v_lora(
         model,
         "adapter.safetensors",
@@ -64,6 +69,14 @@ def test_official_lora_uses_core_loader_with_resolved_name_and_positive_patch_de
 
     assert result is loaded_model
     assert calls == [(model, "minimax/adapter.safetensors", 0.75)]
+    assert set(result.patches) == {"shared.weight"}
+    assert result.patches["shared.weight"] == [("old",), ("new",)]
+    assert performance._patch_entry_count(result) - before_count == 1
+    log_message = next(record.getMessage() for record in caplog.records if "[H3 LoRA]" in record.getMessage())
+    assert "官方加载成功" in log_message
+    assert "minimax/adapter.safetensors" in log_message
+    assert "strength=0.75" in log_message
+    assert "patch_delta=1" in log_message
 
 
 def test_official_lora_rejects_zero_patch_delta(monkeypatch):
@@ -71,7 +84,14 @@ def test_official_lora_rejects_zero_patch_delta(monkeypatch):
         @staticmethod
         def get_full_path(category, name):
             assert category == "loras"
-            return f"/models/{name}"
+            if name == "minimax/adapter.safetensors":
+                return f"/models/{name}"
+            return None
+
+        @staticmethod
+        def get_filename_list(category):
+            assert category == "loras"
+            return ["minimax/adapter.safetensors"]
 
     class Model:
         patches = {"adapter": [object()]}
@@ -84,29 +104,45 @@ def test_official_lora_rejects_zero_patch_delta(monkeypatch):
     monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
     monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": CoreLoader})())
 
-    with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
+    with pytest.raises(
+        performance.H3LoRAApplicationError,
+        match=r"未应用任何模型补丁.*minimax/adapter\.safetensors",
+    ):
         performance._load_lightx2v_lora(Model(), "adapter.safetensors")
 
 
 
-def test_official_lora_wraps_core_loader_key_error(monkeypatch):
+def test_official_lora_wraps_unexpected_core_loader_exception(monkeypatch):
     class FolderPaths:
         @staticmethod
         def get_full_path(category, name):
-            return f"/models/{name}"
+            if name == "minimax/adapter.safetensors":
+                return f"/models/{name}"
+            return None
+
+        @staticmethod
+        def get_filename_list(category):
+            assert category == "loras"
+            return ["minimax/adapter.safetensors"]
 
     class Model:
         patches = {}
 
+    class LoaderFailure(Exception):
+        pass
+
     class BrokenCoreLoader:
         def load_lora_model_only(self, *args):
-            raise KeyError("missing adapter key")
+            raise LoaderFailure("corrupt safetensors payload")
 
     import sys
     monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
     monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": BrokenCoreLoader})())
 
-    with pytest.raises(performance.H3LoRAApplicationError, match="官方 H3 Turbo LoRA 加载失败"):
+    with pytest.raises(
+        performance.H3LoRAApplicationError,
+        match=r"官方 H3 Turbo LoRA 加载失败.*minimax/adapter\.safetensors",
+    ):
         performance._load_lightx2v_lora(Model(), "adapter.safetensors")
 
 
