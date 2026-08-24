@@ -28,14 +28,21 @@ def mock_cuda_lifecycle(monkeypatch):
     monkeypatch.setattr(torch.cuda, "synchronize", lambda device=None: None)
 
 
-def _mock_probe_cuda(monkeypatch, empty_cache=None):
+def _mock_probe_cuda(monkeypatch):
+    empty_cache_calls = []
+
+    def fail_if_empty_cache_is_called():
+        empty_cache_calls.append(True)
+        raise AssertionError("probe must not call empty_cache")
+
     monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "device", lambda device: nullcontext())
     monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(
         rtx_vsr_stream.torch.cuda,
         "empty_cache",
-        empty_cache if empty_cache is not None else lambda: None,
+        fail_if_empty_cache_is_called,
     )
+    return empty_cache_calls
 
 
 def _mock_probe_input(monkeypatch):
@@ -77,7 +84,7 @@ def test_load_vsr_api_locates_video_super_res_and_effect_quality(monkeypatch):
 
 
 @pytest.mark.parametrize("quality", ["HIGH", "ULTRA"])
-def test_probe_vsr_capability_runs_a_real_360p_frame_at_the_requested_quality(monkeypatch, quality):
+def test_probe_vsr_capability_requests_cuda_360p_frame_at_the_requested_quality(monkeypatch, quality):
     calls = []
     original_zeros = torch.zeros
 
@@ -102,7 +109,7 @@ def test_probe_vsr_capability_runs_a_real_360p_frame_at_the_requested_quality(mo
     monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: api)
     monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
     monkeypatch.setattr(rtx_vsr_stream.torch, "zeros", fake_zeros)
-    _mock_probe_cuda(monkeypatch, lambda: calls.append("empty_cache"))
+    empty_cache_calls = _mock_probe_cuda(monkeypatch)
 
     assert probe_vsr_capability(quality, 0) is True
 
@@ -114,7 +121,8 @@ def test_probe_vsr_capability_runs_a_real_360p_frame_at_the_requested_quality(mo
     assert zeros_call[2] == {"device": torch.device("cuda", 0), "dtype": torch.float32}
     processed_frame = next(call[1] for call in calls if call[0] == "process")
     assert processed_frame.shape == (3, 360, 640)
-    assert calls[-2:] == ["close", "empty_cache"]
+    assert calls[-1] == "close"
+    assert empty_cache_calls == []
 
 
 def test_probe_vsr_capability_cleans_up_when_processing_raises(monkeypatch):
@@ -134,12 +142,13 @@ def test_probe_vsr_capability_cleans_up_when_processing_raises(monkeypatch):
     monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
     monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
     monkeypatch.setattr(rtx_vsr_stream.torch, "zeros", lambda *args, **kwargs: torch.ones((3, 360, 640)))
-    _mock_probe_cuda(monkeypatch, lambda: calls.append("empty_cache"))
+    empty_cache_calls = _mock_probe_cuda(monkeypatch)
 
     with pytest.raises(RuntimeError, match="kernel refused"):
         probe_vsr_capability("HIGH", 0)
 
-    assert calls == ["create", "process", "close", "empty_cache"]
+    assert calls == ["create", "process", "close"]
+    assert empty_cache_calls == []
 
 
 def test_probe_vsr_capability_rejects_an_unexpected_output_shape(monkeypatch):
@@ -158,10 +167,12 @@ def test_probe_vsr_capability_rejects_an_unexpected_output_shape(monkeypatch):
     monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
     monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
     monkeypatch.setattr(rtx_vsr_stream.torch, "zeros", lambda *args, **kwargs: original_zeros((3, 360, 640)))
-    _mock_probe_cuda(monkeypatch)
+    empty_cache_calls = _mock_probe_cuda(monkeypatch)
 
     with pytest.raises(RuntimeError, match="输出尺寸异常"):
         probe_vsr_capability("HIGH", 0)
+
+    assert empty_cache_calls == []
 
 
 def test_probe_vsr_capability_preserves_process_error_when_close_fails(monkeypatch, caplog):
@@ -254,46 +265,20 @@ def test_probe_vsr_capability_succeeds_when_close_fails(monkeypatch, caplog):
 
 
 @pytest.mark.parametrize(
-    ("result", "expected_cause"),
-    [
-        ("process_error", "PRIMARY_PROCESS_ERROR"),
-        ("wrong_shape", "探测输出尺寸异常"),
-        ("success", None),
-    ],
+    ("device_id", "expected_cause"),
+    [(None, TypeError), ("not-a-device", ValueError)],
 )
-def test_probe_vsr_capability_empty_cache_failure_does_not_replace_result(
-    monkeypatch, caplog, result, expected_cause
-):
-    original_zeros = torch.zeros
+def test_probe_vsr_capability_wraps_invalid_device_id_conversion(monkeypatch, device_id, expected_cause):
+    monkeypatch.setattr(
+        rtx_vsr_stream.torch,
+        "device",
+        lambda *args, **kwargs: pytest.fail("invalid device IDs must fail before CUDA device creation"),
+    )
 
-    class FakeProcessor:
-        def __init__(self, *args):
-            pass
+    with pytest.raises(RuntimeError, match="RTX VSR 前置检查失败") as error:
+        probe_vsr_capability("HIGH", device_id)
 
-        def process(self, frame):
-            if result == "process_error":
-                raise RuntimeError("PRIMARY_PROCESS_ERROR")
-            if result == "wrong_shape":
-                return original_zeros((3, 720, 1280), dtype=torch.float32)
-            return original_zeros((720, 1280, 3), dtype=torch.float32)
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
-    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
-    _mock_probe_input(monkeypatch)
-    _mock_probe_cuda(monkeypatch, lambda: (_ for _ in ()).throw(RuntimeError("EMPTY_CACHE_ERROR")))
-
-    with caplog.at_level(logging.WARNING, logger=rtx_vsr_stream.LOGGER.name):
-        if expected_cause is None:
-            assert probe_vsr_capability("HIGH", 0) is True
-        else:
-            with pytest.raises(RuntimeError) as error:
-                probe_vsr_capability("HIGH", 0)
-            assert expected_cause in str(error.value.__cause__)
-
-    assert "EMPTY_CACHE_ERROR" in caplog.text
+    assert isinstance(error.value.__cause__, expected_cause)
 
 
 def test_probe_vsr_capability_reports_unsupported_sdk_before_generation(monkeypatch):

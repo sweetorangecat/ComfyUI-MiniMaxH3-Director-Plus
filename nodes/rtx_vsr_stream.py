@@ -215,12 +215,14 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
     constructor/load path as frame processing so this failure is reported by
     the director node before any expensive video generation begins.
     """
-    device_id = int(device_id)
-    cuda_device = torch.device("cuda", device_id)
+    normalized_device_id = None
+    cuda_device = None
     processor = None
     input_frame = None
     output_frame = None
     try:
+        normalized_device_id = int(device_id)
+        cuda_device = torch.device("cuda", normalized_device_id)
         api = load_vsr_api()
         input_frame = torch.zeros(
             (3, PROBE_INPUT_HEIGHT, PROBE_INPUT_WIDTH),
@@ -230,7 +232,7 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
         processor = VsrFrameProcessor(
             api,
             quality,
-            device_id,
+            normalized_device_id,
             PROBE_OUTPUT_WIDTH,
             PROBE_OUTPUT_HEIGHT,
         )
@@ -247,7 +249,7 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
         LOGGER.info(
             "RTX VSR 前置检查成功：quality=%s gpu=%s input=%sx%s output=%sx%s",
             quality,
-            device_id,
+            normalized_device_id,
             PROBE_INPUT_WIDTH,
             PROBE_INPUT_HEIGHT,
             PROBE_OUTPUT_WIDTH,
@@ -270,9 +272,3 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
                 LOGGER.warning("RTX VSR 前置检查效果清理失败：%s", cleanup_exc)
         input_frame = None
         output_frame = None
-        if torch.cuda.is_available():
-            try:
-                with torch.cuda.device(cuda_device):
-                    torch.cuda.empty_cache()
-            except Exception as cleanup_exc:
-                LOGGER.warning("RTX VSR 前置检查 CUDA 缓存清理失败：%s", cleanup_exc)
