@@ -192,3 +192,85 @@ def test_trained_upscaler_adapter_uses_model_scale_cuda_bf16_and_chunking(monkey
         "cuda",
         "bf16",
     )]
+
+
+def test_trained_upscaler_adapter_reads_execute_signature_behind_comfy_v3_wrapper(monkeypatch):
+    import types
+    import torch
+    import nodes.two_stage_assets as assets
+
+    calls = []
+
+    class WrappedUpscaler:
+        FUNCTION = "EXECUTE_NORMALIZED"
+
+        @classmethod
+        def execute(cls, latent, model_name, mode, align, enable_chunking, device, precision):
+            calls.append((latent, model_name, mode, align, enable_chunking, device, precision))
+            return types.SimpleNamespace(result=({"samples": torch.ones(1, 24, 2, 6, 6)},))
+
+        @classmethod
+        def EXECUTE_NORMALIZED(cls, *args, **kwargs):
+            return cls.execute(*args, **kwargs)
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": WrappedUpscaler},
+        raising=False,
+    )
+    latent = {"samples": torch.zeros(1, 24, 2, 4, 4)}
+
+    result = run_trained_latent_upscaler(latent, 1.5)
+
+    assert result["samples"].shape == (1, 24, 2, 6, 6)
+    assert calls == [(
+        latent,
+        LATENT_UPSCALER_MODEL,
+        {"mode": "scale by multiplier", "scale": 1.5},
+        32,
+        True,
+        "cuda",
+        "bf16",
+    )]
+
+
+def test_trained_upscaler_adapter_supports_pre_chunking_keep_proportion_interface(monkeypatch):
+    import types
+    import torch
+    import nodes.two_stage_assets as assets
+
+    calls = []
+
+    class WrappedOldUpscaler:
+        FUNCTION = "EXECUTE_NORMALIZED"
+
+        @classmethod
+        def execute(cls, latent, model_name, mode, align, keep_proportion, device, precision):
+            calls.append((latent, model_name, mode, align, keep_proportion, device, precision))
+            return types.SimpleNamespace(result=({"samples": torch.ones(1, 24, 2, 6, 6)},))
+
+        @classmethod
+        def EXECUTE_NORMALIZED(cls, *args, **kwargs):
+            return cls.execute(*args, **kwargs)
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": WrappedOldUpscaler},
+        raising=False,
+    )
+    latent = {"samples": torch.zeros(1, 24, 2, 4, 4)}
+
+    result = run_trained_latent_upscaler(latent, 1.5)
+
+    assert result["samples"].shape == (1, 24, 2, 6, 6)
+    assert calls == [(
+        latent,
+        LATENT_UPSCALER_MODEL,
+        {"mode": "scale by multiplier", "scale": 1.5},
+        32,
+        False,
+        "cuda",
+        "bf16",
+    )]

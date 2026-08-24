@@ -138,7 +138,10 @@ def run_trained_latent_upscaler(video_latent, scale):
     node = node_class()
     function_name = getattr(node, "FUNCTION", getattr(node_class, "FUNCTION", "execute"))
     function = getattr(node, function_name)
-    parameters = inspect.signature(function).parameters
+    signature_target = function
+    if str(function_name).startswith("EXECUTE_NORMALIZED"):
+        signature_target = getattr(node_class, "execute", function)
+    parameters = inspect.signature(signature_target).parameters
     kwargs = {
         "latent": video_latent,
         "model_name": LATENT_UPSCALER_MODEL,
@@ -149,8 +152,11 @@ def run_trained_latent_upscaler(video_latent, scale):
         kwargs.update(
             mode={"mode": "scale by multiplier", "scale": float(scale)},
             align=32,
-            enable_chunking=True,
         )
+        if "enable_chunking" in parameters:
+            kwargs["enable_chunking"] = True
+        if "keep_proportion" in parameters:
+            kwargs["keep_proportion"] = False
     else:
         kwargs["scale"] = float(scale)
         if "align" in parameters:
