@@ -5,7 +5,9 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import torch
@@ -365,6 +367,68 @@ def _prepare_postprocess_runtime(guide, postprocess_path):
         release_sampling_models()
 
 
+def _resolved_encode_quality(guide, postprocess_path, requested_quality):
+    """Use a visually lossless CRF ceiling only for the trained two-stage route."""
+    quality = int(requested_quality)
+    preset = str((guide or {}).get("performance_preset") or "")
+    if preset in {"quality_two_stage", "质量优先二采样"} and postprocess_path == "rtx_vsr":
+        return min(quality, 16)
+    return quality
+
+
+def _tag_h264_bt709(ffmpeg, output_path):
+    """Write BT.709 limited-range VUI by stream-copy without re-encoding media."""
+    output = Path(output_path)
+    temporary = output.with_name(
+        f"{output.stem}.bt709-{uuid.uuid4().hex}{output.suffix}"
+    )
+    metadata_filter = (
+        "h264_metadata=video_full_range_flag=0:colour_primaries=1:"
+        "transfer_characteristics=1:matrix_coefficients=1"
+    )
+    command = [
+        str(ffmpeg),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(output),
+        "-map",
+        "0",
+        "-map_metadata",
+        "0",
+        "-c",
+        "copy",
+        "-bsf:v",
+        metadata_filter,
+        "-movflags",
+        "+faststart",
+        str(temporary),
+    ]
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        os.replace(temporary, output)
+        LOGGER.info("[H3 output] H.264 已无损写入 BT.709 limited-range 标记")
+        return True
+    except Exception as exc:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        detail = str(getattr(exc, "stderr", "") or exc).strip()
+        LOGGER.warning(
+            "[H3 output] BT.709 无损标记失败，已保留原编码视频：%s",
+            detail,
+        )
+        return False
+
+
 def _save_resized_frame(source, index, target_width, target_height, output_path, suffix):
     frame = _resize_cpu_chunk(source[index:index + 1], target_width, target_height)[0]
     pixels = torch.round(frame[..., :3] * 255).to(torch.uint8).numpy()
@@ -513,6 +577,7 @@ class MiniMaxH3StreamingVideoCombine:
         target_width = int(guide.get("target_width") or source.shape[2])
         target_height = int(guide.get("target_height") or source.shape[1])
         postprocess_path = _resolve_postprocess_path(guide, source_width, source_height)
+        encode_quality = _resolved_encode_quality(guide, postprocess_path, quality)
         motion_smoothing = str(guide.get("motion_smoothing") or "off")
         if motion_smoothing not in {"off", "rife_x2"}:
             raise ValueError(f"不支持的运动平滑路径：{motion_smoothing}")
@@ -648,7 +713,7 @@ class MiniMaxH3StreamingVideoCombine:
                 output_path = os.path.join(output_folder, dasiwa._output_filename(filename, counter, animated_settings[0], False))
                 encoder = dasiwa._encode_animated_image(
                     ffmpeg, container, selected_bit_depth, target_width, target_height,
-                    output_frame_rate, frame_chunks, output_path, quality, report_encode_progress,
+                    output_frame_rate, frame_chunks, output_path, encode_quality, report_encode_progress,
                 )
                 selected_container = container
                 selected_codec = container
@@ -663,7 +728,7 @@ class MiniMaxH3StreamingVideoCombine:
                         try:
                             encoder = dasiwa._encode_with_available_encoder(
                                 ffmpeg, selected_codec, selected_bit_depth, target_width, target_height,
-                                output_frame_rate, frame_chunks, output_path, selected_container, quality, quality,
+                                output_frame_rate, frame_chunks, output_path, selected_container, encode_quality, encode_quality,
                                 metadata_path, audio_path, audio_duration, crop_to_audio,
                                 audio_codec, audio_bitrate, report_encode_progress,
                             )
@@ -686,7 +751,7 @@ class MiniMaxH3StreamingVideoCombine:
                     )
                     encoder = dasiwa._encode_with_available_encoder(
                         ffmpeg, selected_codec, selected_bit_depth, target_width, target_height,
-                        output_frame_rate, frame_chunks, output_path, selected_container, quality, quality,
+                        output_frame_rate, frame_chunks, output_path, selected_container, encode_quality, encode_quality,
                         metadata_path, audio_path, audio_duration, crop_to_audio,
                         audio_codec, audio_bitrate, report_encode_progress,
                     )
@@ -695,6 +760,16 @@ class MiniMaxH3StreamingVideoCombine:
                 os.unlink(metadata_path)
             if audio_path:
                 os.unlink(audio_path[0])
+
+        bt709_tagged = False
+        if (
+            output_path
+            and selected_codec == "H.264"
+            and selected_container == "MP4"
+            and performance_preset in {"quality_two_stage", "质量优先二采样"}
+            and postprocess_path == "rtx_vsr"
+        ):
+            bt709_tagged = _tag_h264_bt709(ffmpeg, output_path)
 
         frame_exports = []
         if output_path:
@@ -747,7 +822,8 @@ class MiniMaxH3StreamingVideoCombine:
             "filename": os.path.basename(output_path), "subfolder": subfolder, "type": output_type,
             "format": output_mime_type, "width": target_width, "height": target_height,
             "codec": selected_codec, "bit_depth": selected_bit_depth, "container": selected_container,
-            "postprocess_path": postprocess_path,
+            "postprocess_path": postprocess_path, "encode_quality": encode_quality,
+            "color_metadata": "bt709" if bt709_tagged else "unchanged",
         }]
         assets.extend({
             "filename": os.path.basename(path), "subfolder": subfolder, "type": output_type,
@@ -761,11 +837,13 @@ class MiniMaxH3StreamingVideoCombine:
                 "format": output_mime_type, "codec": selected_codec, "bit_depth": selected_bit_depth,
                 "container": selected_container, "width": target_width, "height": target_height, "fps": output_frame_rate,
                 "source_fps": float(frame_rate), "motion_smoothing": motion_smoothing,
-                "audio_loudness": str(guide.get("audio_loudness") or "original"),
-                "postprocess_path": postprocess_path,
-            }]
+                 "audio_loudness": str(guide.get("audio_loudness") or "original"),
+                 "postprocess_path": postprocess_path, "encode_quality": encode_quality,
+                 "color_metadata": "bt709" if bt709_tagged else "unchanged",
+             }]
         LOGGER.info(
-            "[H3 output] source=%sx%s final=%sx%s frames=%s fps=%.3f video=%s/%s audio=%s path=%s",
+            "[H3 output] source=%sx%s final=%sx%s frames=%s fps=%.3f video=%s/%s "
+            "quality=%s bt709=%s audio=%s path=%s",
             source_width,
             source_height,
             target_width,
@@ -774,6 +852,8 @@ class MiniMaxH3StreamingVideoCombine:
             output_frame_rate,
             selected_codec,
             selected_container,
+            encode_quality,
+            bt709_tagged,
             audio_codec if audio_path is not None else "none",
             output_path,
         )

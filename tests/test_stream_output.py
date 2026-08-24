@@ -1,3 +1,5 @@
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -134,6 +136,106 @@ def test_prepare_postprocess_releases_h3_before_vsr(monkeypatch):
         "rtx_vsr",
     )
     assert calls == ["released"]
+
+
+def test_quality_two_stage_uses_crf_16_without_overriding_better_values():
+    resolver = getattr(stream_output, "_resolved_encode_quality", None)
+    assert callable(resolver), "缺少质量二采编码策略"
+    guide = {"performance_preset": "quality_two_stage"}
+
+    assert resolver(guide, "rtx_vsr", 20) == 16
+    assert resolver(guide, "rtx_vsr", 14) == 14
+    assert resolver({"performance_preset": "quality"}, "rtx_vsr", 20) == 20
+    assert resolver(guide, "native_bypass", 20) == 20
+
+
+def test_quality_two_stage_passes_crf_16_to_the_encoder(monkeypatch):
+    images = torch.rand(2, 2, 3, 3)
+    captured = []
+    encode_calls = []
+    tagged = []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+    monkeypatch.setattr(stream_output, "release_sampling_models", lambda: None)
+    monkeypatch.setattr(
+        stream_output,
+        "_tag_h264_bt709",
+        lambda ffmpeg, output_path: tagged.append((ffmpeg, output_path)) or True,
+        raising=False,
+    )
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            self.width, self.height = width, height
+
+        def process(self, frame):
+            return torch.zeros(self.height, self.width, 3)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", FakeProcessor)
+    _combine(
+        monkeypatch,
+        {
+            "performance_preset": "quality_two_stage",
+            "target_width": 6,
+            "target_height": 4,
+            "postprocess_path": "rtx_vsr",
+            "rtx_quality": "HIGHBITRATE_ULTRA",
+        },
+        images,
+        captured,
+        encode_calls=encode_calls,
+    )
+
+    args, _ = encode_calls[0]
+    assert args[9:11] == (16, 16)
+    assert tagged == [("ffmpeg", ".\\stream-test.mp4")]
+
+
+def test_h264_bt709_tagging_is_a_lossless_stream_copy(monkeypatch, tmp_path):
+    tagger = getattr(stream_output, "_tag_h264_bt709", None)
+    assert callable(tagger), "缺少 H.264 BT.709 无损标记"
+    output_path = tmp_path / "video.mp4"
+    output_path.write_bytes(b"encoded-video")
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append((command, kwargs))
+        Path(command[-1]).write_bytes(output_path.read_bytes())
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(stream_output.subprocess, "run", fake_run)
+
+    assert tagger("ffmpeg", str(output_path)) is True
+    command, kwargs = commands[0]
+    assert command[command.index("-c") + 1] == "copy"
+    assert "-map_metadata" in command
+    assert (
+        command[command.index("-bsf:v") + 1]
+        == "h264_metadata=video_full_range_flag=0:colour_primaries=1:"
+        "transfer_characteristics=1:matrix_coefficients=1"
+    )
+    assert kwargs["check"] is True
+    assert output_path.read_bytes() == b"encoded-video"
+
+
+def test_h264_bt709_tagging_failure_preserves_original(monkeypatch, tmp_path, caplog):
+    tagger = getattr(stream_output, "_tag_h264_bt709", None)
+    assert callable(tagger), "缺少 H.264 BT.709 无损标记"
+    output_path = tmp_path / "video.mp4"
+    output_path.write_bytes(b"original-video")
+
+    def fail_run(command, **kwargs):
+        Path(command[-1]).write_bytes(b"partial-remux")
+        raise subprocess.CalledProcessError(1, command, stderr="metadata failed")
+
+    monkeypatch.setattr(stream_output.subprocess, "run", fail_run)
+
+    assert tagger("ffmpeg", str(output_path)) is False
+    assert output_path.read_bytes() == b"original-video"
+    assert list(tmp_path.glob("*.bt709-*.mp4")) == []
+    assert "metadata failed" in caplog.text
 
 
 def test_prepare_postprocess_does_not_unload_for_native_output(monkeypatch):
