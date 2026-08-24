@@ -1,3 +1,5 @@
+import sys
+import types
 from pathlib import Path
 
 
@@ -80,6 +82,39 @@ def test_installed_legacy_upscaler_id_is_accepted(tmp_path):
     assert report["ready"] is True
     assert report["missing"] == []
     assert report["upscaler_node_id"] == "MinimaxH3LatentUpscalerNode3D"
+
+
+def test_registered_comfy_model_paths_satisfy_two_stage_dependencies(tmp_path, monkeypatch):
+    shared_models = tmp_path.parent / f"{tmp_path.name}-shared-models"
+    upscaler = shared_models / "latent_upscale_models" / LATENT_UPSCALER_MODEL
+    stage1 = shared_models / "loras" / FL_STAGE1_LORA
+    stage2 = shared_models / "loras" / FL_STAGE2_LORA
+    for path in (upscaler, stage1, stage2):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x")
+
+    registered = {
+        ("latent_upscale_models", LATENT_UPSCALER_MODEL): str(upscaler),
+        ("loras", FL_STAGE1_LORA): str(stage1),
+        ("loras", FL_STAGE2_LORA): str(stage2),
+    }
+    monkeypatch.setitem(
+        sys.modules,
+        "folder_paths",
+        types.SimpleNamespace(
+            base_path=str(tmp_path),
+            get_full_path=lambda category, name: registered.get((category, name)),
+        ),
+    )
+
+    report = dependency_report(
+        tmp_path,
+        "trained_latent_fl",
+        node_mappings={"MinimaxH3LatentUpscaler3D": object()},
+    )
+
+    assert report["ready"] is True
+    assert report["missing"] == []
 
 
 def test_bypass_route_has_no_required_assets(tmp_path):

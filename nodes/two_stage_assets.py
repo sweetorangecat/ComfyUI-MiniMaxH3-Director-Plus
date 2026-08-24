@@ -32,6 +32,28 @@ def _required_assets(route):
     return ()
 
 
+def _registered_asset_exists(comfy_root, category, name):
+    """Check the same model paths registered with the active ComfyUI runtime."""
+    try:
+        import folder_paths
+
+        runtime_root = getattr(folder_paths, "base_path", None)
+        if runtime_root is None:
+            return False
+        if Path(runtime_root).resolve() != Path(comfy_root).resolve():
+            return False
+        resolved = folder_paths.get_full_path(category, name)
+        return bool(resolved and Path(resolved).is_file())
+    except (AttributeError, ImportError, KeyError, OSError, TypeError, ValueError):
+        return False
+
+
+def _asset_exists(comfy_root, category, directory, name):
+    return _registered_asset_exists(comfy_root, category, name) or (
+        Path(comfy_root) / "models" / directory / name
+    ).is_file()
+
+
 def dependency_report(comfy_root, route, node_mappings=None):
     """Return route-specific missing assets without loading any model."""
     root = Path(comfy_root)
@@ -55,14 +77,17 @@ def dependency_report(comfy_root, route, node_mappings=None):
     if route == "trained_latent_ref" and SIGMA_REFINER_NODE_ID not in mappings:
         missing.append(SIGMA_REFINER_NODE_ID)
 
-    latent_path = root / "models" / "latent_upscale_models" / LATENT_UPSCALER_MODEL
-    if not latent_path.is_file():
+    if not _asset_exists(
+        root,
+        "latent_upscale_models",
+        "latent_upscale_models",
+        LATENT_UPSCALER_MODEL,
+    ):
         missing.append(LATENT_UPSCALER_MODEL)
 
-    lora_dir = root / "models" / "loras"
     loras = _required_assets(route)
     for name in loras:
-        if not (lora_dir / name).is_file():
+        if not _asset_exists(root, "loras", "loras", name):
             missing.append(name)
 
     return {
