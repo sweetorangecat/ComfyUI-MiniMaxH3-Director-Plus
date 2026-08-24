@@ -80,11 +80,15 @@ def load_vsr_api() -> tuple[object, object]:
 
 
 def resolve_vsr_quality(quality_level, quality: str):
-    """Resolve the two quality levels supported by the public U11 contract."""
-    if quality not in ("HIGH", "ULTRA"):
-        raise ValueError("RTX VSR 质量仅支持 HIGH 或 ULTRA")
+    """Resolve the quality levels supported by the public U11 contract."""
+    supported = ("HIGH", "ULTRA", "HIGHBITRATE_ULTRA")
+    if quality not in supported:
+        raise ValueError("RTX VSR 质量仅支持 HIGH、ULTRA 或 HIGHBITRATE_ULTRA")
     if not hasattr(quality_level, quality):
-        raise ValueError(f"当前 nvvfx SDK 不支持 RTX VSR 质量 {quality}（需要 HIGH/ULTRA）")
+        raise ValueError(
+            f"当前 nvvfx SDK 不支持 RTX VSR 质量 {quality}"
+            "（需要 HIGH/ULTRA/HIGHBITRATE_ULTRA）"
+        )
     return getattr(quality_level, quality)
 
 

@@ -51,7 +51,7 @@ def test_director_exposes_postprocess_widgets():
 
     assert required["postprocess_mode"][0] == ["native", "lanczos", "ai_upscale", "rtx_vsr"]
     assert "AI 细节重建（RTX VSR）" in required["postprocess_mode"][1]["tooltip"]
-    assert required["rtx_quality"][0] == ["HIGH", "ULTRA"]
+    assert required["rtx_quality"][0] == ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"]
     assert required["ai_upscale_model"][0][0] == "auto"
     assert optional["motion_smoothing"][0] == ["off", "rife_x2"]
     assert optional["motion_smoothing"][1]["default"] == "off"
@@ -484,7 +484,11 @@ def test_all_non_low_vram_presets_cap_long_h3_sampling_to_official_canvas(preset
 
 
 def test_two_stage_build_reports_first_second_and_final_sizes(monkeypatch):
-    monkeypatch.setattr("nodes.director.probe_vsr_capability", lambda *args, **kwargs: True)
+    probed = []
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda quality, device_id=0: probed.append((quality, device_id)) or True,
+    )
 
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="T2VA",
@@ -512,6 +516,9 @@ def test_two_stage_build_reports_first_second_and_final_sizes(monkeypatch):
     assert guide["final_upscale_scale_x"] == pytest.approx(2560 / 1920)
     assert guide["final_upscale_scale_y"] == pytest.approx(1440 / 1056)
     assert guide["required_assets"] == ["test-upscaler", "test-lora"]
+    assert guide["rtx_quality_requested"] == "HIGH"
+    assert guide["rtx_quality"] == "HIGHBITRATE_ULTRA"
+    assert probed == [("HIGHBITRATE_ULTRA", 0)]
 
 
 def test_two_stage_4k_build_uses_1080p_neural_basis(monkeypatch):

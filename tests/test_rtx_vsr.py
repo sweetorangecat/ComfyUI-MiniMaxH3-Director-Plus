@@ -141,7 +141,7 @@ def test_load_vsr_api_locates_video_super_res_and_effect_quality(monkeypatch):
     assert load_vsr_api() == (video_super_res, quality_level)
 
 
-@pytest.mark.parametrize("quality", ["HIGH", "ULTRA"])
+@pytest.mark.parametrize("quality", ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"])
 def test_probe_vsr_capability_requests_cuda_360p_frame_at_the_requested_quality(monkeypatch, quality, caplog):
     calls = []
     original_zeros = torch.zeros
@@ -367,9 +367,21 @@ def test_probe_vsr_capability_reports_unsupported_sdk_before_generation(monkeypa
         probe_vsr_capability("ULTRA", 0)
 
 
-@pytest.mark.parametrize("name, expected", [("HIGH", "high"), ("ULTRA", "ultra")])
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("HIGH", "high"),
+        ("ULTRA", "ultra"),
+        ("HIGHBITRATE_ULTRA", "highbitrate_ultra"),
+    ],
+)
 def test_resolve_vsr_quality_maps_only_supported_levels(name, expected):
-    quality_level = SimpleNamespace(HIGH="high", ULTRA="ultra", MEDIUM="medium")
+    quality_level = SimpleNamespace(
+        HIGH="high",
+        ULTRA="ultra",
+        HIGHBITRATE_ULTRA="highbitrate_ultra",
+        MEDIUM="medium",
+    )
 
     assert resolve_vsr_quality(quality_level, name) == expected
 
@@ -378,7 +390,7 @@ def test_resolve_vsr_quality_maps_only_supported_levels(name, expected):
 def test_resolve_vsr_quality_rejects_other_values(quality):
     quality_level = SimpleNamespace(HIGH="high", ULTRA="ultra", MEDIUM="medium")
 
-    with pytest.raises(ValueError, match="HIGH.*ULTRA"):
+    with pytest.raises(ValueError, match="HIGH.*ULTRA.*HIGHBITRATE_ULTRA"):
         resolve_vsr_quality(quality_level, quality)
 
 

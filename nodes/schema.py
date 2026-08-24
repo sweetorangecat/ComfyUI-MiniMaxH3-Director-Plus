@@ -8,7 +8,7 @@ from copy import deepcopy
 MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA")
 VOICE_MODES = ("none", "h3_reference", "fish_lock")
 POSTPROCESS_MODES = ("native", "lanczos", "ai_upscale", "rtx_vsr")
-RTX_QUALITIES = ("HIGH", "ULTRA")
+RTX_QUALITIES = ("HIGH", "ULTRA", "HIGHBITRATE_ULTRA")
 MOTION_SMOOTHING_MODES = ("auto", "off", "rife_x2")
 AUDIO_LOUDNESS_MODES = ("auto", "original")
 PUBLIC_API_KEYS = (
@@ -56,11 +56,21 @@ POSTPROCESS_MODES_BY_PERFORMANCE = {
     "custom": POSTPROCESS_MODES,
 }
 
+RTX_QUALITIES_BY_PERFORMANCE = {
+    "quality_two_stage": ("HIGHBITRATE_ULTRA",),
+}
+
 
 def allowed_postprocess_modes(performance_preset):
     """Return final-output methods compatible with a normalized preset."""
     preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
     return POSTPROCESS_MODES_BY_PERFORMANCE.get(preset, POSTPROCESS_MODES)
+
+
+def allowed_rtx_qualities(performance_preset):
+    """Return RTX VSR qualities compatible with a normalized preset."""
+    preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
+    return RTX_QUALITIES_BY_PERFORMANCE.get(preset, ("HIGH", "ULTRA"))
 
 
 def allowed_motion_smoothing(performance_preset, postprocess_mode):
@@ -172,6 +182,7 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的后处理模式：{request['postprocess_mode']}")
     if request["rtx_quality"] not in RTX_QUALITIES:
         raise RequestError(f"不支持的 RTX VSR 质量：{request['rtx_quality']}")
+    request["rtx_quality_requested"] = request["rtx_quality"]
     requested_motion_smoothing = str(request.get("motion_smoothing") or "off")
     if requested_motion_smoothing not in MOTION_SMOOTHING_MODES:
         raise RequestError(f"不支持的运动平滑模式：{requested_motion_smoothing}")
@@ -227,6 +238,19 @@ def normalize_request(raw=None):
         )
 
     resolved_preset = request["performance_preset"]
+    allowed_rtx = allowed_rtx_qualities(resolved_preset)
+    if resolved_preset == "quality_two_stage":
+        if request["rtx_quality"] != "HIGHBITRATE_ULTRA":
+            request["warnings"].append(
+                "质量优先二采样使用干净的 H3 VAE 输出，RTX VSR 已自动切换为 "
+                "HIGHBITRATE_ULTRA。"
+            )
+        request["rtx_quality"] = "HIGHBITRATE_ULTRA"
+    elif request["rtx_quality"] not in allowed_rtx:
+        raise RequestError(
+            "HIGHBITRATE_ULTRA 仅用于质量优先二采样；"
+            "其他性能预设请选择 HIGH 或 ULTRA"
+        )
     if requested_motion_smoothing == "auto":
         request["motion_smoothing"] = "off"
     else:
@@ -302,7 +326,11 @@ def public_schema():
                 "中文名称": "RTX VSR 质量",
                 "enum": list(RTX_QUALITIES),
                 "default": "HIGH",
-                "description": "RTX VSR 的质量级别，仅在后处理模式为 rtx_vsr 时生效。",
+                "description": "RTX VSR 的质量级别，仅在后处理模式为 rtx_vsr 时生效。质量优先二采样固定使用高码率原画源档。",
+                "allowed_by_performance": {
+                    "质量优先二采样": ["HIGHBITRATE_ULTRA"],
+                    "其他性能预设": ["HIGH", "ULTRA"],
+                },
             },
             "ai_upscale_model": {
                 "中文名称": "通用 AI 超分模型",

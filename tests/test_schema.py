@@ -20,7 +20,11 @@ def test_schema_exposes_final_postprocess_controls():
     schema = public_schema()["properties"]
 
     assert schema["postprocess_mode"]["enum"] == ["native", "lanczos", "ai_upscale", "rtx_vsr"]
-    assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA"]
+    assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"]
+    assert schema["rtx_quality"]["allowed_by_performance"] == {
+        "质量优先二采样": ["HIGHBITRATE_ULTRA"],
+        "其他性能预设": ["HIGH", "ULTRA"],
+    }
     assert schema["ai_upscale_model"]["default"] == "auto"
     assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["rtx_vsr"]
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
@@ -52,6 +56,10 @@ def test_normalize_request_accepts_generic_upscale_model_override():
 
 def test_quality_two_stage_only_allows_rtx_vsr_postprocess():
     assert allowed_postprocess_modes("quality_two_stage") == ("rtx_vsr",)
+    allowed_rtx_qualities = getattr(schema_module, "allowed_rtx_qualities", None)
+    assert callable(allowed_rtx_qualities), "缺少 RTX VSR 质量兼容矩阵"
+    assert allowed_rtx_qualities("quality_two_stage") == ("HIGHBITRATE_ULTRA",)
+    assert allowed_rtx_qualities("quality") == ("HIGH", "ULTRA")
 
 
 def test_public_schema_exposes_read_only_two_stage_execution_metadata():
@@ -84,6 +92,19 @@ def test_quality_two_stage_accepts_rtx_vsr_postprocess():
     })
     assert request["performance_preset"] == "quality_two_stage"
     assert request["postprocess_mode"] == "rtx_vsr"
+    assert request["rtx_quality_requested"] == "ULTRA"
+    assert request["rtx_quality"] == "HIGHBITRATE_ULTRA"
+    assert any("HIGHBITRATE_ULTRA" in warning for warning in request["warnings"])
+
+
+def test_non_two_stage_rejects_exclusive_high_bitrate_quality():
+    with pytest.raises(RequestError, match="HIGHBITRATE_ULTRA.*质量优先二采样"):
+        normalize_request({
+            "mode": "T2VA",
+            "performance_preset": "稳定质量",
+            "postprocess_mode": "rtx_vsr",
+            "rtx_quality": "HIGHBITRATE_ULTRA",
+        })
 
 
 def test_legacy_auto_motion_smoothing_resolves_to_off():
