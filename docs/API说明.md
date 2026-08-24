@@ -20,7 +20,7 @@ API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递�
 
 `postprocess_mode` 控制最终视频输出：`native`（原生尺寸直出）、`lanczos`（CPU Lanczos 快速放大）、`ai_upscale`（ComfyUI 通用 AI 超分）或 `rtx_vsr`（RTX VSR AI 细节重建）。但 `performance_preset=质量优先二采样` 时只允许 `rtx_vsr`，不能把二采重绘与 OmniSR/Lanczos 串联；若神经二采尺寸已等于最终目标则自动旁路 VSR。其他预设仍一次只执行选中的一种最终路线。`ai_upscale_model` 为 `auto` 或 `models/upscale_models` 中已安装的模型名；`auto` 会按目标倍率优先选择 X2/X4 模型。`rtx_quality` 的公共枚举为 `HIGH`、`ULTRA`、`HIGHBITRATE_ULTRA`：普通预设只允许前两项，质量优先二采样固定解析为 `HIGHBITRATE_ULTRA`，旧请求中的 HIGH/ULTRA 会保留在 `rtx_quality_requested` 并自动迁移。RTX 前置检查使用解析后的实际值。最终只保存一个视频；AI 模型或 RTX VSR 依赖缺失时会在生成前明确报错，不会静默退回另一种算法。
 
-质量优先二采样的最终 H.264 编码值固定为 `min(请求 quality, 16)`，U11 和 API 模板默认显示 16。编码结束后通过 H.264 stream-copy 写入 BT.709 limited-range VUI，不重新编码视频帧或音频；任务 UI 元数据会返回 `encode_quality` 与 `color_metadata`。其他性能预设保持原编码值。BT.709 标记失败只产生明确警告并保留已生成 MP4，不会删除有效成品。
+质量优先二采样的最终 H.264 编码值固定为 `min(请求 quality, 16)`；U11 和 API 模板继续显示兼容旧路线的默认值 20，执行质量二采时由输出节点自动解析为 16，同尺寸旁路也适用。编码结束后通过 H.264 stream-copy 写入 BT.709 limited-range VUI，不重新编码视频帧或音频；任务 UI 元数据会返回 `encode_quality` 与 `color_metadata`。其他性能预设保持原编码值 20。BT.709 标记失败只产生明确警告并保留已生成 MP4，不会删除有效成品。
 
 `motion_smoothing` 控制最终运动平滑，可选 `off`、`rife_x2`，默认 `off`。后端继续接受旧值 `auto`，但会按关闭处理，不再自动加载 RIFE。`rife_x2` 只允许与 RTX VSR 搭配；质量优先二采样固定关闭，以避免动态云雾和大视差建筑重影，低显存模式也强制关闭。其他兼容预设中，RIFE 按相邻帧逐对处理，不会在内存中构造完整双倍帧视频；N 帧输出为 `2N-1` 帧，帧率同步从 24 FPS 提高到 48 FPS，因此视频时长和音频时长不变。硬切镜头会自动旁路插值。启用前必须安装 `models/frame_interpolation/rife_v4.26.safetensors`，缺失时会在 H3 采样前报错。
 

@@ -581,10 +581,10 @@ def test_api_template_streams_final_target_into_output_node():
     assert output["class_type"] == "MiniMaxH3StreamingVideoCombine"
     assert output["inputs"]["images"] == ["29", 0]
     assert output["inputs"]["guide"] == ["10", 0]
-    assert output["inputs"]["quality"] == 16
+    assert output["inputs"]["quality"] == 20
 
 
-def test_builder_sets_visible_stream_output_quality_to_16():
+def test_builder_keeps_visible_stream_output_quality_at_20_for_other_routes():
     source = {
         "last_node_id": 3,
         "last_link_id": 0,
@@ -611,7 +611,7 @@ def test_builder_sets_visible_stream_output_quality_to_16():
     built = build_workflow(source)
     output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
 
-    assert output["widgets_values"][1:5] == ["H.264", "MP4", "Auto", 16]
+    assert output["widgets_values"][1:5] == ["H.264", "MP4", "Auto", 20]
 
 
 def test_api_template_uses_safe_video_vae_decode():

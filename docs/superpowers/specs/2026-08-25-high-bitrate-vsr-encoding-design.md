@@ -42,7 +42,7 @@
 
 - `quality_two_stage + rtx_vsr + H.264`：实际 CRF 为 `min(用户值, 16)`。
 - 其他路线：保持原 `quality` 输入。
-- 工作流和 API 模板的可见默认值改为 16，使界面与实际编码一致。
+- 工作流和 API 模板的可见默认值保留 20，输出节点只在质量二采执行时解析为 16，避免改变其他路线。
 - H.264 输出完成后以 stream-copy 写入：limited range、BT.709 primaries、BT.709 transfer、BT.709 matrix。
 - BT.709 标记步骤沿用原音频、容器元数据和 ComfyUI 元数据，不改变帧数、FPS、分辨率或音频轨道。
 

@@ -371,7 +371,7 @@ def _resolved_encode_quality(guide, postprocess_path, requested_quality):
     """Use a visually lossless CRF ceiling only for the trained two-stage route."""
     quality = int(requested_quality)
     preset = str((guide or {}).get("performance_preset") or "")
-    if preset in {"quality_two_stage", "质量优先二采样"} and postprocess_path == "rtx_vsr":
+    if preset in {"quality_two_stage", "质量优先二采样"}:
         return min(quality, 16)
     return quality
 
@@ -767,7 +767,6 @@ class MiniMaxH3StreamingVideoCombine:
             and selected_codec == "H.264"
             and selected_container == "MP4"
             and performance_preset in {"quality_two_stage", "质量优先二采样"}
-            and postprocess_path == "rtx_vsr"
         ):
             bt709_tagged = _tag_h264_bt709(ffmpeg, output_path)
 

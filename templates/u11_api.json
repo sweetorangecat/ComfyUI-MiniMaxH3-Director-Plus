@@ -506,7 +506,7 @@
       "codec": "H.264",
       "container": "MP4",
       "bit_depth": "Auto",
-      "quality": 16,
+      "quality": 20,
       "log_level": "Standard",
       "pingpong": false,
       "save_metadata": true,

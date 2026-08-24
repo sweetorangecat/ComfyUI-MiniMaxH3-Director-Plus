@@ -198,7 +198,7 @@ git push origin main
 
 - [ ] **Step 1: Write failing template and workflow tests.**
 
-Require the API/template output-node quality to be 16, require `HIGHBITRATE_ULTRA` support, and require the generated U11 Director node/output node to carry the same defaults without adding another workflow.
+Require the API/template output-node quality to remain 20 for non-two-stage routes, require `HIGHBITRATE_ULTRA` support, and require the generated U11 Director node/output node to carry the same defaults without adding another workflow.
 
 - [ ] **Step 2: Run template/workflow tests and confirm they fail.**
 
@@ -208,7 +208,7 @@ Require the API/template output-node quality to be 16, require `HIGHBITRATE_ULTR
 
 - [ ] **Step 3: Update builder defaults and documentation.**
 
-Change the builder/API output-node `quality` from 20 to 16. Document that quality-two-stage automatically uses `HIGHBITRATE_ULTRA`, CRF 16, and BT.709; other routes keep their current RTX quality and encoder setting. Explain that final size remains the selected target while perceived detail is limited by the second-stage source and safe scale ratio.
+Keep the builder/API output-node `quality` at 20. Document that quality-two-stage automatically resolves it to CRF 16 and uses `HIGHBITRATE_ULTRA` plus BT.709; other routes keep their current RTX quality and encoder setting. Explain that final size remains the selected target while perceived detail is limited by the second-stage source and safe scale ratio.
 
 - [ ] **Step 4: Rebuild the existing U11 file in place.**
 
@@ -257,7 +257,7 @@ Expected: exit code 0.
 
 - [ ] **Step 3: Audit repository and workflow state.**
 
-Confirm the worktree is clean, the workflow contains exactly one Director node and one streaming output node, its output quality is 16, and local `HEAD`, `origin/main`, and GitHub `main` resolve to the same SHA.
+Confirm the worktree is clean, the workflow contains exactly one Director node and one streaming output node, its visible output quality is 20 while quality-two-stage resolves to 16, and local `HEAD`, `origin/main`, and GitHub `main` resolve to the same SHA.
 
 - [ ] **Step 4: Report the handoff.**
 

@@ -146,7 +146,7 @@ def test_quality_two_stage_uses_crf_16_without_overriding_better_values():
     assert resolver(guide, "rtx_vsr", 20) == 16
     assert resolver(guide, "rtx_vsr", 14) == 14
     assert resolver({"performance_preset": "quality"}, "rtx_vsr", 20) == 20
-    assert resolver(guide, "native_bypass", 20) == 20
+    assert resolver(guide, "native_bypass", 20) == 16
 
 
 def test_quality_two_stage_passes_crf_16_to_the_encoder(monkeypatch):
