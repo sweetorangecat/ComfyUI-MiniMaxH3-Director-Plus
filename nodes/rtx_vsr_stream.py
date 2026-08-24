@@ -277,15 +277,6 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
                 f"{output_frame.device.type} {tuple(output_frame.shape)}"
             )
 
-        LOGGER.info(
-            "RTX VSR 前置检查成功：quality=%s gpu=%s input=%sx%s output=%sx%s",
-            quality,
-            normalized_device_id,
-            PROBE_INPUT_WIDTH,
-            PROBE_INPUT_HEIGHT,
-            PROBE_OUTPUT_WIDTH,
-            PROBE_OUTPUT_HEIGHT,
-        )
         completed = True
     except Exception as exc:
         raise _probe_failure(quality, device_id, exc) from exc
@@ -302,4 +293,13 @@ def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:
                     LOGGER.warning("RTX VSR 前置检查效果清理失败：%s", cleanup_exc)
     if cleanup_error is not None:
         raise _probe_failure(quality, device_id, cleanup_error) from cleanup_error
+    LOGGER.info(
+        "RTX VSR 前置检查成功：quality=%s gpu=%s input=%sx%s output=%sx%s",
+        quality,
+        normalized_device_id,
+        PROBE_INPUT_WIDTH,
+        PROBE_INPUT_HEIGHT,
+        PROBE_OUTPUT_WIDTH,
+        PROBE_OUTPUT_HEIGHT,
+    )
     return True
