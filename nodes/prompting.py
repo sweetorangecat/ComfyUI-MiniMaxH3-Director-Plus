@@ -73,7 +73,7 @@ def build_reference_prompt(
             "REF2VA does not treat upload order as first or last frame. "
             "Specify <Picture N> as the 00:00 first frame or ending frame in the prompt."
         )
-    if has_first or has_last:
+    elif has_first or has_last:
         endpoint_note = (
             "这些图片是 REF2VA 的提示词约束，不是 FL2VA 硬端点；"
             "生成过程保持身份、构图和动作方向连续。"

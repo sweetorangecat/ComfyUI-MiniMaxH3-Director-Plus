@@ -164,7 +164,7 @@ def test_frontend_filters_performance_presets_by_mode_and_voice():
     assert 'setWidget(node, "performance_preset", preset, false)' in text
 
 
-def test_ui_keeps_audio_lane_for_i2va_and_fl2va():
+def test_ui_keeps_audio_lane_for_all_reference_compatible_modes():
     text = source()
     assert "I2VA" in text and "FL2VA" in text
     assert "voice_reference_audio" in text
@@ -173,6 +173,7 @@ def test_ui_keeps_audio_lane_for_i2va_and_fl2va():
     assert "音色参考 3" in text
     assert '"参考图 9", "reference_image_7_file"' in text
     assert "<Audio 1> / <Audio 2> / <Audio 3>" in text
+    assert 'const VOICE_REFERENCE_MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"]' in text
 
 
 def test_ref2va_ui_maps_nine_picture_slots_without_exceeding_native_limit():
@@ -198,9 +199,8 @@ def test_ui_uses_embedded_upload_widgets_instead_of_connection_instructions():
 
 def test_each_mode_only_exposes_the_media_uploads_it_needs():
     text = source()
-    assert '["I2VA", "FL2VA", "REF2VA"].includes(mode)' in text
     assert '["FL2VA", "L2VA", "REF2VA"].includes(mode)' in text
-    assert '["I2VA", "FL2VA", "L2VA", "REF2VA"].includes(mode)' not in text
+    assert 'VOICE_REFERENCE_MODES.includes(mode)' in text
 
 
 def test_dom_controls_stop_litegraph_pointer_events():

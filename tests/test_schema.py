@@ -51,6 +51,33 @@ def test_normalize_request_defaults_to_native_postprocess():
     assert request["audio_loudness"] == "auto"
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected_first", "expected_last", "expected_refs"),
+    [
+        ("T2VA", False, False, 0),
+        ("I2VA", True, False, 0),
+        ("FL2VA", True, True, 0),
+        ("L2VA", False, True, 0),
+        ("REF2VA", True, True, 1),
+    ],
+)
+def test_normalize_request_drops_media_incompatible_with_selected_mode(
+    mode, expected_first, expected_last, expected_refs
+):
+    request = normalize_request({
+        "mode": mode,
+        "first_image": object(),
+        "last_image": object(),
+        "references": [object()],
+    })
+
+    assert bool(request["first_image"]) is expected_first
+    assert bool(request["last_image"]) is expected_last
+    assert len(request["references"]) == expected_refs
+    if mode != "REF2VA":
+        assert any("不兼容" in warning for warning in request["warnings"])
+
+
 def test_normalize_request_accepts_generic_upscale_model_override():
     request = normalize_request({
         "mode": "T2VA",

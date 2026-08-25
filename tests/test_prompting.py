@@ -16,6 +16,7 @@ def test_ref2va_pictures_are_generic_references_until_prompt_assigns_timing():
     assert "do not auto-assign first or last frame" in prompt
     assert "<Picture 1> 是 00:00" not in prompt
     assert "<Picture 2> 是 00:05" not in prompt
+    assert "Specify <Picture N> as the 00:00 first frame or ending frame" in prompt
 
 
 def test_reference_prompt_uses_only_reference_audio_semantics():

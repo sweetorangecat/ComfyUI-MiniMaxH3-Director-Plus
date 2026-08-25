@@ -166,6 +166,7 @@ DEFAULT_REQUEST = {
     "ai_upscale_model": "auto",
     "motion_smoothing": "off",
     "audio_loudness": "auto",
+    "ignored_media": [],
     "postprocess": {},
     "output": {},
 }
@@ -177,10 +178,6 @@ def normalize_request(raw=None):
 
     if not isinstance(request["references"], (list, tuple)):
         raise RequestError("额外参考图必须是列表")
-    reference_total = len(request["references"]) + int(_present(request["first_image"])) + int(_present(request["last_image"]))
-    if reference_total > 9:
-        raise RequestError("首帧、尾帧和额外参考图合计最多支持 9 张")
-
     audio_references = list(request.get("voice_reference_audios") or [])
     if _present(request.get("voice_reference_audio")) and not audio_references:
         audio_references = [request["voice_reference_audio"]]
@@ -202,6 +199,41 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的后处理模式：{request['postprocess_mode']}")
     if request["rtx_quality"] not in RTX_QUALITIES:
         raise RequestError(f"不支持的 RTX VSR 质量：{request['rtx_quality']}")
+
+    # A saved Director node keeps hidden upload widgets when the user switches
+    # modes.  Enforce the native H3 media contract here so stale endpoints can
+    # never become an accidental first/last frame or an ignored extra input.
+    ignored_media = list(request.get("ignored_media") or [])
+
+    def discard(field, label):
+        if _present(request.get(field)):
+            ignored_media.append(label)
+            request[field] = None
+
+    if request["mode"] == "T2VA":
+        discard("first_image", "首帧图片")
+        discard("last_image", "尾帧图片")
+        if request["references"]:
+            ignored_media.append("参考图")
+            request["references"] = []
+    elif request["mode"] == "I2VA":
+        discard("last_image", "尾帧图片")
+        if request["references"]:
+            ignored_media.append("参考图")
+            request["references"] = []
+    elif request["mode"] == "L2VA":
+        discard("first_image", "首帧图片")
+        if request["references"]:
+            ignored_media.append("参考图")
+            request["references"] = []
+    elif request["mode"] == "FL2VA" and request["references"]:
+        ignored_media.append("参考图")
+        request["references"] = []
+    request["ignored_media"] = ignored_media
+
+    reference_total = len(request["references"]) + int(_present(request["first_image"])) + int(_present(request["last_image"]))
+    if reference_total > 9:
+        raise RequestError("首帧、尾帧和额外参考图合计最多支持 9 张")
     request["rtx_quality_requested"] = request["rtx_quality"]
     requested_motion_smoothing = str(request.get("motion_smoothing") or "off")
     if requested_motion_smoothing not in MOTION_SMOOTHING_MODES:
@@ -255,6 +287,10 @@ def normalize_request(raw=None):
         )
 
     request["warnings"] = []
+    if ignored_media:
+        request["warnings"].append(
+            f"已忽略与 {request['mode']} 不兼容的图片输入：{'、'.join(ignored_media)}。"
+        )
     allowed = allowed_performance_presets(request["mode"], request["voice_mode"])
     if preset not in allowed and preset != "custom":
         request["performance_preset"] = "quality"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from .vram_budget import plan_two_stage_dimensions
 BASE_MODES = {"T2VA", "I2VA", "FL2VA", "L2VA"}
 
 TWO_STAGE_IMAGE_SCALE = 1.5
+LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus")
 
 
 def _cuda_memory_gb():
@@ -303,22 +305,55 @@ class MiniMaxH3DirectorPlus:
         if not isinstance(timeline, dict):
             raise RequestError("素材时间线必须是 JSON 对象")
 
-        first_image = first_image if first_image is not None else load_uploaded_image(first_image_file)
-        last_image = last_image if last_image is not None else load_uploaded_image(last_image_file)
+        # Do not even load hidden stale widgets that the selected mode cannot
+        # consume.  This prevents a mode switch from turning an old FL2VA
+        # endpoint into a T2VA first frame, and avoids errors for deleted files.
+        first_allowed = mode in {"I2VA", "FL2VA", "REF2VA"}
+        last_allowed = mode in {"FL2VA", "L2VA", "REF2VA"}
+        def supplied(value, filename):
+            return value is not None or bool(str(filename or "").strip())
+
+        ignored_media = []
+        if not first_allowed and supplied(first_image, first_image_file):
+            ignored_media.append("首帧图片")
+        if not last_allowed and supplied(last_image, last_image_file):
+            ignored_media.append("尾帧图片")
+        if mode != "REF2VA" and any(
+            supplied(value, filename)
+            for value, filename in zip(
+                (reference_image_1, reference_image_2, reference_image_3, reference_image_4,
+                 reference_image_5, reference_image_6, reference_image_7, reference_image_8,
+                 reference_image_9),
+                (reference_image_1_file, reference_image_2_file, reference_image_3_file,
+                 reference_image_4_file, reference_image_5_file, reference_image_6_file,
+                 reference_image_7_file, reference_image_8_file, reference_image_9_file),
+            )
+        ):
+            ignored_media.append("参考图")
+        first_image = (
+            first_image
+            if first_allowed and first_image is not None
+            else load_uploaded_image(first_image_file) if first_allowed else None
+        )
+        last_image = (
+            last_image
+            if last_allowed and last_image is not None
+            else load_uploaded_image(last_image_file) if last_allowed else None
+        )
         voice_reference_audio = (
             voice_reference_audio
-            if voice_reference_audio is not None
-            else load_uploaded_audio(voice_reference_audio_file)
+            if voice_mode != "none" and voice_reference_audio is not None
+            else load_uploaded_audio(voice_reference_audio_file) if voice_mode != "none" else None
         )
         voice_reference_audio_2 = (
             voice_reference_audio_2
-            if voice_reference_audio_2 is not None
-            else load_uploaded_audio(voice_reference_audio_2_file)
+            if voice_mode == "h3_reference" and voice_reference_audio_2 is not None
+            else load_uploaded_audio(voice_reference_audio_2_file) if voice_mode == "h3_reference" else None
         )
         voice_reference_audio_3 = (
             voice_reference_audio_3
-            if voice_reference_audio_3 is not None
-            else load_uploaded_audio(voice_reference_audio_3_file)
+            if voice_mode == "h3_reference" and voice_reference_audio_3 is not None
+            else load_uploaded_audio(voice_reference_audio_3_file) if voice_mode == "h3_reference" else None
         )
         connected_references = (
             reference_image_1,
@@ -342,10 +377,13 @@ class MiniMaxH3DirectorPlus:
             reference_image_8_file,
             reference_image_9_file,
         )
-        reference_images = [
-            connected if connected is not None else load_uploaded_image(filename)
-            for connected, filename in zip(connected_references, uploaded_reference_files)
-        ]
+        if mode == "REF2VA":
+            reference_images = [
+                connected if connected is not None else load_uploaded_image(filename)
+                for connected, filename in zip(connected_references, uploaded_reference_files)
+            ]
+        else:
+            reference_images = [None] * len(connected_references)
         if mode == "REF2VA" and (first_image is not None or last_image is not None):
             require_contiguous_slots((first_image, last_image, *reference_images), "参考图")
         else:
@@ -378,6 +416,7 @@ class MiniMaxH3DirectorPlus:
             "ai_upscale_model": ai_upscale_model,
             "motion_smoothing": motion_smoothing,
             "audio_loudness": audio_loudness,
+            "ignored_media": ignored_media,
         })
 
         if request["performance_preset"] == "low_vram":
@@ -652,7 +691,25 @@ class MiniMaxH3DirectorPlus:
             "timeline": timeline,
             "warnings": request["warnings"],
             "reference_transcript": reference_transcript,
+            "ignored_media": request.get("ignored_media", []),
         }
+        LOGGER.info(
+            "[H3 director] mode=%s backend=%s preset=%s first_frame=%s last_frame=%s "
+            "ref_images=%d ref_audios=%d ignored_media=%s native=%sx%s target=%sx%s postprocess=%s",
+            mode,
+            request["resolved_backend"],
+            request["performance_preset"],
+            bool(first_frame is not None),
+            bool(last_frame is not None),
+            len(ref_images),
+            len(ref_audios),
+            ",".join(request.get("ignored_media", [])) or "none",
+            native_width,
+            native_height,
+            final_target_width,
+            final_target_height,
+            postprocess_path,
+        )
         warning_text = "\n".join(request["warnings"])
         exported_voice = voice_reference_audio if voice_mode == "fish_lock" else None
         exported_dialogue = str(target_dialogue or "").strip() if voice_mode == "fish_lock" else ""

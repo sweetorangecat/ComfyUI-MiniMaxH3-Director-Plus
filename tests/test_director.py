@@ -180,6 +180,38 @@ def test_uploaded_filenames_are_loaded_without_external_connections(monkeypatch)
     assert guide["ref_audios"]["ref_audio_1"] is voice
 
 
+def test_t2va_ignores_stale_uploaded_images_before_loading_them(monkeypatch, caplog):
+    def fail_if_loaded(filename):
+        raise AssertionError(f"T2VA 不应加载残留图片：{filename}")
+
+    monkeypatch.setattr("nodes.director.load_uploaded_image", fail_if_loaded)
+    caplog.set_level("INFO", logger="MiniMaxH3.DirectorPlus")
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="纯文本镜头。",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="稳定质量",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image_file="stale-first.png",
+        last_image_file="stale-last.png",
+        reference_image_1_file="stale-reference.png",
+    )
+
+    assert guide["first_frame"] is None
+    assert guide["last_frame"] is None
+    assert guide["ref_images"] == {}
+    assert any("T2VA" in warning and "不兼容" in warning for warning in guide["warnings"])
+    assert "mode=T2VA backend=fl2va_model" in caplog.text
+    assert "first_frame=False last_frame=False ref_images=0" in caplog.text
+
+
 def test_native_fl2va_guide_keeps_hard_endpoint_images():
     first = object()
     last = object()

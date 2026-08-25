@@ -88,6 +88,7 @@ const AUDIO_LOUDNESS = [
   ["original", "保持原始响度"],
 ];
 const VOICE_REFERENCE_LABELS = ["音色参考 1", "音色参考 2", "音色参考 3"];
+const VOICE_REFERENCE_MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
 const AUDIO_REFERENCE_HINT = "<Audio 1> / <Audio 2> / <Audio 3>";
 const FISH_MODELS = [
   ["s2-pro-w4a16 (auto download)", "S2 Pro 量化版（约 8GB 显存）"],
@@ -623,7 +624,7 @@ function install(node) {
     title.textContent = "MiniMax H3 导演台 Plus";
     const badge = document.createElement("span");
     badge.className = "h3p-badge";
-    badge.textContent = "reference 专用";
+    badge.textContent = "自动路由";
     head.append(title, badge);
     root.append(head);
 
@@ -730,7 +731,7 @@ function install(node) {
     materials.append(
       material("首帧图片", mode === "T2VA" ? "当前模式不需要" : "I2VA / FL2VA 可用"),
       material("尾帧图片", ["FL2VA", "L2VA", "REF2VA"].includes(mode) ? "FL2VA / L2VA / REF2VA 可用" : "当前模式不需要"),
-      material("音色参考", ["I2VA", "FL2VA", "REF2VA"].includes(mode) ? "启用音色后上传样本" : "切换到图生/参考模式后使用"),
+      material("音色参考", VOICE_REFERENCE_MODES.includes(mode) ? "启用音色后上传样本" : "当前模式不需要"),
     );
     director.append(materials);
     const uploadGrid = document.createElement("div");
@@ -811,7 +812,7 @@ function install(node) {
       : "integrated_multimodal_description: [Shot 1] 描述主体、动作、镜头、光线与对白。\noverall_soundscape: 环境声、对白与同步音效。\nnon_diegetic_music: N/A";
     const promptHint = mode === "REF2VA"
       ? "REF2VA 的图片都是普通 reference；用 <Picture 1> 到 <Picture 9> 在提示词中指定首尾、角色或场景作用。"
-      : "先写主体、动作、镜头和时间点；I2VA/FL2VA 可用 <Picture 1> 指定首帧，音色参考用 <Audio 1> 到 <Audio 3>。";
+      : "先写主体、动作、镜头和时间点；I2VA/FL2VA 可用 <Picture 1> 指定首帧，音色参考模式用 <Audio 1> 到 <Audio 3>。";
     const insertPromptText = (text) => {
       const current = String(prompt.value || "").trim();
       prompt.value = current ? `${current}\n\n${text}` : text;
@@ -853,7 +854,7 @@ function install(node) {
     const audioHintTitle = document.createElement("b");
     audioHintTitle.textContent = "编号音色入口：";
     audioLane.append(audioHintTitle, `提示词中使用 ${AUDIO_REFERENCE_HINT} 指定人物音色。样本只提取音色，不使用原音频完整内容。`);
-    if (voiceMode !== "none" && ["I2VA", "FL2VA", "REF2VA"].includes(mode)) {
+    if (voiceMode !== "none" && VOICE_REFERENCE_MODES.includes(mode)) {
       const audioGrid = document.createElement("div");
       audioGrid.className = "h3p-audio-grid";
       const audioFields = voiceMode === "h3_reference"
