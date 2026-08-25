@@ -950,7 +950,7 @@ def test_center_crop_to_target_aspect_preserves_center_even_dimensions_and_ident
     assert cropped.data_ptr() == wide[:, 22:1898].data_ptr()
     assert torch.equal(cropped, wide[:, 22:1898])
 
-    tall = torch.zeros(1201, 800, 4, dtype=torch.float16)
+    tall = torch.zeros(1200, 800, 4, dtype=torch.float16)
     vertical = stream_output._center_crop_to_target_aspect(tall, 16, 9)
     assert vertical.shape == (450, 800, 4)
     assert vertical.data_ptr() == tall[375:825].data_ptr()
@@ -959,6 +959,12 @@ def test_center_crop_to_target_aspect_preserves_center_even_dimensions_and_ident
     assert stream_output._center_crop_to_target_aspect(same, 16, 9) is same
     with pytest.raises(ValueError):
         stream_output._center_crop_to_target_aspect(same, 0, 9)
+
+
+@pytest.mark.parametrize("shape", [(9, 16, 3), (1, 16, 3), (0, 16, 3)])
+def test_center_crop_rejects_non_h3_dual_chain_source_dimensions(shape):
+    with pytest.raises(ValueError, match="偶数"):
+        stream_output._center_crop_to_target_aspect(torch.zeros(shape), 16, 9)
 
 
 @pytest.mark.parametrize(
@@ -985,12 +991,16 @@ def test_dual_vsr_stream_crops_before_chw_and_closes_upstream(monkeypatch):
             raise AssertionError("dual route must not construct ordinary VSR")
 
     class DualProcessor:
-        def __init__(self, api, quality, device_id, crop_width, crop_height, target_width, target_height):
-            created.append((api, quality, device_id, crop_width, crop_height, target_width, target_height))
+        def __init__(self, api, quality, device_id, input_width, input_height, output_width, output_height):
+            created.append((api, quality, device_id, input_width, input_height, output_width, output_height))
+            self.output_width = output_width
+            self.output_height = output_height
 
         def process(self, frame):
             inputs.append(frame)
-            return frame.movedim(0, -1).contiguous()
+            return torch.full(
+                (self.output_height, self.output_width, 3), float(frame[0, 0, 0])
+            )
 
         def close(self):
             closed.append(True)
@@ -1013,10 +1023,128 @@ def test_dual_vsr_stream_crops_before_chw_and_closes_upstream(monkeypatch):
 
     assert created == [("api", "ULTRA", 0, 1876, 1056, 1920, 1080)]
     assert [frame.shape for frame in inputs] == [(3, 1056, 1876)] * 5
-    assert [chunk.shape[0] for chunk in chunks] == [1, 1, 1, 1, 1]
+    assert sum(chunk.shape[0] for chunk in chunks) == 5
+    assert all(chunk.shape[1:] == (1080, 1920, 3) for chunk in chunks)
     assert [float(chunk[0, 0, 0, 0]) for chunk in chunks] == [0, 1, 2, 3, 4]
     assert closed == [True]
     assert upstream_closed == [True]
+
+
+def test_ordinary_vsr_stream_preserves_full_frame_without_aspect_crop(monkeypatch):
+    processed = []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+
+    class Processor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            processed.append(frame)
+            return torch.zeros(1440, 2560, 3)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", Processor)
+    list(stream_output._iter_vsr_frame_chunks(
+        torch.zeros(1, 704, 1280, 3), 2560, 1440
+    ))
+
+    assert [frame.shape for frame in processed] == [(3, 704, 1280)]
+
+
+def test_rife_vsr_stream_preserves_full_frame_without_aspect_crop(monkeypatch):
+    processed = []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+
+    class Processor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            processed.append(frame)
+            return torch.zeros(1440, 2560, 3)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", Processor)
+    list(stream_output._iter_vsr_frame_stream(
+        iter([torch.zeros(704, 1280, 3)]), 2560, 1440,
+        deblur_before_upscale=False,
+    ))
+
+    assert [frame.shape for frame in processed] == [(3, 704, 1280)]
+
+
+def test_save_ordinary_vsr_frame_preserves_full_frame_without_aspect_crop(monkeypatch, tmp_path):
+    processed = []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+
+    class Processor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            processed.append(frame)
+            return torch.zeros(1440, 2560, 3)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", Processor)
+    stream_output._save_vsr_frame(
+        torch.zeros(1, 704, 1280, 3), 0, 2560, 1440, "HIGH", 0,
+        str(tmp_path / "video.mp4"), "first",
+    )
+
+    assert [frame.shape for frame in processed] == [(3, 704, 1280)]
+
+
+def test_save_vsr_frame_preserves_processing_error_when_cleanup_also_fails(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+
+    class Processor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            raise RuntimeError("process failure")
+
+        def close(self):
+            raise RuntimeError("cleanup failure")
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", Processor)
+
+    with pytest.raises(stream_output._VsrProcessingError, match="process failure"):
+        stream_output._save_vsr_frame(
+            torch.zeros(1, 2, 2, 3), 0, 2, 2, "HIGH", 0,
+            str(tmp_path / "video.mp4"), "first",
+        )
+
+    assert "cleanup failure" in caplog.text
+
+
+def test_save_vsr_frame_surfaces_cleanup_error_without_processing_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+
+    class Processor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            return torch.zeros(2, 2, 3)
+
+        def close(self):
+            raise RuntimeError("cleanup failure")
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", Processor)
+
+    with pytest.raises(stream_output._VsrProcessingError, match="cleanup failure"):
+        stream_output._save_vsr_frame(
+            torch.zeros(1, 2, 2, 3), 0, 2, 2, "HIGH", 0,
+            str(tmp_path / "video.mp4"), "first",
+        )
 
 
 def test_quality_two_stage_combine_and_exports_use_dual_processor(monkeypatch):
@@ -1031,9 +1159,15 @@ def test_quality_two_stage_combine_and_exports_use_dual_processor(monkeypatch):
             raise AssertionError("ordinary VSR must not be constructed")
 
     class DualProcessor:
-        def __init__(self, *args):
-            created.append(args)
-            self.height, self.width = args[5], args[4]
+        def __init__(
+            self, api, quality, device_id, input_width, input_height,
+            output_width, output_height,
+        ):
+            created.append(
+                (api, quality, device_id, input_width, input_height,
+                 output_width, output_height)
+            )
+            self.height, self.width = output_height, output_width
 
         def process(self, frame):
             assert frame.shape == (3, 1056, 1876)

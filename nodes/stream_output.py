@@ -52,6 +52,13 @@ def _center_crop_to_target_aspect(frame, target_width, target_height):
 
     source_height = int(frame.shape[0])
     source_width = int(frame.shape[1])
+    if (
+        source_height < 2
+        or source_width < 2
+        or source_height % 2
+        or source_width % 2
+    ):
+        raise ValueError("H3 双效果输入宽高必须为不小于 2 的偶数")
     if source_width * target_height == source_height * target_width:
         return frame
     if source_width * target_height > source_height * target_width:
@@ -340,12 +347,15 @@ def _iter_vsr_frame_stream(
         except Exception as exc:
             raise _VsrProcessingError(str(exc)) from exc
         for frame in frames:
-            try:
-                cropped_frame = _center_crop_to_target_aspect(
-                    frame, target_width, target_height
-                )
-            except Exception as exc:
-                raise _VsrProcessingError(str(exc)) from exc
+            if deblur_before_upscale:
+                try:
+                    processor_frame = _center_crop_to_target_aspect(
+                        frame, target_width, target_height
+                    )
+                except Exception as exc:
+                    raise _VsrProcessingError(str(exc)) from exc
+            else:
+                processor_frame = frame
             if processor is None:
                 try:
                     if deblur_before_upscale:
@@ -353,8 +363,8 @@ def _iter_vsr_frame_stream(
                             api,
                             quality,
                             int(device_id),
-                            int(cropped_frame.shape[1]),
-                            int(cropped_frame.shape[0]),
+                            int(processor_frame.shape[1]),
+                            int(processor_frame.shape[0]),
                             int(target_width),
                             int(target_height),
                         )
@@ -366,7 +376,7 @@ def _iter_vsr_frame_stream(
                     raise _VsrProcessingError(str(exc)) from exc
             # The processor owns the CUDA conversion; keep only one source
             # frame and a small CPU output chunk alive at a time.
-            chw_frame = cropped_frame[..., :3].detach().movedim(-1, 0).contiguous()
+            chw_frame = processor_frame[..., :3].detach().movedim(-1, 0).contiguous()
             try:
                 pending.append(processor.process(chw_frame).detach().to(device="cpu"))
             except Exception as exc:
@@ -553,17 +563,19 @@ def _save_vsr_frame(
     deblur_before_upscale=False,
 ):
     """Run one exported frame through the same RTX VSR path as the video."""
-    cropped_frame = _center_crop_to_target_aspect(
-        source[index], target_width, target_height
-    )
+    processor_frame = source[index]
+    if deblur_before_upscale:
+        processor_frame = _center_crop_to_target_aspect(
+            processor_frame, target_width, target_height
+        )
     api = load_vsr_api()
     if deblur_before_upscale:
         processor = DeblurVsrFrameProcessor(
             api,
             quality,
             int(device_id),
-            int(cropped_frame.shape[1]),
-            int(cropped_frame.shape[0]),
+            int(processor_frame.shape[1]),
+            int(processor_frame.shape[0]),
             int(target_width),
             int(target_height),
         )
@@ -572,11 +584,20 @@ def _save_vsr_frame(
             api, quality, int(device_id), int(target_width), int(target_height)
         )
     try:
-        frame = processor.process(
-            cropped_frame[..., :3].detach().movedim(-1, 0).contiguous()
-        )
+        try:
+            frame = processor.process(
+                processor_frame[..., :3].detach().movedim(-1, 0).contiguous()
+            )
+        except Exception as exc:
+            raise _VsrProcessingError(str(exc)) from exc
     finally:
-        processor.close()
+        active_error = sys.exc_info()[1]
+        try:
+            processor.close()
+        except Exception as exc:
+            if active_error is None:
+                raise _VsrProcessingError(str(exc)) from exc
+            LOGGER.warning("RTX VSR 导出帧次级清理失败：%s", exc)
     pixels = torch.round(frame[..., :3].clamp(0.0, 1.0) * 255).to(torch.uint8).numpy()
     path = f"{os.path.splitext(output_path)[0]}-{suffix}-frame.png"
     Image.fromarray(pixels, mode="RGB").save(path, "PNG")
