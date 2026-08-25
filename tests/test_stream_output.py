@@ -889,7 +889,7 @@ def test_vsr_save_frames_use_vsr_processor_and_metadata_path(monkeypatch):
     monkeypatch.setattr(
         stream_output,
         "_save_vsr_frame",
-        lambda *args: saved.append((args[1], args[7])) or f"{args[7]}-{args[1]}.png",
+        lambda *args, **kwargs: saved.append((args[1], args[7])) or f"{args[7]}-{args[1]}.png",
     )
 
     class FakeProcessor:
@@ -940,3 +940,164 @@ def test_vsr_save_frame_drops_alpha_before_chw_processing(monkeypatch, tmp_path)
     )
 
     assert processed[0].shape == (3, 2, 3)
+
+
+def test_center_crop_to_target_aspect_preserves_center_even_dimensions_and_identity():
+    wide = torch.arange(1056 * 1920 * 3, dtype=torch.float32).reshape(1056, 1920, 3)
+    cropped = stream_output._center_crop_to_target_aspect(wide, 1920, 1080)
+
+    assert cropped.shape == (1056, 1876, 3)
+    assert cropped.data_ptr() == wide[:, 22:1898].data_ptr()
+    assert torch.equal(cropped, wide[:, 22:1898])
+
+    tall = torch.zeros(1201, 800, 4, dtype=torch.float16)
+    vertical = stream_output._center_crop_to_target_aspect(tall, 16, 9)
+    assert vertical.shape == (450, 800, 4)
+    assert vertical.data_ptr() == tall[375:825].data_ptr()
+
+    same = torch.zeros(1080, 1920, 3)
+    assert stream_output._center_crop_to_target_aspect(same, 16, 9) is same
+    with pytest.raises(ValueError):
+        stream_output._center_crop_to_target_aspect(same, 0, 9)
+
+
+@pytest.mark.parametrize(
+    ("guide", "postprocess_path", "expected"),
+    [
+        ({"performance_preset": "quality_two_stage", "rtx_deblur_mode": "DEBLUR_LOW"}, "rtx_vsr", True),
+        ({"performance_preset": "质量优先二采样", "rtx_deblur_mode": "DEBLUR_LOW"}, "rtx_vsr", True),
+        ({"performance_preset": "low_vram_two_stage", "rtx_deblur_mode": "DEBLUR_LOW"}, "rtx_vsr", False),
+        ({"performance_preset": "quality", "rtx_deblur_mode": "DEBLUR_LOW"}, "rtx_vsr", False),
+        ({"performance_preset": "quality_two_stage"}, "rtx_vsr", False),
+        ({"performance_preset": "quality_two_stage", "rtx_deblur_mode": "DEBLUR_LOW"}, "lanczos", False),
+    ],
+)
+def test_deblur_route_is_narrowly_isolated(guide, postprocess_path, expected):
+    assert stream_output._should_use_deblur_before_upscale(guide, postprocess_path) is expected
+
+
+def test_dual_vsr_stream_crops_before_chw_and_closes_upstream(monkeypatch):
+    inputs, created, closed = [], [], []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+
+    class OrdinaryProcessor:
+        def __init__(self, *args):
+            raise AssertionError("dual route must not construct ordinary VSR")
+
+    class DualProcessor:
+        def __init__(self, api, quality, device_id, crop_width, crop_height, target_width, target_height):
+            created.append((api, quality, device_id, crop_width, crop_height, target_width, target_height))
+
+        def process(self, frame):
+            inputs.append(frame)
+            return frame.movedim(0, -1).contiguous()
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", OrdinaryProcessor)
+    monkeypatch.setattr(stream_output, "DeblurVsrFrameProcessor", DualProcessor)
+    upstream_closed = []
+
+    def frames():
+        try:
+            for value in range(5):
+                yield torch.full((1056, 1920, 3), float(value))
+        finally:
+            upstream_closed.append(True)
+
+    chunks = list(stream_output._iter_vsr_frame_stream(
+        frames(), 1920, 1080, quality="ULTRA", deblur_before_upscale=True,
+        max_chunk_bytes=1920 * 1080 * 3,
+    ))
+
+    assert created == [("api", "ULTRA", 0, 1876, 1056, 1920, 1080)]
+    assert [frame.shape for frame in inputs] == [(3, 1056, 1876)] * 5
+    assert [chunk.shape[0] for chunk in chunks] == [1, 1, 1, 1, 1]
+    assert [float(chunk[0, 0, 0, 0]) for chunk in chunks] == [0, 1, 2, 3, 4]
+    assert closed == [True]
+    assert upstream_closed == [True]
+
+
+def test_quality_two_stage_combine_and_exports_use_dual_processor(monkeypatch):
+    images = torch.rand(3, 1056, 1920, 3)
+    captured, created, saved = [], [], []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+    monkeypatch.setattr(stream_output, "release_sampling_models", lambda: None)
+    monkeypatch.setattr(stream_output, "_tag_h264_bt709", lambda *args: False)
+
+    class OrdinaryProcessor:
+        def __init__(self, *args):
+            raise AssertionError("ordinary VSR must not be constructed")
+
+    class DualProcessor:
+        def __init__(self, *args):
+            created.append(args)
+            self.height, self.width = args[5], args[4]
+
+        def process(self, frame):
+            assert frame.shape == (3, 1056, 1876)
+            return torch.zeros(self.height, self.width, 3)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(stream_output, "VsrFrameProcessor", OrdinaryProcessor)
+    monkeypatch.setattr(stream_output, "DeblurVsrFrameProcessor", DualProcessor)
+    monkeypatch.setattr(
+        stream_output, "_save_vsr_frame",
+        lambda *args, **kwargs: saved.append((args[1], kwargs.get("deblur_before_upscale"))) or "frame.png",
+    )
+
+    _combine(
+        monkeypatch,
+        {"performance_preset": "quality_two_stage", "rtx_deblur_mode": "DEBLUR_LOW",
+         "target_width": 1920, "target_height": 1080, "postprocess_path": "rtx_vsr"},
+        images, captured, save_first_frame=True, save_last_frame=True,
+    )
+
+    assert len(created) == 1
+    assert created[0] == ("api", "HIGH", 0, 1876, 1056, 1920, 1080)
+    assert saved == [(0, True), (2, True)]
+
+
+def test_dual_vsr_failure_does_not_retry_other_codecs(monkeypatch):
+    images = torch.rand(2, 1056, 1920, 3)
+    attempts = []
+    monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
+    monkeypatch.setattr(stream_output, "release_sampling_models", lambda: None)
+
+    class DualProcessor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            raise RuntimeError("dual failure")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(stream_output, "DeblurVsrFrameProcessor", DualProcessor)
+    dasiwa = _fake_dasiwa([])
+    dasiwa._codec_candidates = lambda codec: ["H.264", "VP9"]
+
+    def encode(*args, **kwargs):
+        attempts.append(args[1])
+        list(args[6]())
+
+    dasiwa._encode_with_available_encoder = encode
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+    monkeypatch.setattr(stream_output.os, "unlink", lambda path: None)
+
+    with pytest.raises(stream_output._VsrProcessingError, match="dual failure"):
+        stream_output.MiniMaxH3StreamingVideoCombine().combine(
+            images=images,
+            guide={"performance_preset": "quality_two_stage", "rtx_deblur_mode": "DEBLUR_LOW",
+                   "target_width": 1920, "target_height": 1080, "postprocess_path": "rtx_vsr"},
+            frame_rate=24.0, codec="Auto", container="MP4", bit_depth="8-bit", quality=20,
+            log_level="Standard", pingpong=False, save_metadata=False, filename_prefix="stream-test",
+            save_output=True, pass_frames=False, crop_to_audio=False, audio_codec="Auto",
+            audio_bitrate="192k", save_first_frame=False, save_last_frame=False,
+        )
+
+    assert attempts == ["H.264"]

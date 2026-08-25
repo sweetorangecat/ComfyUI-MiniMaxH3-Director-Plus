@@ -16,7 +16,7 @@ import numpy as np
 from PIL import Image
 
 from .upscale import resolve_upscale_model_name
-from .rtx_vsr_stream import VsrFrameProcessor, load_vsr_api
+from .rtx_vsr_stream import DeblurVsrFrameProcessor, VsrFrameProcessor, load_vsr_api
 from .rife_stream import (
     DEFAULT_RIFE_MODEL,
     RifeProcessingError,
@@ -41,6 +41,44 @@ _TRAINED_TWO_STAGE_PRESETS = {
     "low_vram_two_stage",
     "低显存二采",
 }
+
+
+def _center_crop_to_target_aspect(frame, target_width, target_height):
+    """Return an even-sized centered HWC view matching the target aspect ratio."""
+    target_width = int(target_width)
+    target_height = int(target_height)
+    if target_width <= 0 or target_height <= 0:
+        raise ValueError("目标宽高必须为正数")
+
+    source_height = int(frame.shape[0])
+    source_width = int(frame.shape[1])
+    if source_width * target_height == source_height * target_width:
+        return frame
+    if source_width * target_height > source_height * target_width:
+        crop_width = min(source_width, (source_height * target_width) // target_height)
+        crop_width -= crop_width % 2
+        if crop_width <= 0:
+            raise ValueError("源帧宽度不足以进行偶数比例裁切")
+        left = (source_width - crop_width) // 2
+        return frame[:, left:left + crop_width, :]
+
+    crop_height = min(source_height, (source_width * target_height) // target_width)
+    crop_height -= crop_height % 2
+    if crop_height <= 0:
+        raise ValueError("源帧高度不足以进行偶数比例裁切")
+    top = (source_height - crop_height) // 2
+    return frame[top:top + crop_height, :, :]
+
+
+def _should_use_deblur_before_upscale(guide, postprocess_path):
+    """Enable the RTX deblur+VSR chain only for the explicit quality route."""
+    guide = guide or {}
+    return (
+        postprocess_path == "rtx_vsr"
+        and str(guide.get("performance_preset") or "")
+        in {"quality_two_stage", "质量优先二采样"}
+        and str(guide.get("rtx_deblur_mode") or "") == "DEBLUR_LOW"
+    )
 
 
 def _normalize_output_audio(audio, mode):
@@ -260,6 +298,7 @@ def _iter_vsr_frame_chunks(
     bytes_per_channel=1,
     pingpong=False,
     device_id=0,
+    deblur_before_upscale=False,
 ):
     """Run RTX VSR one frame at a time and yield bounded CPU HWC chunks."""
     def frame_stream():
@@ -275,6 +314,7 @@ def _iter_vsr_frame_chunks(
         max_chunk_bytes=max_chunk_bytes,
         bytes_per_channel=bytes_per_channel,
         device_id=device_id,
+        deblur_before_upscale=deblur_before_upscale,
     )
 
 
@@ -286,6 +326,7 @@ def _iter_vsr_frame_stream(
     max_chunk_bytes=64 * 1024 * 1024,
     bytes_per_channel=1,
     device_id=0,
+    deblur_before_upscale=False,
 ):
     """Apply one VSR processor to an arbitrary lazy HWC frame stream."""
     target_frame_bytes = max(1, int(target_width) * int(target_height) * 3 * int(bytes_per_channel))
@@ -296,17 +337,38 @@ def _iter_vsr_frame_stream(
     try:
         try:
             api = load_vsr_api()
-            processor = VsrFrameProcessor(
-                api, quality, device_id, int(target_width), int(target_height)
-            )
         except Exception as exc:
             raise _VsrProcessingError(str(exc)) from exc
         for frame in frames:
+            try:
+                cropped_frame = _center_crop_to_target_aspect(
+                    frame, target_width, target_height
+                )
+            except Exception as exc:
+                raise _VsrProcessingError(str(exc)) from exc
+            if processor is None:
+                try:
+                    if deblur_before_upscale:
+                        processor = DeblurVsrFrameProcessor(
+                            api,
+                            quality,
+                            int(device_id),
+                            int(cropped_frame.shape[1]),
+                            int(cropped_frame.shape[0]),
+                            int(target_width),
+                            int(target_height),
+                        )
+                    else:
+                        processor = VsrFrameProcessor(
+                            api, quality, int(device_id), int(target_width), int(target_height)
+                        )
+                except Exception as exc:
+                    raise _VsrProcessingError(str(exc)) from exc
             # The processor owns the CUDA conversion; keep only one source
             # frame and a small CPU output chunk alive at a time.
-            chw_frame = frame[..., :3].detach().movedim(-1, 0).contiguous()
+            chw_frame = cropped_frame[..., :3].detach().movedim(-1, 0).contiguous()
             try:
-                pending.append(processor.process(chw_frame))
+                pending.append(processor.process(chw_frame).detach().to(device="cpu"))
             except Exception as exc:
                 raise _VsrProcessingError(str(exc)) from exc
             if len(pending) >= frames_per_chunk:
@@ -488,14 +550,30 @@ def _save_vsr_frame(
     device_id,
     output_path,
     suffix,
+    deblur_before_upscale=False,
 ):
     """Run one exported frame through the same RTX VSR path as the video."""
-    processor = VsrFrameProcessor(
-        load_vsr_api(), quality, int(device_id), int(target_width), int(target_height)
+    cropped_frame = _center_crop_to_target_aspect(
+        source[index], target_width, target_height
     )
+    api = load_vsr_api()
+    if deblur_before_upscale:
+        processor = DeblurVsrFrameProcessor(
+            api,
+            quality,
+            int(device_id),
+            int(cropped_frame.shape[1]),
+            int(cropped_frame.shape[0]),
+            int(target_width),
+            int(target_height),
+        )
+    else:
+        processor = VsrFrameProcessor(
+            api, quality, int(device_id), int(target_width), int(target_height)
+        )
     try:
         frame = processor.process(
-            source[index, ..., :3].detach().movedim(-1, 0).contiguous()
+            cropped_frame[..., :3].detach().movedim(-1, 0).contiguous()
         )
     finally:
         processor.close()
@@ -588,6 +666,9 @@ class MiniMaxH3StreamingVideoCombine:
         if motion_smoothing not in {"off", "rife_x2"}:
             raise ValueError(f"不支持的运动平滑路径：{motion_smoothing}")
         performance_preset = str(guide.get("performance_preset") or "")
+        deblur_before_upscale = _should_use_deblur_before_upscale(
+            guide, postprocess_path
+        )
         if motion_smoothing == "rife_x2" and performance_preset in _TRAINED_TWO_STAGE_PRESETS:
             preset_label = (
                 "低显存二采"
@@ -686,6 +767,7 @@ class MiniMaxH3StreamingVideoCombine:
                         device_id=guide.get("device_id", 0),
                         max_chunk_bytes=chunk_kwargs["max_chunk_bytes"],
                         bytes_per_channel=chunk_kwargs["bytes_per_channel"],
+                        deblur_before_upscale=False,
                     )
                 else:
                     chunks = _iter_vsr_frame_chunks(
@@ -694,6 +776,7 @@ class MiniMaxH3StreamingVideoCombine:
                         target_height,
                         quality=guide.get("rtx_quality", "HIGH"),
                         device_id=guide.get("device_id", 0),
+                        deblur_before_upscale=deblur_before_upscale,
                         **chunk_kwargs,
                     )
             try:
@@ -793,7 +876,7 @@ class MiniMaxH3StreamingVideoCombine:
                     frame_exports.append(_save_vsr_frame(
                         source, 0, target_width, target_height,
                         guide.get("rtx_quality", "HIGH"), guide.get("device_id", 0),
-                        output_path, "first",
+                        output_path, "first", deblur_before_upscale=deblur_before_upscale,
                     ))
             if save_last_frame:
                 last_index = 1 if pingpong and len(source) >= 3 else len(source) - 1
@@ -809,7 +892,7 @@ class MiniMaxH3StreamingVideoCombine:
                     frame_exports.append(_save_vsr_frame(
                         source, last_index, target_width, target_height,
                         guide.get("rtx_quality", "HIGH"), guide.get("device_id", 0),
-                        output_path, "last",
+                        output_path, "last", deblur_before_upscale=deblur_before_upscale,
                     ))
 
         if pass_frames and postprocess_path == "native_bypass":
