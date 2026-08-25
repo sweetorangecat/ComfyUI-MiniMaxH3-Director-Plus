@@ -149,14 +149,14 @@ def test_quality_two_stage_uses_crf_16_without_overriding_better_values():
     assert resolver(guide, "native_bypass", 20) == 16
 
 
-def test_low_vram_two_stage_releases_h3_and_uses_crf_16():
+def test_low_vram_two_stage_releases_h3_before_ai_x2_and_uses_crf_16():
     calls = []
     original = stream_output.release_sampling_models
     try:
         stream_output.release_sampling_models = lambda: calls.append("released")
         stream_output._prepare_postprocess_runtime(
             {"performance_preset": "low_vram_two_stage"},
-            "rtx_vsr",
+            "ai_upscale",
         )
     finally:
         stream_output.release_sampling_models = original
@@ -164,7 +164,7 @@ def test_low_vram_two_stage_releases_h3_and_uses_crf_16():
     assert calls == ["released"]
     assert stream_output._resolved_encode_quality(
         {"performance_preset": "low_vram_two_stage"},
-        "rtx_vsr",
+        "ai_upscale",
         20,
     ) == 16
 

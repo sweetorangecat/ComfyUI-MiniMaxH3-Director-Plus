@@ -82,18 +82,22 @@ def test_ui_locks_quality_two_stage_to_rtx_vsr():
     assert "质量优先二采样已锁定 RTX VSR" in text
 
 
-def test_ui_locks_low_vram_two_stage_to_four_second_fhd_vsr_ultra():
+def test_ui_locks_low_vram_two_stage_to_four_second_fhd_ai_x2_reconstruction():
     text = source()
 
-    assert '"低显存二采": [["rtx_vsr"' in text
+    assert '"低显存二采": [["ai_upscale"' in text
     assert 'preset === "低显存二采"' in text
     assert 'setWidget(node, "duration", 4, false)' in text
     assert 'setWidget(node, "resolution_preset", "1080p FHD", false)' in text
     assert "resolvedWidth * resolvedHeight > 1920 * 1080 * 1.02" in text
     assert "function lowVramFirstStageMegapixels" in text
-    assert "LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE" in text
+    assert "LOW_VRAM_TWO_STAGE_MAX_FINAL_SCALE" in text
     assert "lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight)" in text
-    assert "低显存二采已锁定 RTX VSR ULTRA" in text
+    assert "低显存二采已锁定 AI X2 细节重建" in text
+    assert "postprocessGrid.children[1]" in text
+    assert '"AI X2"' in text
+    assert "isX2UpscaleModel" in text
+    assert 'preset !== "低显存二采" || isX2UpscaleModel(value)' in text
 
 
 def test_named_resolution_presets_use_explicit_megapixels_for_nonstandard_aspects():

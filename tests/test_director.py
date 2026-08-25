@@ -617,10 +617,15 @@ def test_two_stage_rejects_busy_gpu_before_vsr_probe(monkeypatch):
 
 def test_low_vram_two_stage_builds_safe_four_second_fhd_plan(monkeypatch):
     checked = []
+    resolved_models = []
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
     monkeypatch.setattr(
         "nodes.director.probe_vsr_capability",
         lambda quality, device_id=0: checked.append((quality, device_id)) or True,
+    )
+    monkeypatch.setattr(
+        "nodes.director.resolve_upscale_model_name",
+        lambda model, scale: resolved_models.append((model, scale)) or "RealESRGAN_x2plus.pth",
     )
 
     guide, *_ = MiniMaxH3DirectorPlus().build(
@@ -634,7 +639,7 @@ def test_low_vram_two_stage_builds_safe_four_second_fhd_plan(monkeypatch):
         voice_mode="none",
         ref_image_size="match",
         performance_preset="低显存二采",
-        postprocess_mode="rtx_vsr",
+        postprocess_mode="ai_upscale",
         timeline_data="{}",
         target_dialogue="",
         reference_transcript="",
@@ -642,14 +647,17 @@ def test_low_vram_two_stage_builds_safe_four_second_fhd_plan(monkeypatch):
 
     assert guide["performance_preset"] == "low_vram_two_stage"
     assert guide["vram_safety_tier"] == "8gb_low_vram_two_stage"
-    assert 340_000 <= guide["first_stage_width"] * guide["first_stage_height"] <= 420_000
-    assert 780_000 <= guide["second_stage_width"] * guide["second_stage_height"] <= 900_000
-    assert guide["final_upscale_scale"] <= 1.65
-    assert guide["max_final_vsr_scale"] == pytest.approx(1.6)
+    assert 430_000 <= guide["first_stage_width"] * guide["first_stage_height"] <= 490_000
+    assert 980_000 <= guide["second_stage_width"] * guide["second_stage_height"] <= 1_080_000
+    assert guide["final_upscale_scale"] <= 1.46
+    assert guide["max_final_vsr_scale"] == pytest.approx(1.45)
     assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
-    assert guide["rtx_quality"] == "ULTRA"
-    assert guide["postprocess_path"] == "rtx_vsr"
-    assert checked == [("ULTRA", 0)]
+    assert guide["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+    assert guide["postprocess_path"] == "ai_upscale"
+    assert checked == []
+    assert len(resolved_models) == 1
+    assert resolved_models[0][0] == "auto"
+    assert resolved_models[0][1] == pytest.approx(1920 / 1344)
 
 
 def test_low_vram_two_stage_rejects_longer_video_before_vsr_probe(monkeypatch):
@@ -672,13 +680,40 @@ def test_low_vram_two_stage_rejects_longer_video_before_vsr_probe(monkeypatch):
             voice_mode="none",
             ref_image_size="match",
             performance_preset="低显存二采",
-            postprocess_mode="rtx_vsr",
+            postprocess_mode="ai_upscale",
             timeline_data="{}",
             target_dialogue="",
             reference_transcript="",
         )
 
     assert checked == []
+
+
+def test_low_vram_two_stage_rejects_x4_final_model_before_h3(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
+    monkeypatch.setattr(
+        "nodes.director.resolve_upscale_model_name",
+        lambda model, scale: "RealESRGAN_x4plus.pth",
+    )
+
+    with pytest.raises(RequestError, match="低显存二采.*X2"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA",
+            prompt="镜头缓慢推进。",
+            duration=4,
+            width=1920,
+            height=1080,
+            aspect_ratio="16:9",
+            resolution_preset="1080p FHD",
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="低显存二采",
+            postprocess_mode="ai_upscale",
+            ai_upscale_model="RealESRGAN_x4plus.pth",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
 
 
 def test_two_stage_rejects_missing_route_assets_before_vsr_probe(monkeypatch):

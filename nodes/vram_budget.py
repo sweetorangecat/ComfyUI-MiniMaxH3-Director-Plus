@@ -7,7 +7,7 @@ import math
 
 LOW_VRAM_TWO_STAGE_MIN_FIRST_MP = 0.20
 LOW_VRAM_TWO_STAGE_SCALE = 1.5
-LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.6
+LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.45
 
 
 def _aligned_size(width, height, target_mp, alignment=32):
@@ -87,10 +87,10 @@ def plan_two_stage_dimensions(
                 tier,
             )
         required_free = 6.0
-        # RTX VSR is a reconstruction finish, not a replacement for real H3
-        # detail.  Size the learned second-pass grid so FHD never asks VSR to
-        # stretch either axis by much more than 1.6x.  Smaller targets retain
-        # the old 0.20 MP fast floor.
+        # A final reconstruction model is not a replacement for real H3
+        # detail. Size the learned second-pass grid so FHD never asks the
+        # final X2 model to stretch either axis by much more than 1.45x.
+        # Smaller targets retain the old 0.20 MP fast floor.
         first_mp = max(
             LOW_VRAM_TWO_STAGE_MIN_FIRST_MP,
             (final_width * final_height)

@@ -359,17 +359,17 @@ def _resolve_postprocess_path(guide, source_width, source_height):
 
 
 def release_sampling_models():
-    """Release H3 patchers before constructing the CUDA RTX VSR effect."""
+    """Release H3 patchers before constructing the final AI model."""
     import comfy.model_management as model_management
 
     model_management.unload_all_models()
     model_management.soft_empty_cache()
-    LOGGER.info("[H3 output] H3 sampling models released before RTX VSR")
+    LOGGER.info("[H3 output] H3 sampling models released before final AI reconstruction")
 
 
 def _prepare_postprocess_runtime(guide, postprocess_path):
     preset = str((guide or {}).get("performance_preset") or "")
-    if preset in _TRAINED_TWO_STAGE_PRESETS and postprocess_path == "rtx_vsr":
+    if preset in _TRAINED_TWO_STAGE_PRESETS and postprocess_path in {"rtx_vsr", "ai_upscale"}:
         release_sampling_models()
 
 

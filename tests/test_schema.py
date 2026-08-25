@@ -30,12 +30,11 @@ def test_schema_exposes_final_postprocess_controls():
     assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"]
     assert schema["rtx_quality"]["allowed_by_performance"] == {
         "质量优先二采样": ["HIGHBITRATE_ULTRA"],
-        "低显存二采": ["ULTRA"],
         "其他性能预设": ["HIGH", "ULTRA"],
     }
     assert schema["ai_upscale_model"]["default"] == "auto"
     assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["rtx_vsr"]
-    assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == ["rtx_vsr"]
+    assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == ["ai_upscale"]
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
     assert schema["motion_smoothing"]["default"] == "off"
     assert schema["audio_loudness"]["enum"] == ["auto", "original"]
@@ -71,26 +70,27 @@ def test_quality_two_stage_only_allows_rtx_vsr_postprocess():
     assert allowed_rtx_qualities("quality") == ("HIGH", "ULTRA")
 
 
-def test_low_vram_two_stage_only_allows_rtx_vsr_ultra_without_rife():
-    assert allowed_postprocess_modes("low_vram_two_stage") == ("rtx_vsr",)
-    assert schema_module.allowed_rtx_qualities("low_vram_two_stage") == ("ULTRA",)
-    assert schema_module.allowed_motion_smoothing("low_vram_two_stage", "rtx_vsr") == ("off",)
+def test_low_vram_two_stage_only_allows_ai_x2_reconstruction_without_rife():
+    assert allowed_postprocess_modes("low_vram_two_stage") == ("ai_upscale",)
+    assert schema_module.allowed_rtx_qualities("low_vram_two_stage") == ("HIGH", "ULTRA")
+    assert schema_module.allowed_motion_smoothing("low_vram_two_stage", "ai_upscale") == ("off",)
 
     request = normalize_request({
         "mode": "T2VA",
         "duration": 4,
         "performance_preset": "低显存二采",
-        "postprocess_mode": "rtx_vsr",
-        "rtx_quality": "HIGH",
+        "postprocess_mode": "ai_upscale",
+        "ai_upscale_model": "auto",
     })
 
     assert request["performance_preset"] == "low_vram_two_stage"
-    assert request["rtx_quality"] == "ULTRA"
+    assert request["postprocess_mode"] == "ai_upscale"
+    assert request["ai_upscale_model"] == "auto"
     assert request["motion_smoothing"] == "off"
 
 
-def test_low_vram_two_stage_rejects_non_vsr_postprocess():
-    with pytest.raises(RequestError, match="低显存二采.*RTX VSR"):
+def test_low_vram_two_stage_rejects_non_ai_reconstruction_postprocess():
+    with pytest.raises(RequestError, match="低显存二采.*AI 自动超分"):
         normalize_request({
             "mode": "T2VA",
             "duration": 4,
@@ -338,7 +338,11 @@ def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
     request = normalize_request({
         "mode": "REF2VA",
         "performance_preset": preset,
-        "postprocess_mode": "rtx_vsr" if expected in {"quality_two_stage", "low_vram_two_stage"} else "native",
+        "postprocess_mode": (
+            "rtx_vsr" if expected == "quality_two_stage"
+            else "ai_upscale" if expected == "low_vram_two_stage"
+            else "native"
+        ),
     })
 
     assert request["performance_preset"] == expected

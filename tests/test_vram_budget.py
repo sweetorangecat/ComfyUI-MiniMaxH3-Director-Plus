@@ -64,10 +64,10 @@ def test_idle_8gb_allows_four_second_fhd_low_vram_two_stage():
 
     assert plan["allowed"] is True
     assert plan["vram_safety_tier"] == "8gb_low_vram_two_stage"
-    assert 0.34 <= plan["first_stage_megapixels"] <= 0.42
-    assert 0.78 <= plan["second_stage_megapixels"] <= 0.90
-    assert plan["final_scale"] <= 1.65
-    assert plan["max_final_vsr_scale"] == pytest.approx(1.6)
+    assert 0.43 <= plan["first_stage_megapixels"] <= 0.49
+    assert 0.98 <= plan["second_stage_megapixels"] <= 1.08
+    assert plan["final_scale"] <= 1.46
+    assert plan["max_final_vsr_scale"] == pytest.approx(1.45)
     assert plan["max_final_width"] == 1920
     assert plan["max_final_height"] == 1080
 

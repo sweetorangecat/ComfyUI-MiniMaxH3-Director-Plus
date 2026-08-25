@@ -4,7 +4,7 @@
 
 **Goal:** Add a separately selectable, fail-fast trained two-stage route for an idle RTX 3070-class 8GB GPU while preserving the existing stable low-VRAM route and exposing an exact 1080p final target.
 
-**Architecture:** Keep `low_vram` as the stable 4–15 second single-sample route. Add `low_vram_two_stage` as an explicit 4-second-only route: dynamically size the first grid from about 0.20 MP for 720p to about 0.36 MP for FHD, apply a learned 1.5x H3 latent upscale, run low-sigma second sampling under ComfyUI LOW_VRAM, then limit the final RTX VSR edge scale to about 1.6x. Reuse the existing U17/U16 trained-route assets and sampler, but give the new route its own deterministic VRAM planner profile and compatibility matrix.
+**Architecture:** Keep `low_vram` as the stable 4–15 second single-sample route. Add `low_vram_two_stage` as an explicit 4-second-only route: dynamically size the first grid from about 0.20 MP for 720p to about 0.46 MP for FHD, apply a learned 1.5x H3 latent upscale, run an approximately 1.03 MP low-sigma second sampling under ComfyUI LOW_VRAM, then use one RealESRGAN X2 reconstruction path to reach FHD. Reuse the existing U17/U16 trained-route assets and sampler, but give the new route its own deterministic VRAM planner profile and compatibility matrix.
 
 **Tech Stack:** Python 3, PyTorch/ComfyUI nodes, JavaScript DOM extension, pytest, JSON workflow builder.
 
@@ -73,9 +73,9 @@ def test_idle_8gb_allows_four_second_fhd_low_vram_two_stage():
     plan = plan_two_stage_dimensions(1920, 1080, 4, 8, 7, profile="low_vram")
     assert plan["allowed"] is True
     assert plan["vram_safety_tier"] == "8gb_low_vram_two_stage"
-    assert 0.34 <= plan["first_stage_megapixels"] <= 0.42
-    assert 0.78 <= plan["second_stage_megapixels"] <= 0.90
-    assert plan["final_scale"] <= 1.65
+    assert 0.43 <= plan["first_stage_megapixels"] <= 0.49
+    assert 0.98 <= plan["second_stage_megapixels"] <= 1.08
+    assert plan["final_scale"] <= 1.46
 
 def test_8gb_low_vram_two_stage_rejects_longer_clips():
     plan = plan_two_stage_dimensions(1920, 1080, 5, 8, 7, profile="low_vram")
@@ -93,7 +93,7 @@ Expected: FAIL with the unsupported `profile` argument.
 
 - [ ] **Step 3: Implement the low-VRAM planner branch**
 
-Use these fail-fast limits: total VRAM at least 7.5GB, free VRAM at least 6.0GB before generation, exactly 4 seconds, final area no larger than the 1920×1080 pixel budget (plus alignment tolerance), a dynamic first-stage grid from about 0.20 MP at 720p to about 0.36 MP at FHD, a 1.5x learned second-stage grid, and an approximately 1.6x maximum final VSR edge scale.
+Use these fail-fast limits: total VRAM at least 7.5GB, free VRAM at least 6.0GB before generation, exactly 4 seconds, final area no larger than the 1920×1080 pixel budget (plus alignment tolerance), a dynamic first-stage grid from about 0.20 MP at 720p to about 0.46 MP at FHD, a 1.5x learned second-stage grid, and an approximately 1.45x maximum final X2 reconstruction scale.
 
 - [ ] **Step 4: Run the budget tests and verify they pass**
 
@@ -139,7 +139,7 @@ Expected: FAIL for the unknown preset and absent routing/UI behavior.
 
 - [ ] **Step 3: Implement the new preset across the existing trained route**
 
-Add an 8-step 4+4 preset with 1.5x trained latent upscale, 16 head chunks, no EasyCache, no RIFE, LOW_VRAM model staging, and the same matched FL/Reference LoRA contracts already used by `quality_two_stage`. In the director, call `plan_two_stage_dimensions(..., profile="low_vram")`, force final RTX VSR ULTRA, and fail before dependency/model loading when duration, target, or idle VRAM is unsafe. In the JS director, expose the extra preset without changing panel geometry and auto-set duration to 4 seconds when selected.
+Add an 8-step 4+4 preset with 1.5x trained latent upscale, 16 head chunks, no EasyCache, no RIFE, LOW_VRAM model staging, and the same matched FL/Reference LoRA contracts already used by `quality_two_stage`. In the director, call `plan_two_stage_dimensions(..., profile="low_vram")`, force one AI X2 final reconstruction route, and fail before dependency/model loading when duration, target, idle VRAM, or the X2 model is unavailable. In the JS director, expose the extra preset without changing panel geometry and auto-set duration to 4 seconds when selected.
 
 - [ ] **Step 4: Run the focused routing tests and verify they pass**
 

@@ -4,6 +4,7 @@ import pytest
 
 from nodes.upscale import (
     MiniMaxH3VideoUpscale,
+    is_x2_upscale_model_name,
     resolve_upscale_model_name,
 )
 from nodes.stream_output import (
@@ -36,6 +37,13 @@ def test_auto_upscale_model_prefers_x4_for_four_k_target():
 def test_manual_upscale_model_must_exist():
     with pytest.raises(ValueError, match="不存在"):
         resolve_upscale_model_name("missing.safetensors", 2.0, available=["RealESRGAN_x2plus.pth"])
+
+
+def test_x2_model_name_guard_rejects_x4_models():
+    assert is_x2_upscale_model_name("RealESRGAN_x2plus.pth") is True
+    assert is_x2_upscale_model_name("OmniSR_X2_DIV2K.safetensors") is True
+    assert is_x2_upscale_model_name("RealESRGAN_x4plus.pth") is False
+    assert is_x2_upscale_model_name("4x-UltraSharp.pth") is False
 
 
 def test_video_upscale_passes_through_when_not_requested():

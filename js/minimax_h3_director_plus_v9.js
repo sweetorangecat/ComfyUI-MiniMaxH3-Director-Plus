@@ -37,7 +37,7 @@ const RESOLUTION_MEGAPIXELS = {
 };
 const LOW_VRAM_TWO_STAGE_MIN_FIRST_MP = 0.20;
 const LOW_VRAM_TWO_STAGE_SCALE = 1.5;
-const LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.6;
+const LOW_VRAM_TWO_STAGE_MAX_FINAL_SCALE = 1.45;
 const RESOLUTIONS = [
   "0.26 MP", "0.30 MP", "0.36 MP", "0.40 MP", "0.50 MP", "0.52 MP", "0.60 MP", "0.65 MP", "0.70 MP",
   "0.80 MP", "0.83 MP", "0.90 MP", "1.00 MP", "1.05 MP", "1.10 MP", "1.20 MP", "1.30 MP", "1.35 MP",
@@ -72,7 +72,7 @@ const POSTPROCESS_MODES = [
 ];
 const POSTPROCESS_MODES_BY_PERFORMANCE = {
   "质量优先二采样": [["rtx_vsr", "AI 细节重建（RTX VSR）"]],
-  "低显存二采": [["rtx_vsr", "AI 细节重建（RTX VSR）"]],
+  "低显存二采": [["ai_upscale", "AI X2 细节重建（低显存）"]],
 };
 const RTX_QUALITIES = [
   ["HIGH", "HIGH（质量）"],
@@ -286,7 +286,7 @@ function syncResolution(node) {
   return [width, height];
 }
 
-function twoStageSizeHint(finalWidth, finalHeight, backend, firstStageMegapixels = 0.90) {
+function twoStageSizeHint(finalWidth, finalHeight, backend, firstStageMegapixels = 0.90, finalMethod = "RTX VSR") {
   const ratio = finalWidth / Math.max(1, finalHeight);
   const baseArea = firstStageMegapixels * 1000 * 1000;
   const snap = (value) => Math.max(32, Math.round(value / 32) * 32);
@@ -305,14 +305,19 @@ function twoStageSizeHint(finalWidth, finalHeight, backend, firstStageMegapixels
   const route = backend === "ref2va_model"
     ? "Reference 训练型 3D latent 二采（Ref LoRA + Sigma 尾段强化）"
     : "FL 训练型 3D latent 二采（8步 LoRA 首采 + 768p LoRA 二采）";
-  const finalStage = scale <= 1.01 ? "神经二采已到目标尺寸，RTX VSR 自动旁路" : `RTX VSR 约 ${scale.toFixed(2)}x`;
+  const finalStage = scale <= 1.01 ? `神经二采已到目标尺寸，${finalMethod} 自动旁路` : `${finalMethod} 约 ${scale.toFixed(2)}x`;
   return `${route}；最终输出 ${finalWidth}×${finalHeight}；H3首采 ${firstWidth}×${firstHeight}；神经latent二采 ${secondWidth}×${secondHeight}；${finalStage}`;
 }
 
 function lowVramFirstStageMegapixels(finalWidth, finalHeight) {
   const qualityFloor = (finalWidth * finalHeight)
-    / (1000 * 1000 * (LOW_VRAM_TWO_STAGE_SCALE * LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE) ** 2);
+    / (1000 * 1000 * (LOW_VRAM_TWO_STAGE_SCALE * LOW_VRAM_TWO_STAGE_MAX_FINAL_SCALE) ** 2);
   return Math.max(LOW_VRAM_TWO_STAGE_MIN_FIRST_MP, qualityFloor);
+}
+
+function isX2UpscaleModel(value) {
+  const name = String(value || "").replaceAll("\\", "/").split("/").pop();
+  return /(^|[^0-9])(x2|2x)(?=[^0-9]|$)/i.test(name);
 }
 
 function material(title, description) {
@@ -654,10 +659,15 @@ function install(node) {
     );
     const postprocessGrid = document.createElement("div");
     postprocessGrid.className = "h3p-grid";
+    let aiUpscaleModel = widget(node, "ai_upscale_model")?.value || "auto";
+    if (preset === "低显存二采" && aiUpscaleModel !== "auto" && !isX2UpscaleModel(aiUpscaleModel)) {
+      aiUpscaleModel = "auto";
+      setWidget(node, "ai_upscale_model", "auto", false);
+    }
     postprocessGrid.append(
       valueControl("最终输出", "postprocess_mode", postprocessOptions, postprocessMode),
       postprocessMode === "ai_upscale"
-        ? valueControl("AI 超分模型", "ai_upscale_model", [["auto", "自动选择"]], widget(node, "ai_upscale_model")?.value || "auto")
+        ? valueControl("AI 超分模型", "ai_upscale_model", [["auto", "自动选择"]], aiUpscaleModel)
         : postprocessMode === "rtx_vsr"
           ? valueControl("RTX VSR 质量", "rtx_quality", rtxQualityOptions, rtxQuality)
           : document.createElement("span"),
@@ -665,13 +675,13 @@ function install(node) {
       valueControl("最终音频", "audio_loudness", AUDIO_LOUDNESS, widget(node, "audio_loudness")?.value || "auto"),
     );
     if (postprocessMode === "ai_upscale") {
-      const modelField = postprocessGrid.lastElementChild;
+      const modelField = postprocessGrid.children[1];
       const modelSelect = modelField?.querySelector("select");
       const modelWidget = widget(node, "ai_upscale_model");
       const aiModelOptions = modelWidget?.options?.values || [];
       if (modelSelect && aiModelOptions.length) {
         modelSelect.replaceChildren();
-        [["auto", "自动选择"], ...aiModelOptions.filter((value) => value && value !== "auto").map((value) => [value, value])].forEach(([value, display]) => {
+        [["auto", "自动选择"], ...aiModelOptions.filter((value) => value && value !== "auto" && (preset !== "低显存二采" || isX2UpscaleModel(value))).map((value) => [value, value])].forEach(([value, display]) => {
           const option = document.createElement("option");
           option.value = value;
           option.textContent = display;
@@ -694,7 +704,7 @@ function install(node) {
     if (preset === "质量优先二采样") {
       postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR HIGHBITRATE_ULTRA（同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
-      postprocessNote.textContent = `低显存二采已锁定 RTX VSR ULTRA：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight))}；1080p 会提高真实二采基准，避免从 480p 硬拉；仅支持 4 秒和最高 1080p FHD，开始前检查至少 6GB 空闲显存。`;
+      postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight), "AI X2")}；1080p 使用约 1MP 神经二采基准，再逐帧 RealESRGAN X2 重建发丝与衣料纹理；仅支持 4 秒和最高 1080p FHD，开始前检查至少 6GB 空闲显存。`;
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {

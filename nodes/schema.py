@@ -58,12 +58,12 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
 TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})
 
 # These routes are intentionally explicit. A quality two-stage pass already
-# enlarges and redraws the H3 latent; it is paired with exactly one final RTX
-# VSR output stage. Other presets still expose one selectable final-output
-# method at a time.
+# enlarges and redraws the H3 latent; each preset is paired with exactly one
+# verified final reconstruction route. Other presets still expose one
+# selectable final-output method at a time.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
     "quality_two_stage": ("rtx_vsr",),
-    "low_vram_two_stage": ("rtx_vsr",),
+    "low_vram_two_stage": ("ai_upscale",),
     "quality": POSTPROCESS_MODES,
     "quality_sage": POSTPROCESS_MODES,
     "fast_4step": POSTPROCESS_MODES,
@@ -74,7 +74,6 @@ POSTPROCESS_MODES_BY_PERFORMANCE = {
 
 RTX_QUALITIES_BY_PERFORMANCE = {
     "quality_two_stage": ("HIGHBITRATE_ULTRA",),
-    "low_vram_two_stage": ("ULTRA",),
 }
 
 
@@ -247,8 +246,8 @@ def normalize_request(raw=None):
             )
         if preset == "low_vram_two_stage":
             raise RequestError(
-                "低显存二采只能搭配 RTX VSR ULTRA；"
-                "请将最终输出切换为 AI 细节重建（RTX VSR）"
+                "低显存二采只能搭配 AI 自动超分的 X2 细节重建；"
+                "请将最终输出切换为 AI 自动超分"
             )
         raise RequestError(
             f"性能预设 {request['performance_preset']} 不支持后处理模式 "
@@ -272,12 +271,6 @@ def normalize_request(raw=None):
                 "HIGHBITRATE_ULTRA。"
             )
         request["rtx_quality"] = "HIGHBITRATE_ULTRA"
-    elif resolved_preset == "low_vram_two_stage":
-        if request["rtx_quality"] != "ULTRA":
-            request["warnings"].append(
-                "低显存二采已自动使用 RTX VSR ULTRA，在有限显存下保持清晰度。"
-            )
-        request["rtx_quality"] = "ULTRA"
     elif request["rtx_quality"] not in allowed_rtx:
         raise RequestError(
             "HIGHBITRATE_ULTRA 仅用于质量优先二采样；"
@@ -353,7 +346,7 @@ def public_schema():
                 "description": "四种最终输出路线：原生尺寸直出、Lanczos 快速放大、通用 AI 自动超分、NVIDIA RTX VSR AI 细节重建。",
                 "allowed_by_performance": {
                     "质量优先二采样": ["rtx_vsr"],
-                    "低显存二采": ["rtx_vsr"],
+                    "低显存二采": ["ai_upscale"],
                     "其他性能预设": list(POSTPROCESS_MODES),
                 },
             },
@@ -364,7 +357,6 @@ def public_schema():
                 "description": "RTX VSR 的质量级别，仅在后处理模式为 rtx_vsr 时生效。质量优先二采样固定使用高码率原画源档。",
                 "allowed_by_performance": {
                     "质量优先二采样": ["HIGHBITRATE_ULTRA"],
-                    "低显存二采": ["ULTRA"],
                     "其他性能预设": ["HIGH", "ULTRA"],
                 },
             },

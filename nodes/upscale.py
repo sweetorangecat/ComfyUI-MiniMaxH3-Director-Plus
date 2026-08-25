@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import torch
 import torch.nn.functional as F
 
@@ -13,6 +15,12 @@ def _available_upscale_models():
         return list(folder_paths.get_filename_list("upscale_models"))
     except (ImportError, OSError, AttributeError):
         return []
+
+
+def is_x2_upscale_model_name(model_name):
+    """Return whether a model basename explicitly declares an X2 scale."""
+    value = str(model_name or "").replace("\\", "/").rsplit("/", 1)[-1]
+    return re.search(r"(^|[^0-9])(x2|2x)(?=[^0-9]|$)", value, re.IGNORECASE) is not None
 
 
 def resolve_upscale_model_name(model_name="auto", scale_factor=2.0, available=None):

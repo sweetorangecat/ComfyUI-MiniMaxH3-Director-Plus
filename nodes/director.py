@@ -18,7 +18,11 @@ from .schema import (
     normalize_request,
 )
 from .two_stage_assets import dependency_report, resolve_two_stage_route
-from .upscale import _available_upscale_models, resolve_upscale_model_name
+from .upscale import (
+    _available_upscale_models,
+    is_x2_upscale_model_name,
+    resolve_upscale_model_name,
+)
 from .vram_budget import plan_two_stage_dimensions
 
 
@@ -453,6 +457,13 @@ class MiniMaxH3DirectorPlus:
                 f"{two_stage_plan['second_stage_width']}×{two_stage_plan['second_stage_height']}，"
                 f"最终 RTX VSR 约 {two_stage_plan['final_scale']:.2f} 倍。"
             )
+        elif two_stage_plan is not None and postprocess_path == "ai_upscale":
+            request["warnings"].append(
+                "低显存训练型二采已通过显存预算："
+                f"首采 {native_width}×{native_height}，神经二采 "
+                f"{two_stage_plan['second_stage_width']}×{two_stage_plan['second_stage_height']}，"
+                f"最终 AI X2 细节重建约 {two_stage_plan['final_scale']:.2f} 倍。"
+            )
         elif two_stage_plan is not None and postprocess_path == "native_bypass":
             request["warnings"].append(
                 "训练型神经 latent 二采已达到最终目标尺寸，无需重复执行 RTX VSR。"
@@ -490,10 +501,19 @@ class MiniMaxH3DirectorPlus:
                 request["ai_upscale_model"] = resolve_upscale_model_name(
                     request["ai_upscale_model"],
                     max(
-                        float(requested_width) / max(1, int(native_width)),
-                        float(requested_height) / max(1, int(native_height)),
+                        float(requested_width) / max(1, postprocess_source_width),
+                        float(requested_height) / max(1, postprocess_source_height),
                     ),
                 )
+                if (
+                    request["performance_preset"] == "low_vram_two_stage"
+                    and not is_x2_upscale_model_name(request["ai_upscale_model"])
+                ):
+                    raise ValueError(
+                        "低显存二采只允许 X2 超分模型，"
+                        f"当前解析为 {request['ai_upscale_model']}"
+                    )
+                required_assets.append(request["ai_upscale_model"])
             except Exception as exc:
                 raise RequestError(f"通用 AI 超分前置检查失败，尚未开始 H3 视频生成：{exc}") from exc
 
