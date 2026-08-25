@@ -11,6 +11,7 @@ from nodes.two_stage import (
     MiniMaxH3TwoStageSampler,
     _node_output,
     clone_guider_with_model,
+    prepare_second_stage_guider,
     split_sigmas_at_step,
 )
 
@@ -86,6 +87,71 @@ def test_clone_guider_switches_only_model_contract():
     assert result.model_patcher is second_model
     assert result.model_options is second_model.model_options
     assert result.original_conds is guider.original_conds
+
+
+def test_second_stage_guider_resizes_fl_keyframes_without_mutating_first_stage_conditions():
+    first_model = types.SimpleNamespace(model_options={"route": "first"})
+    second_model = types.SimpleNamespace(model_options={"route": "second"})
+    first_latent = torch.zeros(1, 24, 1, 44, 80)
+    guider = types.SimpleNamespace(
+        model_patcher=first_model,
+        model_options=first_model.model_options,
+        original_conds={
+            "positive": [{
+                "minimax_keyframes": [
+                    {"resolved_frame_index": 0, "latent": first_latent},
+                    {"resolved_frame_index": 119, "latent": first_latent.clone()},
+                ],
+            }],
+        },
+    )
+    calls = []
+
+    result = prepare_second_stage_guider(
+        guider,
+        second_model,
+        target_video_shape=(1, 24, 107, 66, 120),
+    )
+
+    assert result is not guider
+    assert result.model_patcher is second_model
+    resized = result.original_conds["positive"][0]["minimax_keyframes"]
+    assert [kf["latent"].shape for kf in resized] == [
+        (1, 24, 1, 66, 120),
+        (1, 24, 1, 66, 120),
+    ]
+    assert guider.original_conds["positive"][0]["minimax_keyframes"][0]["latent"] is first_latent
+
+
+def test_second_stage_guider_keeps_ref2va_reference_geometry():
+    first_model = types.SimpleNamespace(model_options={"route": "first"})
+    second_model = types.SimpleNamespace(model_options={"route": "second"})
+    ref_latent = torch.zeros(1, 24, 1, 32, 48)
+    guider = types.SimpleNamespace(
+        model_patcher=first_model,
+        model_options=first_model.model_options,
+        original_conds={
+            "positive": [{
+                "minimax_refs": [{
+                    "kind": "image",
+                    "latent_h": 32,
+                    "latent_w": 48,
+                    "latent": ref_latent,
+                }],
+            }],
+        },
+    )
+
+    result = prepare_second_stage_guider(
+        guider,
+        second_model,
+        target_video_shape=(1, 24, 107, 66, 120),
+    )
+
+    ref = result.original_conds["positive"][0]["minimax_refs"][0]
+    assert ref["latent_h"] == 32
+    assert ref["latent_w"] == 48
+    assert ref["latent"] is ref_latent
 
 
 def test_two_stage_sampler_exposes_second_model_without_video_vae():

@@ -6,6 +6,7 @@ import copy
 import logging
 
 import torch
+import torch.nn.functional as F
 
 from .two_stage_assets import run_trained_latent_upscaler
 
@@ -49,6 +50,108 @@ def clone_guider_with_model(guider, second_model):
     result.model_patcher = second_model
     result.model_options = second_model.model_options
     return result
+
+
+def _resize_condition_latent(latent, target_h, target_w):
+    """Resize one FL keyframe latent to the second-stage spatial grid."""
+    container = None
+    if isinstance(latent, dict):
+        container = latent
+        samples = latent.get("samples")
+    else:
+        samples = latent
+    if not isinstance(samples, torch.Tensor) or samples.ndim not in (4, 5):
+        raise ValueError("H3 首尾帧条件格式无效：latent 必须是 4D/5D 张量")
+    target_h, target_w = int(target_h), int(target_w)
+    if target_h < 1 or target_w < 1:
+        raise ValueError("H3 二采目标 latent 尺寸无效")
+    if samples.shape[-2:] == (target_h, target_w):
+        return latent
+
+    source_dtype = samples.dtype
+    source_device = samples.device
+    if samples.ndim == 5:
+        resized = F.interpolate(
+            samples.to(dtype=torch.float32),
+            size=(samples.shape[-3], target_h, target_w),
+            mode="trilinear",
+            align_corners=False,
+        )
+    else:
+        resized = F.interpolate(
+            samples.to(dtype=torch.float32),
+            size=(target_h, target_w),
+            mode="bilinear",
+            align_corners=False,
+        )
+    resized = resized.to(device=source_device, dtype=source_dtype)
+    return {**container, "samples": resized} if container is not None else resized
+
+
+def prepare_second_stage_guider(guider, second_model, target_video_shape):
+    """Clone guider and align FL keyframe conditions with the enlarged target grid.
+
+    REF2VA references intentionally retain their own per-reference grids. Only
+    FL2VA keyframes are target-grid conditions and must be resized before the
+    second sampler rebuilds the MiniMax packed layout.
+    """
+    if not isinstance(target_video_shape, (tuple, list)) or len(target_video_shape) < 5:
+        raise ValueError("H3 二采目标 video latent 尺寸无效")
+    target_h, target_w = int(target_video_shape[-2]), int(target_video_shape[-1])
+    result = clone_guider_with_model(guider, second_model)
+    original = getattr(guider, "original_conds", None)
+    if not isinstance(original, dict):
+        raise ValueError("H3 二采 guider 缺少原始 conditioning，无法校验视觉条件尺寸")
+
+    copied = {}
+    for cond_name, conditions in original.items():
+        if not isinstance(conditions, list):
+            copied[cond_name] = conditions
+            continue
+        copied_conditions = []
+        for condition in conditions:
+            if not isinstance(condition, dict) or "minimax_keyframes" not in condition:
+                copied_conditions.append(condition)
+                continue
+            updated = condition.copy()
+            keyframes = condition.get("minimax_keyframes") or []
+            resized_keyframes = []
+            for keyframe in keyframes:
+                if not isinstance(keyframe, dict) or "latent" not in keyframe:
+                    raise ValueError("H3 首尾帧条件格式无效：缺少 latent")
+                updated_keyframe = keyframe.copy()
+                updated_keyframe["latent"] = _resize_condition_latent(
+                    keyframe["latent"], target_h, target_w
+                )
+                resized_keyframes.append(updated_keyframe)
+            updated["minimax_keyframes"] = resized_keyframes
+            copied_conditions.append(updated)
+        copied[cond_name] = copied_conditions
+    result.original_conds = copied
+    LOGGER.info(
+        "[H3 two-stage] FL 首尾帧条件已对齐到第二阶段 latent 网格 %sx%s；REF2VA 参考图保持原网格",
+        target_w,
+        target_h,
+    )
+    return result
+
+
+def validate_second_stage_condition_shapes(guider, target_video_shape):
+    """Fail before sampling if any FL keyframe cannot match the target grid."""
+    if not isinstance(target_video_shape, (tuple, list)) or len(target_video_shape) < 5:
+        raise ValueError("H3 二采目标 video latent 尺寸无效")
+    target_h, target_w = int(target_video_shape[-2]), int(target_video_shape[-1])
+    for cond_name, conditions in (getattr(guider, "original_conds", {}) or {}).items():
+        for condition in conditions or []:
+            for keyframe in (condition.get("minimax_keyframes") or []) if isinstance(condition, dict) else []:
+                latent = keyframe.get("latent") if isinstance(keyframe, dict) else None
+                samples = latent.get("samples") if isinstance(latent, dict) else latent
+                if isinstance(samples, torch.Tensor) and samples.ndim in (4, 5):
+                    if samples.shape[-2:] != (target_h, target_w):
+                        raise ValueError(
+                            "H3 二采首尾帧条件尺寸未对齐："
+                            f"{tuple(samples.shape[-2:])} != {(target_h, target_w)}"
+                        )
 
 
 def _release_between_stages():
@@ -162,7 +265,9 @@ class MiniMaxH3TwoStageSampler:
                 scale,
             )
             merged = _node_output(LTXVConcatAVLatent.execute(upscaled_video, audio_latent))
-            second_guider = clone_guider_with_model(guider, second_model)
+            merged_video_shape = _latent_shape(upscaled_video)
+            second_guider = prepare_second_stage_guider(guider, second_model, merged_video_shape)
+            validate_second_stage_condition_shapes(second_guider, merged_video_shape)
             second_noise = Noise_RandomNoise(int(getattr(noise, "seed", guide.get("seed", 0))))
             second = SamplerCustomAdvanced.execute(
                 second_noise,
