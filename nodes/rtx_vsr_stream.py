@@ -313,16 +313,103 @@ class DeblurVsrFrameProcessor:
         return False
 
 
-def _probe_failure(quality: str, device_id: int, error: Exception) -> RuntimeError:
+def _probe_failure(
+    quality: str,
+    device_id: int,
+    error: Exception,
+    probe_name: str = "RTX VSR",
+) -> RuntimeError:
     guidance = _runtime_guidance()
     guidance_message = "" if guidance in str(error) else f"\n{guidance}"
     return RuntimeError(
-        "RTX VSR 前置检查失败，尚未开始 H3 视频生成。"
+        f"{probe_name} 前置检查失败，尚未开始 H3 视频生成。"
         f"\n质量：{quality}；GPU：{device_id}。"
         f"\n详细错误：{error}"
         f"{guidance_message}"
         "\n如果当前设备不支持该能力，请将‘最终输出’切换为‘原生尺寸直出’，不会影响 H3 生成。"
     )
+
+
+def probe_vsr_deblur_chain(
+    quality: str = "HIGHBITRATE_ULTRA", device_id: int = 0
+) -> bool:
+    """Validate the real RTX DEBLUR_LOW-to-VSR chain before H3 starts."""
+    normalized_device_id = None
+    cuda_device = None
+    processor = None
+    input_frame = None
+    output_frame = None
+    primary_error = None
+    cleanup_error = None
+    probe_name = "RTX 轻度去模糊 + VSR"
+
+    try:
+        normalized_device_id = int(device_id)
+        cuda_device = torch.device("cuda", normalized_device_id)
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA 不可用，无法执行 RTX 轻度去模糊 + VSR 前置检查")
+        api = load_vsr_api()
+        input_frame = torch.zeros(
+            (3, PROBE_INPUT_HEIGHT, PROBE_INPUT_WIDTH),
+            device=cuda_device,
+            dtype=torch.float32,
+        )
+        processor = DeblurVsrFrameProcessor(
+            api,
+            quality,
+            normalized_device_id,
+            PROBE_INPUT_WIDTH,
+            PROBE_INPUT_HEIGHT,
+            PROBE_OUTPUT_WIDTH,
+            PROBE_OUTPUT_HEIGHT,
+        )
+        output_frame = processor.process(input_frame)
+
+        expected_shape = (PROBE_OUTPUT_HEIGHT, PROBE_OUTPUT_WIDTH, 3)
+        if (
+            not torch.is_tensor(output_frame)
+            or output_frame.device.type != "cpu"
+            or tuple(output_frame.shape) != expected_shape
+        ):
+            actual = (
+                f"{output_frame.device.type} {tuple(output_frame.shape)}"
+                if torch.is_tensor(output_frame)
+                else type(output_frame).__name__
+            )
+            raise RuntimeError(
+                "NVIDIA RTX 轻度去模糊 + VSR 探测输出尺寸异常："
+                f"期望 CPU HWC {expected_shape}，实际 {actual}"
+            )
+    except Exception as exc:
+        primary_error = exc
+    finally:
+        input_frame = None
+        output_frame = None
+        if processor is not None:
+            try:
+                processor.close()
+            except Exception as exc:
+                if primary_error is None:
+                    cleanup_error = exc
+                else:
+                    LOGGER.warning("RTX 轻度去模糊 + VSR 前置检查效果清理失败：%s", exc)
+
+    if primary_error is not None:
+        raise _probe_failure(quality, device_id, primary_error, probe_name) from primary_error
+    if cleanup_error is not None:
+        raise _probe_failure(quality, device_id, cleanup_error, probe_name) from cleanup_error
+
+    LOGGER.info(
+        "RTX 轻度去模糊 + VSR 前置检查成功："
+        "deblur=DEBLUR_LOW quality=%s gpu=%s input=%sx%s output=%sx%s",
+        quality,
+        normalized_device_id,
+        PROBE_INPUT_WIDTH,
+        PROBE_INPUT_HEIGHT,
+        PROBE_OUTPUT_WIDTH,
+        PROBE_OUTPUT_HEIGHT,
+    )
+    return True
 
 
 def probe_vsr_capability(quality: str = "HIGH", device_id: int = 0) -> bool:

@@ -12,6 +12,7 @@ from nodes.rtx_vsr_stream import (
     VsrFrameProcessor,
     _dasiwa_requirements_path,
     load_vsr_api,
+    probe_vsr_deblur_chain,
     probe_vsr_capability,
     resolve_vsr_quality,
 )
@@ -367,6 +368,202 @@ def test_probe_vsr_capability_reports_unsupported_sdk_before_generation(monkeypa
 
     with pytest.raises(RuntimeError, match="code -14"):
         probe_vsr_capability("ULTRA", 0)
+
+
+def test_probe_vsr_deblur_chain_uses_real_360p_deblur_then_upscale_contract(monkeypatch, caplog):
+    calls = []
+    original_zeros = torch.zeros
+    api = object()
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            calls.append(("create", args))
+
+        def process(self, frame):
+            calls.append(("process", frame))
+            return original_zeros((720, 1280, 3), dtype=torch.float32)
+
+        def close(self):
+            calls.append("close")
+
+    def fake_zeros(*args, **kwargs):
+        calls.append(("zeros", args, kwargs))
+        cpu_kwargs = dict(kwargs)
+        cpu_kwargs.pop("device", None)
+        return original_zeros(*args, **cpu_kwargs)
+
+    load_calls = []
+    monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: load_calls.append(True) or api)
+    monkeypatch.setattr(rtx_vsr_stream, "DeblurVsrFrameProcessor", FakeProcessor)
+    monkeypatch.setattr(rtx_vsr_stream.torch, "zeros", fake_zeros)
+    empty_cache_calls = _mock_probe_cuda(monkeypatch)
+
+    with caplog.at_level(logging.INFO, logger=rtx_vsr_stream.LOGGER.name):
+        assert probe_vsr_deblur_chain("HIGHBITRATE_ULTRA", 2) is True
+
+    assert load_calls == [True]
+    assert calls[0] == (
+        "zeros",
+        ((3, 360, 640),),
+        {"device": torch.device("cuda", 2), "dtype": torch.float32},
+    )
+    assert calls[1] == (
+        "create",
+        (api, "HIGHBITRATE_ULTRA", 2, 640, 360, 1280, 720),
+    )
+    assert calls[2][0] == "process"
+    assert calls[2][1].shape == (3, 360, 640)
+    assert calls[-1] == "close"
+    assert empty_cache_calls == []
+    assert (
+        "RTX 轻度去模糊 + VSR 前置检查成功：deblur=DEBLUR_LOW "
+        "quality=HIGHBITRATE_ULTRA gpu=2 input=640x360 output=1280x720"
+    ) in caplog.text
+
+
+def test_probe_vsr_deblur_chain_rejects_unexpected_cpu_hwc_output(monkeypatch):
+    original_zeros = torch.zeros
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            return original_zeros((3, 720, 1280), dtype=torch.float32)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
+    monkeypatch.setattr(rtx_vsr_stream, "DeblurVsrFrameProcessor", FakeProcessor)
+    _mock_probe_input(monkeypatch)
+    empty_cache_calls = _mock_probe_cuda(monkeypatch)
+
+    with pytest.raises(RuntimeError, match=r"RTX 轻度去模糊 \+ VSR 前置检查失败") as error:
+        probe_vsr_deblur_chain("ULTRA", 0)
+
+    assert "CPU HWC (720, 1280, 3)" in str(error.value.__cause__)
+    assert empty_cache_calls == []
+
+
+def test_probe_vsr_deblur_chain_wraps_process_error_and_closes(monkeypatch):
+    calls = []
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            calls.append("create")
+
+        def process(self, frame):
+            calls.append("process")
+            raise RuntimeError("CHAIN_PROCESS_ERROR")
+
+        def close(self):
+            calls.append("close")
+
+    monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
+    monkeypatch.setattr(rtx_vsr_stream, "DeblurVsrFrameProcessor", FakeProcessor)
+    _mock_probe_input(monkeypatch)
+    _mock_probe_cuda(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="CHAIN_PROCESS_ERROR") as error:
+        probe_vsr_deblur_chain("ULTRA", 0)
+
+    assert calls == ["create", "process", "close"]
+    assert str(error.value.__cause__) == "CHAIN_PROCESS_ERROR"
+
+
+def test_probe_vsr_deblur_chain_close_failure_after_success_is_primary(monkeypatch, caplog):
+    original_zeros = torch.zeros
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            return original_zeros((720, 1280, 3), dtype=torch.float32)
+
+        def close(self):
+            raise RuntimeError("CHAIN_CLEANUP_ERROR")
+
+    monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
+    monkeypatch.setattr(rtx_vsr_stream, "DeblurVsrFrameProcessor", FakeProcessor)
+    _mock_probe_input(monkeypatch)
+    _mock_probe_cuda(monkeypatch)
+
+    with caplog.at_level(logging.INFO, logger=rtx_vsr_stream.LOGGER.name):
+        with pytest.raises(RuntimeError, match="CHAIN_CLEANUP_ERROR") as error:
+            probe_vsr_deblur_chain("ULTRA", 0)
+
+    assert str(error.value.__cause__) == "CHAIN_CLEANUP_ERROR"
+    assert "RTX 轻度去模糊 + VSR 前置检查成功" not in caplog.text
+
+
+def test_probe_vsr_deblur_chain_preserves_primary_error_when_cleanup_also_fails(monkeypatch, caplog):
+    class FakeProcessor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            raise RuntimeError("CHAIN_PRIMARY_ERROR")
+
+        def close(self):
+            raise RuntimeError("CHAIN_CLEANUP_ERROR")
+
+    monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
+    monkeypatch.setattr(rtx_vsr_stream, "DeblurVsrFrameProcessor", FakeProcessor)
+    _mock_probe_input(monkeypatch)
+    _mock_probe_cuda(monkeypatch)
+
+    with caplog.at_level(logging.WARNING, logger=rtx_vsr_stream.LOGGER.name):
+        with pytest.raises(RuntimeError, match="CHAIN_PRIMARY_ERROR") as error:
+            probe_vsr_deblur_chain("ULTRA", 0)
+
+    assert str(error.value.__cause__) == "CHAIN_PRIMARY_ERROR"
+    assert "CHAIN_CLEANUP_ERROR" in caplog.text
+
+
+@pytest.mark.parametrize(("device_id", "expected_cause"), [(None, TypeError), ("bad", ValueError)])
+def test_probe_vsr_deblur_chain_wraps_invalid_device_id(monkeypatch, device_id, expected_cause):
+    monkeypatch.setattr(
+        rtx_vsr_stream.torch,
+        "device",
+        lambda *args, **kwargs: pytest.fail("invalid device IDs must fail before CUDA device creation"),
+    )
+
+    with pytest.raises(RuntimeError, match=r"RTX 轻度去模糊 \+ VSR 前置检查失败") as error:
+        probe_vsr_deblur_chain("ULTRA", device_id)
+
+    assert isinstance(error.value.__cause__, expected_cause)
+
+
+def test_probe_vsr_deblur_chain_reports_unsupported_deblur_low_before_generation(monkeypatch):
+    monkeypatch.setattr(
+        rtx_vsr_stream,
+        "load_vsr_api",
+        lambda: (lambda *args, **kwargs: object(), SimpleNamespace(ULTRA="ultra")),
+    )
+    _mock_probe_input(monkeypatch)
+    _mock_probe_cuda(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="DEBLUR_LOW") as error:
+        probe_vsr_deblur_chain("ULTRA", 0)
+
+    assert "RTX 轻度去模糊 + VSR 前置检查失败" in str(error.value)
+    assert "当前 nvvfx SDK 不支持 RTX VSR 质量 DEBLUR_LOW" in str(error.value.__cause__)
+
+
+def test_probe_vsr_deblur_chain_rejects_unavailable_cuda_before_generation(monkeypatch):
+    monkeypatch.setattr(rtx_vsr_stream.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        rtx_vsr_stream,
+        "load_vsr_api",
+        lambda: pytest.fail("CUDA availability must be checked before loading the SDK"),
+    )
+
+    with pytest.raises(RuntimeError, match="CUDA 不可用") as error:
+        probe_vsr_deblur_chain("ULTRA", 0)
+
+    assert "RTX 轻度去模糊 + VSR 前置检查失败" in str(error.value)
 
 
 @pytest.mark.parametrize(
