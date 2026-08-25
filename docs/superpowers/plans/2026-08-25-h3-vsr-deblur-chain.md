@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Retired after real-server validation produced corrupted RGB frames (彩条/花屏). The production route now uses one `HIGHBITRATE_ULTRA` RTX VSR pass; this file remains as the historical implementation record.
+
 **Goal:** Add an isolated `DEBLUR_LOW -> HIGHBITRATE_ULTRA` RTX chain for high-VRAM H3 quality two-stage output without changing H3 sampling memory or low-VRAM routes.
 
 **Architecture:** Extend the existing single-effect NVIDIA frame processor with a CUDA-preserving `process_cuda()` boundary and a two-effect owner that closes both effects deterministically. The director selects and probes the chain only for `quality_two_stage + rtx_vsr`; the streaming encoder center-crops frames to the target aspect ratio, then processes one frame at a time through the selected chain.

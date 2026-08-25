@@ -8,6 +8,7 @@ import math
 LOW_VRAM_TWO_STAGE_MIN_FIRST_MP = 0.20
 LOW_VRAM_TWO_STAGE_SCALE = 1.5
 LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.45
+LOW_VRAM_TWO_STAGE_MAX_DURATION = 6
 
 
 def _aligned_size(width, height, target_mp, alignment=32):
@@ -58,9 +59,9 @@ def plan_two_stage_dimensions(
     if profile == "low_vram":
         max_width, max_height = 1920, 1080
         tier = "8gb_low_vram_two_stage"
-        if duration != 4:
+        if duration > LOW_VRAM_TWO_STAGE_MAX_DURATION:
             return _rejected(
-                "低显存二采只支持 4 秒视频；更长视频请使用低显存高清单采",
+                "低显存二采只支持 4 到 6 秒视频；7 秒及以上请使用低显存高清单采",
                 max_width,
                 max_height,
                 tier,
@@ -87,18 +88,24 @@ def plan_two_stage_dimensions(
                 tier,
             )
         required_free = 6.0
+        # Keep the temporal-spatial token budget approximately constant as
+        # duration grows.  Four seconds keeps the original 0.46 MP FHD grid;
+        # five/six seconds trade spatial detail for a longer clip instead of
+        # pushing the 8 GB card into the same OOM path.
+        duration_factor = 4.0 / float(duration)
+        min_first_mp = LOW_VRAM_TWO_STAGE_MIN_FIRST_MP * duration_factor
         # A final reconstruction model is not a replacement for real H3
         # detail. Size the learned second-pass grid so FHD never asks the
         # final X2 model to stretch either axis by much more than 1.45x.
         # Smaller targets retain the old 0.20 MP fast floor.
         first_mp = max(
-            LOW_VRAM_TWO_STAGE_MIN_FIRST_MP,
+            min_first_mp,
             (final_width * final_height)
             / (
                 1_000_000.0
                 * (LOW_VRAM_TWO_STAGE_SCALE * LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE) ** 2
             ),
-        )
+        ) * duration_factor
     elif total < 16.0:
         return _rejected(
             "低显存档位不执行长视频训练型二采；请使用低显存单采并将最终目标限制为1080p",
@@ -170,6 +177,11 @@ def plan_two_stage_dimensions(
         "quality_basis": "H3 神经 latent 二采",
         "budget_profile": profile,
         "max_final_vsr_scale": (
-            LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE if profile == "low_vram" else None
+            (
+                LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE
+                * math.sqrt(float(duration) / 4.0)
+            )
+            if profile == "low_vram"
+            else None
         ),
     }

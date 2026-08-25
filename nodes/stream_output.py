@@ -78,14 +78,13 @@ def _center_crop_to_target_aspect(frame, target_width, target_height):
 
 
 def _should_use_deblur_before_upscale(guide, postprocess_path):
-    """Enable the RTX deblur+VSR chain only for the explicit quality route."""
-    guide = guide or {}
-    return (
-        postprocess_path == "rtx_vsr"
-        and str(guide.get("performance_preset") or "")
-        in {"quality_two_stage", "质量优先二采样"}
-        and str(guide.get("rtx_deblur_mode") or "") == "DEBLUR_LOW"
-    )
+    """Keep the retired deblur route disabled for all workflows.
+
+    Older U11 files may still carry ``rtx_deblur_mode=DEBLUR_LOW``.  Returning
+    false here is deliberate: the mode previously generated corrupted RGB
+    frames on real NVIDIA servers, so stale metadata must not reactivate it.
+    """
+    return False
 
 
 def _normalize_output_audio(audio, mode):

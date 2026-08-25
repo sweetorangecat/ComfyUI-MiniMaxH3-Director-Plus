@@ -387,7 +387,7 @@ class MiniMaxH3PerformancePreset:
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
-            "low_vram_two_stage": "低显存二采：4 秒专用，1080p 约 1MP 神经二采 + RealESRGAN X2 细节重建，最高 FHD",
+            "low_vram_two_stage": "低显存二采：4–6 秒 FHD，按时长缩小首采网格 + RealESRGAN X2 细节重建",
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
         if mode == "T2VA" and name == "fast_4step":
@@ -724,7 +724,7 @@ def _apply_acceleration(model, guide):
         elif plan["preset"] == "quality_two_stage":
             label = "质量优先二采样（H3 专用 latent 二采）"
         elif plan["preset"] == "low_vram_two_stage":
-            label = "低显存二采（4 秒 FHD 专用）"
+            label = "低显存二采（4–6 秒 FHD 专用）"
         elif not plan["use_turbo_lora"]:
             label = "参考图 Sage/EasyCache"
         LOGGER.info(

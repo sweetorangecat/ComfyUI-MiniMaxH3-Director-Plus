@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .prompting import build_reference_prompt
 from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution, h3_native_canvas
-from .rtx_vsr_stream import probe_vsr_capability, probe_vsr_deblur_chain
+from .rtx_vsr_stream import probe_vsr_capability
 from .rife_stream import DEFAULT_RIFE_MODEL, probe_rife_capability
 from .schema import (
     TWO_STAGE_PERFORMANCE_PRESETS,
@@ -449,14 +449,11 @@ class MiniMaxH3DirectorPlus:
             postprocess_path = request["postprocess_mode"]
         else:
             postprocess_path = "native_bypass"
-        request["rtx_deblur_mode"] = (
-            "DEBLUR_LOW"
-            if (
-                postprocess_path == "rtx_vsr"
-                and request["performance_preset"] == "quality_two_stage"
-            )
-            else "off"
-        )
+        # DEBLUR_LOW was removed from the automatic quality route after the
+        # NVIDIA effect produced corrupted RGB frames on a real server GPU.
+        # Keep the guide field for old workflows, but force the safe single-VSR
+        # path so a stale value cannot re-enable the broken chain.
+        request["rtx_deblur_mode"] = "off"
 
         if two_stage_plan is not None and postprocess_path == "rtx_vsr":
             request["warnings"].append(
@@ -466,8 +463,8 @@ class MiniMaxH3DirectorPlus:
                 f"最终 RTX VSR 约 {two_stage_plan['final_scale']:.2f} 倍。"
             )
             request["warnings"].append(
-                "质量二采将执行 DEBLUR_LOW 轻度去模糊，再执行 "
-                "HIGHBITRATE_ULTRA 高码率 RTX VSR。"
+                "质量二采使用单次 HIGHBITRATE_ULTRA RTX VSR；"
+                "已关闭不稳定的 DEBLUR_LOW 双效果链，避免彩条、灰屏和伪影。"
             )
         elif two_stage_plan is not None and postprocess_path == "ai_upscale":
             request["warnings"].append(
@@ -492,10 +489,7 @@ class MiniMaxH3DirectorPlus:
 
         if postprocess_path == "rtx_vsr":
             try:
-                if request["rtx_deblur_mode"] == "DEBLUR_LOW":
-                    probe_vsr_deblur_chain(request["rtx_quality"], device_id=0)
-                else:
-                    probe_vsr_capability(request["rtx_quality"], device_id=0)
+                probe_vsr_capability(request["rtx_quality"], device_id=0)
             except Exception as exc:
                 raise RequestError(str(exc)) from exc
         if request["motion_smoothing"] == "rife_x2":

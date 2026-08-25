@@ -148,7 +148,7 @@ function allowedPerformancePresets(mode, voiceMode) {
 
 function performancePresetHint(preset) {
   if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 4 步 + 神经 latent 放大 + 匹配低 sigma 二采";
-  if (preset === "低显存二采") return "8GB 专用真二采：仅 4 秒，最高 1080p FHD，阶段间自动释放显存";
+  if (preset === "低显存二采") return "8GB 专用真二采：4–6 秒，最高 1080p FHD；时长越长首采网格越小，阶段间自动释放显存";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
   if (preset === "低显存") return "动态分层加载，适合显存受限设备";
   if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
@@ -578,9 +578,6 @@ function install(node) {
       preset = "稳定质量";
       setWidget(node, "performance_preset", preset, false);
     }
-    if (preset === "低显存二采" && Number(widget(node, "duration")?.value) !== 4) {
-      setWidget(node, "duration", 4, false);
-    }
     const postprocessOptions = allowedPostprocessModes(preset);
     let postprocessMode = widget(node, "postprocess_mode")?.value || "native";
     if (!postprocessOptions.some(([value]) => value === postprocessMode)) {
@@ -644,8 +641,11 @@ function install(node) {
     specification.innerHTML = '<div class="h3p-section-title"><span>生成规格</span><span class="h3p-hint">H3 原生生成参数</span></div>';
     const specGrid = document.createElement("div");
     specGrid.className = "h3p-grid";
+    const durationControl = valueControl("视频时长（秒）", "duration", [], widget(node, "duration")?.value || 5, "number");
+    const durationInput = durationControl.querySelector('input[data-h3p-value-widget="duration"]');
+    if (durationInput) durationInput.max = preset === "低显存二采" ? "6" : "15";
     specGrid.append(
-      valueControl("视频时长（秒）", "duration", [], widget(node, "duration")?.value || 5, "number"),
+      durationControl,
       valueControl("画面比例", "aspect_ratio", [...Object.keys(ASPECTS), "CUSTOM"], aspect),
       valueControl("分辨率档位", "resolution_preset", RESOLUTIONS, resolutionPreset),
     );
@@ -702,9 +702,9 @@ function install(node) {
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR：轻度去模糊 + 高码率 RTX VSR（HIGHBITRATE_ULTRA，同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
+      postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR：单次 RTX VSR 使用 HIGHBITRATE_ULTRA 高码率档（同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；不启用不稳定的 DEBLUR_LOW 双效果链，RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
-      postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight), "AI X2")}；1080p 使用约 1MP 神经二采基准，再逐帧 RealESRGAN X2 重建发丝与衣料纹理；仅支持 4 秒和最高 1080p FHD，开始前检查至少 6GB 空闲显存。`;
+      postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight), "AI X2")}；1080p 4 秒保留约 1MP 神经二采基准，5–6 秒会按时长降低首采网格以控制显存，再逐帧 RealESRGAN X2 重建到 FHD；最长 6 秒，开始前检查至少 6GB 空闲显存。`;
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {

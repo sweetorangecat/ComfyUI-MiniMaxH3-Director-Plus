@@ -88,18 +88,34 @@ def test_8gb_720p_keeps_the_smaller_fast_two_stage_grid():
     assert plan["final_scale"] <= 1.55
 
 
-def test_8gb_low_vram_two_stage_rejects_longer_clips():
+def test_8gb_low_vram_two_stage_allows_six_second_fhd_with_smaller_grid():
     plan = plan_two_stage_dimensions(
         1920,
         1080,
-        5,
+        6,
+        total_vram_gb=8,
+        free_vram_gb=7,
+        profile="low_vram",
+    )
+
+    assert plan["allowed"] is True
+    assert 0.28 <= plan["first_stage_megapixels"] <= 0.34
+    assert 0.62 <= plan["second_stage_megapixels"] <= 0.74
+    assert 1.65 <= plan["final_scale"] <= 1.82
+
+
+def test_8gb_low_vram_two_stage_rejects_seven_second_clips():
+    plan = plan_two_stage_dimensions(
+        1920,
+        1080,
+        7,
         total_vram_gb=8,
         free_vram_gb=7,
         profile="low_vram",
     )
 
     assert plan["allowed"] is False
-    assert "只支持 4 秒" in plan["reason"]
+    assert "4 到 6 秒" in plan["reason"]
 
 
 def test_8gb_low_vram_two_stage_rejects_target_above_fhd_area():

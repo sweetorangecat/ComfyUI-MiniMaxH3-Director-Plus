@@ -4,7 +4,7 @@
 
 **Goal:** Add a separately selectable, fail-fast trained two-stage route for an idle RTX 3070-class 8GB GPU while preserving the existing stable low-VRAM route and exposing an exact 1080p final target.
 
-**Architecture:** Keep `low_vram` as the stable 4–15 second single-sample route. Add `low_vram_two_stage` as an explicit 4-second-only route: dynamically size the first grid from about 0.20 MP for 720p to about 0.46 MP for FHD, apply a learned 1.5x H3 latent upscale, run an approximately 1.03 MP low-sigma second sampling under ComfyUI LOW_VRAM, then use one RealESRGAN X2 reconstruction path to reach FHD. Reuse the existing U17/U16 trained-route assets and sampler, but give the new route its own deterministic VRAM planner profile and compatibility matrix.
+**Architecture:** Keep `low_vram` as the stable 4–15 second single-sample route. Add `low_vram_two_stage` as an explicit 4–6 second route: dynamically size the first grid from about 0.20 MP for 720p to about 0.46 MP for FHD at 4 seconds, then reduce the spatial grid for 5/6 seconds to keep the temporal-spatial token budget stable. Apply a learned 1.5x H3 latent upscale, run the low-sigma second sampling under ComfyUI LOW_VRAM, then use one RealESRGAN X2 reconstruction path to reach FHD. Reuse the existing U17/U16 trained-route assets and sampler, but give the new route its own deterministic VRAM planner profile and compatibility matrix.
 
 **Tech Stack:** Python 3, PyTorch/ComfyUI nodes, JavaScript DOM extension, pytest, JSON workflow builder.
 
@@ -139,7 +139,7 @@ Expected: FAIL for the unknown preset and absent routing/UI behavior.
 
 - [ ] **Step 3: Implement the new preset across the existing trained route**
 
-Add an 8-step 4+4 preset with 1.5x trained latent upscale, 16 head chunks, no EasyCache, no RIFE, LOW_VRAM model staging, and the same matched FL/Reference LoRA contracts already used by `quality_two_stage`. In the director, call `plan_two_stage_dimensions(..., profile="low_vram")`, force one AI X2 final reconstruction route, and fail before dependency/model loading when duration, target, idle VRAM, or the X2 model is unavailable. In the JS director, expose the extra preset without changing panel geometry and auto-set duration to 4 seconds when selected.
+Add an 8-step 4+4 preset with 1.5x trained latent upscale, 16 head chunks, no EasyCache, no RIFE, LOW_VRAM model staging, and the same matched FL/Reference LoRA contracts already used by `quality_two_stage`. In the director, call `plan_two_stage_dimensions(..., profile="low_vram")`, force one AI X2 final reconstruction route, and fail before dependency/model loading when duration, target, idle VRAM, or the X2 model is unavailable. In the JS director, expose the extra preset without changing panel geometry and cap its duration input at 6 seconds; longer clips are rejected before sampling.
 
 - [ ] **Step 4: Run the focused routing tests and verify they pass**
 
@@ -174,7 +174,7 @@ Run:
 python tools/build_u11_workflow.py --source "D:/ComfyUI_windows_portable-G313/ComfyUI/user/default/workflows/minimaxH3/U10-DaSiWa-MiniMaxH3-MythicAlchemy-v12导演台.json" --output "D:/ComfyUI_windows_portable-G313/ComfyUI/user/default/workflows/minimaxH3/U11-MiniMaxH3-导演台Plus-中文增强版.json"
 ```
 
-Document that 8GB trained two-stage means an idle GPU, exactly 4 seconds, final FHD maximum, RTX VSR dependency, much slower execution, and no claim of native 1080p generation.
+Document that 8GB trained two-stage means an idle GPU, 4–6 seconds with a duration-dependent spatial grid, final FHD maximum, RealESRGAN X2 dependency, much slower execution, and no claim of native 1080p generation.
 
 - [ ] **Step 4: Run workflow tests, then the full suite**
 
