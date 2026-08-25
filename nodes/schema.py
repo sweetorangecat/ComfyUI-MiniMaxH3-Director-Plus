@@ -403,6 +403,8 @@ def public_schema():
             "second_stage_height": {"中文名称": "神经latent二采高度", "type": "integer", "readOnly": True},
             "final_upscale_scale_x": {"中文名称": "最终横向放大倍率", "type": "number", "readOnly": True},
             "final_upscale_scale_y": {"中文名称": "最终纵向放大倍率", "type": "number", "readOnly": True},
+            "final_upscale_scale": {"中文名称": "最终最大放大倍率", "type": "number", "readOnly": True},
+            "max_final_vsr_scale": {"中文名称": "低显存清晰度倍率上限", "type": ["number", "null"], "readOnly": True},
             "vram_safety_tier": {"中文名称": "显存安全档位", "type": "string", "readOnly": True},
             "quality_basis": {"中文名称": "清晰度基础", "type": "string", "readOnly": True},
             "required_assets": {"中文名称": "本次所需模型资产", "type": "array", "readOnly": True},

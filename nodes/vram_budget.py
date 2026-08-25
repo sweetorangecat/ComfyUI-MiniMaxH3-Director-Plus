@@ -5,6 +5,11 @@ from __future__ import annotations
 import math
 
 
+LOW_VRAM_TWO_STAGE_MIN_FIRST_MP = 0.20
+LOW_VRAM_TWO_STAGE_SCALE = 1.5
+LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.6
+
+
 def _aligned_size(width, height, target_mp, alignment=32):
     width = max(1, int(width))
     height = max(1, int(height))
@@ -82,7 +87,18 @@ def plan_two_stage_dimensions(
                 tier,
             )
         required_free = 6.0
-        first_mp = 0.20
+        # RTX VSR is a reconstruction finish, not a replacement for real H3
+        # detail.  Size the learned second-pass grid so FHD never asks VSR to
+        # stretch either axis by much more than 1.6x.  Smaller targets retain
+        # the old 0.20 MP fast floor.
+        first_mp = max(
+            LOW_VRAM_TWO_STAGE_MIN_FIRST_MP,
+            (final_width * final_height)
+            / (
+                1_000_000.0
+                * (LOW_VRAM_TWO_STAGE_SCALE * LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE) ** 2
+            ),
+        )
     elif total < 16.0:
         return _rejected(
             "低显存档位不执行长视频训练型二采；请使用低显存单采并将最终目标限制为1080p",
@@ -153,4 +169,7 @@ def plan_two_stage_dimensions(
         "max_final_height": max_height,
         "quality_basis": "H3 神经 latent 二采",
         "budget_profile": profile,
+        "max_final_vsr_scale": (
+            LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE if profile == "low_vram" else None
+        ),
     }

@@ -574,6 +574,14 @@ class MiniMaxH3DirectorPlus:
             "final_upscale_scale_y": float(
                 two_stage_plan["final_scale_y"] if two_stage_plan else 1.0
             ),
+            "final_upscale_scale": float(
+                two_stage_plan["final_scale"] if two_stage_plan else 1.0
+            ),
+            "max_final_vsr_scale": (
+                two_stage_plan.get("max_final_vsr_scale")
+                if two_stage_plan
+                else None
+            ),
             "vram_safety_tier": (
                 two_stage_plan["vram_safety_tier"] if two_stage_plan else "not_applicable"
             ),

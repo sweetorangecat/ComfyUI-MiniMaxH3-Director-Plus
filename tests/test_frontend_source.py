@@ -90,6 +90,9 @@ def test_ui_locks_low_vram_two_stage_to_four_second_fhd_vsr_ultra():
     assert 'setWidget(node, "duration", 4, false)' in text
     assert 'setWidget(node, "resolution_preset", "1080p FHD", false)' in text
     assert "resolvedWidth * resolvedHeight > 1920 * 1080 * 1.02" in text
+    assert "function lowVramFirstStageMegapixels" in text
+    assert "LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE" in text
+    assert "lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight)" in text
     assert "低显存二采已锁定 RTX VSR ULTRA" in text
 
 

@@ -387,7 +387,7 @@ class MiniMaxH3PerformancePreset:
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
-            "low_vram_two_stage": "低显存二采：4 秒专用，0.20MP 首采 + 训练型 3D latent 放大 + 低 sigma 二采，最高 FHD",
+            "low_vram_two_stage": "低显存二采：4 秒专用，按最终目标动态提高首采/二采基准，1080p 最终 VSR 约 1.6 倍，最高 FHD",
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
         if mode == "T2VA" and name == "fast_4step":

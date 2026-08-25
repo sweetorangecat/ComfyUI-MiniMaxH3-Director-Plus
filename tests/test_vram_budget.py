@@ -64,10 +64,28 @@ def test_idle_8gb_allows_four_second_fhd_low_vram_two_stage():
 
     assert plan["allowed"] is True
     assert plan["vram_safety_tier"] == "8gb_low_vram_two_stage"
-    assert plan["first_stage_megapixels"] <= 0.21
-    assert plan["second_stage_megapixels"] <= 0.48
+    assert 0.34 <= plan["first_stage_megapixels"] <= 0.42
+    assert 0.78 <= plan["second_stage_megapixels"] <= 0.90
+    assert plan["final_scale"] <= 1.65
+    assert plan["max_final_vsr_scale"] == pytest.approx(1.6)
     assert plan["max_final_width"] == 1920
     assert plan["max_final_height"] == 1080
+
+
+def test_8gb_720p_keeps_the_smaller_fast_two_stage_grid():
+    plan = plan_two_stage_dimensions(
+        1280,
+        720,
+        4,
+        total_vram_gb=8,
+        free_vram_gb=7,
+        profile="low_vram",
+    )
+
+    assert plan["allowed"] is True
+    assert plan["first_stage_megapixels"] <= 0.21
+    assert plan["second_stage_megapixels"] <= 0.48
+    assert plan["final_scale"] <= 1.55
 
 
 def test_8gb_low_vram_two_stage_rejects_longer_clips():

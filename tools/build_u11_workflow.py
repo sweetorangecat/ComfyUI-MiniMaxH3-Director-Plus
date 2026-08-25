@@ -843,7 +843,7 @@ def build_workflow(source):
     )
     acceleration_note = _note_node(
         allocate_node(), "加速与后处理说明", [-400, 2470], [950, 270],
-        "## 已整合能力\n\n- 训练型 3D latent 二采：自动区分 FL 与 Reference，执行匹配 LoRA 首采、神经 latent 放大和低 sigma 二采；不再使用双线性硬放大。\n- 低显存二采：RTX 3070 8GB 级显卡仅 4 秒、FHD 像素预算；约 0.20MP 首采、1.5 倍神经 latent 放大、低 sigma 真二采，再用 RTX VSR ULTRA 输出。\n- 极速4步：T2VA/FL2VA 使用官方 H3 Turbo，REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler。\n- 参考图加速：只在 Reference 兼容路线应用 SageAttention + ComfyUI 原生 EasyCache。\n- 低显存：按时长限制 H3 原生采样，低显存不开放 4K；最终最多 1080p。\n- 2K/4K 是最终 MP4 像素尺寸；4K 不是 H3 原生采样，而是神经二采细节基准后逐帧 RTX VSR。\n- 每次只执行一种兼容的性能路线；二采固定关闭 RIFE，避免重影与跳帧。",
+        "## 已整合能力\n\n- 训练型 3D latent 二采：自动区分 FL 与 Reference，执行匹配 LoRA 首采、神经 latent 放大和低 sigma 二采；不再使用双线性硬放大。\n- 低显存二采：RTX 3070 8GB 级显卡仅 4 秒、FHD 像素预算；720p 保留约 0.20MP 快速首采，1080p 自动提高到约 0.36MP 首采和约 0.82MP 神经二采，把最终 RTX VSR 控制在约 1.6 倍，避免从 480p 硬拉。\n- 极速4步：T2VA/FL2VA 使用官方 H3 Turbo，REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler。\n- 参考图加速：只在 Reference 兼容路线应用 SageAttention + ComfyUI 原生 EasyCache。\n- 低显存：按时长限制 H3 原生采样，低显存不开放 4K；最终最多 1080p。\n- 2K/4K 是最终 MP4 像素尺寸；4K 不是 H3 原生采样，而是神经二采细节基准后逐帧 RTX VSR。\n- 每次只执行一种兼容的性能路线；二采固定关闭 RIFE，避免重影与跳帧。",
     )
     nodes.extend([router, acceleration, performance, status, fish, color_guard, materials_note, acceleration_note])
 

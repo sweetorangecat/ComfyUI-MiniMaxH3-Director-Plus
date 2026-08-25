@@ -105,6 +105,8 @@ def test_public_schema_exposes_read_only_two_stage_execution_metadata():
     assert resolved["first_stage_width"]["中文名称"] == "H3首采宽度"
     assert resolved["second_stage_width"]["中文名称"] == "神经latent二采宽度"
     assert resolved["final_upscale_scale_x"]["中文名称"] == "最终横向放大倍率"
+    assert resolved["final_upscale_scale"]["中文名称"] == "最终最大放大倍率"
+    assert resolved["max_final_vsr_scale"]["中文名称"] == "低显存清晰度倍率上限"
     assert resolved["vram_safety_tier"]["中文名称"] == "显存安全档位"
     assert resolved["quality_basis"]["中文名称"] == "清晰度基础"
     assert resolved["required_assets"]["中文名称"] == "本次所需模型资产"

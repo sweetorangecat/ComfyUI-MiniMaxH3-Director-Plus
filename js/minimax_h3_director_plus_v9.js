@@ -35,6 +35,9 @@ const RESOLUTION_MEGAPIXELS = {
   "2K QHD": 3.6864,
   "4K UHD": 8.2944,
 };
+const LOW_VRAM_TWO_STAGE_MIN_FIRST_MP = 0.20;
+const LOW_VRAM_TWO_STAGE_SCALE = 1.5;
+const LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.6;
 const RESOLUTIONS = [
   "0.26 MP", "0.30 MP", "0.36 MP", "0.40 MP", "0.50 MP", "0.52 MP", "0.60 MP", "0.65 MP", "0.70 MP",
   "0.80 MP", "0.83 MP", "0.90 MP", "1.00 MP", "1.05 MP", "1.10 MP", "1.20 MP", "1.30 MP", "1.35 MP",
@@ -304,6 +307,12 @@ function twoStageSizeHint(finalWidth, finalHeight, backend, firstStageMegapixels
     : "FL 训练型 3D latent 二采（8步 LoRA 首采 + 768p LoRA 二采）";
   const finalStage = scale <= 1.01 ? "神经二采已到目标尺寸，RTX VSR 自动旁路" : `RTX VSR 约 ${scale.toFixed(2)}x`;
   return `${route}；最终输出 ${finalWidth}×${finalHeight}；H3首采 ${firstWidth}×${firstHeight}；神经latent二采 ${secondWidth}×${secondHeight}；${finalStage}`;
+}
+
+function lowVramFirstStageMegapixels(finalWidth, finalHeight) {
+  const qualityFloor = (finalWidth * finalHeight)
+    / (1000 * 1000 * (LOW_VRAM_TWO_STAGE_SCALE * LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE) ** 2);
+  return Math.max(LOW_VRAM_TWO_STAGE_MIN_FIRST_MP, qualityFloor);
 }
 
 function material(title, description) {
@@ -685,7 +694,7 @@ function install(node) {
     if (preset === "质量优先二采样") {
       postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR HIGHBITRATE_ULTRA（同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
-      postprocessNote.textContent = `低显存二采已锁定 RTX VSR ULTRA：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, 0.20)}；仅支持 4 秒和最高 1080p FHD，开始前检查至少 6GB 空闲显存。`;
+      postprocessNote.textContent = `低显存二采已锁定 RTX VSR ULTRA：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight))}；1080p 会提高真实二采基准，避免从 480p 硬拉；仅支持 4 秒和最高 1080p FHD，开始前检查至少 6GB 空闲显存。`;
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {

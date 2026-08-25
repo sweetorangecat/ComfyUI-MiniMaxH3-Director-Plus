@@ -14,7 +14,7 @@
 
 API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递增、递减、随机属于 ComfyUI 客户端的连续运行状态，不作为无状态 API 入参公开；需要批量生成时，由调用方为每个请求明确传入 seed。
 
-`performance_preset` 支持 `稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存`、`低显存二采` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。两个二采预设自动解析训练型路线：FL/T2VA/硬首尾帧后端使用 `trained_latent_fl`，依次应用 `minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors` 与 `minimax_h3_fl2v_turbo_4step_v1.1_768p_comfyui_bf16.safetensors`；REF2VA 或 H3 原生音色参考后端使用 `trained_latent_ref`，两阶段应用 `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`，并通过 `H3SigmaRefiner` 强化尾段 sigma。两条路线都先完成匹配 LoRA 首采，再把 AV latent 分为视频/音频，仅用 `minimax_h3_latent_upscaler_3d_bf16.safetensors` 对 24 通道视频 latent 做约 1.5 倍训练型放大，保留原音频后执行匹配低 sigma 二采。`低显存二采` 额外限制为 4 秒、FHD 像素预算、约 0.20MP 首采、至少 6.0GB 启动空闲显存，并在采样期间使用 LOW_VRAM。Fish S2 与训练型二采互斥；Sage、EasyCache、RIFE 不叠加到该路线。
+`performance_preset` 支持 `稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存`、`低显存二采` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。两个二采预设自动解析训练型路线：FL/T2VA/硬首尾帧后端使用 `trained_latent_fl`，依次应用 `minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors` 与 `minimax_h3_fl2v_turbo_4step_v1.1_768p_comfyui_bf16.safetensors`；REF2VA 或 H3 原生音色参考后端使用 `trained_latent_ref`，两阶段应用 `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`，并通过 `H3SigmaRefiner` 强化尾段 sigma。两条路线都先完成匹配 LoRA 首采，再把 AV latent 分为视频/音频，仅用 `minimax_h3_latent_upscaler_3d_bf16.safetensors` 对 24 通道视频 latent 做约 1.5 倍训练型放大，保留原音频后执行匹配低 sigma 二采。`低显存二采` 额外限制为 4 秒和 FHD 像素预算，并按最终目标反推真实细节基准：720p 及以下最低约 0.20MP 首采；1080p 约 0.36MP 首采、约 0.82MP 神经二采，最终 VSR 最大边长倍率约 1.6。启动前至少需要 6.0GB 空闲显存，采样期间使用 LOW_VRAM。Fish S2 与训练型二采互斥；Sage、EasyCache、RIFE 不叠加到该路线。
 
 `performance_preset` 的 API 字段保持不变。依赖官方 LightX2V LoRA 的性能档位，只有在 ComfyUI 内置加载器实际新增模型补丁且 `patch_delta>0` 后才会进入采样。`POST /generate` 可能已经成功返回 `prompt_id` 并入队；官方 LoRA 会在任务执行到加速节点时验证，若验证不通过，任务会在首个 H3 采样节点前终止，调用方应从任务历史或执行错误读取原因。常见的缺文件、损坏文件和零补丁错误会包含解析后的 LoRA 文件名。上次加载失败后重新执行加速节点会再次验证，不会因旧的 `turbo_lora_applied=false` 绕过检查。
 
@@ -28,7 +28,7 @@ API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递�
 
 API 中的 `resolution_preset` 表示请求的最终输出目标，支持精确 `1080p FHD`（1920×1080）、`2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。4K 不是 H3 原生采样。普通低显存路线支持 4–15 秒并把最终目标限制在 1080p；`低显存二采` 只支持 4 秒和 FHD 像素预算；16–24GB 只开放 8 秒以内的 2K 质量二采；28GB 以上才允许通过前置检查后请求长视频 2K/4K。所有路线仍由同一个流式 MP4 输出节点保存。
 
-`GET /schema` 的 `resolved_outputs` 描述运行前可观察结果：`resolved_two_stage_route`、`first_stage_width/height`、`second_stage_width/height`、`final_upscale_scale_x/y`、`vram_safety_tier`、`quality_basis` 与 `required_assets`。实际 `generate` 响应和任务元数据应使用这些解析值展示“首采 -> 神经二采 -> 最终输出”，不要只显示最终 2K/4K 标签。
+`GET /schema` 的 `resolved_outputs` 描述运行前可观察结果：`resolved_two_stage_route`、`first_stage_width/height`、`second_stage_width/height`、`final_upscale_scale_x/y`、`final_upscale_scale`、`max_final_vsr_scale`、`vram_safety_tier`、`quality_basis` 与 `required_assets`。实际 `generate` 响应和任务元数据应使用这些解析值展示“首采 -> 神经二采 -> 最终输出”，不要只显示最终分辨率标签。
 
 `voice_mode = "fish_lock"` 时只使用 `voice_reference_audios` 的第 1 路作为 Fish 音色样本，`target_dialogue` 是要新生成的对白，`reference_transcript` 是样本音频原文（建议填写），`fish_model_path` 默认使用 `s2-pro-w4a16 (auto download)`。Fish 失败会返回明确错误，不会静默回退到 H3 原生音色。
 

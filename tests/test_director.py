@@ -642,8 +642,10 @@ def test_low_vram_two_stage_builds_safe_four_second_fhd_plan(monkeypatch):
 
     assert guide["performance_preset"] == "low_vram_two_stage"
     assert guide["vram_safety_tier"] == "8gb_low_vram_two_stage"
-    assert guide["first_stage_width"] * guide["first_stage_height"] <= 210_000
-    assert guide["second_stage_width"] * guide["second_stage_height"] <= 480_000
+    assert 340_000 <= guide["first_stage_width"] * guide["first_stage_height"] <= 420_000
+    assert 780_000 <= guide["second_stage_width"] * guide["second_stage_height"] <= 900_000
+    assert guide["final_upscale_scale"] <= 1.65
+    assert guide["max_final_vsr_scale"] == pytest.approx(1.6)
     assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
     assert guide["rtx_quality"] == "ULTRA"
     assert guide["postprocess_path"] == "rtx_vsr"
