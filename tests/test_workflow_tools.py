@@ -161,6 +161,8 @@ def test_built_workflow_describes_only_the_trained_two_stage_route():
         if node.get("type") == "MarkdownNote"
     )
     assert "训练型 3D latent 二采" in notes
+    assert "DEBLUR_LOW" in notes
+    assert "HIGHBITRATE_ULTRA" in notes
     assert "低显存不开放 4K" in notes
     assert "LTX 二段超分" not in notes
 
