@@ -87,7 +87,7 @@ def resolve_vsr_quality(quality_level, quality: str):
     if not hasattr(quality_level, quality):
         raise ValueError(
             f"当前 nvvfx SDK 不支持 RTX VSR 质量 {quality}"
-            "（需要 HIGH/ULTRA/HIGHBITRATE_ULTRA）"
+            "（需要 HIGH/ULTRA/HIGHBITRATE_ULTRA/DEBLUR_LOW）"
         )
     return getattr(quality_level, quality)
 

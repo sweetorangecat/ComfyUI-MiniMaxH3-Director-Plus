@@ -390,6 +390,22 @@ def test_resolve_vsr_quality_maps_only_supported_levels(name, expected):
     assert resolve_vsr_quality(quality_level, name) == expected
 
 
+def test_resolve_vsr_quality_reports_complete_capabilities_when_deblur_is_missing_from_sdk():
+    quality_level = SimpleNamespace(
+        HIGH="high",
+        ULTRA="ultra",
+        HIGHBITRATE_ULTRA="highbitrate_ultra",
+    )
+
+    with pytest.raises(ValueError) as error:
+        resolve_vsr_quality(quality_level, "DEBLUR_LOW")
+
+    assert str(error.value) == (
+        "当前 nvvfx SDK 不支持 RTX VSR 质量 DEBLUR_LOW"
+        "（需要 HIGH/ULTRA/HIGHBITRATE_ULTRA/DEBLUR_LOW）"
+    )
+
+
 @pytest.mark.parametrize("quality", ["MEDIUM", "high", "", None])
 def test_resolve_vsr_quality_rejects_other_values(quality):
     quality_level = SimpleNamespace(HIGH="high", ULTRA="ultra", MEDIUM="medium")
