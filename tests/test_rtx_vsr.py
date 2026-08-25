@@ -21,6 +21,7 @@ REQUIREMENTS_PATH = str(_dasiwa_requirements_path())
 EMBEDDED_INSTALL_COMMAND = (
     f'"{sys.executable}" -m pip install -r "{REQUIREMENTS_PATH}"'
 )
+REAL_CUDA_DEVICE_CONTEXT = torch.cuda.device
 
 
 @pytest.fixture(autouse=True)
@@ -374,6 +375,7 @@ def test_probe_vsr_capability_reports_unsupported_sdk_before_generation(monkeypa
         ("HIGH", "high"),
         ("ULTRA", "ultra"),
         ("HIGHBITRATE_ULTRA", "highbitrate_ultra"),
+        ("DEBLUR_LOW", "deblur_low"),
     ],
 )
 def test_resolve_vsr_quality_maps_only_supported_levels(name, expected):
@@ -381,6 +383,7 @@ def test_resolve_vsr_quality_maps_only_supported_levels(name, expected):
         HIGH="high",
         ULTRA="ultra",
         HIGHBITRATE_ULTRA="highbitrate_ultra",
+        DEBLUR_LOW="deblur_low",
         MEDIUM="medium",
     )
 
@@ -391,7 +394,7 @@ def test_resolve_vsr_quality_maps_only_supported_levels(name, expected):
 def test_resolve_vsr_quality_rejects_other_values(quality):
     quality_level = SimpleNamespace(HIGH="high", ULTRA="ultra", MEDIUM="medium")
 
-    with pytest.raises(ValueError, match="HIGH.*ULTRA.*HIGHBITRATE_ULTRA"):
+    with pytest.raises(ValueError, match="HIGH.*ULTRA.*HIGHBITRATE_ULTRA.*DEBLUR_LOW"):
         resolve_vsr_quality(quality_level, quality)
 
 
@@ -691,7 +694,7 @@ def test_sdk_context_enter_failure_uses_raw_effect_cleanup_without_exit():
 
 
 def test_process_cuda_returns_cloned_contiguous_chw_float32(monkeypatch):
-    sdk_output = torch.full((3, 6, 8), 0.75, dtype=torch.float16).transpose(1, 2)
+    sdk_output = torch.full((3, 6, 8), 0.75, dtype=torch.float32).transpose(1, 2)
 
     class FakeStream:
         def synchronize(self):
@@ -733,6 +736,38 @@ def test_process_cuda_returns_cloned_contiguous_chw_float32(monkeypatch):
     processor.close()
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required for this tensor contract")
+def test_process_cuda_returns_independent_cuda_chw_float32_tensor(monkeypatch):
+    sdk_output = torch.full((3, 6, 8), 0.75, device="cuda", dtype=torch.float32)
+
+    monkeypatch.setattr(torch.cuda, "device", REAL_CUDA_DEVICE_CONTEXT)
+
+    class FakeEffect:
+        def run(self, frame):
+            return SimpleNamespace(image=sdk_output)
+
+        def close(self):
+            pass
+
+    processor = VsrFrameProcessor(
+        (lambda *args, **kwargs: FakeEffect(), SimpleNamespace(HIGH="high", ULTRA="ultra")),
+        "HIGH",
+        0,
+        8,
+        6,
+    )
+
+    result = processor.process_cuda(torch.zeros((3, 2, 4), dtype=torch.float32))
+    sdk_output.zero_()
+
+    assert result.device.type == "cuda"
+    assert result.dtype == torch.float32
+    assert result.shape == (3, 6, 8)
+    assert result.data_ptr() != sdk_output.data_ptr()
+    assert torch.all(result == 0.75)
+    processor.close()
+
+
 def test_deblur_processor_chains_deblur_cuda_to_upscale_with_requested_shapes(monkeypatch):
     calls = []
     intermediate = torch.ones((3, 4, 6), dtype=torch.float32)
@@ -770,9 +805,10 @@ def test_deblur_processor_chains_deblur_cuda_to_upscale_with_requested_shapes(mo
     assert result is output
 
 
-def test_deblur_processor_cleans_up_deblur_when_upscale_creation_fails(monkeypatch):
+def test_deblur_processor_logs_cleanup_failure_when_upscale_creation_fails(monkeypatch, caplog):
     calls = []
     original_error = RuntimeError("upscale setup failed")
+    cleanup_error = RuntimeError("deblur cleanup failed")
 
     class FakeProcessor:
         def __init__(self, api, quality, device_id, width, height):
@@ -783,14 +819,17 @@ def test_deblur_processor_cleans_up_deblur_when_upscale_creation_fails(monkeypat
 
         def close(self):
             calls.append(("close", self.quality))
+            raise cleanup_error
 
     monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
 
-    with pytest.raises(RuntimeError) as error:
-        DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12)
+    with caplog.at_level(logging.WARNING, logger=rtx_vsr_stream.LOGGER.name):
+        with pytest.raises(RuntimeError) as error:
+            DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12)
 
     assert error.value is original_error
     assert calls == [("create", "DEBLUR_LOW"), ("create", "ULTRA"), ("close", "DEBLUR_LOW")]
+    assert "deblur cleanup failed" in caplog.text
 
 
 def test_deblur_processor_can_be_closed_after_processing_failure(monkeypatch):
@@ -819,7 +858,9 @@ def test_deblur_processor_can_be_closed_after_processing_failure(monkeypatch):
     assert calls == ["ULTRA", "DEBLUR_LOW"]
 
 
-def test_deblur_processor_close_attempts_both_and_prioritizes_upscale_error(monkeypatch):
+def test_deblur_processor_close_attempts_both_logs_secondary_and_prioritizes_upscale_error(
+    monkeypatch, caplog
+):
     calls = []
     upscale_error = RuntimeError("upscale close failed")
 
@@ -836,11 +877,13 @@ def test_deblur_processor_close_attempts_both_and_prioritizes_upscale_error(monk
     monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
     processor = DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12)
 
-    with pytest.raises(RuntimeError) as error:
-        processor.close()
+    with caplog.at_level(logging.WARNING, logger=rtx_vsr_stream.LOGGER.name):
+        with pytest.raises(RuntimeError) as error:
+            processor.close()
 
     assert error.value is upscale_error
     assert calls == ["ULTRA", "DEBLUR_LOW"]
+    assert "deblur close failed" in caplog.text
     processor.close()
     assert calls == ["ULTRA", "DEBLUR_LOW"]
 
@@ -862,3 +905,28 @@ def test_deblur_processor_context_manager_closes_once(monkeypatch):
 
     processor.close()
     assert calls == ["ULTRA", "DEBLUR_LOW"]
+
+
+def test_deblur_context_manager_preserves_business_error_when_both_closes_fail(monkeypatch, caplog):
+    calls = []
+    business_error = RuntimeError("encode failed")
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            self.quality = quality
+
+        def close(self):
+            calls.append(self.quality)
+            raise RuntimeError(f"{self.quality} close failed")
+
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+
+    with caplog.at_level(logging.WARNING, logger=rtx_vsr_stream.LOGGER.name):
+        with pytest.raises(RuntimeError) as error:
+            with DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12):
+                raise business_error
+
+    assert error.value is business_error
+    assert calls == ["ULTRA", "DEBLUR_LOW"]
+    assert "ULTRA close failed" in caplog.text
+    assert "DEBLUR_LOW close failed" in caplog.text

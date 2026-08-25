@@ -264,8 +264,8 @@ class DeblurVsrFrameProcessor:
         except Exception:
             try:
                 self._deblur.close()
-            except Exception:
-                pass
+            except Exception as cleanup_exc:
+                LOGGER.warning("RTX 去模糊效果创建失败后的清理失败：%s", cleanup_exc)
             self._deblur = None
             raise
 
@@ -292,6 +292,8 @@ class DeblurVsrFrameProcessor:
                 deblur.close()
             except Exception as exc:
                 deblur_error = exc
+        if upscale_error is not None and deblur_error is not None:
+            LOGGER.warning("RTX 去模糊处理器次级清理失败：%s", deblur_error)
         if upscale_error is not None:
             raise upscale_error
         if deblur_error is not None:
@@ -301,7 +303,13 @@ class DeblurVsrFrameProcessor:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
+        if exc_type is None:
+            self.close()
+        else:
+            try:
+                self.close()
+            except Exception as cleanup_exc:
+                LOGGER.warning("RTX 去模糊处理器清理失败：%s", cleanup_exc)
         return False
 
 
