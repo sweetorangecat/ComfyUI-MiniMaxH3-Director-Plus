@@ -89,6 +89,8 @@ def test_ui_locks_low_vram_two_stage_to_six_second_fhd_ai_x2_reconstruction():
     assert '"低显存二采": [["ai_upscale"' in text
     assert 'preset === "低显存二采"' in text
     assert 'setWidget(node, "duration", 4, false)' not in text
+    assert 'Number(widget(node, "duration")?.value) > 6' in text
+    assert 'setWidget(node, "duration", 6, false)' in text
     assert 'setWidget(node, "resolution_preset", "1080p FHD", false)' in text
     assert "resolvedWidth * resolvedHeight > 1920 * 1080 * 1.02" in text
     assert "function lowVramFirstStageMegapixels" in text

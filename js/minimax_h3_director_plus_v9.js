@@ -578,6 +578,9 @@ function install(node) {
       preset = "稳定质量";
       setWidget(node, "performance_preset", preset, false);
     }
+    if (preset === "低显存二采" && Number(widget(node, "duration")?.value) > 6) {
+      setWidget(node, "duration", 6, false);
+    }
     const postprocessOptions = allowedPostprocessModes(preset);
     let postprocessMode = widget(node, "postprocess_mode")?.value || "native";
     if (!postprocessOptions.some(([value]) => value === postprocessMode)) {
