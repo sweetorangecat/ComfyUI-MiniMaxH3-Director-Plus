@@ -35,6 +35,12 @@ class _VsrProcessingError(RuntimeError):
 
 _AUDIO_TARGET_PEAK = 10 ** (-1.5 / 20)
 _AUDIO_MAX_GAIN = 10 ** (30 / 20)
+_TRAINED_TWO_STAGE_PRESETS = {
+    "quality_two_stage",
+    "质量优先二采样",
+    "low_vram_two_stage",
+    "低显存二采",
+}
 
 
 def _normalize_output_audio(audio, mode):
@@ -363,7 +369,7 @@ def release_sampling_models():
 
 def _prepare_postprocess_runtime(guide, postprocess_path):
     preset = str((guide or {}).get("performance_preset") or "")
-    if preset in {"quality_two_stage", "质量优先二采样"} and postprocess_path == "rtx_vsr":
+    if preset in _TRAINED_TWO_STAGE_PRESETS and postprocess_path == "rtx_vsr":
         release_sampling_models()
 
 
@@ -371,7 +377,7 @@ def _resolved_encode_quality(guide, postprocess_path, requested_quality):
     """Use a visually lossless CRF ceiling only for the trained two-stage route."""
     quality = int(requested_quality)
     preset = str((guide or {}).get("performance_preset") or "")
-    if preset in {"quality_two_stage", "质量优先二采样"}:
+    if preset in _TRAINED_TWO_STAGE_PRESETS:
         return min(quality, 16)
     return quality
 
@@ -582,11 +588,13 @@ class MiniMaxH3StreamingVideoCombine:
         if motion_smoothing not in {"off", "rife_x2"}:
             raise ValueError(f"不支持的运动平滑路径：{motion_smoothing}")
         performance_preset = str(guide.get("performance_preset") or "")
-        if motion_smoothing == "rife_x2" and performance_preset in {
-            "quality_two_stage",
-            "质量优先二采样",
-        }:
-            raise ValueError("质量优先二采样不兼容 RIFE 运动平滑，必须保留原始 24 FPS 以避免重影")
+        if motion_smoothing == "rife_x2" and performance_preset in _TRAINED_TWO_STAGE_PRESETS:
+            preset_label = (
+                "低显存二采"
+                if performance_preset in {"low_vram_two_stage", "低显存二采"}
+                else "质量优先二采样"
+            )
+            raise ValueError(f"{preset_label}不兼容 RIFE 运动平滑，必须保留原始 24 FPS 以避免重影")
         if motion_smoothing == "rife_x2" and postprocess_path != "rtx_vsr":
             raise ValueError("RIFE 2x 运动平滑只能在 RTX VSR 输出链路中执行")
         # Fail before creating an output path/encoder when the strict VSR
@@ -766,7 +774,7 @@ class MiniMaxH3StreamingVideoCombine:
             output_path
             and selected_codec == "H.264"
             and selected_container == "MP4"
-            and performance_preset in {"quality_two_stage", "质量优先二采样"}
+            and performance_preset in _TRAINED_TWO_STAGE_PRESETS
         ):
             bt709_tagged = _tag_h264_bt709(ffmpeg, output_path)
 

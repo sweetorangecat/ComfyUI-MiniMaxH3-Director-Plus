@@ -12,27 +12,34 @@ const DIRECTOR_UI_WIDTH = 1350;
 const DIRECTOR_UI_HEIGHT = 1510;
 const DIRECTOR_DOM_HEIGHT = 1050;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
-const PRESETS = ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "参考图加速", "低显存", "自定义"];
+const PRESETS = ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "参考图加速", "低显存", "低显存二采", "自定义"];
 const PERFORMANCE_PRESETS_BY_ROUTE = {
-  t2va: ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存"],
-  endpoint: ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存"],
-  reference: ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
+  t2va: ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存", "低显存二采"],
+  endpoint: ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存", "低显存二采"],
+  reference: ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存", "低显存二采"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
   "8:5": [8, 5], "5:8": [5, 8], "16:9": [16, 9], "9:16": [9, 16], "21:9": [21, 9], "9:21": [9, 21],
 };
 const EXACT_OUTPUT_TARGETS = {
+  "1080p FHD|16:9": [1920, 1080],
+  "1080p FHD|9:16": [1080, 1920],
   "2K QHD|16:9": [2560, 1440],
   "2K QHD|9:16": [1440, 2560],
   "4K UHD|16:9": [3840, 2160],
   "4K UHD|9:16": [2160, 3840],
 };
+const RESOLUTION_MEGAPIXELS = {
+  "1080p FHD": 1920 * 1080 / (1024 * 1024),
+  "2K QHD": 3.6864,
+  "4K UHD": 8.2944,
+};
 const RESOLUTIONS = [
   "0.26 MP", "0.30 MP", "0.36 MP", "0.40 MP", "0.50 MP", "0.52 MP", "0.60 MP", "0.65 MP", "0.70 MP",
   "0.80 MP", "0.83 MP", "0.90 MP", "1.00 MP", "1.05 MP", "1.10 MP", "1.20 MP", "1.30 MP", "1.35 MP",
   "1.40 MP", "1.50 MP", "1.55 MP", "1.60 MP", "1.65 MP", "1.70 MP", "1.75 MP", "1.80 MP", "1.90 MP",
-  "2.00 MP", "2.10 MP", "2K QHD", "4K UHD",
+  "2.00 MP", "2.10 MP", "1080p FHD", "2K QHD", "4K UHD",
 ];
 const SEED_MODES = [
   ["fixed", "固定"],
@@ -62,6 +69,7 @@ const POSTPROCESS_MODES = [
 ];
 const POSTPROCESS_MODES_BY_PERFORMANCE = {
   "质量优先二采样": [["rtx_vsr", "AI 细节重建（RTX VSR）"]],
+  "低显存二采": [["rtx_vsr", "AI 细节重建（RTX VSR）"]],
 };
 const RTX_QUALITIES = [
   ["HIGH", "HIGH（质量）"],
@@ -131,12 +139,13 @@ function allowedPerformancePresets(mode, voiceMode) {
   if (voiceMode !== "none" || mode === "REF2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.reference;
   else if (mode === "T2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.t2va;
   else presets = PERFORMANCE_PRESETS_BY_ROUTE.endpoint;
-  if (voiceMode === "fish_lock") return presets.filter((item) => item !== "质量优先二采样");
+  if (voiceMode === "fish_lock") return presets.filter((item) => !["质量优先二采样", "低显存二采"].includes(item));
   return presets;
 }
 
 function performancePresetHint(preset) {
   if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 4 步 + 神经 latent 放大 + 匹配低 sigma 二采";
+  if (preset === "低显存二采") return "8GB 专用真二采：仅 4 秒，最高 1080p FHD，阶段间自动释放显存";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
   if (preset === "低显存") return "动态分层加载，适合显存受限设备";
   if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
@@ -148,13 +157,18 @@ function allowedPostprocessModes(preset) {
 }
 
 function allowedRtxQualities(performancePreset) {
-  return performancePreset === "质量优先二采样"
-    ? RTX_QUALITIES.filter(([value]) => value === "HIGHBITRATE_ULTRA")
-    : RTX_QUALITIES.filter(([value]) => value !== "HIGHBITRATE_ULTRA");
+  if (performancePreset === "质量优先二采样") {
+    return RTX_QUALITIES.filter(([value]) => value === "HIGHBITRATE_ULTRA");
+  }
+  if (performancePreset === "低显存二采") {
+    return RTX_QUALITIES.filter(([value]) => value === "ULTRA");
+  }
+  return RTX_QUALITIES.filter(([value]) => value !== "HIGHBITRATE_ULTRA");
 }
 
 function allowedMotionSmoothing(preset, postprocessMode) {
   if (preset === "质量优先二采样") return [["off", "关闭（二采固定，避免重影）"]];
+  if (preset === "低显存二采") return [["off", "关闭（低显存二采固定）"]];
   if (preset === "低显存") return [["off", "关闭（低显存固定）"]];
   if (postprocessMode !== "rtx_vsr") {
     return MOTION_SMOOTHING.filter(([value]) => value !== "rife_x2");
@@ -253,7 +267,7 @@ function calculatedResolution(node) {
   const aspect = String(widget(node, "aspect_ratio")?.value || "16:9");
   const exact = EXACT_OUTPUT_TARGETS[`${preset}|${aspect}`];
   if (exact) return exact;
-  const megapixels = Number.parseFloat(preset) || 0.83;
+  const megapixels = (RESOLUTION_MEGAPIXELS[preset] ?? Number.parseFloat(preset)) || 0.83;
   const ratio = aspect === "CUSTOM"
     ? [Math.max(1, Number(widget(node, "custom_width")?.value) || 16), Math.max(1, Number(widget(node, "custom_height")?.value) || 9)]
     : (ASPECTS[aspect] || ASPECTS["16:9"]);
@@ -269,9 +283,9 @@ function syncResolution(node) {
   return [width, height];
 }
 
-function twoStageSizeHint(finalWidth, finalHeight, backend) {
+function twoStageSizeHint(finalWidth, finalHeight, backend, firstStageMegapixels = 0.90) {
   const ratio = finalWidth / Math.max(1, finalHeight);
-  const baseArea = 0.90 * 1000 * 1000;
+  const baseArea = firstStageMegapixels * 1000 * 1000;
   const snap = (value) => Math.max(32, Math.round(value / 32) * 32);
   const floorSnap = (value) => Math.max(32, Math.floor(value / 32) * 32);
   let firstWidth = snap(Math.sqrt(baseArea * ratio));
@@ -550,6 +564,9 @@ function install(node) {
       preset = "稳定质量";
       setWidget(node, "performance_preset", preset, false);
     }
+    if (preset === "低显存二采" && Number(widget(node, "duration")?.value) !== 4) {
+      setWidget(node, "duration", 4, false);
+    }
     const postprocessOptions = allowedPostprocessModes(preset);
     let postprocessMode = widget(node, "postprocess_mode")?.value || "native";
     if (!postprocessOptions.some(([value]) => value === postprocessMode)) {
@@ -569,8 +586,16 @@ function install(node) {
       setWidget(node, "motion_smoothing", motionSmoothing, false);
     }
     const aspect = widget(node, "aspect_ratio")?.value || "16:9";
-    const resolutionPreset = widget(node, "resolution_preset")?.value || "0.83 MP";
-    const [resolvedWidth, resolvedHeight] = syncResolution(node);
+    let resolutionPreset = widget(node, "resolution_preset")?.value || "0.83 MP";
+    let [resolvedWidth, resolvedHeight] = syncResolution(node);
+    if (
+      preset === "低显存二采"
+      && resolvedWidth * resolvedHeight > 1920 * 1080 * 1.02
+    ) {
+      resolutionPreset = "1080p FHD";
+      setWidget(node, "resolution_preset", "1080p FHD", false);
+      [resolvedWidth, resolvedHeight] = syncResolution(node);
+    }
     const resolvedBackend = mode === "REF2VA" || voiceMode !== "none"
       ? "ref2va_model"
       : "fl2va_model";
@@ -659,6 +684,8 @@ function install(node) {
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
       postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR HIGHBITRATE_ULTRA（同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
+    } else if (preset === "低显存二采") {
+      postprocessNote.textContent = `低显存二采已锁定 RTX VSR ULTRA：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, 0.20)}；仅支持 4 秒和最高 1080p FHD，开始前检查至少 6GB 空闲显存。`;
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {

@@ -195,7 +195,7 @@ def test_low_vram_description_matches_disabled_cache():
 
 
 @pytest.mark.parametrize("mode", ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"])
-@pytest.mark.parametrize("preset", ["quality", "quality_sage", "quality_two_stage", "fast_4step", "reference_fast", "low_vram", "custom"])
+@pytest.mark.parametrize("preset", ["quality", "quality_sage", "quality_two_stage", "fast_4step", "reference_fast", "low_vram", "low_vram_two_stage", "custom"])
 def test_every_mode_has_a_defined_performance_contract(mode, preset):
     backend = "ref2va_model" if mode == "REF2VA" else "fl2va_model"
     values = performance._runtime_preset_values(
@@ -214,8 +214,8 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     assert values["use_cache"] is expected_cache
     assert plan["backend"] == backend
     expected_preset = "quality" if mode == "T2VA" and preset == "reference_fast" else preset
-    assert plan["use_turbo_lora"] is (expected_preset in {"fast_4step", "quality_two_stage"})
-    if expected_preset == "quality_two_stage":
+    assert plan["use_turbo_lora"] is (expected_preset in {"fast_4step", "quality_two_stage", "low_vram_two_stage"})
+    if expected_preset in {"quality_two_stage", "low_vram_two_stage"}:
         assert plan["first_lora_name"] == (
             REF_STAGE_LORA if backend == "ref2va_model" else FL_STAGE1_LORA
         )
@@ -253,6 +253,41 @@ def test_quality_two_stage_uses_exact_head_chunking_without_sage_or_cache():
     assert values["use_cache"] is False
     assert values["use_head_chunking"] is True
     assert values["minimax_head_chunks"] == 8
+
+
+def test_low_vram_two_stage_uses_trained_route_and_low_vram_policy():
+    guide = {
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": "low_vram_two_stage",
+        "resolved_backend": "fl2va_model",
+    }
+
+    values = preset_values("low_vram_two_stage")
+    plan = acceleration_plan(guide)
+
+    assert values["steps"] == 8
+    assert values["two_stage_split_step"] == 4
+    assert values["two_stage_scale"] == pytest.approx(1.5)
+    assert values["use_head_chunking"] is True
+    assert values["minimax_head_chunks"] == 16
+    assert values["use_sage"] is False
+    assert values["use_cache"] is False
+    assert plan["route"] == "trained_latent_fl"
+    assert plan["use_turbo_lora"] is True
+    assert sampler_name_for_guide(guide, "res_multistep") == "euler"
+    assert scheduler_plan(guide)["split_step"] == 4
+
+
+def test_low_vram_two_stage_fails_instead_of_silently_generating_blurry_single_pass():
+    guide = {
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": "low_vram_two_stage",
+    }
+
+    with pytest.raises(RuntimeError, match="低显存二采.*未就绪"):
+        MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=False)
 
 
 def test_quality_two_stage_applies_only_exact_low_vram_attention(monkeypatch):
@@ -338,7 +373,7 @@ def test_t2va_fast_uses_official_h3_turbo_contract():
         "resolved_backend": "fl2va_model",
     }
     assert performance.allowed_performance_presets("T2VA", "none") == (
-        "quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram"
+        "quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage"
     )
     assert acceleration_plan(guide)["use_turbo_lora"] is True
     assert acceleration_plan(guide)["lora_name"] == performance.TURBO_LORA_NAME
@@ -626,7 +661,7 @@ def test_reference_fast_uses_safe_steps_when_requested_acceleration_fails(monkey
     assert steps == 8
 
 
-@pytest.mark.parametrize("preset", ["low_vram", "quality_sage"])
+@pytest.mark.parametrize("preset", ["low_vram", "low_vram_two_stage", "quality_sage"])
 def test_memory_policy_restores_comfy_state(monkeypatch, preset):
     class VramState:
         NORMAL_VRAM = "normal"

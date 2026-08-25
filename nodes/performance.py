@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from .h3_reuse_attention import apply_h3_reuse_attention
-from .schema import allowed_performance_presets
+from .schema import TWO_STAGE_PERFORMANCE_PRESETS, allowed_performance_presets
 from .two_stage_assets import (
     FL_STAGE1_LORA,
     FL_STAGE2_LORA,
@@ -53,6 +53,22 @@ PRESETS = {
         "vae_device": "dynamic",
         "fish_device": "cpu",
     },
+    # RTX 3070-class route: keep the trained 4+4 contract but shrink the
+    # first/second grids in the director and stage both samplers through
+    # ComfyUI LOW_VRAM. The deterministic planner limits this to four seconds.
+    "low_vram_two_stage": {
+        "steps": 8,
+        "two_stage_split_step": 4,
+        "two_stage_scale": 1.5,
+        "use_head_chunking": True,
+        "minimax_head_chunks": 16,
+        "use_sage": False,
+        "use_cache": False,
+        "interpolate": False,
+        "clip_device": "dynamic",
+        "vae_device": "dynamic",
+        "fish_device": "cpu",
+    },
     "fast_4step": {"steps": 4, "use_sage": True, "use_cache": True, "interpolate": False},
     "reference_fast": {"steps": 6, "use_sage": True, "use_cache": True, "interpolate": False},
     # Keep ComfyUI's native dynamic patcher route.  It stages large H3
@@ -81,6 +97,7 @@ PRESET_LABELS = {
     "极速4步": "fast_4step",
     "参考图加速": "reference_fast",
     "低显存": "low_vram",
+    "低显存二采": "low_vram_two_stage",
     "自定义": "custom",
     # Keep the old mojibake labels loadable for existing saved workflows.
     "绋冲畾璐ㄩ噺": "quality",
@@ -321,7 +338,7 @@ def memory_policy(guide):
         guide.get("performance_preset", "quality"),
         guide.get("performance_preset", "quality"),
     )
-    if preset not in {"low_vram", "quality_sage"}:
+    if preset not in {"low_vram", "low_vram_two_stage", "quality_sage"}:
         yield
         return
 
@@ -370,12 +387,18 @@ class MiniMaxH3PerformancePreset:
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
+            "low_vram_two_stage": "低显存二采：4 秒专用，0.20MP 首采 + 训练型 3D latent 放大 + 低 sigma 二采，最高 FHD",
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
         if mode == "T2VA" and name == "fast_4step":
             descriptions[name] = "T2VA 极速 4 步：官方 H3 Turbo + Sage，关闭 EasyCache 以减少细节损失"
-        two_stage_enabled = name == "quality_two_stage" and acceleration_ready is True
-        if name == "quality_two_stage" and not two_stage_enabled:
+        if name == "low_vram_two_stage" and acceleration_ready is not True:
+            raise RuntimeError(
+                "低显存二采训练型 LoRA 或精确分块注意力未就绪，已停止任务；"
+                "不会静默回退为模糊单采"
+            )
+        two_stage_enabled = name in TWO_STAGE_PERFORMANCE_PRESETS and acceleration_ready is True
+        if name in TWO_STAGE_PERFORMANCE_PRESETS and not two_stage_enabled:
             values["two_stage_split_step"] = 0
             values["two_stage_scale"] = 1.0
             descriptions[name] = "二采精确低显存注意力不可用，已在采样前回退为 8 步单采，避免第二阶段显存溢出"
@@ -402,8 +425,8 @@ def acceleration_plan(guide):
     """Return the model/LoRA/sampler contract shared by U11 nodes."""
     preset, _ = _safe_guide_preset(guide)
     backend = guide.get("resolved_backend", "fl2va_model")
-    route = resolve_two_stage_route(guide) if preset == "quality_two_stage" else "bypass"
-    use_two_stage = preset == "quality_two_stage" and route != "bypass"
+    route = resolve_two_stage_route(guide) if preset in TWO_STAGE_PERFORMANCE_PRESETS else "bypass"
+    use_two_stage = preset in TWO_STAGE_PERFORMANCE_PRESETS and route != "bypass"
     use_turbo = preset == "fast_4step" or use_two_stage
     # Official H3 Turbo graphs use ComfyUI's stock Euler sampler for every
     # backend. The legacy custom sampler is intentionally bypassed.
@@ -440,7 +463,7 @@ def acceleration_plan(guide):
 def scheduler_plan(guide):
     """Resolve the schedule used by the selected H3 sampling route."""
     preset, _ = _safe_guide_preset(guide)
-    if preset == "quality_two_stage":
+    if preset in TWO_STAGE_PERFORMANCE_PRESETS:
         route = resolve_two_stage_route(guide)
         if route == "trained_latent_ref":
             return {
@@ -467,7 +490,7 @@ def scheduler_plan(guide):
 def sampler_name_for_guide(guide, requested):
     """Use the stock Euler sampler for every official Turbo contract."""
     plan = acceleration_plan(guide)
-    if plan["preset"] == "quality_two_stage" or (
+    if plan["preset"] in TWO_STAGE_PERFORMANCE_PRESETS or (
         plan["preset"] == "fast_4step" and plan["use_turbo_lora"]
     ):
         return "euler"
@@ -641,7 +664,7 @@ def _apply_acceleration(model, guide):
     guide.pop("head_chunking_error", None)
 
     original_model = model
-    if plan["preset"] == "quality_two_stage" and plan.get("route") != "bypass":
+    if plan["preset"] in TWO_STAGE_PERFORMANCE_PRESETS and plan.get("route") != "bypass":
         return _apply_two_stage_models(original_model, guide, plan, values)
     if plan["use_turbo_lora"]:
         try:
@@ -700,6 +723,8 @@ def _apply_acceleration(model, guide):
             label = "质量优先 SageAttention"
         elif plan["preset"] == "quality_two_stage":
             label = "质量优先二采样（H3 专用 latent 二采）"
+        elif plan["preset"] == "low_vram_two_stage":
+            label = "低显存二采（4 秒 FHD 专用）"
         elif not plan["use_turbo_lora"]:
             label = "参考图 Sage/EasyCache"
         LOGGER.info(

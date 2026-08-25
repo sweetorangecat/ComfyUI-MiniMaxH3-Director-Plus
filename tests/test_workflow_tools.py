@@ -553,6 +553,9 @@ def test_workflow_removes_manual_postprocessing_switches_and_keeps_automatic_acc
     input_names = {item["name"] for item in settings["inputs"]}
     assert {"enabled", "enabled_1", "enabled_2"}.isdisjoint(input_names)
     assert any(link[1:5] == [acceleration["id"], 2, performance["id"], 1] for link in built["links"])
+    acceleration_note = next(node for node in built["nodes"] if node.get("title") == "加速与后处理说明")
+    assert "低显存二采" in acceleration_note["widgets_values"][0]
+    assert "仅 4 秒" in acceleration_note["widgets_values"][0]
 
 
 def test_built_settings_uses_h3_sampler_router_for_fast_mode():

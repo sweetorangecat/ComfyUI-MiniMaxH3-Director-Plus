@@ -10,7 +10,13 @@ from .prompting import build_reference_prompt
 from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution, h3_native_canvas
 from .rtx_vsr_stream import probe_vsr_capability
 from .rife_stream import DEFAULT_RIFE_MODEL, probe_rife_capability
-from .schema import PERFORMANCE_PRESETS, RequestError, low_vram_target_limit, normalize_request
+from .schema import (
+    TWO_STAGE_PERFORMANCE_PRESETS,
+    USER_PERFORMANCE_PRESET_LABELS,
+    RequestError,
+    low_vram_target_limit,
+    normalize_request,
+)
 from .two_stage_assets import dependency_report, resolve_two_stage_route
 from .upscale import _available_upscale_models, resolve_upscale_model_name
 from .vram_budget import plan_two_stage_dimensions
@@ -174,7 +180,7 @@ class MiniMaxH3DirectorPlus:
                 "voice_mode": (["none", "h3_reference", "fish_lock"], {"default": "none", "tooltip": "无音色 / H3原生参考 / Fish高级锁定"}),
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
-                "performance_preset": (list(PERFORMANCE_PRESETS)[:5], {"default": "稳定质量", "tooltip": "性能预设"}),
+                "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "稳定质量", "tooltip": "性能预设"}),
                 "postprocess_mode": (["native", "lanczos", "ai_upscale", "rtx_vsr"], {"default": "native", "tooltip": "原生直出 / Lanczos / 通用 AI 超分 / AI 细节重建（RTX VSR）"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
                 "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "auto", "tooltip": "通用 AI 超分模型；自动选择或指定已安装模型"}),
@@ -385,12 +391,8 @@ class MiniMaxH3DirectorPlus:
         two_stage_plan = None
         resolved_two_stage_route = "bypass"
         required_assets = []
-        if request["performance_preset"] == "quality_two_stage":
+        if request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS:
             resolved_two_stage_route = resolve_two_stage_route(request)
-            dependencies = _trained_two_stage_dependency_report(resolved_two_stage_route)
-            if not dependencies.get("ready"):
-                missing = "、".join(str(item) for item in dependencies.get("missing", []))
-                raise RequestError(f"训练型二采依赖缺失：{missing}")
             total_vram_gb, free_vram_gb = _cuda_memory_gb()
             if total_vram_gb <= 0:
                 raise RequestError("无法读取当前 GPU 显存，已阻止训练型二采启动")
@@ -400,9 +402,18 @@ class MiniMaxH3DirectorPlus:
                 duration,
                 total_vram_gb,
                 free_vram_gb,
+                profile=(
+                    "low_vram"
+                    if request["performance_preset"] == "low_vram_two_stage"
+                    else "quality"
+                ),
             )
             if not two_stage_plan["allowed"]:
                 raise RequestError(f"训练型二采显存前置检查失败：{two_stage_plan['reason']}")
+            dependencies = _trained_two_stage_dependency_report(resolved_two_stage_route)
+            if not dependencies.get("ready"):
+                missing = "、".join(str(item) for item in dependencies.get("missing", []))
+                raise RequestError(f"训练型二采依赖缺失：{missing}")
             native_width = int(two_stage_plan["first_stage_width"])
             native_height = int(two_stage_plan["first_stage_height"])
             native_capped = (native_width, native_height) != (

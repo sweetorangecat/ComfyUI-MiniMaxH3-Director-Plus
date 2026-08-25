@@ -34,6 +34,7 @@ def plan_two_stage_dimensions(
     duration,
     total_vram_gb,
     free_vram_gb,
+    profile="quality",
 ):
     """Plan one safe first/second grid without pretending it is native 2K/4K."""
     final_width = int(final_width)
@@ -41,12 +42,48 @@ def plan_two_stage_dimensions(
     duration = int(duration)
     total = float(total_vram_gb)
     free = float(free_vram_gb)
+    profile = str(profile or "quality")
     if final_width <= 0 or final_height <= 0:
         raise ValueError("最终尺寸必须大于 0")
     if duration < 4 or duration > 15:
         raise ValueError("视频时长必须在 4 到 15 秒之间")
+    if profile not in {"quality", "low_vram"}:
+        raise ValueError(f"未知二采显存预算档位：{profile}")
 
-    if total < 16.0:
+    if profile == "low_vram":
+        max_width, max_height = 1920, 1080
+        tier = "8gb_low_vram_two_stage"
+        if duration != 4:
+            return _rejected(
+                "低显存二采只支持 4 秒视频；更长视频请使用低显存高清单采",
+                max_width,
+                max_height,
+                tier,
+            )
+        if final_width * final_height > max_width * max_height * 1.02:
+            return _rejected(
+                "低显存二采最高支持 1080p FHD 像素预算的最终输出",
+                max_width,
+                max_height,
+                tier,
+            )
+        if total < 7.5:
+            return _rejected(
+                f"低显存二采至少需要 8GB 级显卡，当前总显存 {total:.1f}GB",
+                max_width,
+                max_height,
+                tier,
+            )
+        if free < 6.0:
+            return _rejected(
+                f"低显存二采启动前至少需要 6.0GB 空闲显存，当前只有 {free:.1f}GB",
+                max_width,
+                max_height,
+                tier,
+            )
+        required_free = 6.0
+        first_mp = 0.20
+    elif total < 16.0:
         return _rejected(
             "低显存档位不执行长视频训练型二采；请使用低显存单采并将最终目标限制为1080p",
             1920,
@@ -54,7 +91,9 @@ def plan_two_stage_dimensions(
             "8_12gb",
         )
 
-    if total < 28.0:
+    if profile == "low_vram":
+        pass
+    elif total < 28.0:
         if duration > 8 or final_width > 2560 or final_height > 1440:
             return _rejected(
                 "当前显存档位只开放8秒以内的短视频2K训练型二采",
@@ -113,4 +152,5 @@ def plan_two_stage_dimensions(
         "max_final_width": max_width,
         "max_final_height": max_height,
         "quality_basis": "H3 神经 latent 二采",
+        "budget_profile": profile,
     }

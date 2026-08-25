@@ -34,6 +34,21 @@ def test_performance_node_marks_two_stage_guide():
     assert "latent" in result[3]
 
 
+def test_performance_node_marks_low_vram_two_stage_guide():
+    guide = {
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": "low_vram_two_stage",
+    }
+
+    result = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True)
+
+    assert result[0] == 8
+    assert guide["two_stage_enabled"] is True
+    assert guide["two_stage_split_step"] == 4
+    assert guide["two_stage_scale"] == pytest.approx(1.5)
+
+
 def test_quality_two_stage_has_no_interpolation_call():
     import nodes.two_stage as two_stage
 

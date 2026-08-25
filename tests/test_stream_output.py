@@ -149,6 +149,26 @@ def test_quality_two_stage_uses_crf_16_without_overriding_better_values():
     assert resolver(guide, "native_bypass", 20) == 16
 
 
+def test_low_vram_two_stage_releases_h3_and_uses_crf_16():
+    calls = []
+    original = stream_output.release_sampling_models
+    try:
+        stream_output.release_sampling_models = lambda: calls.append("released")
+        stream_output._prepare_postprocess_runtime(
+            {"performance_preset": "low_vram_two_stage"},
+            "rtx_vsr",
+        )
+    finally:
+        stream_output.release_sampling_models = original
+
+    assert calls == ["released"]
+    assert stream_output._resolved_encode_quality(
+        {"performance_preset": "low_vram_two_stage"},
+        "rtx_vsr",
+        20,
+    ) == 16
+
+
 def test_quality_two_stage_passes_crf_16_to_the_encoder(monkeypatch):
     images = torch.rand(2, 2, 3, 3)
     captured = []

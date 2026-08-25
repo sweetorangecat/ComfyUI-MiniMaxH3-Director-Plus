@@ -24,6 +24,7 @@ PERFORMANCE_PRESETS = {
     "极速4步": "fast_4step",
     "参考图加速": "reference_fast",
     "低显存": "low_vram",
+    "低显存二采": "low_vram_two_stage",
     "自定义": "custom",
     "quality": "quality",
     "quality_sage": "quality_sage",
@@ -31,16 +32,30 @@ PERFORMANCE_PRESETS = {
     "fast_4step": "fast_4step",
     "reference_fast": "reference_fast",
     "low_vram": "low_vram",
+    "low_vram_two_stage": "low_vram_two_stage",
     "custom": "custom",
 }
+
+USER_PERFORMANCE_PRESET_LABELS = (
+    "稳定质量",
+    "质量优先加速",
+    "质量优先二采样",
+    "极速4步",
+    "参考图加速",
+    "低显存",
+    "低显存二采",
+    "自定义",
+)
 
 PERFORMANCE_PRESETS_BY_ROUTE = {
     # The official H3 Turbo LoRA ships with a T2V example workflow and is
     # compatible with the same FL2VA model endpoint used by T2VA/FL2VA/I2VA.
-    "t2va": ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram"),
-    "endpoint": ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram"),
-    "reference": ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram"),
+    "t2va": ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage"),
+    "endpoint": ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage"),
+    "reference": ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram", "low_vram_two_stage"),
 }
+
+TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})
 
 # These routes are intentionally explicit. A quality two-stage pass already
 # enlarges and redraws the H3 latent; it is paired with exactly one final RTX
@@ -48,6 +63,7 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
 # method at a time.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
     "quality_two_stage": ("rtx_vsr",),
+    "low_vram_two_stage": ("rtx_vsr",),
     "quality": POSTPROCESS_MODES,
     "quality_sage": POSTPROCESS_MODES,
     "fast_4step": POSTPROCESS_MODES,
@@ -58,6 +74,7 @@ POSTPROCESS_MODES_BY_PERFORMANCE = {
 
 RTX_QUALITIES_BY_PERFORMANCE = {
     "quality_two_stage": ("HIGHBITRATE_ULTRA",),
+    "low_vram_two_stage": ("ULTRA",),
 }
 
 
@@ -76,7 +93,7 @@ def allowed_rtx_qualities(performance_preset):
 def allowed_motion_smoothing(performance_preset, postprocess_mode):
     """Return resolved motion-smoothing paths compatible with this route."""
     preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
-    if preset in {"low_vram", "quality_two_stage"} or postprocess_mode != "rtx_vsr":
+    if preset in {"low_vram", *TWO_STAGE_PERFORMANCE_PRESETS} or postprocess_mode != "rtx_vsr":
         return ("off",)
     return ("off", "rife_x2")
 
@@ -84,7 +101,11 @@ def allowed_motion_smoothing(performance_preset, postprocess_mode):
 def allowed_performance_presets(mode, voice_mode="none"):
     """Return the safe, user-facing presets for the active H3 route."""
     if voice_mode == "fish_lock":
-        return tuple(item for item in PERFORMANCE_PRESETS_BY_ROUTE["reference"] if item != "quality_two_stage")
+        return tuple(
+            item
+            for item in PERFORMANCE_PRESETS_BY_ROUTE["reference"]
+            if item not in {"quality_two_stage", "low_vram_two_stage"}
+        )
     if voice_mode != "none" or mode == "REF2VA":
         return PERFORMANCE_PRESETS_BY_ROUTE["reference"]
     if mode == "T2VA":
@@ -224,6 +245,11 @@ def normalize_request(raw=None):
                 "质量优先二采样已包含 H3 latent 放大重绘，只能搭配 RTX VSR；"
                 "请将最终输出切换为 RTX VSR（HIGH 或 ULTRA）"
             )
+        if preset == "low_vram_two_stage":
+            raise RequestError(
+                "低显存二采只能搭配 RTX VSR ULTRA；"
+                "请将最终输出切换为 AI 细节重建（RTX VSR）"
+            )
         raise RequestError(
             f"性能预设 {request['performance_preset']} 不支持后处理模式 "
             f"{request['postprocess_mode']}"
@@ -246,6 +272,12 @@ def normalize_request(raw=None):
                 "HIGHBITRATE_ULTRA。"
             )
         request["rtx_quality"] = "HIGHBITRATE_ULTRA"
+    elif resolved_preset == "low_vram_two_stage":
+        if request["rtx_quality"] != "ULTRA":
+            request["warnings"].append(
+                "低显存二采已自动使用 RTX VSR ULTRA，在有限显存下保持清晰度。"
+            )
+        request["rtx_quality"] = "ULTRA"
     elif request["rtx_quality"] not in allowed_rtx:
         raise RequestError(
             "HIGHBITRATE_ULTRA 仅用于质量优先二采样；"
@@ -261,6 +293,8 @@ def normalize_request(raw=None):
     ):
         if resolved_preset == "quality_two_stage":
             raise RequestError("质量优先二采样固定关闭 RIFE 运动平滑，以避免动态云雾和大视差建筑产生重影")
+        if resolved_preset == "low_vram_two_stage":
+            raise RequestError("低显存二采固定关闭 RIFE 运动平滑，以避免增加显存峰值与重影")
         if resolved_preset == "low_vram":
             raise RequestError("低显存模式不支持 RIFE 运动平滑，请将运动平滑切换为关闭")
         raise RequestError("RIFE 2x 运动平滑只能搭配 RTX VSR 最终输出")
@@ -300,16 +334,16 @@ def public_schema():
             "ref_image_size": {"中文名称": "参考图尺寸策略", "enum": ["match", "max"], "default": "match"},
             "performance_preset": {
                 "中文名称": "性能预设",
-                "enum": list(PERFORMANCE_PRESETS)[:7],
+                "enum": list(USER_PERFORMANCE_PRESET_LABELS),
                 "default": "稳定质量",
                 "allowed_by_route": {
-                    "T2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存"],
-                    "I2VA / FL2VA / L2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存"],
-                    "REF2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
-                    "I2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
-                    "FL2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
-                    "L2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
-                    "T2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"],
+                    "T2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存", "低显存二采"],
+                    "I2VA / FL2VA / L2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存", "低显存二采"],
+                    "REF2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存", "低显存二采"],
+                    "I2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存", "低显存二采"],
+                    "FL2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存", "低显存二采"],
+                    "L2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存", "低显存二采"],
+                    "T2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存", "低显存二采"],
                 },
             },
             "postprocess_mode": {
@@ -319,6 +353,7 @@ def public_schema():
                 "description": "四种最终输出路线：原生尺寸直出、Lanczos 快速放大、通用 AI 自动超分、NVIDIA RTX VSR AI 细节重建。",
                 "allowed_by_performance": {
                     "质量优先二采样": ["rtx_vsr"],
+                    "低显存二采": ["rtx_vsr"],
                     "其他性能预设": list(POSTPROCESS_MODES),
                 },
             },
@@ -329,6 +364,7 @@ def public_schema():
                 "description": "RTX VSR 的质量级别，仅在后处理模式为 rtx_vsr 时生效。质量优先二采样固定使用高码率原画源档。",
                 "allowed_by_performance": {
                     "质量优先二采样": ["HIGHBITRATE_ULTRA"],
+                    "低显存二采": ["ULTRA"],
                     "其他性能预设": ["HIGH", "ULTRA"],
                 },
             },

@@ -57,6 +57,14 @@ def test_ui_exposes_one_final_output_postprocess_surface():
     text = source()
     for label in ("最终输出", "原生尺寸直出", "Lanczos 快速放大", "AI 自动超分", "AI 细节重建（RTX VSR）", "RTX VSR 质量", "AI 超分模型"):
         assert label in text
+
+
+def test_ui_exposes_separate_low_vram_two_stage_without_changing_layout():
+    text = source()
+
+    assert '"低显存", "低显存二采"' in text
+    assert '"1080p FHD"' in text
+    assert "低显存二采" in text
     assert 'valueControl("最终输出", "postprocess_mode"' in text
     assert 'valueControl("RTX VSR 质量", "rtx_quality"' in text
     assert 'valueControl("AI 超分模型", "ai_upscale_model"' in text
@@ -72,6 +80,26 @@ def test_ui_locks_quality_two_stage_to_rtx_vsr():
     assert '"质量优先二采样": [["rtx_vsr"' in text
     assert "allowedPostprocessModes(preset)" in text
     assert "质量优先二采样已锁定 RTX VSR" in text
+
+
+def test_ui_locks_low_vram_two_stage_to_four_second_fhd_vsr_ultra():
+    text = source()
+
+    assert '"低显存二采": [["rtx_vsr"' in text
+    assert 'preset === "低显存二采"' in text
+    assert 'setWidget(node, "duration", 4, false)' in text
+    assert 'setWidget(node, "resolution_preset", "1080p FHD", false)' in text
+    assert "resolvedWidth * resolvedHeight > 1920 * 1080 * 1.02" in text
+    assert "低显存二采已锁定 RTX VSR ULTRA" in text
+
+
+def test_named_resolution_presets_use_explicit_megapixels_for_nonstandard_aspects():
+    text = source()
+
+    assert '"1080p FHD": 1920 * 1080 / (1024 * 1024)' in text
+    assert '"2K QHD": 3.6864' in text
+    assert '"4K UHD": 8.2944' in text
+    assert "RESOLUTION_MEGAPIXELS[preset] ?? Number.parseFloat(preset)" in text
 
 
 def test_ui_isolates_high_bitrate_vsr_in_the_existing_quality_control():

@@ -16,6 +16,13 @@ def test_public_schema_lists_every_public_api_key():
     assert set(PUBLIC_API_KEYS) <= set(public_schema()["properties"])
 
 
+def test_low_vram_two_stage_is_a_public_route_but_fish_excludes_it():
+    assert "low_vram" in allowed_performance_presets("T2VA", "none")
+    assert "low_vram_two_stage" in allowed_performance_presets("T2VA", "none")
+    assert "low_vram_two_stage" in allowed_performance_presets("REF2VA", "h3_reference")
+    assert "low_vram_two_stage" not in allowed_performance_presets("T2VA", "fish_lock")
+
+
 def test_schema_exposes_final_postprocess_controls():
     schema = public_schema()["properties"]
 
@@ -23,10 +30,12 @@ def test_schema_exposes_final_postprocess_controls():
     assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"]
     assert schema["rtx_quality"]["allowed_by_performance"] == {
         "质量优先二采样": ["HIGHBITRATE_ULTRA"],
+        "低显存二采": ["ULTRA"],
         "其他性能预设": ["HIGH", "ULTRA"],
     }
     assert schema["ai_upscale_model"]["default"] == "auto"
     assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["rtx_vsr"]
+    assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == ["rtx_vsr"]
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
     assert schema["motion_smoothing"]["default"] == "off"
     assert schema["audio_loudness"]["enum"] == ["auto", "original"]
@@ -60,6 +69,34 @@ def test_quality_two_stage_only_allows_rtx_vsr_postprocess():
     assert callable(allowed_rtx_qualities), "缺少 RTX VSR 质量兼容矩阵"
     assert allowed_rtx_qualities("quality_two_stage") == ("HIGHBITRATE_ULTRA",)
     assert allowed_rtx_qualities("quality") == ("HIGH", "ULTRA")
+
+
+def test_low_vram_two_stage_only_allows_rtx_vsr_ultra_without_rife():
+    assert allowed_postprocess_modes("low_vram_two_stage") == ("rtx_vsr",)
+    assert schema_module.allowed_rtx_qualities("low_vram_two_stage") == ("ULTRA",)
+    assert schema_module.allowed_motion_smoothing("low_vram_two_stage", "rtx_vsr") == ("off",)
+
+    request = normalize_request({
+        "mode": "T2VA",
+        "duration": 4,
+        "performance_preset": "低显存二采",
+        "postprocess_mode": "rtx_vsr",
+        "rtx_quality": "HIGH",
+    })
+
+    assert request["performance_preset"] == "low_vram_two_stage"
+    assert request["rtx_quality"] == "ULTRA"
+    assert request["motion_smoothing"] == "off"
+
+
+def test_low_vram_two_stage_rejects_non_vsr_postprocess():
+    with pytest.raises(RequestError, match="低显存二采.*RTX VSR"):
+        normalize_request({
+            "mode": "T2VA",
+            "duration": 4,
+            "performance_preset": "低显存二采",
+            "postprocess_mode": "native",
+        })
 
 
 def test_public_schema_exposes_read_only_two_stage_execution_metadata():
@@ -207,9 +244,11 @@ def test_public_schema_documents_route_performance_options():
     property_schema = public_schema()["properties"]["performance_preset"]
     assert "质量优先二采样" in property_schema["enum"]
     assert "自定义" in property_schema["enum"]
-    assert property_schema["allowed_by_route"]["T2VA"] == ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存"]
+    assert property_schema["allowed_by_route"]["T2VA"] == [
+        "稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存", "低显存二采"
+    ]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
-        "稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存"
+        "稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存", "低显存二采"
     ]
 
 
@@ -289,6 +328,7 @@ def test_reference_mode_never_accepts_copy_semantics():
         ("质量优先加速", "quality_sage"),
         ("质量优先二采样", "quality_two_stage"),
         ("低显存", "low_vram"),
+        ("低显存二采", "low_vram_two_stage"),
         ("自定义", "custom"),
     ],
 )
@@ -296,7 +336,7 @@ def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
     request = normalize_request({
         "mode": "REF2VA",
         "performance_preset": preset,
-        "postprocess_mode": "rtx_vsr" if expected == "quality_two_stage" else "native",
+        "postprocess_mode": "rtx_vsr" if expected in {"quality_two_stage", "low_vram_two_stage"} else "native",
     })
 
     assert request["performance_preset"] == expected
@@ -305,15 +345,15 @@ def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
 @pytest.mark.parametrize(
     ("mode", "voice_mode", "expected"),
     [
-        ("T2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram")),
-        ("I2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram")),
-        ("FL2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram")),
-        ("L2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram")),
-        ("REF2VA", "none", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram")),
-        ("I2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram")),
+        ("T2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("I2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("FL2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("L2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("REF2VA", "none", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("I2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram", "low_vram_two_stage")),
         ("FL2VA", "fish_lock", ("quality", "quality_sage", "reference_fast", "fast_4step", "low_vram")),
-        ("L2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram")),
-        ("T2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram")),
+        ("L2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("T2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram", "low_vram_two_stage")),
     ],
 )
 def test_allowed_performance_presets_follow_mode_and_voice(mode, voice_mode, expected):

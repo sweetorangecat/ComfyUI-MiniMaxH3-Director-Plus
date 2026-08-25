@@ -38,6 +38,13 @@ def test_director_exposes_native_upload_widgets_for_each_media_role():
     assert optional["reference_image_9_file"][1]["image_upload"] is True
 
 
+def test_director_raw_combo_exposes_both_low_vram_presets():
+    values = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]["performance_preset"][0]
+
+    assert "低显存" in values
+    assert "低显存二采" in values
+
+
 def test_resolution_preset_is_labeled_as_the_final_output_target():
     resolution_spec = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]["resolution_preset"]
 
@@ -599,6 +606,70 @@ def test_two_stage_rejects_busy_gpu_before_vsr_probe(monkeypatch):
             voice_mode="none",
             ref_image_size="match",
             performance_preset="质量优先二采样",
+            postprocess_mode="rtx_vsr",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
+
+    assert checked == []
+
+
+def test_low_vram_two_stage_builds_safe_four_second_fhd_plan(monkeypatch):
+    checked = []
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda quality, device_id=0: checked.append((quality, device_id)) or True,
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=4,
+        width=1920,
+        height=1080,
+        aspect_ratio="16:9",
+        resolution_preset="1080p FHD",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="低显存二采",
+        postprocess_mode="rtx_vsr",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert guide["performance_preset"] == "low_vram_two_stage"
+    assert guide["vram_safety_tier"] == "8gb_low_vram_two_stage"
+    assert guide["first_stage_width"] * guide["first_stage_height"] <= 210_000
+    assert guide["second_stage_width"] * guide["second_stage_height"] <= 480_000
+    assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
+    assert guide["rtx_quality"] == "ULTRA"
+    assert guide["postprocess_path"] == "rtx_vsr"
+    assert checked == [("ULTRA", 0)]
+
+
+def test_low_vram_two_stage_rejects_longer_video_before_vsr_probe(monkeypatch):
+    checked = []
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda *args, **kwargs: checked.append(True),
+    )
+
+    with pytest.raises(RequestError, match="只支持 4 秒"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA",
+            prompt="镜头缓慢推进。",
+            duration=5,
+            width=1920,
+            height=1080,
+            aspect_ratio="16:9",
+            resolution_preset="1080p FHD",
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="低显存二采",
             postprocess_mode="rtx_vsr",
             timeline_data="{}",
             target_dialogue="",

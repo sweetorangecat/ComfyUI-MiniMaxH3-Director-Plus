@@ -52,6 +52,91 @@ def test_8gb_long_video_rejects_two_stage_and_4k():
     assert "低显存" in plan["reason"]
 
 
+def test_idle_8gb_allows_four_second_fhd_low_vram_two_stage():
+    plan = plan_two_stage_dimensions(
+        1920,
+        1080,
+        4,
+        total_vram_gb=8,
+        free_vram_gb=7,
+        profile="low_vram",
+    )
+
+    assert plan["allowed"] is True
+    assert plan["vram_safety_tier"] == "8gb_low_vram_two_stage"
+    assert plan["first_stage_megapixels"] <= 0.21
+    assert plan["second_stage_megapixels"] <= 0.48
+    assert plan["max_final_width"] == 1920
+    assert plan["max_final_height"] == 1080
+
+
+def test_8gb_low_vram_two_stage_rejects_longer_clips():
+    plan = plan_two_stage_dimensions(
+        1920,
+        1080,
+        5,
+        total_vram_gb=8,
+        free_vram_gb=7,
+        profile="low_vram",
+    )
+
+    assert plan["allowed"] is False
+    assert "只支持 4 秒" in plan["reason"]
+
+
+def test_8gb_low_vram_two_stage_rejects_target_above_fhd_area():
+    plan = plan_two_stage_dimensions(
+        2560,
+        1440,
+        4,
+        total_vram_gb=8,
+        free_vram_gb=7,
+        profile="low_vram",
+    )
+
+    assert plan["allowed"] is False
+    assert "最高支持 1080p FHD" in plan["reason"]
+
+
+def test_8gb_low_vram_two_stage_accepts_ultrawide_with_fhd_pixel_budget():
+    plan = plan_two_stage_dimensions(
+        2048,
+        864,
+        4,
+        total_vram_gb=8,
+        free_vram_gb=7,
+        profile="low_vram",
+    )
+
+    assert plan["allowed"] is True
+
+
+def test_8gb_low_vram_two_stage_rejects_busy_gpu_before_sampling():
+    plan = plan_two_stage_dimensions(
+        1920,
+        1080,
+        4,
+        total_vram_gb=8,
+        free_vram_gb=5.9,
+        profile="low_vram",
+    )
+
+    assert plan["allowed"] is False
+    assert "至少需要 6.0GB" in plan["reason"]
+
+
+def test_standard_quality_profile_still_rejects_8gb_four_second_fhd():
+    plan = plan_two_stage_dimensions(
+        1920,
+        1080,
+        4,
+        total_vram_gb=8,
+        free_vram_gb=7,
+    )
+
+    assert plan["allowed"] is False
+
+
 def test_busy_32gb_gpu_fails_before_sampling():
     plan = plan_two_stage_dimensions(
         2560,
