@@ -80,6 +80,7 @@ def test_ui_locks_quality_two_stage_to_rtx_vsr():
     assert '"质量优先二采样": [["rtx_vsr"' in text
     assert "allowedPostprocessModes(preset)" in text
     assert "质量优先二采样已锁定 RTX VSR" in text
+    assert "轻度去模糊 + 高码率 RTX VSR" in text
 
 
 def test_ui_locks_low_vram_two_stage_to_four_second_fhd_ai_x2_reconstruction():
@@ -243,6 +244,9 @@ def test_director_ui_uses_stable_size_when_sidebar_changes_available_width():
     assert "flex:0 0 ${DIRECTOR_UI_WIDTH}px" in text
     assert ".h3p select,.h3p input,.h3p textarea" in text
     assert "max-width:100%;min-width:0" in text
+    assert "const DIRECTOR_UI_WIDTH = 1350;" in text
+    assert "const DIRECTOR_UI_HEIGHT = 1510;" in text
+    assert "const DIRECTOR_DOM_HEIGHT = 1050;" in text
 
 
 def test_fish_mode_exposes_model_dialogue_and_sample_transcript_controls():

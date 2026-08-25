@@ -72,3 +72,34 @@ def test_autodl_install_keeps_huggingface_hub_compatible_with_transformers():
     assert '--index-url https://pypi.org/simple "huggingface-hub==0.36.0"' in usage
     assert "--force-reinstall --no-deps" in usage
     assert "https://files.pythonhosted.org/packages/cb/bd/1a875e0d592d447cbc02805fd3fe0f497714d6a2583f59d14fa9ebad96eb/huggingface_hub-0.36.0-py3-none-any.whl" in usage
+
+
+def test_docs_describe_quality_two_stage_deblur_chain_and_observable_status():
+    usage = (DOCS / "使用说明.md").read_text(encoding="utf-8")
+    api = (DOCS / "API说明.md").read_text(encoding="utf-8")
+    troubleshooting = (DOCS / "故障排查.md").read_text(encoding="utf-8")
+
+    for text in (
+        "DEBLUR_LOW",
+        "HIGHBITRATE_ULTRA",
+        "额外时间",
+        "不提高 H3 显存峰值",
+        "等比中心裁切",
+        "随机种子仍影响生成纹理",
+        "1920×1056不是原生2K",
+    ):
+        assert text in usage
+
+    for text in (
+        "无新增必填入参",
+        "performance_preset=quality_two_stage",
+        "postprocess_mode=rtx_vsr",
+        "rtx_deblur_mode",
+        "postprocess_path",
+        "source",
+        "final尺寸",
+    ):
+        assert text in api
+
+    for text in ("DEBLUR_LOW", "VSR", "H3 前"):
+        assert text in troubleshooting

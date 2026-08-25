@@ -702,7 +702,7 @@ function install(node) {
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR HIGHBITRATE_ULTRA（同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
+      postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR：轻度去模糊 + 高码率 RTX VSR（HIGHBITRATE_ULTRA，同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
       postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight), "AI X2")}；1080p 使用约 1MP 神经二采基准，再逐帧 RealESRGAN X2 重建发丝与衣料纹理；仅支持 4 秒和最高 1080p FHD，开始前检查至少 6GB 空闲显存。`;
     }

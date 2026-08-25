@@ -18,7 +18,7 @@ API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递�
 
 `performance_preset` 的 API 字段保持不变。依赖官方 LightX2V LoRA 的性能档位，只有在 ComfyUI 内置加载器实际新增模型补丁且 `patch_delta>0` 后才会进入采样。`POST /generate` 可能已经成功返回 `prompt_id` 并入队；官方 LoRA 会在任务执行到加速节点时验证，若验证不通过，任务会在首个 H3 采样节点前终止，调用方应从任务历史或执行错误读取原因。常见的缺文件、损坏文件和零补丁错误会包含解析后的 LoRA 文件名。上次加载失败后重新执行加速节点会再次验证，不会因旧的 `turbo_lora_applied=false` 绕过检查。
 
-`postprocess_mode` 控制最终视频输出：`native`（原生尺寸直出）、`lanczos`（CPU Lanczos 快速放大）、`ai_upscale`（ComfyUI 通用 AI 超分）或 `rtx_vsr`（RTX VSR AI 细节重建）。`质量优先二采样` 只允许 `rtx_vsr`；`低显存二采` 只允许 `ai_upscale`，并按二采后的实际倍率自动优先选择 X2 模型，当前推荐和默认命中 `RealESRGAN_x2plus.pth`。两种二采都不会叠加另一种放大器或 Lanczos 链路。其他预设仍一次只执行选中的一种最终路线。`ai_upscale_model` 为 `auto` 或 `models/upscale_models` 中已安装的模型名；自动解析使用神经二采尺寸而不是首采尺寸，避免错误选择 X4。`rtx_quality` 的公共枚举为 `HIGH`、`ULTRA`、`HIGHBITRATE_ULTRA`，仅质量优先二采样固定解析为 `HIGHBITRATE_ULTRA`。最终只保存一个视频；AI 模型或 RTX VSR 依赖缺失时会在生成前明确报错，不会静默回退。
+`postprocess_mode` 控制最终视频输出：`native`（原生尺寸直出）、`lanczos`（CPU Lanczos 快速放大）、`ai_upscale`（ComfyUI 通用 AI 超分）或 `rtx_vsr`（RTX VSR AI 细节重建）。无新增必填入参：质量二采仍传 `performance_preset=quality_two_stage`、`postprocess_mode=rtx_vsr`，控制器会固定 `HIGHBITRATE_ULTRA` 并在实际 RTX 路线先执行 `DEBLUR_LOW`。`低显存二采` 只允许 `ai_upscale`，并按二采后的实际倍率自动优先选择 X2 模型，当前推荐和默认命中 `RealESRGAN_x2plus.pth`。两种二采都不会叠加另一种放大器或 Lanczos 链路。其他预设仍一次只执行选中的一种最终路线。`ai_upscale_model` 为 `auto` 或 `models/upscale_models` 中已安装的模型名；自动解析使用神经二采尺寸而不是首采尺寸，避免错误选择 X4。`rtx_quality` 的公共枚举为 `HIGH`、`ULTRA`、`HIGHBITRATE_ULTRA`，仅质量优先二采样固定解析为 `HIGHBITRATE_ULTRA`。最终只保存一个视频；AI 模型或 RTX VSR 依赖缺失时会在生成前明确报错，不会静默回退。
 
 两个训练型二采预设的最终 H.264 编码值都固定为 `min(请求 quality, 16)`；U11 和 API 模板继续显示兼容旧路线的默认值 20，执行二采时由输出节点自动解析为 16。编码结束后通过 H.264 stream-copy 写入 BT.709 limited-range VUI，不重新编码视频帧或音频；任务 UI 元数据会返回 `encode_quality` 与 `color_metadata`。其他性能预设保持原编码值 20。
 
@@ -28,7 +28,7 @@ API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递�
 
 API 中的 `resolution_preset` 表示请求的最终输出目标，支持精确 `1080p FHD`（1920×1080）、`2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。4K 不是 H3 原生采样。普通低显存路线支持 4–15 秒并把最终目标限制在 1080p；`低显存二采` 只支持 4 秒和 FHD 像素预算；16–24GB 只开放 8 秒以内的 2K 质量二采；28GB 以上才允许通过前置检查后请求长视频 2K/4K。所有路线仍由同一个流式 MP4 输出节点保存。
 
-`GET /schema` 的 `resolved_outputs` 描述运行前可观察结果：`resolved_two_stage_route`、`first_stage_width/height`、`second_stage_width/height`、`final_upscale_scale_x/y`、`final_upscale_scale`、`max_final_vsr_scale`、`vram_safety_tier`、`quality_basis` 与 `required_assets`。实际 `generate` 响应和任务元数据应使用这些解析值展示“首采 -> 神经二采 -> 最终输出”，不要只显示最终分辨率标签。
+`GET /schema` 的 `resolved_outputs` 描述运行前可观察结果：`resolved_two_stage_route`、`first_stage_width/height`、`second_stage_width/height`、`final_upscale_scale_x/y`、`final_upscale_scale`、`max_final_vsr_scale`、`vram_safety_tier`、`quality_basis` 与 `required_assets`。实际 `generate` 响应和任务元数据还可查看 guide/status 的 `rtx_deblur_mode`、`postprocess_path`、`source` 与 final尺寸，展示“首采 -> 神经二采 -> 最终输出”，不要只显示最终分辨率标签。
 
 `voice_mode = "fish_lock"` 时只使用 `voice_reference_audios` 的第 1 路作为 Fish 音色样本，`target_dialogue` 是要新生成的对白，`reference_transcript` 是样本音频原文（建议填写），`fish_model_path` 默认使用 `s2-pro-w4a16 (auto download)`。Fish 失败会返回明确错误，不会静默回退到 H3 原生音色。
 

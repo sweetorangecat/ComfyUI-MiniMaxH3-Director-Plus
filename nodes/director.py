@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .prompting import build_reference_prompt
 from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution, h3_native_canvas
-from .rtx_vsr_stream import probe_vsr_capability
+from .rtx_vsr_stream import probe_vsr_capability, probe_vsr_deblur_chain
 from .rife_stream import DEFAULT_RIFE_MODEL, probe_rife_capability
 from .schema import (
     TWO_STAGE_PERFORMANCE_PRESETS,
@@ -449,6 +449,14 @@ class MiniMaxH3DirectorPlus:
             postprocess_path = request["postprocess_mode"]
         else:
             postprocess_path = "native_bypass"
+        request["rtx_deblur_mode"] = (
+            "DEBLUR_LOW"
+            if (
+                postprocess_path == "rtx_vsr"
+                and request["performance_preset"] == "quality_two_stage"
+            )
+            else "off"
+        )
 
         if two_stage_plan is not None and postprocess_path == "rtx_vsr":
             request["warnings"].append(
@@ -456,6 +464,10 @@ class MiniMaxH3DirectorPlus:
                 f"首采 {native_width}×{native_height}，神经二采 "
                 f"{two_stage_plan['second_stage_width']}×{two_stage_plan['second_stage_height']}，"
                 f"最终 RTX VSR 约 {two_stage_plan['final_scale']:.2f} 倍。"
+            )
+            request["warnings"].append(
+                "质量二采将执行 DEBLUR_LOW 轻度去模糊，再执行 "
+                "HIGHBITRATE_ULTRA 高码率 RTX VSR。"
             )
         elif two_stage_plan is not None and postprocess_path == "ai_upscale":
             request["warnings"].append(
@@ -480,7 +492,10 @@ class MiniMaxH3DirectorPlus:
 
         if postprocess_path == "rtx_vsr":
             try:
-                probe_vsr_capability(request["rtx_quality"], device_id=0)
+                if request["rtx_deblur_mode"] == "DEBLUR_LOW":
+                    probe_vsr_deblur_chain(request["rtx_quality"], device_id=0)
+                else:
+                    probe_vsr_capability(request["rtx_quality"], device_id=0)
             except Exception as exc:
                 raise RequestError(str(exc)) from exc
         if request["motion_smoothing"] == "rife_x2":
@@ -617,6 +632,7 @@ class MiniMaxH3DirectorPlus:
             "postprocess_mode": request["postprocess_mode"],
             "rtx_quality_requested": request["rtx_quality_requested"],
             "rtx_quality": request["rtx_quality"],
+            "rtx_deblur_mode": request["rtx_deblur_mode"],
             "ai_upscale_model": request["ai_upscale_model"],
             "motion_smoothing": request["motion_smoothing"],
             "audio_loudness": request["audio_loudness"],

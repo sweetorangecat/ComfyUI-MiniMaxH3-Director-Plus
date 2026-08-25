@@ -491,10 +491,15 @@ def test_all_non_low_vram_presets_cap_long_h3_sampling_to_official_canvas(preset
 
 
 def test_two_stage_build_reports_first_second_and_final_sizes(monkeypatch):
-    probed = []
+    normal_probes = []
+    chain_probes = []
     monkeypatch.setattr(
         "nodes.director.probe_vsr_capability",
-        lambda quality, device_id=0: probed.append((quality, device_id)) or True,
+        lambda quality, device_id=0: normal_probes.append((quality, device_id)) or True,
+    )
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_deblur_chain",
+        lambda quality, device_id=0: chain_probes.append((quality, device_id)) or True,
     )
 
     guide, *_ = MiniMaxH3DirectorPlus().build(
@@ -525,7 +530,80 @@ def test_two_stage_build_reports_first_second_and_final_sizes(monkeypatch):
     assert guide["required_assets"] == ["test-upscaler", "test-lora"]
     assert guide["rtx_quality_requested"] == "HIGH"
     assert guide["rtx_quality"] == "HIGHBITRATE_ULTRA"
-    assert probed == [("HIGHBITRATE_ULTRA", 0)]
+    assert guide["rtx_deblur_mode"] == "DEBLUR_LOW"
+    assert "质量二采将执行 DEBLUR_LOW 轻度去模糊，再执行 HIGHBITRATE_ULTRA 高码率 RTX VSR。" in guide["warnings"]
+    assert chain_probes == [("HIGHBITRATE_ULTRA", 0)]
+    assert normal_probes == []
+
+
+def test_regular_rtx_vsr_uses_only_normal_probe_and_disables_deblur(monkeypatch):
+    normal_probes = []
+    chain_probes = []
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda quality, device_id=0: normal_probes.append((quality, device_id)) or True,
+    )
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_deblur_chain",
+        lambda quality, device_id=0: chain_probes.append((quality, device_id)) or True,
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=5,
+        width=2560,
+        height=1440,
+        aspect_ratio="16:9",
+        resolution_preset="2K QHD",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="稳定质量",
+        postprocess_mode="rtx_vsr",
+        rtx_quality="ULTRA",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert guide["postprocess_path"] == "rtx_vsr"
+    assert guide["rtx_deblur_mode"] == "off"
+    assert normal_probes == [("ULTRA", 0)]
+    assert chain_probes == []
+
+
+def test_quality_two_stage_chain_probe_failure_preserves_error_and_cause(monkeypatch):
+    normal_probes = []
+    source_error = RuntimeError("DEBLUR_LOW 链路不可用")
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda *args, **kwargs: normal_probes.append(True),
+    )
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_deblur_chain",
+        lambda *args, **kwargs: (_ for _ in ()).throw(source_error),
+    )
+
+    with pytest.raises(RequestError, match="DEBLUR_LOW 链路不可用") as error:
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA",
+            prompt="镜头缓慢推进。",
+            duration=15,
+            width=2560,
+            height=1440,
+            aspect_ratio="16:9",
+            resolution_preset="2K QHD",
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="质量优先二采样",
+            postprocess_mode="rtx_vsr",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
+
+    assert error.value.__cause__ is source_error
+    assert normal_probes == []
 
 
 def test_two_stage_4k_build_uses_1080p_neural_basis(monkeypatch):
@@ -616,12 +694,17 @@ def test_two_stage_rejects_busy_gpu_before_vsr_probe(monkeypatch):
 
 
 def test_low_vram_two_stage_builds_safe_four_second_fhd_plan(monkeypatch):
-    checked = []
+    normal_probes = []
+    chain_probes = []
     resolved_models = []
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
     monkeypatch.setattr(
         "nodes.director.probe_vsr_capability",
-        lambda quality, device_id=0: checked.append((quality, device_id)) or True,
+        lambda quality, device_id=0: normal_probes.append((quality, device_id)) or True,
+    )
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_deblur_chain",
+        lambda quality, device_id=0: chain_probes.append((quality, device_id)) or True,
     )
     monkeypatch.setattr(
         "nodes.director.resolve_upscale_model_name",
@@ -654,7 +737,9 @@ def test_low_vram_two_stage_builds_safe_four_second_fhd_plan(monkeypatch):
     assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
     assert guide["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
     assert guide["postprocess_path"] == "ai_upscale"
-    assert checked == []
+    assert guide["rtx_deblur_mode"] == "off"
+    assert normal_probes == []
+    assert chain_probes == []
     assert len(resolved_models) == 1
     assert resolved_models[0][0] == "auto"
     assert resolved_models[0][1] == pytest.approx(1920 / 1344)
@@ -824,7 +909,18 @@ def test_duration_seven_rejects_portrait_target_above_rotated_limit():
         )
 
 
-def test_same_size_rtx_request_uses_native_bypass():
+def test_same_size_rtx_request_uses_native_bypass_without_any_rtx_probe(monkeypatch):
+    normal_probes = []
+    chain_probes = []
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda *args, **kwargs: normal_probes.append(True),
+    )
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_deblur_chain",
+        lambda *args, **kwargs: chain_probes.append(True),
+    )
+
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="T2VA",
         prompt="镜头缓慢推进。",
@@ -846,6 +942,9 @@ def test_same_size_rtx_request_uses_native_bypass():
     assert guide["postprocess_path"] == "native_bypass"
     assert guide["upscale_required"] is False
     assert guide["upscale_method"] == "none"
+    assert guide["rtx_deblur_mode"] == "off"
+    assert normal_probes == []
+    assert chain_probes == []
 
 
 def test_low_vram_target_upscale_selects_rtx_vsr(monkeypatch):
