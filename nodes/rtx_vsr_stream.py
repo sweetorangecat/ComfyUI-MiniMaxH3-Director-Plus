@@ -188,7 +188,13 @@ class VsrFrameProcessor:
             image = getattr(result, "image", None)
             if image is None:
                 raise RuntimeError("NVIDIA RTX VSR 未返回 DLPack 图像")
-            output_chw = torch.from_dlpack(image).clone().to(dtype=torch.float32).contiguous()
+            output_chw = torch.from_dlpack(image).clone()
+            if output_chw.device != self.cuda_device:
+                raise RuntimeError(
+                    "NVIDIA RTX VSR 输出设备异常："
+                    f"期望 {self.cuda_device}，实际 {output_chw.device}"
+                )
+            output_chw = output_chw.to(dtype=torch.float32).contiguous()
             expected_shape = (3, self.output_height, self.output_width)
             if tuple(output_chw.shape) != expected_shape:
                 raise RuntimeError(
@@ -245,6 +251,7 @@ class DeblurVsrFrameProcessor:
         output_width: int,
         output_height: int,
     ):
+        self.quality = quality
         self._deblur = VsrFrameProcessor(
             api,
             "DEBLUR_LOW",
@@ -272,7 +279,18 @@ class DeblurVsrFrameProcessor:
     def process(self, chw_frame: torch.Tensor) -> torch.Tensor:
         if self._deblur is None or self._upscale is None:
             raise RuntimeError("RTX 去模糊处理器已关闭")
-        return self._upscale.process(self._deblur.process_cuda(chw_frame))
+        try:
+            deblurred_frame = self._deblur.process_cuda(chw_frame)
+        except Exception as exc:
+            raise RuntimeError(
+                f"RTX 轻度去模糊（DEBLUR_LOW）运行失败：{exc}"
+            ) from exc
+        try:
+            return self._upscale.process(deblurred_frame)
+        except Exception as exc:
+            raise RuntimeError(
+                f"高码率 RTX VSR（{self.quality}）运行失败：{exc}"
+            ) from exc
 
     def close(self) -> None:
         upscale = self._upscale
@@ -286,12 +304,18 @@ class DeblurVsrFrameProcessor:
             try:
                 upscale.close()
             except Exception as exc:
-                upscale_error = exc
+                upscale_error = RuntimeError(
+                    f"高码率 RTX VSR（{self.quality}）关闭失败：{exc}"
+                )
+                upscale_error.__cause__ = exc
         if deblur is not None:
             try:
                 deblur.close()
             except Exception as exc:
-                deblur_error = exc
+                deblur_error = RuntimeError(
+                    f"RTX 轻度去模糊（DEBLUR_LOW）关闭失败：{exc}"
+                )
+                deblur_error.__cause__ = exc
         if upscale_error is not None and deblur_error is not None:
             LOGGER.warning("RTX 去模糊处理器次级清理失败：%s", deblur_error)
         if upscale_error is not None:
@@ -379,6 +403,11 @@ def probe_vsr_deblur_chain(
             raise RuntimeError(
                 "NVIDIA RTX 轻度去模糊 + VSR 探测输出尺寸异常："
                 f"期望 CPU HWC {expected_shape}，实际 {actual}"
+            )
+        if output_frame.dtype != torch.float32:
+            raise RuntimeError(
+                "NVIDIA RTX 轻度去模糊 + VSR 探测输出数据类型异常："
+                f"期望 float32，实际 {output_frame.dtype}"
             )
     except Exception as exc:
         primary_error = exc

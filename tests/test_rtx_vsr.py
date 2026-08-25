@@ -446,6 +446,30 @@ def test_probe_vsr_deblur_chain_rejects_unexpected_cpu_hwc_output(monkeypatch):
     assert empty_cache_calls == []
 
 
+def test_probe_vsr_deblur_chain_rejects_non_float32_output(monkeypatch):
+    original_zeros = torch.zeros
+
+    class FakeProcessor:
+        def __init__(self, *args):
+            pass
+
+        def process(self, frame):
+            return original_zeros((720, 1280, 3), dtype=torch.float16)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(rtx_vsr_stream, "load_vsr_api", lambda: object())
+    monkeypatch.setattr(rtx_vsr_stream, "DeblurVsrFrameProcessor", FakeProcessor)
+    _mock_probe_input(monkeypatch)
+    _mock_probe_cuda(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="输出数据类型异常") as error:
+        probe_vsr_deblur_chain("ULTRA", 0)
+
+    assert "期望 float32，实际 torch.float16" in str(error.value.__cause__)
+
+
 def test_probe_vsr_deblur_chain_wraps_process_error_and_closes(monkeypatch):
     calls = []
 
@@ -687,6 +711,7 @@ def test_process_returns_cloned_hwc_float32_cpu_frame(monkeypatch):
         8,
         6,
     )
+    processor.cuda_device = torch.device("cpu")
 
     result = processor.process(torch.zeros(3, 2, 4, dtype=torch.float16).transpose(1, 2))
     sdk_output.zero_()
@@ -704,7 +729,7 @@ def test_process_returns_cloned_hwc_float32_cpu_frame(monkeypatch):
     processor.close()
 
 
-def test_non_default_device_context_covers_create_run_and_cleanup(monkeypatch):
+def test_non_default_device_context_covers_creation_and_cpu_simulated_run_cleanup(monkeypatch):
     active_devices = []
     operations = []
     sdk_output = torch.ones((3, 6, 8), dtype=torch.float32)
@@ -761,17 +786,18 @@ def test_non_default_device_context_covers_create_run_and_cleanup(monkeypatch):
         8,
         6,
     )
+    processor.cuda_device = torch.device("cpu")
     processor.process(torch.zeros(3, 2, 4))
     processor.close()
 
     assert operations == [
         ("create", "cuda:2"),
         ("load", "cuda:2"),
-        ("stream_sync", "cuda:2"),
-        ("run", "cuda:2"),
-        ("device_sync", "cuda:2"),
-        ("device_sync", "cuda:2"),
-        ("close", "cuda:2"),
+        ("stream_sync", "cpu"),
+        ("run", "cpu"),
+        ("device_sync", "cpu"),
+        ("device_sync", "cpu"),
+        ("close", "cpu"),
     ]
     assert active_devices == []
 
@@ -938,6 +964,7 @@ def test_process_cuda_returns_cloned_contiguous_chw_float32(monkeypatch):
         6,
         8,
     )
+    processor.cuda_device = torch.device("cpu")
 
     result = processor.process_cuda(torch.zeros(3, 2, 4, dtype=torch.float16))
     sdk_output.zero_()
@@ -974,6 +1001,7 @@ def test_process_cuda_returns_independent_cuda_chw_float32_tensor(monkeypatch):
     sdk_output.zero_()
 
     assert result.device.type == "cuda"
+    assert result.device == torch.device("cuda", 0)
     assert result.dtype == torch.float32
     assert result.shape == (3, 6, 8)
     assert result.data_ptr() != sdk_output.data_ptr()
@@ -985,18 +1013,32 @@ def test_deblur_processor_chains_deblur_cuda_to_upscale_with_requested_shapes(mo
     calls = []
     intermediate = torch.ones((3, 4, 6), dtype=torch.float32)
     output = torch.ones((12, 18, 3), dtype=torch.float32)
+    original_to = torch.Tensor.to
+
+    def reject_cpu_transfer(tensor, *args, **kwargs):
+        device = kwargs.get("device", args[0] if args else None)
+        if device is not None and torch.device(device).type == "cpu":
+            pytest.fail("the deblur-to-upscale intermediate must not transfer to CPU")
+        return original_to(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", reject_cpu_transfer)
 
     class FakeProcessor:
         def __init__(self, api, quality, device_id, width, height):
             self.quality = quality
             self.dimensions = (width, height)
+            self.cuda_device = torch.device("cpu")
             calls.append(("create", quality, device_id, width, height))
 
         def process_cuda(self, frame):
+            assert frame.device == self.cuda_device
+            assert intermediate.device == self.cuda_device
             calls.append(("deblur.process_cuda", frame))
             return intermediate
 
         def process(self, frame):
+            assert frame.device == self.cuda_device
+            assert frame is intermediate
             calls.append(("upscale.process", frame))
             return output
 
@@ -1016,6 +1058,142 @@ def test_deblur_processor_chains_deblur_cuda_to_upscale_with_requested_shapes(mo
     assert calls[2][1].shape == (3, 4, 6)
     assert calls[3] == ("upscale.process", intermediate)
     assert result is output
+
+
+def test_process_cuda_rejects_cpu_dlpack_output_for_cuda_processor(monkeypatch):
+    class FakeStream:
+        def synchronize(self):
+            pass
+
+    monkeypatch.setattr(torch.cuda, "current_stream", lambda device: FakeStream())
+    original_to = torch.Tensor.to
+
+    def fake_to(tensor, *args, **kwargs):
+        device = kwargs.get("device", args[0] if args else None)
+        if device is not None and torch.device(device).type == "cuda":
+            return tensor.to(dtype=kwargs.get("dtype"))
+        return original_to(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", fake_to)
+
+    class FakeEffect:
+        def run(self, frame):
+            return SimpleNamespace(image=torch.ones((3, 6, 8), dtype=torch.float32))
+
+        def close(self):
+            pass
+
+    processor = VsrFrameProcessor(
+        (lambda *args, **kwargs: FakeEffect(), SimpleNamespace(HIGH="high", ULTRA="ultra")),
+        "HIGH",
+        0,
+        8,
+        6,
+    )
+
+    with pytest.raises(RuntimeError, match="输出设备异常") as error:
+        processor.process_cuda(torch.zeros((3, 2, 4), dtype=torch.float32))
+
+    assert "期望 cuda:0，实际 cpu" in str(error.value)
+    processor.close()
+
+
+def test_deblur_processor_wraps_deblur_run_failure_with_cause(monkeypatch):
+    source_error = RuntimeError("DEBLUR_SOURCE")
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            self.quality = quality
+
+        def process_cuda(self, frame):
+            raise source_error
+
+        def process(self, frame):
+            pytest.fail("upscale must not run after deblur failure")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+    processor = DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12)
+
+    with pytest.raises(RuntimeError) as error:
+        processor.process(torch.zeros((3, 4, 6)))
+
+    assert str(error.value) == "RTX 轻度去模糊（DEBLUR_LOW）运行失败：DEBLUR_SOURCE"
+    assert error.value.__cause__ is source_error
+
+
+def test_deblur_processor_wraps_upscale_run_failure_with_actual_quality_cause(monkeypatch):
+    source_error = RuntimeError("UPSCALE_SOURCE")
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            self.quality = quality
+
+        def process_cuda(self, frame):
+            return frame
+
+        def process(self, frame):
+            raise source_error
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+    processor = DeblurVsrFrameProcessor(object(), "HIGHBITRATE_ULTRA", 0, 6, 4, 18, 12)
+
+    with pytest.raises(RuntimeError) as error:
+        processor.process(torch.zeros((3, 4, 6)))
+
+    assert str(error.value) == "高码率 RTX VSR（HIGHBITRATE_ULTRA）运行失败：UPSCALE_SOURCE"
+    assert error.value.__cause__ is source_error
+
+
+def test_deblur_processor_wraps_close_failures_and_retains_upscale_as_primary(monkeypatch, caplog):
+    upscale_source = RuntimeError("UPSCALE_CLOSE_SOURCE")
+    deblur_source = RuntimeError("DEBLUR_CLOSE_SOURCE")
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            self.quality = quality
+
+        def close(self):
+            if self.quality == "DEBLUR_LOW":
+                raise deblur_source
+            raise upscale_source
+
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+    processor = DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12)
+
+    with caplog.at_level(logging.WARNING, logger=rtx_vsr_stream.LOGGER.name):
+        with pytest.raises(RuntimeError) as error:
+            processor.close()
+
+    assert str(error.value) == "高码率 RTX VSR（ULTRA）关闭失败：UPSCALE_CLOSE_SOURCE"
+    assert error.value.__cause__ is upscale_source
+    assert "RTX 轻度去模糊（DEBLUR_LOW）关闭失败：DEBLUR_CLOSE_SOURCE" in caplog.text
+
+
+def test_deblur_processor_wraps_deblur_close_failure_with_cause(monkeypatch):
+    source_error = RuntimeError("DEBLUR_CLOSE_SOURCE")
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            self.quality = quality
+
+        def close(self):
+            if self.quality == "DEBLUR_LOW":
+                raise source_error
+
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+    processor = DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12)
+
+    with pytest.raises(RuntimeError) as error:
+        processor.close()
+
+    assert str(error.value) == "RTX 轻度去模糊（DEBLUR_LOW）关闭失败：DEBLUR_CLOSE_SOURCE"
+    assert error.value.__cause__ is source_error
 
 
 def test_deblur_processor_logs_cleanup_failure_when_upscale_creation_fails(monkeypatch, caplog):
@@ -1094,9 +1272,10 @@ def test_deblur_processor_close_attempts_both_logs_secondary_and_prioritizes_ups
         with pytest.raises(RuntimeError) as error:
             processor.close()
 
-    assert error.value is upscale_error
+    assert str(error.value) == "高码率 RTX VSR（ULTRA）关闭失败：upscale close failed"
+    assert error.value.__cause__ is upscale_error
     assert calls == ["ULTRA", "DEBLUR_LOW"]
-    assert "deblur close failed" in caplog.text
+    assert "RTX 轻度去模糊（DEBLUR_LOW）关闭失败：deblur close failed" in caplog.text
     processor.close()
     assert calls == ["ULTRA", "DEBLUR_LOW"]
 
