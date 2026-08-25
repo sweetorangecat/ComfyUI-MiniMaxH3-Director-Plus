@@ -81,9 +81,9 @@ def load_vsr_api() -> tuple[object, object]:
 
 def resolve_vsr_quality(quality_level, quality: str):
     """Resolve the quality levels supported by the public U11 contract."""
-    supported = ("HIGH", "ULTRA", "HIGHBITRATE_ULTRA")
+    supported = ("HIGH", "ULTRA", "HIGHBITRATE_ULTRA", "DEBLUR_LOW")
     if quality not in supported:
-        raise ValueError("RTX VSR 质量仅支持 HIGH、ULTRA 或 HIGHBITRATE_ULTRA")
+        raise ValueError("RTX VSR 质量仅支持 HIGH、ULTRA、HIGHBITRATE_ULTRA 或 DEBLUR_LOW")
     if not hasattr(quality_level, quality):
         raise ValueError(
             f"当前 nvvfx SDK 不支持 RTX VSR 质量 {quality}"
@@ -162,8 +162,8 @@ class VsrFrameProcessor:
                 pass
             raise RuntimeError(f"创建 NVIDIA RTX VSR 效果失败（{quality}）：{exc}") from exc
 
-    def process(self, chw_frame: torch.Tensor) -> torch.Tensor:
-        """Run one CHW RGB frame and return a cloned CPU HWC float32 frame."""
+    def process_cuda(self, chw_frame: torch.Tensor) -> torch.Tensor:
+        """Run one CHW RGB frame and return a cloned CUDA CHW float32 frame."""
         if self._effect is None:
             raise RuntimeError("RTX VSR 处理器已关闭")
         if not torch.is_tensor(chw_frame) or chw_frame.ndim != 3 or chw_frame.shape[0] != 3:
@@ -188,7 +188,7 @@ class VsrFrameProcessor:
             image = getattr(result, "image", None)
             if image is None:
                 raise RuntimeError("NVIDIA RTX VSR 未返回 DLPack 图像")
-            output_chw = torch.from_dlpack(image).clone().contiguous()
+            output_chw = torch.from_dlpack(image).clone().to(dtype=torch.float32).contiguous()
             expected_shape = (3, self.output_height, self.output_width)
             if tuple(output_chw.shape) != expected_shape:
                 raise RuntimeError(
@@ -196,12 +196,17 @@ class VsrFrameProcessor:
                     f"期望 {expected_shape}，实际 {tuple(output_chw.shape)}"
                 )
 
-            return (
-                output_chw.movedim(0, -1)
-                .clamp(0.0, 1.0)
-                .to(device="cpu", dtype=torch.float32, non_blocking=False)
-                .contiguous()
-            )
+            return output_chw
+
+    def process(self, chw_frame: torch.Tensor) -> torch.Tensor:
+        """Run one CHW RGB frame and return a cloned CPU HWC float32 frame."""
+        return (
+            self.process_cuda(chw_frame)
+            .movedim(0, -1)
+            .clamp(0.0, 1.0)
+            .to(device="cpu", dtype=torch.float32, non_blocking=False)
+            .contiguous()
+        )
 
     def close(self) -> None:
         effect = self._effect
@@ -218,6 +223,79 @@ class VsrFrameProcessor:
                 effect_context.__exit__(None, None, None)
             elif effect is not None:
                 _close_effect(effect)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+        return False
+
+
+class DeblurVsrFrameProcessor:
+    """Run RTX deblur on CUDA before passing the CHW frame to RTX upscale."""
+
+    def __init__(
+        self,
+        api,
+        quality: str,
+        device_id: int,
+        input_width: int,
+        input_height: int,
+        output_width: int,
+        output_height: int,
+    ):
+        self._deblur = VsrFrameProcessor(
+            api,
+            "DEBLUR_LOW",
+            device_id,
+            input_width,
+            input_height,
+        )
+        self._upscale = None
+        try:
+            self._upscale = VsrFrameProcessor(
+                api,
+                quality,
+                device_id,
+                output_width,
+                output_height,
+            )
+        except Exception:
+            try:
+                self._deblur.close()
+            except Exception:
+                pass
+            self._deblur = None
+            raise
+
+    def process(self, chw_frame: torch.Tensor) -> torch.Tensor:
+        if self._deblur is None or self._upscale is None:
+            raise RuntimeError("RTX 去模糊处理器已关闭")
+        return self._upscale.process(self._deblur.process_cuda(chw_frame))
+
+    def close(self) -> None:
+        upscale = self._upscale
+        deblur = self._deblur
+        self._upscale = None
+        self._deblur = None
+
+        upscale_error = None
+        deblur_error = None
+        if upscale is not None:
+            try:
+                upscale.close()
+            except Exception as exc:
+                upscale_error = exc
+        if deblur is not None:
+            try:
+                deblur.close()
+            except Exception as exc:
+                deblur_error = exc
+        if upscale_error is not None:
+            raise upscale_error
+        if deblur_error is not None:
+            raise deblur_error
 
     def __enter__(self):
         return self

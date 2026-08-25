@@ -8,6 +8,7 @@ import torch
 
 from nodes import rtx_vsr_stream
 from nodes.rtx_vsr_stream import (
+    DeblurVsrFrameProcessor,
     VsrFrameProcessor,
     _dasiwa_requirements_path,
     load_vsr_api,
@@ -687,3 +688,177 @@ def test_sdk_context_enter_failure_uses_raw_effect_cleanup_without_exit():
         )
 
     assert calls == ["enter", "destroy"]
+
+
+def test_process_cuda_returns_cloned_contiguous_chw_float32(monkeypatch):
+    sdk_output = torch.full((3, 6, 8), 0.75, dtype=torch.float16).transpose(1, 2)
+
+    class FakeStream:
+        def synchronize(self):
+            pass
+
+    monkeypatch.setattr(torch.cuda, "current_stream", lambda device: FakeStream())
+    original_to = torch.Tensor.to
+
+    def fake_to(tensor, *args, **kwargs):
+        device = kwargs.get("device", args[0] if args else None)
+        if device is not None and torch.device(device).type == "cuda":
+            return tensor.to(dtype=kwargs.get("dtype"))
+        return original_to(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", fake_to)
+
+    class FakeEffect:
+        def run(self, frame):
+            return SimpleNamespace(image=sdk_output)
+
+        def close(self):
+            pass
+
+    processor = VsrFrameProcessor(
+        (lambda *args, **kwargs: FakeEffect(), SimpleNamespace(HIGH="high", ULTRA="ultra")),
+        "HIGH",
+        0,
+        6,
+        8,
+    )
+
+    result = processor.process_cuda(torch.zeros(3, 2, 4, dtype=torch.float16))
+    sdk_output.zero_()
+
+    assert result.shape == (3, 8, 6)
+    assert result.dtype == torch.float32
+    assert result.is_contiguous()
+    assert torch.all(result == 0.75)
+    processor.close()
+
+
+def test_deblur_processor_chains_deblur_cuda_to_upscale_with_requested_shapes(monkeypatch):
+    calls = []
+    intermediate = torch.ones((3, 4, 6), dtype=torch.float32)
+    output = torch.ones((12, 18, 3), dtype=torch.float32)
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            self.quality = quality
+            self.dimensions = (width, height)
+            calls.append(("create", quality, device_id, width, height))
+
+        def process_cuda(self, frame):
+            calls.append(("deblur.process_cuda", frame))
+            return intermediate
+
+        def process(self, frame):
+            calls.append(("upscale.process", frame))
+            return output
+
+        def close(self):
+            calls.append(("close", self.quality))
+
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+
+    processor = DeblurVsrFrameProcessor(object(), "ULTRA", 2, 6, 4, 18, 12)
+    result = processor.process(torch.zeros((3, 4, 6), dtype=torch.float32))
+
+    assert calls[:2] == [
+        ("create", "DEBLUR_LOW", 2, 6, 4),
+        ("create", "ULTRA", 2, 18, 12),
+    ]
+    assert calls[2][0] == "deblur.process_cuda"
+    assert calls[2][1].shape == (3, 4, 6)
+    assert calls[3] == ("upscale.process", intermediate)
+    assert result is output
+
+
+def test_deblur_processor_cleans_up_deblur_when_upscale_creation_fails(monkeypatch):
+    calls = []
+    original_error = RuntimeError("upscale setup failed")
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            calls.append(("create", quality))
+            if quality == "ULTRA":
+                raise original_error
+            self.quality = quality
+
+        def close(self):
+            calls.append(("close", self.quality))
+
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+
+    with pytest.raises(RuntimeError) as error:
+        DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12)
+
+    assert error.value is original_error
+    assert calls == [("create", "DEBLUR_LOW"), ("create", "ULTRA"), ("close", "DEBLUR_LOW")]
+
+
+def test_deblur_processor_can_be_closed_after_processing_failure(monkeypatch):
+    calls = []
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            self.quality = quality
+
+        def process_cuda(self, frame):
+            raise RuntimeError("deblur failed")
+
+        def process(self, frame):
+            pytest.fail("upscale must not run after deblur failure")
+
+        def close(self):
+            calls.append(self.quality)
+
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+    processor = DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12)
+
+    with pytest.raises(RuntimeError, match="deblur failed"):
+        processor.process(torch.zeros((3, 4, 6)))
+    processor.close()
+
+    assert calls == ["ULTRA", "DEBLUR_LOW"]
+
+
+def test_deblur_processor_close_attempts_both_and_prioritizes_upscale_error(monkeypatch):
+    calls = []
+    upscale_error = RuntimeError("upscale close failed")
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            self.quality = quality
+
+        def close(self):
+            calls.append(self.quality)
+            if self.quality == "ULTRA":
+                raise upscale_error
+            raise RuntimeError("deblur close failed")
+
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+    processor = DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12)
+
+    with pytest.raises(RuntimeError) as error:
+        processor.close()
+
+    assert error.value is upscale_error
+    assert calls == ["ULTRA", "DEBLUR_LOW"]
+    processor.close()
+    assert calls == ["ULTRA", "DEBLUR_LOW"]
+
+
+def test_deblur_processor_context_manager_closes_once(monkeypatch):
+    calls = []
+
+    class FakeProcessor:
+        def __init__(self, api, quality, device_id, width, height):
+            self.quality = quality
+
+        def close(self):
+            calls.append(self.quality)
+
+    monkeypatch.setattr(rtx_vsr_stream, "VsrFrameProcessor", FakeProcessor)
+
+    with DeblurVsrFrameProcessor(object(), "ULTRA", 0, 6, 4, 18, 12) as processor:
+        assert processor is not None
+
+    processor.close()
+    assert calls == ["ULTRA", "DEBLUR_LOW"]
