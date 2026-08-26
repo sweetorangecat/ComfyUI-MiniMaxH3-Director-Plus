@@ -38,6 +38,14 @@ def patch_template(template, request):
         raise TemplateError("API 模板缺少‘快速设置 / API 入参’控制节点")
 
     controller_inputs = controller.setdefault("inputs", {})
+    mode = str(request.get("mode") or "FL2VA")
+    voice_mode = str(request.get("voice_mode") or "none")
+    # Keep the API graph's media contract identical to the Director node. A
+    # reused template may still contain old uploads after a mode switch; do
+    # not leave those loaders or links in the prompt sent to ComfyUI.
+    first_allowed = mode in {"I2VA", "FL2VA", "REF2VA"}
+    last_allowed = mode in {"FL2VA", "L2VA", "REF2VA"}
+    references_allowed = mode == "REF2VA"
     public_controller_fields = (
         "mode", "prompt", "duration", "width", "height", "voice_mode",
         "aspect_ratio", "resolution_preset", "custom_width", "custom_height",
@@ -53,7 +61,8 @@ def patch_template(template, request):
 
     for field, title in ASSET_TITLES.items():
         loader_id, loader = _node_by_title(prompt, title)
-        value = request.get(field)
+        value_allowed = first_allowed if field == "first_image" else last_allowed
+        value = request.get(field) if value_allowed else None
         if value:
             if loader is None:
                 raise TemplateError(f"API 模板缺少素材节点：{title}")
@@ -65,8 +74,8 @@ def patch_template(template, request):
             if loader_id is not None:
                 prompt.pop(loader_id, None)
 
-    audio_references = list(request.get("voice_reference_audios") or [])
-    if request.get("voice_reference_audio") and not audio_references:
+    audio_references = list(request.get("voice_reference_audios") or []) if voice_mode != "none" else []
+    if voice_mode != "none" and request.get("voice_reference_audio") and not audio_references:
         audio_references = [request["voice_reference_audio"]]
     for index, title in enumerate(VOICE_TITLES, 1):
         field = "voice_reference_audio" if index == 1 else f"voice_reference_audio_{index}"
@@ -101,7 +110,7 @@ def patch_template(template, request):
         if guide is not None:
             guide.setdefault("inputs", {}).pop("generated_voice_audio", None)
 
-    references = list(request.get("references") or [])
+    references = list(request.get("references") or []) if references_allowed else []
     for index in range(1, 10):
         field = f"reference_image_{index}"
         title = f"API 参考图{index}"

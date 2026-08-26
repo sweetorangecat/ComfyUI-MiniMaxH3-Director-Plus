@@ -402,6 +402,8 @@ class MiniMaxH3PerformancePreset:
             values["two_stage_split_step"] = 0
             values["two_stage_scale"] = 1.0
             descriptions[name] = "二采精确低显存注意力不可用，已在采样前回退为 8 步单采，避免第二阶段显存溢出"
+            if name == "quality_two_stage":
+                _reconcile_two_stage_fallback_geometry(guide)
         guide["two_stage_enabled"] = two_stage_enabled
         guide["two_stage_split_step"] = int(values.get("two_stage_split_step", 0))
         guide["two_stage_scale"] = float(values.get("two_stage_scale", 1.0))
@@ -463,7 +465,7 @@ def acceleration_plan(guide):
 def scheduler_plan(guide):
     """Resolve the schedule used by the selected H3 sampling route."""
     preset, _ = _safe_guide_preset(guide)
-    if preset in TWO_STAGE_PERFORMANCE_PRESETS:
+    if preset in TWO_STAGE_PERFORMANCE_PRESETS and guide.get("two_stage_enabled") is not False:
         route = resolve_two_stage_route(guide)
         if route == "trained_latent_ref":
             return {
@@ -568,11 +570,86 @@ def _reset_h3_acceleration_state(guide, error=None):
     guide["turbo_sampler_applied"] = False
     guide["two_stage_enabled"] = False
     guide["two_stage_status"] = "旁路"
+    guide.pop("two_stage_fallback", None)
     guide["two_stage_split_step"] = 0
     guide["two_stage_scale"] = 1.0
     if error is not None:
         guide["turbo_lora_applied"] = False
         guide["turbo_lora_error"] = str(error)
+
+
+def _reconcile_two_stage_fallback_geometry(guide):
+    """Make a failed two-stage route behave like the actual native sampler."""
+    if not isinstance(guide, dict):
+        return
+
+    native_width = int(
+        guide.get("native_width")
+        or guide.get("width")
+        or guide.get("first_stage_width")
+        or 0
+    )
+    native_height = int(
+        guide.get("native_height")
+        or guide.get("height")
+        or guide.get("first_stage_height")
+        or 0
+    )
+    if native_width <= 0 or native_height <= 0:
+        return
+
+    requested_width = int(
+        guide.get("requested_width") or guide.get("target_width") or native_width
+    )
+    requested_height = int(
+        guide.get("requested_height") or guide.get("target_height") or native_height
+    )
+    postprocess_mode = str(guide.get("postprocess_mode") or "native")
+    if requested_width == native_width and requested_height == native_height:
+        postprocess_path = "native_bypass"
+        target_width, target_height = native_width, native_height
+    elif requested_width < native_width or requested_height < native_height:
+        postprocess_path = "downscale"
+        target_width, target_height = requested_width, requested_height
+    elif postprocess_mode in {"lanczos", "ai_upscale", "rtx_vsr"}:
+        postprocess_path = postprocess_mode
+        target_width, target_height = requested_width, requested_height
+    else:
+        postprocess_path = "native_bypass"
+        target_width, target_height = native_width, native_height
+
+    guide["width"] = native_width
+    guide["height"] = native_height
+    guide["native_width"] = native_width
+    guide["native_height"] = native_height
+    guide["first_stage_width"] = native_width
+    guide["first_stage_height"] = native_height
+    guide["second_stage_width"] = native_width
+    guide["second_stage_height"] = native_height
+    guide["postprocess_source_width"] = native_width
+    guide["postprocess_source_height"] = native_height
+    guide["target_width"] = target_width
+    guide["target_height"] = target_height
+    guide["postprocess_path"] = postprocess_path
+    guide["upscale_required"] = postprocess_path in {"lanczos", "ai_upscale", "rtx_vsr"}
+    guide["upscale_method"] = {
+        "rtx_vsr": "rtx_vsr",
+        "ai_upscale": "comfy_upscale_model",
+        "lanczos": "lanczos",
+        "downscale": "cpu_bicubic",
+        "native_bypass": "none",
+    }[postprocess_path]
+    guide["final_upscale_scale_x"] = target_width / native_width
+    guide["final_upscale_scale_y"] = target_height / native_height
+    guide["final_upscale_scale"] = max(
+        guide["final_upscale_scale_x"], guide["final_upscale_scale_y"]
+    )
+    guide["max_final_vsr_scale"] = None
+    guide["vram_safety_tier"] = "not_applicable"
+    guide["quality_basis"] = "H3 原生（训练型二采不可用，已回退）"
+    guide["required_assets"] = []
+    guide["two_stage_fallback"] = True
+    guide["resolved_two_stage_route"] = "bypass"
 
 
 def _apply_two_stage_models(model, guide, plan, values):

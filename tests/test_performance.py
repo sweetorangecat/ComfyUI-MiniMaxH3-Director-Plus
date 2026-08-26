@@ -477,6 +477,47 @@ def test_quality_two_stage_without_verified_patch_fails_closed():
     assert guide["two_stage_scale"] == 1.0
 
 
+def test_two_stage_acceleration_fallback_reconciles_single_stage_output_geometry():
+    guide = {
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": "quality_two_stage",
+        "two_stage_enabled": True,
+        "resolved_two_stage_route": "trained_latent_fl",
+        "first_stage_width": 896,
+        "first_stage_height": 512,
+        "second_stage_width": 1344,
+        "second_stage_height": 768,
+        "postprocess_source_width": 1344,
+        "postprocess_source_height": 768,
+        "target_width": 2560,
+        "target_height": 1440,
+        "postprocess_mode": "rtx_vsr",
+        "final_upscale_scale_x": 2560 / 1344,
+        "final_upscale_scale_y": 1440 / 768,
+        "final_upscale_scale": 2560 / 1344,
+        "quality_basis": "H3 神经 latent 二采",
+    }
+
+    MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=False)
+
+    assert guide["two_stage_enabled"] is False
+    assert guide["two_stage_fallback"] is True
+    assert guide["resolved_two_stage_route"] == "bypass"
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (896, 512)
+    assert (guide["postprocess_source_width"], guide["postprocess_source_height"]) == (896, 512)
+    assert guide["final_upscale_scale_x"] == pytest.approx(2560 / 896)
+    assert guide["final_upscale_scale_y"] == pytest.approx(1440 / 512)
+    assert guide["final_upscale_scale"] == pytest.approx(2560 / 896)
+    assert guide["quality_basis"] == "H3 原生（训练型二采不可用，已回退）"
+    assert scheduler_plan(guide) == {
+        "scheduler": "simple",
+        "steps": 8,
+        "split_step": 0,
+        "refine_reference_tail": False,
+    }
+
+
 def test_fl_two_stage_uses_u17_model_lora_contract():
     guide = {
         "performance_preset": "quality_two_stage",

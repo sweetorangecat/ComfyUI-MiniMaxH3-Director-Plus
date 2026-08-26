@@ -175,6 +175,35 @@ def test_patch_template_removes_unused_optional_loaders():
     assert "voice_reference_audio" not in prompt["10"]["inputs"]
 
 
+@pytest.mark.parametrize(
+    ("mode", "voice_mode", "allowed_fields"),
+    [
+        ("T2VA", "none", set()),
+        ("I2VA", "none", {"first_image"}),
+        ("FL2VA", "none", {"first_image", "last_image"}),
+        ("L2VA", "none", {"last_image"}),
+    ],
+)
+def test_patch_template_drops_stale_reference_images_outside_ref2va(
+    mode, voice_mode, allowed_fields
+):
+    prompt = patch_template(
+        BASE_TEMPLATE,
+        {
+            "mode": mode,
+            "voice_mode": voice_mode,
+            "first_image": "first.png",
+            "last_image": "last.png",
+            "references": ["ref.png"],
+        },
+    )
+
+    controller_inputs = prompt["10"]["inputs"]
+    assert {name for name in ("first_image", "last_image") if name in controller_inputs} == allowed_fields
+    assert not any(name.startswith("reference_image_") for name in controller_inputs)
+    assert not any(node.get("_meta", {}).get("title", "").startswith("API 参考图") for node in prompt.values())
+
+
 def test_patch_template_requires_controller_title():
     with pytest.raises(TemplateError, match="API 入参"):
         patch_template({}, {"mode": "T2VA"})
