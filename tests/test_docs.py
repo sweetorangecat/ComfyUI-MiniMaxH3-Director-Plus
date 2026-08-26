@@ -103,3 +103,26 @@ def test_docs_describe_quality_two_stage_deblur_chain_and_observable_status():
 
     for text in ("DEBLUR_LOW", "VSR", "H3 前"):
         assert text in troubleshooting
+
+
+def test_docs_describe_balanced_fhd_two_stage_route():
+    usage = (DOCS / "使用说明.md").read_text(encoding="utf-8")
+    api = (DOCS / "API说明.md").read_text(encoding="utf-8")
+    troubleshooting = (DOCS / "故障排查.md").read_text(encoding="utf-8")
+
+    for text in (
+        "1344×768 -> 2016×1152 -> 1920×1080",
+        "1080p 平衡二采",
+        "约 14%",
+        "不执行 RTX VSR",
+    ):
+        assert text in usage
+
+    for text in (
+        "balanced_fhd_downscale",
+        "aspect_lanczos_downscale",
+        "无新增 API 入参",
+    ):
+        assert text in api
+
+    assert "postprocess=balanced_fhd_downscale" in troubleshooting

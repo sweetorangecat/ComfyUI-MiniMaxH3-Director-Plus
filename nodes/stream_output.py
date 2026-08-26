@@ -77,6 +77,24 @@ def _center_crop_to_target_aspect(frame, target_width, target_height):
     return frame[top:top + crop_height, :, :]
 
 
+def _center_crop_batch_to_target_aspect(images, target_width, target_height):
+    """Return a centered NHWC view matching the target aspect ratio."""
+    if images.ndim != 4:
+        raise ValueError("视频帧批次必须为 NHWC 四维张量")
+    if len(images) == 0:
+        return images
+    sample = _center_crop_to_target_aspect(
+        images[0], target_width, target_height
+    )
+    crop_height = int(sample.shape[0])
+    crop_width = int(sample.shape[1])
+    source_height = int(images.shape[1])
+    source_width = int(images.shape[2])
+    top = (source_height - crop_height) // 2
+    left = (source_width - crop_width) // 2
+    return images[:, top:top + crop_height, left:left + crop_width, :]
+
+
 def _should_use_deblur_before_upscale(guide, postprocess_path):
     """Keep the retired deblur route disabled for all workflows.
 
@@ -201,6 +219,42 @@ def _iter_lanczos_frame_chunks(
         pingpong=pingpong,
         method="lanczos",
     )
+
+
+def _iter_balanced_fhd_downscale_frame_chunks(
+    images,
+    target_width,
+    target_height,
+    max_chunk_bytes=64 * 1024 * 1024,
+    bytes_per_channel=1,
+    pingpong=False,
+):
+    """Aspect-crop and Lanczos-downscale FHD supersampled frames in small batches."""
+    target_frame_bytes = max(
+        1,
+        int(target_width) * int(target_height) * 3 * int(bytes_per_channel),
+    )
+    frames_per_chunk = max(
+        1, min(4, int(max_chunk_bytes) // target_frame_bytes)
+    )
+
+    def resized(frame_chunk):
+        cropped = _center_crop_batch_to_target_aspect(
+            frame_chunk, target_width, target_height
+        )
+        return _resize_cpu_chunk(
+            cropped,
+            int(target_width),
+            int(target_height),
+            method="lanczos",
+        )
+
+    for start in range(0, len(images), frames_per_chunk):
+        yield resized(images[start:start + frames_per_chunk])
+    if pingpong:
+        for stop in range(len(images) - 1, 1, -frames_per_chunk):
+            start = max(1, stop - frames_per_chunk)
+            yield resized(images[start:stop].flip(0))
 
 
 def _load_upscale_model(model_name):
@@ -409,13 +463,22 @@ def _iter_vsr_frame_stream(
 def _resolve_postprocess_path(guide, source_width, source_height):
     """Resolve explicit guide paths while retaining legacy guide behavior."""
     path = guide.get("postprocess_path")
-    if path in {"native_bypass", "downscale", "lanczos", "ai_upscale", "rtx_vsr"}:
+    if path in {
+        "native_bypass",
+        "downscale",
+        "balanced_fhd_downscale",
+        "lanczos",
+        "ai_upscale",
+        "rtx_vsr",
+    }:
         # Equal native/target dimensions are always a bypass, even if an old
         # guide requested RTX VSR as a mode rather than a resolved path.
         target_width = int(guide.get("target_width") or source_width)
         target_height = int(guide.get("target_height") or source_height)
         if target_width == int(source_width) and target_height == int(source_height):
             return "native_bypass"
+        if path == "balanced_fhd_downscale":
+            return path
         if target_width < int(source_width) or target_height < int(source_height):
             return "downscale"
         return path
@@ -518,6 +581,24 @@ def _save_lanczos_frame(source, index, target_width, target_height, output_path,
     frame = _resize_cpu_chunk(
         source[index:index + 1], target_width, target_height, method="lanczos"
     )[0]
+    pixels = torch.round(frame[..., :3] * 255).to(torch.uint8).numpy()
+    path = f"{os.path.splitext(output_path)[0]}-{suffix}-frame.png"
+    Image.fromarray(pixels, mode="RGB").save(path, "PNG")
+    return path
+
+
+def _save_balanced_fhd_downscale_frame(
+    source, index, target_width, target_height, output_path, suffix
+):
+    chunks = _iter_balanced_fhd_downscale_frame_chunks(
+        source[index:index + 1], target_width, target_height
+    )
+    try:
+        frame = next(chunks)[0]
+    finally:
+        close = getattr(chunks, "close", None)
+        if callable(close):
+            close()
     pixels = torch.round(frame[..., :3] * 255).to(torch.uint8).numpy()
     path = f"{os.path.splitext(output_path)[0]}-{suffix}-frame.png"
     Image.fromarray(pixels, mode="RGB").save(path, "PNG")
@@ -760,6 +841,10 @@ class MiniMaxH3StreamingVideoCombine:
                 chunks = _iter_resized_frame_chunks(
                     source, target_width, target_height, **chunk_kwargs
                 )
+            elif postprocess_path == "balanced_fhd_downscale":
+                chunks = _iter_balanced_fhd_downscale_frame_chunks(
+                    source, target_width, target_height, **chunk_kwargs
+                )
             elif postprocess_path == "lanczos":
                 chunks = _iter_lanczos_frame_chunks(
                     source, target_width, target_height, **chunk_kwargs
@@ -888,6 +973,8 @@ class MiniMaxH3StreamingVideoCombine:
                     frame_exports.append(_save_native_frame(source, 0, output_path, "first"))
                 elif postprocess_path == "downscale":
                     frame_exports.append(_save_resized_frame(source, 0, target_width, target_height, output_path, "first"))
+                elif postprocess_path == "balanced_fhd_downscale":
+                    frame_exports.append(_save_balanced_fhd_downscale_frame(source, 0, target_width, target_height, output_path, "first"))
                 elif postprocess_path == "lanczos":
                     frame_exports.append(_save_lanczos_frame(source, 0, target_width, target_height, output_path, "first"))
                 elif postprocess_path == "ai_upscale":
@@ -904,6 +991,8 @@ class MiniMaxH3StreamingVideoCombine:
                     frame_exports.append(_save_native_frame(source, last_index, output_path, "last"))
                 elif postprocess_path == "downscale":
                     frame_exports.append(_save_resized_frame(source, last_index, target_width, target_height, output_path, "last"))
+                elif postprocess_path == "balanced_fhd_downscale":
+                    frame_exports.append(_save_balanced_fhd_downscale_frame(source, last_index, target_width, target_height, output_path, "last"))
                 elif postprocess_path == "lanczos":
                     frame_exports.append(_save_lanczos_frame(source, last_index, target_width, target_height, output_path, "last"))
                 elif postprocess_path == "ai_upscale":

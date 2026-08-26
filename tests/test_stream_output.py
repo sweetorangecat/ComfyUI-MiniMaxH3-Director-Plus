@@ -701,6 +701,65 @@ def test_downscale_path_uses_cpu_resize_without_loading_vsr(monkeypatch):
     assert result["result"][0].shape[0] == 0
 
 
+def test_balanced_fhd_downscale_center_crops_then_uses_lanczos(monkeypatch):
+    images = torch.zeros(3, 16, 28, 3)
+    images[:, 1:15, :, :] = 0.25
+    captured = []
+    monkeypatch.setattr(
+        stream_output,
+        "load_vsr_api",
+        lambda: (_ for _ in ()).throw(AssertionError("VSR loaded")),
+    )
+
+    result = _combine(
+        monkeypatch,
+        {
+            "target_width": 16,
+            "target_height": 9,
+            "postprocess_path": "balanced_fhd_downscale",
+            "performance_preset": "quality_two_stage",
+        },
+        images,
+        captured,
+    )
+
+    output = torch.cat(captured)
+    expected_crop = images[:, 1:15, :, :]
+    expected = stream_output._resize_cpu_chunk(
+        expected_crop, 16, 9, method="lanczos"
+    )
+    assert output.shape == (3, 9, 16, 3)
+    assert torch.equal(output, expected)
+    assert result["ui"]["postprocess_path"] == "balanced_fhd_downscale"
+
+
+def test_balanced_fhd_downscale_preserves_audio_in_single_mp4(monkeypatch):
+    images = torch.rand(2, 16, 28, 3)
+    captured = []
+    audio_inputs = []
+    audio = {"waveform": torch.zeros(1, 2, 3200), "sample_rate": 32000}
+
+    result = _combine(
+        monkeypatch,
+        {
+            "target_width": 16,
+            "target_height": 9,
+            "postprocess_path": "balanced_fhd_downscale",
+            "performance_preset": "quality_two_stage",
+            "audio_loudness": "original",
+        },
+        images,
+        captured,
+        audio=audio,
+        audio_inputs=audio_inputs,
+    )
+
+    assert audio_inputs == [audio]
+    assert len(result["ui"]["images"]) == 1
+    assert result["ui"]["images"][0]["container"] == "MP4"
+    assert result["ui"]["images"][0]["format"] == "video/mp4"
+
+
 def test_discarded_frames_use_independent_zero_storage_cpu_image(monkeypatch):
     images = torch.rand(5, 8, 12, 4)
     captured = []

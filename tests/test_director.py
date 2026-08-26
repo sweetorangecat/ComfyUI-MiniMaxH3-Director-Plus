@@ -562,6 +562,68 @@ def test_two_stage_build_reports_first_second_and_final_sizes(monkeypatch):
     assert normal_probes == [("HIGHBITRATE_ULTRA", 0)]
 
 
+def test_quality_two_stage_fhd_uses_balanced_downscale_without_vsr_probe(monkeypatch):
+    probes = []
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda *args, **kwargs: probes.append((args, kwargs)),
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=15,
+        width=1920,
+        height=1080,
+        aspect_ratio="16:9",
+        resolution_preset="1080p FHD",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="质量优先二采样",
+        postprocess_mode="rtx_vsr",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert (guide["first_stage_width"], guide["first_stage_height"]) == (1344, 768)
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (2016, 1152)
+    assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
+    assert guide["upscale_method"] == "aspect_lanczos_downscale"
+    assert guide["upscale_required"] is False
+    assert any("1080p 平衡二采" in warning for warning in guide["warnings"])
+    assert probes == []
+
+
+def test_quality_two_stage_portrait_fhd_uses_balanced_downscale(monkeypatch):
+    monkeypatch.setattr(
+        "nodes.director.probe_vsr_capability",
+        lambda *args, **kwargs: pytest.fail("FHD balanced route must not probe RTX VSR"),
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="镜头缓慢推进。",
+        duration=15,
+        width=1080,
+        height=1920,
+        aspect_ratio="9:16",
+        resolution_preset="1080p FHD",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="质量优先二采样",
+        postprocess_mode="rtx_vsr",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert (guide["first_stage_width"], guide["first_stage_height"]) == (768, 1344)
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (1152, 2016)
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
+
+
 def test_regular_rtx_vsr_uses_only_normal_probe_and_disables_deblur(monkeypatch):
     normal_probes = []
     monkeypatch.setattr(

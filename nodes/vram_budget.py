@@ -9,6 +9,8 @@ LOW_VRAM_TWO_STAGE_MIN_FIRST_MP = 0.20
 LOW_VRAM_TWO_STAGE_SCALE = 1.5
 LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.45
 LOW_VRAM_TWO_STAGE_MAX_DURATION = 6
+BALANCED_FHD_LANDSCAPE = (1920, 1080)
+BALANCED_FHD_FIRST_LANDSCAPE = (1344, 768)
 
 
 def _aligned_size(width, height, target_mp, alignment=32):
@@ -142,14 +144,36 @@ def plan_two_stage_dimensions(
             tier,
         )
 
-    first_width, first_height = _aligned_size(
-        final_width,
-        final_height,
-        first_mp,
+    balanced_fhd_supersample = (
+        profile == "quality"
+        and total >= 28.0
+        and (final_width, final_height)
+        in {
+            BALANCED_FHD_LANDSCAPE,
+            tuple(reversed(BALANCED_FHD_LANDSCAPE)),
+        }
     )
-    second_width = max(32, int(round(first_width * 1.5 / 32.0)) * 32)
-    second_height = max(32, int(round(first_height * 1.5 / 32.0)) * 32)
-    if second_width > final_width or second_height > final_height:
+    if balanced_fhd_supersample:
+        if final_width > final_height:
+            first_width, first_height = BALANCED_FHD_FIRST_LANDSCAPE
+        else:
+            first_width, first_height = tuple(
+                reversed(BALANCED_FHD_FIRST_LANDSCAPE)
+            )
+        second_width = int(first_width * 1.5)
+        second_height = int(first_height * 1.5)
+    else:
+        first_width, first_height = _aligned_size(
+            final_width,
+            final_height,
+            first_mp,
+        )
+        second_width = max(32, int(round(first_width * 1.5 / 32.0)) * 32)
+        second_height = max(32, int(round(first_height * 1.5 / 32.0)) * 32)
+    if (
+        not balanced_fhd_supersample
+        and (second_width > final_width or second_height > final_height)
+    ):
         # A learned second-stage grid must never exceed the final target. A
         # later downscale would throw away reconstructed detail and ask the
         # final postprocessor to operate on an invalid ratio.
@@ -176,6 +200,7 @@ def plan_two_stage_dimensions(
         "max_final_height": max_height,
         "quality_basis": "H3 神经 latent 二采",
         "budget_profile": profile,
+        "balanced_fhd_supersample": balanced_fhd_supersample,
         "max_final_vsr_scale": (
             (
                 LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE
