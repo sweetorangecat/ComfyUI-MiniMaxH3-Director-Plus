@@ -262,6 +262,29 @@ def _upgrade_stream_output_inputs(workflow, output):
         {**existing.get(name, _socket(name, data_type)), "name": name, "type": data_type}
         for name, data_type in desired
     ]
+    # ComfyUI stores widget values separately from socket metadata.  Keep the
+    # complete streaming-output widget contract even when the source U10 node
+    # is a minimal fixture without ``widgets_values``.
+    defaults = [
+        24.0, "H.264", "MP4", "Auto", 20, "Standard", False, True,
+        "video/%date:yyyy-MM-dd%/%date:hhmmss%", True, False, False,
+        "Auto", "192k", False, False, "",
+    ]
+    old_values = list(output.get("widgets_values") or [])
+    values = list(defaults)
+    # Preserve only compatible source settings.  U10's enhanced combiner had
+    # a different widget order, so copying the whole list could turn a boolean
+    # into an invalid audio-codec value after the node type upgrade.
+    if old_values:
+        if isinstance(old_values[0], (int, float)):
+            values[0] = old_values[0]
+        if len(old_values) > 4 and isinstance(old_values[4], (int, float)):
+            values[4] = old_values[4]
+        if len(old_values) > 8 and isinstance(old_values[8], str) and old_values[8]:
+            values[8] = old_values[8]
+    # These two switches are deliberately off by default: exporting still
+    # images is opt-in and must never alter the video/audio stream.
+    output["widgets_values"] = values
     new_slots = {item["name"]: index for index, item in enumerate(output["inputs"])}
 
     rewritten = []
@@ -831,21 +854,25 @@ def build_workflow(source):
             values[2] = "MP4"
             output["widgets_values"] = values
 
-    router = _router_node(allocate_node(), [620, 2100])
-    acceleration = _acceleration_node(allocate_node(), [920, 2100])
-    performance = _performance_node(allocate_node(), [1260, 2100])
-    status = _status_node(allocate_node(), [1600, 2100])
-    fish = _fish_node(allocate_node(), [260, 2320])
+    router = _router_node(allocate_node(), [620, 2360])
+    acceleration = _acceleration_node(allocate_node(), [920, 2360])
+    performance = _performance_node(allocate_node(), [1260, 2360])
+    status = _status_node(allocate_node(), [1600, 2360])
+    fish = _fish_node(allocate_node(), [260, 2550])
     color_guard = _color_guard_node(allocate_node(), [1510, 1800])
     materials_note = _note_node(
-        allocate_node(), "导演与素材区", [620, 2290], [1280, 300],
+        allocate_node(), "导演与素材区", [620, 2550], [1280, 300],
         "## 导演与素材区\n\n1. 先选择模式，导演台会自动显示所需素材上传框。\n2. REF2VA 图片 reference 最多 9 张；提示词用 <Picture 1> 到 <Picture 9> 引用。\n3. H3 原生音色最多 3 路；角色名与 <Audio 1> 到 <Audio 3> 一一对应。\n4. 无需创建或连接任何图片、音频加载节点。",
     )
     acceleration_note = _note_node(
-        allocate_node(), "加速与后处理说明", [-400, 2470], [950, 270],
+        allocate_node(), "加速与后处理说明", [-400, 2730], [950, 270],
         "## 已整合能力\n\n- 训练型 3D latent 二采：自动区分 FL 与 Reference，执行匹配 LoRA 首采、神经 latent 放大和低 sigma 二采；不再使用双线性硬放大。\n- 质量优先二采样的高显存 RTX 路线：单次执行 HIGHBITRATE_ULTRA RTX VSR；不启用会产生彩条/花屏风险的 DEBLUR_LOW 双效果链，输入输出先等比中心裁切，避免拉伸。\n- 低显存二采：RTX 3070 8GB 级显卡支持 4–6 秒、FHD 像素预算；4 秒约 0.46MP 首采，5/6 秒按时长降低首采网格换取更长视频，再单独使用 RealESRGAN X2 逐帧重建到 1080p，最长 6 秒。\n- 极速4步：T2VA/FL2VA 使用官方 H3 Turbo，REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler。\n- 参考图加速：只在 Reference 兼容路线应用 SageAttention + ComfyUI 原生 EasyCache。\n- 低显存：按时长限制 H3 原生采样，低显存不开放 4K；最终最多 1080p。\n- 2K/4K 是最终 MP4 像素尺寸；高显存 4K 不是 H3 原生采样，而是神经二采细节基准后逐帧 RTX VSR。\n- 每次只执行一种兼容的性能路线；二采固定关闭 RIFE，避免重影与跳帧。",
     )
-    nodes.extend([router, acceleration, performance, status, fish, color_guard, materials_note, acceleration_note])
+    output_note = _note_node(
+        allocate_node(), "输出说明", [1510, 1780], [900, 150],
+        "## 最终输出\n\n视频固定保存为 H.264 / MP4。勾选输出节点中的 **保存首帧图片** 或 **保存尾帧图片** 时，只额外导出对应 PNG，不改变视频帧数、音频或采样结果。",
+    )
+    nodes.extend([router, acceleration, performance, status, fish, color_guard, materials_note, acceleration_note, output_note])
 
     if output is not None:
         image_link = next((
@@ -919,11 +946,49 @@ def build_workflow(source):
     nodes = workflow["nodes"]
     _rebuild_socket_links(nodes, workflow.get("links", []))
 
+    # U19-inspired workbench layout: a clear header, three fixed columns, and
+    # a lower automation lane.  Legacy explanatory notes remain in the JSON
+    # for compatibility but are hidden when they duplicate the main UI.
+    header_titles = {
+        1: ("MiniMax H3 Director Plus", [-360, 220], [1900, 65]),
+        2: ("自动模式路由 · 二采 / 超分 / 音色 / MP4 一体化", [-350, 295], [1250, 35]),
+        1480: ("U19-inspired Workbench · 中文界面", [950, 295], [800, 35]),
+    }
+    for node in nodes:
+        if node.get("type") == "Label (rgthree)" and node.get("id") in header_titles:
+            title, pos, size = header_titles[node["id"]]
+            node["title"], node["pos"], node["size"] = title, pos, size
+
+    visible_notes = {
+        2699: ("快速开始", [-1050, 470], [500, 430]),
+        20: ("功能与依赖", [-1050, 930], [500, 360]),
+        2642: ("模型与依赖说明", [-1050, 1320], [500, 430]),
+    }
+    duplicate_notes = {1777, 2411, 2641, 2694, 2695, 2696, 2698}
+    for node in nodes:
+        node_id = node.get("id")
+        if node_id in visible_notes:
+            title, pos, size = visible_notes[node_id]
+            node["title"], node["pos"], node["size"], node["mode"] = title, pos, size, 0
+        elif node_id in duplicate_notes:
+            node["mode"] = 2
+    for node in nodes:
+        if node.get("type") == "MiniMaxH3DirectorPlus":
+            node["pos"] = [140, 470]
+        elif node.get("type") == "MiniMaxH3StreamingVideoCombine":
+            node["pos"] = [1510, 470]
+        elif node.get("type") == "MiniMaxH3ColorGuard":
+            node["pos"] = [1960, 1960]
+        elif node.get("type") == "MarkdownNote" and node.get("title") == "输出说明":
+            node["pos"] = [1510, 1780]
+
     workflow["groups"] = [
-        {"id": "u11-settings", "title": "快速设置", "bounding": [-430, 400, 550, 1590], "color": "#5c7580", "font_size": 24, "flags": {}},
-        {"id": "u11-director", "title": "导演控制台", "bounding": [120, 400, 1370, 1590], "color": "#4e788a", "font_size": 24, "flags": {}},
-        {"id": "u11-output", "title": "预览与输出", "bounding": [1500, 400, 900, 1850], "color": "#5c7580", "font_size": 24, "flags": {}},
-        {"id": "u11-assets", "title": "自动素材与加速", "bounding": [-430, 2030, 2560, 620], "color": "#4c6f62", "font_size": 24, "flags": {}},
+        {"id": "u11-header", "title": "MiniMax H3 Director Plus", "bounding": [-430, 180, 2830, 180], "color": "#3f789e", "font_size": 26, "flags": {}},
+        {"id": "u11-info", "title": "使用说明与能力", "bounding": [-1080, 400, 560, 1590], "color": "#3f789e", "font_size": 24, "flags": {}},
+        {"id": "u11-settings", "title": "能力与说明", "bounding": [-430, 400, 550, 1590], "color": "#3f789e", "font_size": 24, "flags": {}},
+        {"id": "u11-director", "title": "导演控制台", "bounding": [120, 400, 1370, 1590], "color": "#4c806b", "font_size": 24, "flags": {}},
+        {"id": "u11-output", "title": "预览与最终输出", "bounding": [1500, 400, 900, 1850], "color": "#5c7580", "font_size": 24, "flags": {}},
+        {"id": "u11-assets", "title": "自动素材与兼容加速", "bounding": [-430, 2290, 2560, 760], "color": "#4c6f62", "font_size": 24, "flags": {}},
     ]
     workflow.setdefault("extra", {})["u11_director_plus"] = {
         "version": "1.3",

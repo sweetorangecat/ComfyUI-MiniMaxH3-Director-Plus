@@ -140,6 +140,43 @@ def test_built_workflow_has_three_primary_sections():
     assert built["extra"]["u11_director_plus"]["version"] == "1.3"
 
 
+def test_built_workflow_has_single_director_output_and_frame_export_toggles():
+    source = {
+        "last_node_id": 10, "last_link_id": 20,
+        "nodes": [
+            {"id": 1, "type": "Settings", "title": "Settings", "pos": [0, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+        ], "links": [], "groups": [], "definitions": {"subgraphs": []},
+    }
+    built = build_workflow(source)
+    assert sum(node["type"] == "MiniMaxH3DirectorPlus" for node in built["nodes"]) == 1
+    outputs = [node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine"]
+    assert len(outputs) == 1
+    output = outputs[0]
+    values = output["widgets_values"]
+    assert len(values) >= 16
+    assert values[14] is False  # save_first_frame
+    assert values[15] is False  # save_last_frame
+
+
+def test_built_workflow_uses_u19_inspired_three_column_bounds_without_overlap():
+    source = {
+        "last_node_id": 10, "last_link_id": 20,
+        "nodes": [
+            {"id": 1, "type": "Settings", "title": "Settings", "pos": [0, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+        ], "links": [], "groups": [], "definitions": {"subgraphs": []},
+    }
+    built = build_workflow(source)
+    groups = {group["id"]: group for group in built["groups"]}
+    assert {"u11-header", "u11-settings", "u11-director", "u11-output", "u11-assets"} <= groups.keys()
+    assert groups["u11-settings"]["bounding"][0] < groups["u11-director"]["bounding"][0]
+    assert groups["u11-director"]["bounding"][0] < groups["u11-output"]["bounding"][0]
+    validate_workflow(built)
+
+
 def test_built_workflow_describes_only_the_trained_two_stage_route():
     source = {
         "last_node_id": 10,
