@@ -931,7 +931,7 @@ def test_acceleration_router_falls_back_without_leaving_turbo_sampler_enabled(mo
     assert "回退" in result[1]
 
 
-def test_fast_route_stops_when_official_lora_has_no_verified_patches(monkeypatch):
+def test_fast_route_falls_back_when_official_lora_has_no_verified_patches(monkeypatch):
     def fail(*_args, **_kwargs):
         raise performance.H3LoRAApplicationError("官方 LoRA 未应用任何模型补丁")
 
@@ -951,8 +951,9 @@ def test_fast_route_stops_when_official_lora_has_no_verified_patches(monkeypatch
         "resolved_two_stage_route": "old-route",
     }
 
-    with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
-        MiniMaxH3AccelerationRouter().apply(object(), guide)
+    result = MiniMaxH3AccelerationRouter().apply(object(), guide)
+    assert result[0] is not None
+    assert result[2] is False
 
     assert guide["turbo_lora_applied"] is False
     assert guide["turbo_sampler_applied"] is False
@@ -981,8 +982,8 @@ def test_fast_route_retries_official_lora_after_a_previous_failure(monkeypatch):
     }
 
     for _ in range(2):
-        with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
-            MiniMaxH3AccelerationRouter().apply(object(), guide)
+        result = MiniMaxH3AccelerationRouter().apply(object(), guide)
+        assert result[2] is False
 
     assert calls == ["lora", "lora"]
 
@@ -1014,7 +1015,7 @@ def test_non_turbo_routes_refresh_resolved_route_without_changing_request_fields
     assert {key: guide[key] for key in request_fields} == request_fields
 
 
-def test_two_stage_route_stops_when_official_lora_has_no_verified_patches(monkeypatch):
+def test_two_stage_route_falls_back_when_official_lora_has_no_verified_patches(monkeypatch):
     def fail(*_args, **_kwargs):
         raise performance.H3LoRAApplicationError("官方 LoRA 未应用任何模型补丁")
 
@@ -1034,8 +1035,8 @@ def test_two_stage_route_stops_when_official_lora_has_no_verified_patches(monkey
         "resolved_two_stage_route": "old-route",
     }
 
-    with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
-        MiniMaxH3AccelerationRouter().apply(object(), guide)
+    result = MiniMaxH3AccelerationRouter().apply(object(), guide)
+    assert result[2] is False
 
     assert guide["turbo_lora_applied"] is False
     assert guide["turbo_sampler_applied"] is False
@@ -1045,7 +1046,7 @@ def test_two_stage_route_stops_when_official_lora_has_no_verified_patches(monkey
     assert guide["two_stage_scale"] == 1.0
     assert "first_lora_name" not in guide
     assert "second_lora_name" not in guide
-    assert guide["resolved_two_stage_route"] == "trained_latent_fl"
+    assert guide["resolved_two_stage_route"] == "bypass"
     assert "未应用任何模型补丁" in guide["turbo_lora_error"]
 
 
@@ -1065,12 +1066,12 @@ def test_two_stage_route_retries_official_lora_and_refreshes_route(monkeypatch):
     routes = []
 
     for _ in range(2):
-        with pytest.raises(performance.H3LoRAApplicationError, match="未应用任何模型补丁"):
-            MiniMaxH3AccelerationRouter().apply(object(), guide)
+        result = MiniMaxH3AccelerationRouter().apply(object(), guide)
+        assert result[2] is False
         routes.append(guide["resolved_two_stage_route"])
 
     assert calls == ["lora", "lora"]
-    assert routes == ["trained_latent_fl", "trained_latent_fl"]
+    assert routes == ["bypass", "bypass"]
 
 
 def test_sampler_router_exposes_valid_sampler_combo():

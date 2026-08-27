@@ -733,8 +733,12 @@ def _apply_two_stage_models(model, guide, plan, values):
     except H3LoRAApplicationError as exc:
         _reset_h3_acceleration_state(guide, exc)
         guide["head_chunking_applied"] = False
+        guide["resolved_two_stage_route"] = "bypass"
         LOGGER.error("[H3 two-stage models] official LoRA application failed: %s", exc)
-        raise
+        # A stale or version-mismatched official adapter must never abort the
+        # whole workflow.  Return the untouched model and let the preset node
+        # switch to the conservative native step count and single-pass path.
+        return original_model, "训练型二采 LoRA 与当前 H3 模型不兼容，已回退原生采样", False, original_model
     except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
         _reset_h3_acceleration_state(guide, exc)
         guide["head_chunking_applied"] = False
@@ -799,7 +803,7 @@ def _apply_acceleration(model, guide):
         except H3LoRAApplicationError as exc:
             _reset_h3_acceleration_state(guide, exc)
             LOGGER.error("[H3 acceleration] official LoRA application failed: %s", exc)
-            raise
+            return original_model, "Turbo LoRA 与当前 H3 模型不兼容，已回退原生采样", False, original_model
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
             _reset_h3_acceleration_state(guide, exc)
             return original_model, "Turbo LoRA 与当前模型不兼容，已回退原生采样", False, original_model

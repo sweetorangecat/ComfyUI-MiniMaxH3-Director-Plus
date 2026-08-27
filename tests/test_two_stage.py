@@ -199,6 +199,9 @@ def test_trained_two_stage_preserves_audio_and_uses_fl_four_plus_four(monkeypatc
         def __init__(self, seed):
             self.seed = seed
 
+    class EmptyNoise:
+        seed = None
+
     class FakeSampler:
         @classmethod
         def execute(cls, noise, guider, sampler, sigmas, latent):
@@ -224,7 +227,11 @@ def test_trained_two_stage_preserves_audio_and_uses_fl_four_plus_four(monkeypatc
     monkeypatch.setitem(
         sys.modules,
         "comfy_extras.nodes_custom_sampler",
-        types.SimpleNamespace(Noise_RandomNoise=FakeNoise, SamplerCustomAdvanced=FakeSampler),
+        types.SimpleNamespace(
+            Noise_RandomNoise=FakeNoise,
+            Noise_EmptyNoise=EmptyNoise,
+            SamplerCustomAdvanced=FakeSampler,
+        ),
     )
     first_model = types.SimpleNamespace(model_options={"route": "first"})
     second_model = types.SimpleNamespace(model_options={"route": "second"})
@@ -256,7 +263,7 @@ def test_trained_two_stage_preserves_audio_and_uses_fl_four_plus_four(monkeypatc
     assert stage_events == ["release", "upscale"]
     assert torch.equal(calls[0][2], sigmas[:5])
     assert torch.equal(calls[1][2], sigmas[4:])
-    assert calls[1][0].seed == 9
+    assert isinstance(calls[1][0], EmptyNoise)
     assert calls[1][1].model_patcher is second_model
     second_video, second_audio = calls[1][3]["samples"].unbind()
     assert second_video.shape == (1, 24, 5, 6, 6)

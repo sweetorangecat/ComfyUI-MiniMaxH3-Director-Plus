@@ -216,7 +216,7 @@ class MiniMaxH3TwoStageSampler:
 
         if second_model is None:
             raise ValueError("训练型二采缺少第二阶段模型，请更新并重新载入 U11 工作流")
-        from comfy_extras.nodes_custom_sampler import Noise_RandomNoise
+        from comfy_extras.nodes_custom_sampler import Noise_EmptyNoise
         split_step = int(guide.get("two_stage_split_step", 4))
         scale = float(guide.get("two_stage_scale", 1.5))
         if scale <= 1.0:
@@ -268,7 +268,10 @@ class MiniMaxH3TwoStageSampler:
             merged_video_shape = _latent_shape(upscaled_video)
             second_guider = prepare_second_stage_guider(guider, second_model, merged_video_shape)
             validate_second_stage_condition_shapes(second_guider, merged_video_shape)
-            second_noise = Noise_RandomNoise(int(getattr(noise, "seed", guide.get("seed", 0))))
+            # Continue from the clean first-pass x0 latent.  Injecting a new
+            # random field here repaints the enlarged latent and was the
+            # source of the soft, grainy 1080p output reported in production.
+            second_noise = Noise_EmptyNoise()
             second = SamplerCustomAdvanced.execute(
                 second_noise,
                 second_guider,
