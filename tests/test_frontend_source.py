@@ -74,6 +74,17 @@ def test_ui_exposes_separate_low_vram_two_stage_without_changing_layout():
     assert "同尺寸自动旁路" in text
 
 
+def test_ui_exposes_route_isolated_quality_presets():
+    text = source()
+    assert "高清快速（v4 8步）" in text
+    assert "参考高清（原生20步）" in text
+    assert "参考极速（官方4步）" in text
+    assert "fl_quality_fast_v4" in text
+    assert "ref_quality_native" in text
+    assert "ref_fast_4step" in text
+    assert "v4 8步仅适用于 FL/T2V 后端" in text
+
+
 def test_ui_locks_quality_two_stage_to_rtx_vsr():
     text = source()
     assert "POSTPROCESS_MODES_BY_PERFORMANCE" in text

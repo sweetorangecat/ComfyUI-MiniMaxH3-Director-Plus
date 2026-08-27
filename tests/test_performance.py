@@ -244,6 +244,66 @@ def test_quality_priority_preset_uses_dynamic_safe_policy_without_quality_change
     assert values["fish_device"] == "cpu"
 
 
+def test_fl_v4_quality_fast_is_an_eight_step_single_pass_contract():
+    values = preset_values("fl_quality_fast_v4", backend="fl2va_model")
+    plan = acceleration_plan({
+        "mode": "FL2VA",
+        "voice_mode": "none",
+        "performance_preset": "fl_quality_fast_v4",
+        "resolved_backend": "fl2va_model",
+    })
+    assert values["steps"] == 8
+    assert values["use_sage"] is False
+    assert values["use_cache"] is False
+    assert values["use_turbo_sampler"] is False
+    assert values.get("two_stage_split_step", 0) == 0
+    assert plan["use_turbo_lora"] is True
+    assert plan["lora_name"] == performance.FL_V4_LORA_NAME
+    assert plan["lora_strength"] == pytest.approx(1.0)
+    assert sampler_name_for_guide({**plan, "performance_preset": "fl_quality_fast_v4"}, "res_multistep") == "euler"
+
+
+def test_reference_quality_native_is_twenty_step_sage_without_turbo():
+    values = preset_values("ref_quality_native", backend="ref2va_model")
+    plan = acceleration_plan({
+        "mode": "REF2VA",
+        "voice_mode": "h3_reference",
+        "performance_preset": "ref_quality_native",
+        "resolved_backend": "ref2va_model",
+    })
+    assert values["steps"] == 20
+    assert values["use_sage"] is True
+    assert values["use_cache"] is False
+    assert plan["use_turbo_lora"] is False
+
+
+def test_reference_fast_is_official_ref2va_four_step_contract():
+    values = preset_values("ref_fast_4step", backend="ref2va_model")
+    plan = acceleration_plan({
+        "mode": "REF2VA",
+        "voice_mode": "h3_reference",
+        "performance_preset": "ref_fast_4step",
+        "resolved_backend": "ref2va_model",
+    })
+    assert values["steps"] == 4
+    assert values["use_sage"] is False
+    assert values["use_cache"] is False
+    assert plan["use_turbo_lora"] is True
+    assert plan["lora_name"] == performance.REF2VA_TURBO_LORA_NAME
+    assert sampler_name_for_guide({**plan, "performance_preset": "ref_fast_4step"}, "res_multistep") == "euler"
+
+
+def test_new_presets_reject_the_wrong_backend():
+    assert acceleration_plan({
+        "mode": "REF2VA", "voice_mode": "none",
+        "performance_preset": "fl_quality_fast_v4", "resolved_backend": "ref2va_model",
+    })["preset"] == "quality"
+    assert acceleration_plan({
+        "mode": "FL2VA", "voice_mode": "none",
+        "performance_preset": "ref_quality_native", "resolved_backend": "fl2va_model",
+    })["preset"] == "quality"
+
+
 def test_quality_two_stage_uses_exact_head_chunking_without_sage_or_cache():
     values = preset_values("quality_two_stage")
 
@@ -373,7 +433,7 @@ def test_t2va_fast_uses_official_h3_turbo_contract():
         "resolved_backend": "fl2va_model",
     }
     assert performance.allowed_performance_presets("T2VA", "none") == (
-        "quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage"
+        "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"
     )
     assert acceleration_plan(guide)["use_turbo_lora"] is True
     assert acceleration_plan(guide)["lora_name"] == performance.TURBO_LORA_NAME

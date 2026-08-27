@@ -53,6 +53,16 @@ PRESETS = {
         "vae_device": "dynamic",
         "fish_device": "cpu",
     },
+    # Community v4 FL/T2V adapter: a single 8-step pass tuned for detail,
+    # using the stock simple/Euler contract and no latent second pass.
+    "fl_quality_fast_v4": {
+        "steps": 8,
+        "use_sage": False,
+        "use_cache": False,
+        "interpolate": False,
+        "use_turbo_sampler": False,
+        "lora_strength": 1.0,
+    },
     # RTX 3070-class route: keep the trained 4+4 contract but shrink the
     # first/second grids in the director and stage both samplers through
     # ComfyUI LOW_VRAM. The deterministic planner limits this to four seconds.
@@ -71,6 +81,22 @@ PRESETS = {
     },
     "fast_4step": {"steps": 4, "use_sage": True, "use_cache": True, "interpolate": False},
     "reference_fast": {"steps": 6, "use_sage": True, "use_cache": True, "interpolate": False},
+    # Reference backend quality/speed choices are intentionally separate from
+    # the legacy shared presets above.
+    "ref_quality_native": {
+        "steps": 20,
+        "use_sage": True,
+        "use_cache": False,
+        "interpolate": False,
+    },
+    "ref_fast_4step": {
+        "steps": 4,
+        "use_sage": False,
+        "use_cache": False,
+        "interpolate": False,
+        "use_turbo_sampler": False,
+        "lora_strength": 1.0,
+    },
     # Keep ComfyUI's native dynamic patcher route.  It stages large H3
     # components in host RAM and moves only the active weights to the GPU.
     # Forcing the wrappers themselves to CPU makes text encoding unusably slow.
@@ -88,14 +114,18 @@ PRESETS = {
 
 # Existing official FL2VA adapter and the separate official Ref2VA adapter.
 TURBO_LORA_NAME = "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors"
+FL_V4_LORA_NAME = "minimax_h3_turbo_v4_step600_ema.safetensors"
 REF2VA_TURBO_LORA_NAME = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
 
 PRESET_LABELS = {
     "稳定质量": "quality",
     "质量优先加速": "quality_sage",
     "质量优先二采样": "quality_two_stage",
+    "高清快速（v4 8步）": "fl_quality_fast_v4",
     "极速4步": "fast_4step",
     "参考图加速": "reference_fast",
+    "参考高清（原生20步）": "ref_quality_native",
+    "参考极速（官方4步）": "ref_fast_4step",
     "低显存": "low_vram",
     "低显存二采": "low_vram_two_stage",
     "自定义": "custom",
@@ -374,7 +404,7 @@ class MiniMaxH3PerformancePreset:
         mode = guide.get("mode")
         voice_mode = guide.get("voice_mode", "none")
         values = _runtime_preset_values(guide, name)
-        if name in {"fast_4step", "reference_fast"} and (
+        if name in {"fast_4step", "reference_fast", "ref_fast_4step", "fl_quality_fast_v4"} and (
             guide.get("turbo_lora_applied") is False or acceleration_ready is False
         ):
             # A missing/incompatible adapter must never leave an unsafe 4-step
@@ -384,8 +414,11 @@ class MiniMaxH3PerformancePreset:
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
             "quality_two_stage": "质量优先二采样：匹配 LoRA 首采 4 步 + 训练型 3D latent 放大 + 低 sigma 二采；自动保留音频 latent",
+            "fl_quality_fast_v4": "高清快速（v4 8 步）：FL/T2V 后端使用社区 v4 LoRA，单采 8 步 + simple/Euler，不启用 latent 二采",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
+            "ref_quality_native": "参考高清（原生 20 步）：REF2VA/H3 音色参考原生 20 步 + SageAttention，不使用 Turbo/二采",
+            "ref_fast_4step": "参考极速（官方 4 步）：REF2VA/H3 音色参考使用官方 Ref2VA Turbo，4 步原生 Euler",
             "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
             "low_vram_two_stage": "低显存二采：4–6 秒 FHD，按时长缩小首采网格 + RealESRGAN X2 细节重建",
             "custom": "自定义：保守默认值，可在设置子图中调整",
@@ -418,6 +451,11 @@ def _safe_guide_preset(guide):
     name = PRESET_LABELS.get(requested, requested)
     mode = guide.get("mode")
     voice_mode = guide.get("voice_mode", "none")
+    backend = guide.get("resolved_backend")
+    if backend == "ref2va_model" and name == "fl_quality_fast_v4":
+        return "quality", True
+    if backend == "fl2va_model" and name in {"ref_quality_native", "ref_fast_4step"}:
+        return "quality", True
     if mode and name != "custom" and name not in allowed_performance_presets(mode, voice_mode):
         return "quality", True
     return name, False
@@ -429,7 +467,7 @@ def acceleration_plan(guide):
     backend = guide.get("resolved_backend", "fl2va_model")
     route = resolve_two_stage_route(guide) if preset in TWO_STAGE_PERFORMANCE_PRESETS else "bypass"
     use_two_stage = preset in TWO_STAGE_PERFORMANCE_PRESETS and route != "bypass"
-    use_turbo = preset == "fast_4step" or use_two_stage
+    use_turbo = preset in {"fast_4step", "fl_quality_fast_v4", "ref_fast_4step"} or use_two_stage
     # Official H3 Turbo graphs use ComfyUI's stock Euler sampler for every
     # backend. The legacy custom sampler is intentionally bypassed.
     use_turbo_sampler = False
@@ -440,10 +478,15 @@ def acceleration_plan(guide):
         "use_turbo_lora": use_turbo,
         "use_turbo_sampler": use_turbo_sampler,
         "lora_name": REF2VA_TURBO_LORA_NAME if backend == "ref2va_model" else TURBO_LORA_NAME,
+        "lora_strength": float(preset_values(preset, backend).get("lora_strength", 1.0)),
         "backend": backend,
         "preset": preset,
         "route": route,
     }
+    if preset == "fl_quality_fast_v4":
+        plan["lora_name"] = FL_V4_LORA_NAME
+    elif preset == "ref_quality_native":
+        plan["lora_name"] = None
     if use_two_stage:
         if route == "trained_latent_ref":
             plan.update(
@@ -493,7 +536,8 @@ def sampler_name_for_guide(guide, requested):
     """Use the stock Euler sampler for every official Turbo contract."""
     plan = acceleration_plan(guide)
     if plan["preset"] in TWO_STAGE_PERFORMANCE_PRESETS or (
-        plan["preset"] == "fast_4step" and plan["use_turbo_lora"]
+        plan["preset"] in {"fast_4step", "fl_quality_fast_v4", "ref_fast_4step"}
+        and plan["use_turbo_lora"]
     ):
         return "euler"
     return requested
@@ -748,6 +792,7 @@ def _apply_acceleration(model, guide):
             model = _load_lightx2v_lora(
                 model,
                 plan["lora_name"],
+                strength=plan.get("lora_strength", 1.0),
                 low_vram=plan["preset"] == "low_vram",
             )
             guide["turbo_lora_applied"] = True
@@ -798,6 +843,12 @@ def _apply_acceleration(model, guide):
         label = "REF2VA Turbo 4 步 LoRA" if plan["backend"] == "ref2va_model" else "H3 Turbo 4 步 LoRA"
         if plan["preset"] == "quality_sage":
             label = "质量优先 SageAttention"
+        elif plan["preset"] == "fl_quality_fast_v4":
+            label = "FL/T2V v4 高清快速 8 步 LoRA"
+        elif plan["preset"] == "ref_quality_native":
+            label = "REF2VA 参考高清原生 20 步 + SageAttention"
+        elif plan["preset"] == "ref_fast_4step":
+            label = "REF2VA 参考极速官方 4 步 LoRA"
         elif plan["preset"] == "quality_two_stage":
             label = "质量优先二采样（H3 专用 latent 二采）"
         elif plan["preset"] == "low_vram_two_stage":

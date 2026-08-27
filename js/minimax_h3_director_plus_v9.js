@@ -12,11 +12,16 @@ const DIRECTOR_UI_WIDTH = 1350;
 const DIRECTOR_UI_HEIGHT = 1510;
 const DIRECTOR_DOM_HEIGHT = 1050;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
-const PRESETS = ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "参考图加速", "低显存", "低显存二采", "自定义"];
+const PRESETS = ["稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "低显存", "低显存二采", "自定义"];
+const PERFORMANCE_PRESET_KEYS = {
+  "高清快速（v4 8步）": "fl_quality_fast_v4",
+  "参考高清（原生20步）": "ref_quality_native",
+  "参考极速（官方4步）": "ref_fast_4step",
+};
 const PERFORMANCE_PRESETS_BY_ROUTE = {
-  t2va: ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存", "低显存二采"],
-  endpoint: ["稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存", "低显存二采"],
-  reference: ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存", "低显存二采"],
+  t2va: ["稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"],
+  endpoint: ["稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"],
+  reference: ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "低显存二采"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
@@ -151,6 +156,9 @@ function performancePresetHint(preset) {
   if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 4 步 + 神经 latent 放大 + 匹配低 sigma 二采";
   if (preset === "低显存二采") return "8GB 专用真二采：4–6 秒，最高 1080p FHD；时长越长首采网格越小，阶段间自动释放显存";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
+  if (preset === "高清快速（v4 8步）") return "v4 8步仅适用于 FL/T2V 后端：社区 v4 LoRA + simple/Euler，单采不做 latent 二采";
+  if (preset === "参考高清（原生20步）") return "仅适用于 REF2VA/音色参考：原生 20 步 + SageAttention，不使用 Turbo/二采";
+  if (preset === "参考极速（官方4步）") return "仅适用于 REF2VA/音色参考：官方 Ref2VA Turbo 4 步 + 原生 Euler";
   if (preset === "低显存") return "动态分层加载，适合显存受限设备";
   if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
   return "模式与加速预设";

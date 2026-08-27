@@ -274,10 +274,10 @@ def test_public_schema_documents_route_performance_options():
     assert "质量优先二采样" in property_schema["enum"]
     assert "自定义" in property_schema["enum"]
     assert property_schema["allowed_by_route"]["T2VA"] == [
-        "稳定质量", "质量优先加速", "质量优先二采样", "极速4步", "低显存", "低显存二采"
+        "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"
     ]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
-        "稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "极速4步", "低显存", "低显存二采"
+        "稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "低显存二采"
     ]
 
 
@@ -351,6 +351,9 @@ def test_reference_mode_never_accepts_copy_semantics():
 @pytest.mark.parametrize(
     ("preset", "expected"),
     [
+        ("高清快速（v4 8步）", "fl_quality_fast_v4"),
+        ("参考高清（原生20步）", "ref_quality_native"),
+        ("参考极速（官方4步）", "ref_fast_4step"),
         ("稳定质量", "quality"),
         ("极速4步", "fast_4step"),
         ("参考图加速", "reference_fast"),
@@ -363,7 +366,8 @@ def test_reference_mode_never_accepts_copy_semantics():
 )
 def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
     request = normalize_request({
-        "mode": "REF2VA",
+            "mode": "FL2VA" if expected == "fl_quality_fast_v4" else "REF2VA",
+            "first_image": "first.png" if expected == "fl_quality_fast_v4" else None,
         "performance_preset": preset,
         "postprocess_mode": (
             "rtx_vsr" if expected == "quality_two_stage"
@@ -378,15 +382,15 @@ def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
 @pytest.mark.parametrize(
     ("mode", "voice_mode", "expected"),
     [
-        ("T2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("I2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("FL2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("L2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("REF2VA", "none", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("I2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("FL2VA", "fish_lock", ("quality", "quality_sage", "reference_fast", "fast_4step", "low_vram")),
-        ("L2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("T2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("T2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("I2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("FL2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("L2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("REF2VA", "none", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("I2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("FL2VA", "fish_lock", ("quality", "quality_sage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram")),
+        ("L2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("T2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "low_vram_two_stage")),
     ],
 )
 def test_allowed_performance_presets_follow_mode_and_voice(mode, voice_mode, expected):
@@ -408,6 +412,14 @@ def test_voice_reference_uses_ref2va_performance_set_even_in_fl2va():
     })
     assert request["resolved_backend"] == "ref2va_model"
     assert "reference_fast" in allowed_performance_presets("FL2VA", "h3_reference")
+
+
+def test_route_specific_presets_are_not_cross_exposed():
+    assert "fl_quality_fast_v4" in allowed_performance_presets("FL2VA", "none")
+    assert "fl_quality_fast_v4" not in allowed_performance_presets("REF2VA", "none")
+    assert "ref_quality_native" in allowed_performance_presets("REF2VA", "none")
+    assert "ref_fast_4step" in allowed_performance_presets("REF2VA", "none")
+    assert "ref_quality_native" not in allowed_performance_presets("FL2VA", "none")
 
 
 def test_duration_uses_h3_native_four_to_fifteen_second_range():
