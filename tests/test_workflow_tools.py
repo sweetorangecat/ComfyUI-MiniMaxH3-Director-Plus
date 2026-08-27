@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from tools.build_u11_workflow import (
@@ -160,13 +162,14 @@ def test_built_workflow_has_single_director_output_and_frame_export_toggles():
     assert values[15] is False  # save_last_frame
 
 
-def test_built_workflow_uses_u19_inspired_three_column_bounds_without_overlap():
+def test_built_workflow_uses_three_column_bounds_without_overlap_and_no_reference_branding():
     source = {
         "last_node_id": 10, "last_link_id": 20,
         "nodes": [
             {"id": 1, "type": "Settings", "title": "Settings", "pos": [0, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
             {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
             {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 1480, "type": "Label (rgthree)", "title": "旧参考标签", "pos": [0, 0], "size": [300, 35], "mode": 0, "inputs": [], "outputs": []},
         ], "links": [], "groups": [], "definitions": {"subgraphs": []},
     }
     built = build_workflow(source)
@@ -174,7 +177,26 @@ def test_built_workflow_uses_u19_inspired_three_column_bounds_without_overlap():
     assert {"u11-header", "u11-settings", "u11-director", "u11-output", "u11-assets"} <= groups.keys()
     assert groups["u11-settings"]["bounding"][0] < groups["u11-director"]["bounding"][0]
     assert groups["u11-director"]["bounding"][0] < groups["u11-output"]["bounding"][0]
+    serialized = json.dumps(built, ensure_ascii=False)
+    assert "U19" not in serialized
+    assert "MiniMax H3 导演台 · 中文界面" in serialized
     validate_workflow(built)
+
+
+def test_built_workflow_hides_duplicate_markdown_notes_with_comfyui_hidden_mode():
+    source = {
+        "last_node_id": 1777, "last_link_id": 20,
+        "nodes": [
+            {"id": 1, "type": "Settings", "title": "Settings", "pos": [0, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 1777, "type": "MarkdownNote", "title": "旧说明", "pos": [0, 0], "size": [300, 100], "mode": 0, "inputs": [], "outputs": [], "widgets_values": ["old"]},
+        ],
+        "links": [], "groups": [], "definitions": {"subgraphs": []},
+    }
+    built = build_workflow(source)
+    duplicate = next(node for node in built["nodes"] if node["id"] == 1777)
+    assert duplicate["mode"] == 4
 
 
 def test_built_workflow_describes_only_the_trained_two_stage_route():

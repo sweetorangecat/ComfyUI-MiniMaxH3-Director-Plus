@@ -112,6 +112,7 @@ function installStyles() {
   style.textContent = `
     .h3p{box-sizing:border-box;width:${DIRECTOR_UI_WIDTH}px;min-width:${DIRECTOR_UI_WIDTH}px;max-width:none;flex:0 0 ${DIRECTOR_UI_WIDTH}px;padding:8px;background:#0f151b;color:#d9e4eb;font:12px system-ui,sans-serif;display:flex;flex-direction:column;gap:8px}
     .h3p *{box-sizing:border-box;letter-spacing:0}.h3p-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.h3p-title{font-size:14px;font-weight:700;color:#fff}.h3p-badge{padding:2px 7px;border:1px solid #4d6372;border-radius:4px;color:#9fc5d8;background:#17232c}
+    .h3p-workbench-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:10px 11px;border:1px solid #3f789e;border-radius:5px;background:#14232b;box-shadow:inset 0 1px 0 rgba(137,202,230,.08)}.h3p-workbench-copy{min-width:0}.h3p-workbench-kicker{color:#8fc6dc;font-size:10px;line-height:1.3;text-transform:uppercase}.h3p-workbench-name{margin-top:2px;color:#fff;font-size:16px;font-weight:750;line-height:1.25}.h3p-workbench-hint{margin-top:3px;color:#9fb2bf;font-size:11px;line-height:1.4}.h3p-workbench-badge{align-self:start;padding:4px 8px;border:1px solid #4c806b;border-radius:4px;background:#18372f;color:#a8e0bd;font-size:11px;white-space:nowrap}.h3p-status-strip{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:2px}.h3p-status-item{min-width:0;padding:6px 7px;border:1px solid #344956;border-radius:4px;background:#101b21}.h3p-status-label{display:block;color:#8298a6;font-size:10px;line-height:1.2}.h3p-status-value{display:block;margin-top:2px;overflow:hidden;color:#e0e8ed;font-size:11px;font-weight:650;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
     .h3p-section{border-top:1px solid #2d3b46;padding-top:8px}.h3p-section-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;color:#fff;font-weight:650}.h3p-hint{color:#8fa5b4;font-weight:400;font-size:11px}
     .h3p-segments{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}.h3p-segments.preset{grid-template-columns:repeat(5,minmax(0,1fr))}.h3p button,.h3p-segment{min-height:29px;padding:4px 6px;border:1px solid #3c4d59;border-radius:4px;background:#18232c;color:#aebfca;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center}.h3p button:hover,.h3p-segment:hover{background:#22323e;color:#fff}.h3p-segment.active{border-color:#78bce0;background:#17384a;color:#fff;box-shadow:inset 0 0 0 1px rgba(120,188,224,.2)}.h3p-segment input{position:absolute;opacity:0;pointer-events:none;width:1px;height:1px}
     .h3p-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.h3p-field{display:flex;flex-direction:column;gap:4px;min-width:0}.h3p label{color:#9fb2bf}.h3p select,.h3p input,.h3p textarea{width:100%;max-width:100%;min-width:0;box-sizing:border-box;border:1px solid #3c4d59;border-radius:4px;background:#0b1116;color:#e6edf2;padding:6px}.h3p textarea{min-height:104px;resize:vertical;line-height:1.5}.h3p-readonly{min-height:30px;padding:6px;border:1px solid #344956;border-radius:4px;background:#111d24;color:#8fd2f3}.h3p-spec-note{margin-top:5px;color:#8298a6;font-size:11px}
@@ -338,6 +339,19 @@ function material(title, description) {
   body.textContent = description;
   box.append(heading, body);
   return box;
+}
+
+function statusItem(label, value) {
+  const item = document.createElement("div");
+  item.className = "h3p-status-item";
+  const name = document.createElement("span");
+  name.className = "h3p-status-label";
+  name.textContent = label;
+  const detail = document.createElement("span");
+  detail.className = "h3p-status-value";
+  detail.textContent = value;
+  item.append(name, detail);
+  return item;
 }
 
 function mediaViewUrl(filename) {
@@ -635,6 +649,35 @@ function install(node) {
     badge.textContent = "自动路由";
     head.append(title, badge);
     root.append(head);
+
+    const workbench = document.createElement("div");
+    workbench.className = "h3p-workbench-bar";
+    workbench.dataset.h3pWorkbench = "true";
+    workbench.setAttribute("data-h3p-workbench", "true");
+    const workbenchCopy = document.createElement("div");
+    workbenchCopy.className = "h3p-workbench-copy";
+    const kicker = document.createElement("div");
+    kicker.className = "h3p-workbench-kicker";
+    kicker.textContent = "MINIMAX H3 · DIRECTOR PLUS";
+    const workbenchName = document.createElement("div");
+    workbenchName.className = "h3p-workbench-name";
+    workbenchName.textContent = "导演工作台";
+    const workbenchHint = document.createElement("div");
+    workbenchHint.className = "h3p-workbench-hint";
+    workbenchHint.textContent = "模式切换后自动匹配模型、加速路线与素材入口";
+    workbenchCopy.append(kicker, workbenchName, workbenchHint);
+    const workbenchBadge = document.createElement("div");
+    workbenchBadge.className = "h3p-workbench-badge";
+    workbenchBadge.textContent = "工作台状态";
+    const statusStrip = document.createElement("div");
+    statusStrip.className = "h3p-status-strip";
+    statusStrip.append(
+      statusItem("模式 / 后端", `${mode} / ${resolvedBackend}`),
+      statusItem("规格 / 时长", `${resolvedWidth} × ${resolvedHeight} · ${widget(node, "duration")?.value || 5} 秒`),
+      statusItem("素材 / 音色", `${mode === "T2VA" ? "纯提示词" : mode === "REF2VA" ? "最多 9 张参考图" : "首尾帧入口"} · ${VOICE_MODE_LABELS[voiceMode]}`),
+    );
+    workbench.append(workbenchCopy, workbenchBadge, statusStrip);
+    root.append(workbench);
 
     const quick = document.createElement("section");
     quick.className = "h3p-section";

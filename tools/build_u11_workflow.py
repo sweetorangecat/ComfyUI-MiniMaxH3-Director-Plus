@@ -946,13 +946,13 @@ def build_workflow(source):
     nodes = workflow["nodes"]
     _rebuild_socket_links(nodes, workflow.get("links", []))
 
-    # U19-inspired workbench layout: a clear header, three fixed columns, and
-    # a lower automation lane.  Legacy explanatory notes remain in the JSON
-    # for compatibility but are hidden when they duplicate the main UI.
+    # Keep a clear header, three fixed columns, and a lower automation lane.
+    # Legacy explanatory notes remain in the JSON for compatibility but are
+    # hidden when they duplicate the main UI.
     header_titles = {
         1: ("MiniMax H3 Director Plus", [-360, 220], [1900, 65]),
         2: ("自动模式路由 · 二采 / 超分 / 音色 / MP4 一体化", [-350, 295], [1250, 35]),
-        1480: ("U19-inspired Workbench · 中文界面", [950, 295], [800, 35]),
+        1480: ("MiniMax H3 导演台 · 中文界面", [950, 295], [800, 35]),
     }
     for node in nodes:
         if node.get("type") == "Label (rgthree)" and node.get("id") in header_titles:
@@ -971,7 +971,9 @@ def build_workflow(source):
             title, pos, size = visible_notes[node_id]
             node["title"], node["pos"], node["size"], node["mode"] = title, pos, size, 0
         elif node_id in duplicate_notes:
-            node["mode"] = 2
+            # ComfyUI mode 2 is bypassed (still visible); mode 4 is the
+            # persisted hidden state used by the source workflows.
+            node["mode"] = 4
     for node in nodes:
         if node.get("type") == "MiniMaxH3DirectorPlus":
             node["pos"] = [140, 470]

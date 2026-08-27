@@ -59,6 +59,21 @@ def test_ui_exposes_one_final_output_postprocess_surface():
         assert label in text
 
 
+def test_ui_has_visible_workbench_status_layer_inside_director_dom():
+    text = source()
+    for marker in (
+        "h3p-workbench-bar",
+        "h3p-status-strip",
+        "h3p-status-item",
+        "工作台状态",
+        "模式 / 后端",
+        "规格 / 时长",
+        "素材 / 音色",
+        'setAttribute("data-h3p-workbench", "true")',
+    ):
+        assert marker in text
+
+
 def test_ui_exposes_separate_low_vram_two_stage_without_changing_layout():
     text = source()
 
