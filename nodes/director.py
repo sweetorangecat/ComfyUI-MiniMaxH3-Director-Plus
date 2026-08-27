@@ -480,7 +480,10 @@ class MiniMaxH3DirectorPlus:
         postprocess_source_height = int(
             two_stage_plan["second_stage_height"] if two_stage_plan else native_height
         )
-        if two_stage_plan is not None and two_stage_plan.get("balanced_fhd_supersample"):
+        if two_stage_plan is not None and (
+            two_stage_plan.get("balanced_fhd_supersample")
+            or two_stage_plan.get("conservative_fhd_supersample")
+        ):
             postprocess_path = "balanced_fhd_downscale"
         elif requested_width == postprocess_source_width and requested_height == postprocess_source_height:
             postprocess_path = "native_bypass"
@@ -497,8 +500,13 @@ class MiniMaxH3DirectorPlus:
         request["rtx_deblur_mode"] = "off"
 
         if two_stage_plan is not None and postprocess_path == "balanced_fhd_downscale":
+            if two_stage_plan.get("conservative_fhd_supersample"):
+                fhd_warning_prefix = "1080p 保守 FHD 二采已启用："
+            else:
+                # Keep the original label stable for existing UI/API consumers.
+                fhd_warning_prefix = "1080p 平衡二采已启用（FHD）："
             request["warnings"].append(
-                "1080p 平衡二采已启用："
+                fhd_warning_prefix +
                 f"首采 {native_width}×{native_height}，神经二采 "
                 f"{two_stage_plan['second_stage_width']}×{two_stage_plan['second_stage_height']}，"
                 f"最终中心等比裁切并 Lanczos 缩小到 {requested_width}×{requested_height}；"

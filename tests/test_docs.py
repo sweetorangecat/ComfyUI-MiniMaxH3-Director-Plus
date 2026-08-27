@@ -126,3 +126,26 @@ def test_docs_describe_balanced_fhd_two_stage_route():
         assert text in api
 
     assert "postprocess=balanced_fhd_downscale" in troubleshooting
+
+
+def test_docs_describe_conservative_fhd_two_stage_route():
+    usage = (DOCS / "使用说明.md").read_text(encoding="utf-8")
+    api = (DOCS / "API说明.md").read_text(encoding="utf-8")
+    troubleshooting = (DOCS / "故障排查.md").read_text(encoding="utf-8")
+
+    for text in (
+        "1280×704 -> 1920×1056 -> 1920×1080",
+        "1080p 保守 FHD 二采",
+        "18GB 空闲显存",
+    ):
+        assert text in usage
+
+    for text in (
+        "16_24gb_fhd",
+        "1280×704 -> 1920×1056 -> 1920×1080",
+        "18GB 空闲显存",
+    ):
+        assert text in api
+
+    assert "21.2GB" in troubleshooting
+    assert "显卡总容量" in troubleshooting

@@ -116,8 +116,25 @@ def plan_two_stage_dimensions(
             "8_12gb",
         )
 
+    fhd_target = (final_width, final_height) in {
+        BALANCED_FHD_LANDSCAPE,
+        tuple(reversed(BALANCED_FHD_LANDSCAPE)),
+    }
+    # Exact FHD gets its own budget on both 24 GB cards and busy 32 GB cards.
+    # The conservative grid avoids applying the 2K/4K long-clip margin to a
+    # target whose learned second-stage grid is capped around 1080p.
+    balanced_fhd_supersample = profile == "quality" and fhd_target and total >= 28.0 and free >= 24.0
+    conservative_fhd_supersample = profile == "quality" and fhd_target and total >= 20.0 and not balanced_fhd_supersample
     if profile == "low_vram":
         pass
+    elif balanced_fhd_supersample:
+        required_free = 24.0
+        tier = "28gb_plus"
+        max_width, max_height = 1920, 1080
+    elif conservative_fhd_supersample:
+        required_free = 18.0
+        tier = "16_24gb_fhd"
+        max_width, max_height = 1920, 1080
     elif total < 28.0:
         if duration > 8 or final_width > 2560 or final_height > 1440:
             return _rejected(
@@ -126,10 +143,11 @@ def plan_two_stage_dimensions(
                 1440,
                 "16_24gb",
             )
-        required_free = 18.0
-        first_mp = 0.50
-        tier = "16_24gb"
-        max_width, max_height = 2560, 1440
+        else:
+            required_free = 18.0
+            first_mp = 0.50
+            tier = "16_24gb"
+            max_width, max_height = 2560, 1440
     else:
         required_free = 24.0 if duration >= 12 else 21.0 if duration >= 8 else 18.0
         first_mp = 0.90
@@ -137,22 +155,20 @@ def plan_two_stage_dimensions(
         max_width, max_height = 3840, 2160
 
     if free < required_free:
+        if conservative_fhd_supersample:
+            reason = (
+                "24GB级显卡的 FHD 训练型二采至少需要 "
+                f"{required_free:.1f}GB 空闲显存，当前只有 {free:.1f}GB"
+            )
+        else:
+            reason = f"当前可用显存 {free:.1f}GB 低于安全余量 {required_free:.1f}GB"
         return _rejected(
-            f"当前可用显存 {free:.1f}GB 低于安全余量 {required_free:.1f}GB",
+            reason,
             max_width,
             max_height,
             tier,
         )
 
-    balanced_fhd_supersample = (
-        profile == "quality"
-        and total >= 28.0
-        and (final_width, final_height)
-        in {
-            BALANCED_FHD_LANDSCAPE,
-            tuple(reversed(BALANCED_FHD_LANDSCAPE)),
-        }
-    )
     if balanced_fhd_supersample:
         if final_width > final_height:
             first_width, first_height = BALANCED_FHD_FIRST_LANDSCAPE
@@ -162,6 +178,13 @@ def plan_two_stage_dimensions(
             )
         second_width = int(first_width * 1.5)
         second_height = int(first_height * 1.5)
+    elif conservative_fhd_supersample:
+        if final_width > final_height:
+            first_width, first_height = (1280, 704)
+            second_width, second_height = (1920, 1056)
+        else:
+            first_width, first_height = (704, 1280)
+            second_width, second_height = (1056, 1920)
     else:
         first_width, first_height = _aligned_size(
             final_width,
@@ -170,7 +193,7 @@ def plan_two_stage_dimensions(
         )
         second_width = max(32, int(round(first_width * 1.5 / 32.0)) * 32)
         second_height = max(32, int(round(first_height * 1.5 / 32.0)) * 32)
-    if (
+    if not (balanced_fhd_supersample or conservative_fhd_supersample) and (
         not balanced_fhd_supersample
         and (second_width > final_width or second_height > final_height)
     ):
@@ -201,6 +224,7 @@ def plan_two_stage_dimensions(
         "quality_basis": "H3 神经 latent 二采",
         "budget_profile": profile,
         "balanced_fhd_supersample": balanced_fhd_supersample,
+        "conservative_fhd_supersample": conservative_fhd_supersample,
         "max_final_vsr_scale": (
             (
                 LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE

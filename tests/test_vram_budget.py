@@ -38,6 +38,53 @@ def test_32gb_15s_fhd_uses_balanced_768p_supersampling_grid():
     assert plan["final_scale_y"] == pytest.approx(1080 / 1152)
 
 
+def test_24gb_15s_fhd_uses_conservative_fhd_grid_instead_of_2k_gate():
+    plan = plan_two_stage_dimensions(
+        1920,
+        1080,
+        15,
+        total_vram_gb=24,
+        free_vram_gb=21,
+    )
+
+    assert plan["allowed"] is True
+    assert (plan["first_stage_width"], plan["first_stage_height"]) == (1280, 704)
+    assert (plan["second_stage_width"], plan["second_stage_height"]) == (1920, 1056)
+    assert plan["vram_safety_tier"] == "16_24gb_fhd"
+    assert plan["max_final_width"] == 1920
+    assert plan["max_final_height"] == 1080
+    assert plan["conservative_fhd_supersample"] is True
+
+
+def test_24gb_fhd_rejects_only_when_idle_memory_is_below_fhd_margin():
+    plan = plan_two_stage_dimensions(
+        1920,
+        1080,
+        15,
+        total_vram_gb=24,
+        free_vram_gb=17.9,
+    )
+
+    assert plan["allowed"] is False
+    assert "FHD" in plan["reason"]
+    assert "18.0GB" in plan["reason"]
+
+
+def test_busy_32gb_fhd_falls_back_to_conservative_grid_after_cancelled_job():
+    plan = plan_two_stage_dimensions(
+        1920,
+        1080,
+        15,
+        total_vram_gb=31.36,
+        free_vram_gb=21.2,
+    )
+
+    assert plan["allowed"] is True
+    assert (plan["first_stage_width"], plan["first_stage_height"]) == (1280, 704)
+    assert (plan["second_stage_width"], plan["second_stage_height"]) == (1920, 1056)
+    assert plan["conservative_fhd_supersample"] is True
+
+
 def test_32gb_15s_portrait_fhd_uses_rotated_balanced_supersampling_grid():
     plan = plan_two_stage_dimensions(
         1080,
