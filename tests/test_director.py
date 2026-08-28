@@ -52,7 +52,7 @@ def test_director_defaults_to_smart_free_1080p_and_local_x2():
     assert required["ai_upscale_model"][1]["default"] == "RealESRGAN_x2plus.pth"
 
 
-def test_smart_free_1080p_resolves_base_backend_to_turbo_and_x2(monkeypatch):
+def test_smart_free_1080p_resolves_base_backend_to_sage_and_x2(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
     monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")
     guide, *_ = MiniMaxH3DirectorPlus().build(
@@ -62,7 +62,7 @@ def test_smart_free_1080p_resolves_base_backend_to_turbo_and_x2(monkeypatch):
         target_dialogue="", reference_transcript="",
     )
     assert guide["requested_performance_preset"] == "smart_free_1080p"
-    assert guide["performance_preset"] == "fast_4step"
+    assert guide["performance_preset"] == "quality_sage"
     assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
     assert guide["postprocess_path"] == "ai_upscale"
 

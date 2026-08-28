@@ -36,7 +36,7 @@ def test_smart_target_rounds_non_integer_long_edge_to_nearest_even():
 
 @pytest.mark.parametrize(
     "backend, preset",
-    [("fl2va_model", "fast_4step"), ("ref2va_model", "quality_sage")],
+    [("fl2va_model", "quality_sage"), ("ref2va_model", "quality_sage")],
 )
 def test_normal_vram_selects_backend_preset_and_free_upscale(backend, preset):
     plan = resolve_smart_1080p_plan(backend, 10, 24, 20)

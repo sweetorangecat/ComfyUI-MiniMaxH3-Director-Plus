@@ -14,7 +14,7 @@
 
 API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递增、递减、随机属于 ComfyUI 客户端的连续运行状态，不作为无状态 API 入参公开；需要批量生成时，由调用方为每个请求明确传入 seed。
 
-API 模板默认使用 `performance_preset=免费智能 1080p`、`postprocess_mode=ai_upscale`、`ai_upscale_model=RealESRGAN_x2plus.pth`、`motion_smoothing=off`。这是本地免费路线，不调用付费服务。生成阶段分辨率不等于最终输出分辨率；H3 原生采样完成后才执行一次 X2 细节重建，最终目标按 `resolution_preset` 计算。低显存二采最多 6 秒，并在启动前检查空闲显存。
+API 模板默认使用 `performance_preset=免费智能 1080p`、`postprocess_mode=ai_upscale`、`ai_upscale_model=RealESRGAN_x2plus.pth`、`motion_smoothing=off`。这是本地免费路线，不调用付费服务；普通显存解析为 20 步 `quality_sage`（SageAttention），低显存才切换受限路线。生成阶段分辨率不等于最终输出分辨率；H3 原生采样完成后才执行一次 X2 细节重建，最终目标按 `resolution_preset` 计算。低显存二采最多 6 秒，并在启动前检查空闲显存。
 
 性能预设还支持 `高清快速（v4 8步）`、`参考高清（原生20步）` 和 `参考极速（官方4步）` 三个显式路由档位。前者仅出现在 FL/T2V 后端，使用 `minimax_h3_turbo_v4_step600_ema.safetensors`、LoRA strength 1.0、8 步 simple/Euler 单采；后两者仅出现在 REF2VA/H3 音色参考后端，分别是原生 20 步 + SageAttention，以及官方 Ref2VA Turbo 4 步。Fish S2 继续排除训练型 latent 二采，旧预设的默认关系保持不变。
 

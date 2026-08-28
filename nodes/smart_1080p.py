@@ -73,7 +73,10 @@ def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb):
     else:
         if not 4 <= seconds <= 15:
             raise RequestError("视频时长必须在 4 到 15 秒之间")
-        preset = "fast_4step" if backend == "fl2va_model" else "quality_sage"
+        # Keep the full 20-step denoising path and accelerate attention only.
+        # Turbo's four-step shortcut is fast, but leaves less native detail for
+        # the single local upscale pass to reconstruct.
+        preset = "quality_sage"
         route = "bypass"
         warning = ""
         max_duration = 15
