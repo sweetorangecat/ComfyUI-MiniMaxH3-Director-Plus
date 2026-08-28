@@ -133,6 +133,9 @@ def test_ui_exposes_separate_low_vram_two_stage_without_changing_layout():
 
 def test_ui_exposes_route_isolated_quality_presets():
     text = source()
+    assert '"免费智能 1080p"' in text
+    assert 't2va: ["免费智能 1080p"' in text
+    assert 'reference: ["免费智能 1080p"' in text
     assert "高清快速（v4 8步）" in text
     assert "参考高清（原生20步）" in text
     assert "参考极速（官方4步）" in text
