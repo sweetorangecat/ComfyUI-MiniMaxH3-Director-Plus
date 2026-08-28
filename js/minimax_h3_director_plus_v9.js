@@ -8,6 +8,8 @@ import { api } from "../../../scripts/api.js";
 import { clearSlot, compactBoundSlots, compactSlots } from "./media_slot_state.mjs";
 
 const NODE_CLASS = "MiniMaxH3DirectorPlus";
+const SMART_PRESET = "免费智能 1080p";
+const SMART_UPSCALE_MODEL = "RealESRGAN_x2plus.pth";
 // Keep node geometry independent from the browser sidebar width.
 const DIRECTOR_UI_WIDTH = 1350;
 const DIRECTOR_UI_HEIGHT = 1510;
@@ -79,6 +81,7 @@ const POSTPROCESS_MODES = [
   ["rtx_vsr", "AI 细节重建（RTX VSR）"],
 ];
 const POSTPROCESS_MODES_BY_PERFORMANCE = {
+  "免费智能 1080p": [["ai_upscale", "AI X2 超分（智能锁定）"]],
   "质量优先二采样": [["rtx_vsr", "AI 细节重建（RTX VSR）"]],
   "低显存二采": [["ai_upscale", "AI X2 细节重建（低显存）"]],
 };
@@ -157,6 +160,7 @@ function allowedPerformancePresets(mode, voiceMode) {
 }
 
 function performancePresetHint(preset) {
+  if (preset === SMART_PRESET) return "按后端、显存和时长自动选择路线；无需手动组合超分、模型和运动平滑";
   if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 4 步 + 神经 latent 放大 + 匹配低 sigma 二采";
   if (preset === "低显存二采") return "8GB 专用真二采：4–6 秒，最高 1080p FHD；时长越长首采网格越小，阶段间自动释放显存";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
@@ -183,6 +187,7 @@ function allowedRtxQualities(performancePreset) {
 }
 
 function allowedMotionSmoothing(preset, postprocessMode) {
+  if (preset === SMART_PRESET) return [["off", "关闭（智能锁定）"]];
   if (preset === "质量优先二采样") return [["off", "关闭（二采固定，避免重影）"]];
   if (preset === "低显存二采") return [["off", "关闭（低显存二采固定）"]];
   if (preset === "低显存") return [["off", "关闭（低显存固定）"]];
@@ -663,6 +668,11 @@ function install(node) {
       preset = "稳定质量";
       setWidget(node, "performance_preset", preset, false);
     }
+    if (preset === SMART_PRESET) {
+      setWidget(node, "postprocess_mode", "ai_upscale", false);
+      setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false);
+      setWidget(node, "motion_smoothing", "off", false);
+    }
     if (preset === "低显存二采" && Number(widget(node, "duration")?.value) > 6) {
       setWidget(node, "duration", 6, false);
     }
@@ -777,28 +787,46 @@ function install(node) {
     const postprocessGrid = document.createElement("div");
     postprocessGrid.className = "h3p-grid";
     let aiUpscaleModel = widget(node, "ai_upscale_model")?.value || "auto";
+    if (preset === SMART_PRESET && aiUpscaleModel !== SMART_UPSCALE_MODEL) {
+      aiUpscaleModel = SMART_UPSCALE_MODEL;
+      setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false);
+    }
     if (preset === "低显存二采" && aiUpscaleModel !== "auto" && !isX2UpscaleModel(aiUpscaleModel)) {
       aiUpscaleModel = "auto";
       setWidget(node, "ai_upscale_model", "auto", false);
     }
+    const postprocessControl = valueControl("最终输出", "postprocess_mode", postprocessOptions, postprocessMode);
+    const aiModelControlOptions = preset === SMART_PRESET
+      ? [[SMART_UPSCALE_MODEL, "RealESRGAN X2（智能锁定）"]]
+      : [["auto", "自动选择"]];
+    const aiModelControl = postprocessMode === "ai_upscale"
+      ? valueControl("AI 超分模型", "ai_upscale_model", aiModelControlOptions, aiUpscaleModel)
+      : postprocessMode === "rtx_vsr"
+        ? valueControl("RTX VSR 质量", "rtx_quality", rtxQualityOptions, rtxQuality)
+        : document.createElement("span");
+    const motionControl = valueControl("运动平滑", "motion_smoothing", motionOptions, motionSmoothing);
     postprocessGrid.append(
-      valueControl("最终输出", "postprocess_mode", postprocessOptions, postprocessMode),
-      postprocessMode === "ai_upscale"
-        ? valueControl("AI 超分模型", "ai_upscale_model", [["auto", "自动选择"]], aiUpscaleModel)
-        : postprocessMode === "rtx_vsr"
-          ? valueControl("RTX VSR 质量", "rtx_quality", rtxQualityOptions, rtxQuality)
-          : document.createElement("span"),
-      valueControl("运动平滑", "motion_smoothing", motionOptions, motionSmoothing),
+      postprocessControl,
+      aiModelControl,
+      motionControl,
       valueControl("最终音频", "audio_loudness", AUDIO_LOUDNESS, widget(node, "audio_loudness")?.value || "auto"),
     );
+    if (preset === SMART_PRESET) {
+      [postprocessControl, aiModelControl, motionControl].forEach((field) => {
+        field.querySelector?.("select")?.setAttribute("disabled", "disabled");
+      });
+    }
     if (postprocessMode === "ai_upscale") {
       const modelField = postprocessGrid.children[1];
       const modelSelect = modelField?.querySelector("select");
       const modelWidget = widget(node, "ai_upscale_model");
       const aiModelOptions = modelWidget?.options?.values || [];
-      if (modelSelect && aiModelOptions.length) {
+      if (modelSelect && (aiModelOptions.length || preset === SMART_PRESET)) {
         modelSelect.replaceChildren();
-        [["auto", "自动选择"], ...aiModelOptions.filter((value) => value && value !== "auto" && (preset !== "低显存二采" || isX2UpscaleModel(value))).map((value) => [value, value])].forEach(([value, display]) => {
+        const modelOptions = preset === SMART_PRESET
+          ? [[SMART_UPSCALE_MODEL, "RealESRGAN X2（智能锁定）"]]
+          : [["auto", "自动选择"], ...aiModelOptions.filter((value) => value && value !== "auto" && (preset !== "低显存二采" || isX2UpscaleModel(value))).map((value) => [value, value])];
+        modelOptions.forEach(([value, display]) => {
           const option = document.createElement("option");
           option.value = value;
           option.textContent = display;
@@ -822,6 +850,8 @@ function install(node) {
       postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR：单次 RTX VSR 使用 HIGHBITRATE_ULTRA 高码率档（同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；不启用不稳定的 DEBLUR_LOW 双效果链，RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
       postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight), "AI X2")}；1080p 4 秒保留约 1MP 神经二采基准，5–6 秒会按时长降低首采网格以控制显存，再逐帧 RealESRGAN X2 重建到 FHD；最长 6 秒，开始前检查至少 6GB 空闲显存。`;
+    } else if (preset === SMART_PRESET) {
+      postprocessNote.textContent = "免费智能 1080p 已自动锁定 RealESRGAN X2 免费超分并关闭运动平滑；系统按后端、显存和时长选择加速路线，无需手动组合超分、模型和运动平滑。低显存设备可能限制为最长 6 秒，生成前会提示原因。";
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {
