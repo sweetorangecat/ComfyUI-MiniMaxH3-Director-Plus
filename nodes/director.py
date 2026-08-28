@@ -18,6 +18,7 @@ from .schema import (
     low_vram_target_limit,
     normalize_request,
 )
+from .smart_1080p import SMART_PRESET, resolve_smart_1080p_plan, smart_1080p_target
 from .two_stage_assets import dependency_report, resolve_two_stage_route
 from .upscale import (
     _available_upscale_models,
@@ -419,6 +420,24 @@ class MiniMaxH3DirectorPlus:
             "ignored_media": ignored_media,
         })
 
+        requested_performance_preset = request["performance_preset"]
+        smart_mode = requested_performance_preset == SMART_PRESET
+        smart_plan = None
+        if smart_mode:
+            total_vram_gb, free_vram_gb = _cuda_memory_gb()
+            smart_plan = resolve_smart_1080p_plan(
+                request["resolved_backend"], request["duration"], total_vram_gb, free_vram_gb
+            )
+            request["performance_preset"] = smart_plan["performance_preset"]
+            request["postprocess_mode"] = smart_plan["postprocess_mode"]
+            request["ai_upscale_model"] = smart_plan["ai_upscale_model"]
+            request["motion_smoothing"] = smart_plan["motion_smoothing"]
+            if smart_plan["warning"]:
+                request["warnings"].append(smart_plan["warning"])
+            requested_width, requested_height = smart_1080p_target(
+                int(custom_width), int(custom_height)
+            )
+
         if request["performance_preset"] == "low_vram":
             limit_width, limit_height = low_vram_target_limit(request["duration"])
             requested_sides = sorted((int(requested_width), int(requested_height)), reverse=True)
@@ -707,6 +726,7 @@ class MiniMaxH3DirectorPlus:
             "ref_video_audios": {},
             "ref_audios": ref_audios,
             "performance_preset": request["performance_preset"],
+            "requested_performance_preset": requested_performance_preset,
             "timeline": timeline,
             "warnings": request["warnings"],
             "reference_transcript": reference_transcript,

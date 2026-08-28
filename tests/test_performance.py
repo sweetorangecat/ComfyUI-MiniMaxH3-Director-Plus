@@ -14,7 +14,7 @@ from nodes.performance import (
     sampler_route,
     scheduler_plan,
 )
-from nodes.two_stage_assets import FL_STAGE1_LORA, FL_STAGE2_LORA, REF_STAGE_LORA
+from nodes.two_stage_assets import FL_STAGE1_LORA, FL_STAGE2_LORA, resolve_two_stage_route
 
 
 def test_fast_preset_exposes_four_step_sampling_contract():
@@ -216,11 +216,18 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
         {"mode": mode, "resolved_backend": backend},
         preset,
     )
-    plan = acceleration_plan({
+    guide = {
         "mode": mode,
         "performance_preset": preset,
         "resolved_backend": backend,
-    })
+    }
+
+    if mode == "REF2VA" and preset in {"quality_two_stage", "low_vram_two_stage"}:
+        with pytest.raises(ValueError, match="REF2VA.*二采.*quality_sage.*low_vram.*ref_fast_4step"):
+            acceleration_plan(guide)
+        return
+
+    plan = acceleration_plan(guide)
 
     assert values["steps"] >= 4
     assert values["use_sage"] is (preset in {"quality_sage", "fast_4step", "reference_fast", "low_vram"})
@@ -626,25 +633,72 @@ def test_fl_two_stage_uses_u17_model_lora_contract():
     }
 
 
-def test_reference_two_stage_uses_u16_model_lora_contract():
+@pytest.mark.parametrize("preset", ["quality_two_stage", "low_vram_two_stage"])
+@pytest.mark.parametrize(
+    "entry",
+    [
+        acceleration_plan,
+        lambda guide: MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True),
+        resolve_two_stage_route,
+    ],
+    ids=["acceleration_plan", "performance_apply", "two_stage_route"],
+)
+def test_reference_backend_rejects_trained_two_stage_at_every_entry(preset, entry):
     guide = {
-        "performance_preset": "quality_two_stage",
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": preset,
         "resolved_backend": "ref2va_model",
-        "voice_mode": "h3_reference",
     }
 
-    plan = acceleration_plan(guide)
+    with pytest.raises(
+        (ValueError, RuntimeError),
+        match="REF2VA.*二采.*quality_sage.*low_vram.*ref_fast_4step",
+    ):
+        entry(guide)
 
-    assert plan["first_lora_name"] == REF_STAGE_LORA
-    assert plan["first_lora_strength"] == 0.75
-    assert plan["second_lora_name"] == REF_STAGE_LORA
-    assert plan["second_lora_strength"] == 0.75
-    assert scheduler_plan(guide) == {
-        "scheduler": "simple",
-        "steps": 8,
-        "split_step": 4,
-        "refine_reference_tail": True,
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        lambda guide: preset_values(guide["performance_preset"]),
+        acceleration_plan,
+        lambda guide: MiniMaxH3PerformancePreset().apply(guide),
+        scheduler_plan,
+        resolve_two_stage_route,
+        lambda guide: memory_policy(guide).__enter__(),
+    ],
+    ids=["preset_values", "acceleration_plan", "performance_apply", "scheduler_plan", "two_stage_route", "memory_policy"],
+)
+def test_unresolved_smart_preset_is_rejected_at_every_performance_entry(entry):
+    guide = {
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": "smart_free_1080p",
+        "resolved_backend": "fl2va_model",
     }
+
+    with pytest.raises(
+        (ValueError, RuntimeError),
+        match="免费智能 1080p 必须先由导演台解析为具体性能预设",
+    ):
+        entry(guide)
+
+
+@pytest.mark.parametrize("preset", ["quality_two_stage", "low_vram_two_stage"])
+def test_base_backend_keeps_trained_two_stage_routes(preset):
+    guide = {
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": preset,
+        "resolved_backend": "fl2va_model",
+    }
+
+    assert resolve_two_stage_route(guide) == "trained_latent_fl"
+    assert acceleration_plan(guide)["route"] == "trained_latent_fl"
+    result = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True)
+    assert result[0] == 8
+    assert guide["two_stage_enabled"] is True
 
 
 def test_every_trained_two_stage_route_forces_euler():
@@ -654,46 +708,17 @@ def test_every_trained_two_stage_route_forces_euler():
     ) == "euler"
 
 
-def test_scheduler_router_applies_reference_tail_refiner(monkeypatch):
-    import sys
-    import types
-    import torch
-
-    base = torch.tensor([10.0, 8.0, 6.0, 4.0, 2.0, 1.0, 0.5, 0.2, 0.0])
-    refined = torch.cat((base[:-1], torch.tensor([0.1, 0.0])))
-    calls = []
-
-    class BasicScheduler:
-        @classmethod
-        def execute(cls, model, scheduler, steps, denoise):
-            calls.append(("scheduler", model, scheduler, steps, denoise))
-            return types.SimpleNamespace(result=(base,))
-
-    monkeypatch.setitem(
-        sys.modules,
-        "comfy_extras.nodes_custom_sampler",
-        types.SimpleNamespace(BasicScheduler=BasicScheduler),
-    )
-    monkeypatch.setattr(
-        performance,
-        "_apply_reference_sigma_refiner",
-        lambda sigmas: calls.append(("refiner", sigmas)) or refined,
-        raising=False,
-    )
-
-    result = MiniMaxH3SchedulerRouter().route(
-        "model",
-        8,
-        {
-            "performance_preset": "quality_two_stage",
-            "resolved_backend": "ref2va_model",
-            "voice_mode": "h3_reference",
-        },
-    )
-
-    assert torch.equal(result[0], refined)
-    assert calls[0] == ("scheduler", "model", "simple", 8, 1.0)
-    assert calls[1][0] == "refiner"
+def test_scheduler_router_rejects_reference_two_stage_before_scheduler_import():
+    with pytest.raises(ValueError, match="REF2VA.*二采.*quality_sage"):
+        MiniMaxH3SchedulerRouter().route(
+            "model",
+            8,
+            {
+                "performance_preset": "quality_two_stage",
+                "resolved_backend": "ref2va_model",
+                "voice_mode": "h3_reference",
+            },
+        )
 
 
 def test_low_vram_uses_h3_memory_efficient_sage_patch_with_more_head_chunks(monkeypatch):

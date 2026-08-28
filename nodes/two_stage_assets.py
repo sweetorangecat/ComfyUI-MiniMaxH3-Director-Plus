@@ -17,10 +17,14 @@ SIGMA_REFINER_NODE_ID = "H3SigmaRefiner"
 def resolve_two_stage_route(guide):
     """Resolve the one trained route compatible with the active H3 backend."""
     guide = guide or {}
+    if str(guide.get("performance_preset", "")) == "smart_free_1080p":
+        raise ValueError("免费智能 1080p 必须先由导演台解析为具体性能预设")
     if str(guide.get("voice_mode", "none")) == "fish_lock":
         return "bypass"
     if str(guide.get("resolved_backend", "fl2va_model")) == "ref2va_model":
-        return "trained_latent_ref"
+        raise ValueError(
+            "REF2VA 不支持训练型二采，请使用 quality_sage、low_vram 或 ref_fast_4step"
+        )
     return "trained_latent_fl"
 
 

@@ -330,6 +330,8 @@ def _apply_easy_cache(model, guide):
 
 def preset_values(name, backend=None):
     name = PRESET_LABELS.get(name, name)
+    if name == "smart_free_1080p":
+        raise ValueError("免费智能 1080p 必须先由导演台解析为具体性能预设")
     try:
         values = dict(PRESETS[name])
     except KeyError as exc:
@@ -364,10 +366,13 @@ def memory_policy(guide):
     context keeps this workflow self-contained: model loading and sampling
     see LOW_VRAM, while other workflows retain the state they had before.
     """
+    requested = guide.get("performance_preset", "quality")
     preset = PRESET_LABELS.get(
-        guide.get("performance_preset", "quality"),
-        guide.get("performance_preset", "quality"),
+        requested,
+        requested,
     )
+    if preset == "smart_free_1080p":
+        raise ValueError("免费智能 1080p 必须先由导演台解析为具体性能预设")
     if preset not in {"low_vram", "low_vram_two_stage", "quality_sage"}:
         yield
         return
@@ -449,9 +454,15 @@ class MiniMaxH3PerformancePreset:
 def _safe_guide_preset(guide):
     requested = guide.get("performance_preset", "quality")
     name = PRESET_LABELS.get(requested, requested)
+    if name == "smart_free_1080p":
+        raise ValueError("免费智能 1080p 必须先由导演台解析为具体性能预设")
     mode = guide.get("mode")
     voice_mode = guide.get("voice_mode", "none")
     backend = guide.get("resolved_backend")
+    if backend == "ref2va_model" and name in TWO_STAGE_PERFORMANCE_PRESETS:
+        raise ValueError(
+            "REF2VA 不支持训练型二采，请使用 quality_sage、low_vram 或 ref_fast_4step"
+        )
     if backend == "ref2va_model" and name == "fl_quality_fast_v4":
         return "quality", True
     if backend == "fl2va_model" and name in {"ref_quality_native", "ref_fast_4step"}:

@@ -14,6 +14,7 @@ from nodes.two_stage import (
     prepare_second_stage_guider,
     split_sigmas_at_step,
 )
+from nodes.two_stage_assets import resolve_two_stage_route
 
 
 def test_quality_two_stage_is_high_vram_only_route():
@@ -48,6 +49,15 @@ def test_performance_node_marks_low_vram_two_stage_guide():
     assert guide["two_stage_enabled"] is True
     assert guide["two_stage_split_step"] == 4
     assert guide["two_stage_scale"] == pytest.approx(1.5)
+
+
+@pytest.mark.parametrize("preset", ["quality_two_stage", "low_vram_two_stage"])
+def test_two_stage_asset_route_rejects_reference_backend(preset):
+    with pytest.raises(ValueError, match="REF2VA.*二采.*quality_sage.*low_vram.*ref_fast_4step"):
+        resolve_two_stage_route({
+            "performance_preset": preset,
+            "resolved_backend": "ref2va_model",
+        })
 
 
 def test_quality_two_stage_has_no_interpolation_call():
