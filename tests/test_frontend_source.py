@@ -187,6 +187,15 @@ def test_ui_makes_smart_free_1080p_fully_automatic():
     assert "无需手动组合超分、模型和运动平滑" in text
 
 
+def test_ui_locks_smart_resolution_to_1080p_target():
+    text = source()
+
+    assert 'preset === SMART_PRESET && resolutionPreset !== "1080p FHD"' in text
+    assert '"1080p FHD（智能锁定）"' in text
+    assert 'performancePreset === SMART_PRESET' in text
+    assert 'smart1080pTarget' in text
+
+
 def test_named_resolution_presets_use_explicit_megapixels_for_nonstandard_aspects():
     text = source()
 

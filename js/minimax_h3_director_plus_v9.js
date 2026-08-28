@@ -284,15 +284,27 @@ function valueControl(label, widgetName, options, current, type = "select") {
   return field;
 }
 
+function smart1080pTarget(width, height) {
+  const shortEdge = 1080;
+  const longEdge = Math.max(
+    shortEdge,
+    Math.round(shortEdge * Math.max(width, height) / Math.max(1, Math.min(width, height))),
+  );
+  const even = (value) => Math.max(2, Math.round(value / 2) * 2);
+  return width >= height ? [even(longEdge), shortEdge] : [shortEdge, even(longEdge)];
+}
+
 function calculatedResolution(node) {
   const preset = String(widget(node, "resolution_preset")?.value || "0.83 MP");
   const aspect = String(widget(node, "aspect_ratio")?.value || "16:9");
-  const exact = EXACT_OUTPUT_TARGETS[`${preset}|${aspect}`];
-  if (exact) return exact;
-  const megapixels = (RESOLUTION_MEGAPIXELS[preset] ?? Number.parseFloat(preset)) || 0.83;
   const ratio = aspect === "CUSTOM"
     ? [Math.max(1, Number(widget(node, "custom_width")?.value) || 16), Math.max(1, Number(widget(node, "custom_height")?.value) || 9)]
     : (ASPECTS[aspect] || ASPECTS["16:9"]);
+  const performancePreset = String(widget(node, "performance_preset")?.value || "");
+  if (performancePreset === SMART_PRESET) return smart1080pTarget(...ratio);
+  const exact = EXACT_OUTPUT_TARGETS[`${preset}|${aspect}`];
+  if (exact) return exact;
+  const megapixels = (RESOLUTION_MEGAPIXELS[preset] ?? Number.parseFloat(preset)) || 0.83;
   const area = megapixels * 1024 * 1024;
   const snap = (value) => Math.max(32, Math.round(value / 32) * 32);
   return [snap(Math.sqrt(area * ratio[0] / ratio[1])), snap(Math.sqrt(area * ratio[1] / ratio[0]))];
@@ -696,6 +708,10 @@ function install(node) {
     }
     const aspect = widget(node, "aspect_ratio")?.value || "16:9";
     let resolutionPreset = widget(node, "resolution_preset")?.value || "0.83 MP";
+    if (preset === SMART_PRESET && resolutionPreset !== "1080p FHD") {
+      resolutionPreset = "1080p FHD";
+      setWidget(node, "resolution_preset", "1080p FHD", false);
+    }
     let [resolvedWidth, resolvedHeight] = syncResolution(node);
     if (
       preset === "低显存二采"
@@ -771,10 +787,17 @@ function install(node) {
     const durationControl = valueControl("视频时长（秒）", "duration", [], widget(node, "duration")?.value || 5, "number");
     const durationInput = durationControl.querySelector('input[data-h3p-value-widget="duration"]');
     if (durationInput) durationInput.max = preset === "低显存二采" ? "6" : "15";
+    const resolutionControl = valueControl(
+      "分辨率档位",
+      "resolution_preset",
+      preset === SMART_PRESET ? [["1080p FHD", "1080p FHD（智能锁定）"]] : RESOLUTIONS,
+      resolutionPreset,
+    );
+    if (preset === SMART_PRESET) resolutionControl.querySelector("select")?.setAttribute("disabled", "disabled");
     specGrid.append(
       durationControl,
       valueControl("画面比例", "aspect_ratio", [...Object.keys(ASPECTS), "CUSTOM"], aspect),
-      valueControl("分辨率档位", "resolution_preset", RESOLUTIONS, resolutionPreset),
+      resolutionControl,
     );
     const finalSize = document.createElement("label");
     finalSize.className = "h3p-field";
