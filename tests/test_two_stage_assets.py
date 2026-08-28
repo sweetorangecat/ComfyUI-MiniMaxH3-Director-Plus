@@ -2,6 +2,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 
 from nodes.two_stage_assets import (
     FL_STAGE1_LORA,
@@ -24,9 +26,10 @@ def test_route_is_locked_to_backend_and_excludes_fish():
     assert resolve_two_stage_route(
         {"resolved_backend": "fl2va_model", "voice_mode": "none"}
     ) == "trained_latent_fl"
-    assert resolve_two_stage_route(
-        {"resolved_backend": "ref2va_model", "voice_mode": "h3_reference"}
-    ) == "trained_latent_ref"
+    with pytest.raises(ValueError, match="quality_sage、low_vram 或 ref_fast_4step"):
+        resolve_two_stage_route(
+            {"resolved_backend": "ref2va_model", "voice_mode": "h3_reference"}
+        )
     assert resolve_two_stage_route(
         {"resolved_backend": "ref2va_model", "voice_mode": "fish_lock"}
     ) == "bypass"

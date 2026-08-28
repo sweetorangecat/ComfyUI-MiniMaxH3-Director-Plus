@@ -183,6 +183,40 @@ def test_built_workflow_uses_three_column_bounds_without_overlap_and_no_referenc
     validate_workflow(built)
 
 
+def test_director_and_output_groups_contain_nodes_with_horizontal_gutter():
+    source = {
+        "last_node_id": 10, "last_link_id": 20,
+        "nodes": [
+            {"id": 1, "type": "Settings", "title": "Settings", "pos": [0, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+        ], "links": [], "groups": [], "definitions": {"subgraphs": []},
+    }
+    built = build_workflow(source)
+    groups = {group["id"]: group for group in built["groups"]}
+
+    def bounds(node):
+        x, y = node["pos"]
+        width, height = node["size"]
+        return x, y, x + width, y + height
+
+    director = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3DirectorPlus")
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
+    for node, group_id in ((director, "u11-director"), (output, "u11-output")):
+        left, top, right, bottom = bounds(node)
+        group_left, group_top, group_width, group_height = groups[group_id]["bounding"]
+        group_right = group_left + group_width
+        group_bottom = group_top + group_height
+        assert group_left + 24 <= left
+        assert right <= group_right - 24
+        assert group_top + 24 <= top
+        assert bottom <= group_bottom - 24
+
+    assert groups["u11-output"]["bounding"][0] - (
+        groups["u11-director"]["bounding"][0] + groups["u11-director"]["bounding"][2]
+    ) >= 40
+
+
 def test_built_workflow_hides_duplicate_markdown_notes_with_comfyui_hidden_mode():
     source = {
         "last_node_id": 1777, "last_link_id": 20,
@@ -268,7 +302,7 @@ def test_built_workflow_keeps_duration_and_resolution_widgets():
     input_names = {item["name"] for item in director["inputs"]}
     assert {"width", "height"} <= input_names
     assert director["widgets_values"][:5] == ["FL2VA", "", 5, 1344, 768]
-    assert director["widgets_values"][15:17] == ["native", "HIGH"]
+    assert director["widgets_values"][14:17] == ["免费智能 1080p", "ai_upscale", "HIGH"]
 
 
 def test_built_settings_removes_legacy_resolution_calculator():

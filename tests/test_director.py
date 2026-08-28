@@ -45,6 +45,13 @@ def test_director_raw_combo_exposes_both_low_vram_presets():
     assert "低显存二采" in values
 
 
+def test_director_defaults_to_smart_free_1080p_and_local_x2():
+    required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
+    assert required["performance_preset"][1]["default"] == "免费智能 1080p"
+    assert required["postprocess_mode"][1]["default"] == "ai_upscale"
+    assert required["ai_upscale_model"][1]["default"] == "RealESRGAN_x2plus.pth"
+
+
 def test_smart_free_1080p_resolves_base_backend_to_turbo_and_x2(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
     monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")
@@ -495,6 +502,7 @@ def test_low_vram_native_bypass_keeps_requested_dimensions_for_reporting_only():
         voice_mode="none",
         ref_image_size="match",
         performance_preset="低显存",
+        postprocess_mode="native",
         timeline_data="{}",
         target_dialogue="",
         reference_transcript="",
@@ -879,7 +887,7 @@ def test_low_vram_two_stage_builds_safe_six_second_fhd_plan(monkeypatch):
     assert guide["rtx_deblur_mode"] == "off"
     assert normal_probes == []
     assert len(resolved_models) == 1
-    assert resolved_models[0][0] == "auto"
+    assert resolved_models[0][0] == "RealESRGAN_x2plus.pth"
     assert resolved_models[0][1] == pytest.approx(1920 / guide["second_stage_width"])
 
 

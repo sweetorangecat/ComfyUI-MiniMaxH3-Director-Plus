@@ -140,7 +140,7 @@ def _replace_director(node):
         "properties": _properties("MiniMaxH3DirectorPlus"),
         "widgets_values": [
             "FL2VA", "", 5, 1344, 768, "16:9", "0.83 MP", 16, 9, 0, "randomize",
-            "none", "s2-pro-w4a16 (auto download)", "match", "稳定质量", "native", "HIGH", "auto",
+            "none", "s2-pro-w4a16 (auto download)", "match", "免费智能 1080p", "ai_upscale", "HIGH", "RealESRGAN_x2plus.pth",
             "{\"version\":1,\"items\":[]}", "", "", "", "", "",
             "", "", "", "", "", "", "", "", "", "", "", "", "", "",
             "off", "auto",
@@ -866,7 +866,7 @@ def build_workflow(source):
     )
     acceleration_note = _note_node(
         allocate_node(), "加速与后处理说明", [-400, 2730], [950, 270],
-        "## 已整合能力\n\n- 训练型 3D latent 二采：自动区分 FL 与 Reference，执行匹配 LoRA 首采、神经 latent 放大和低 sigma 二采；不再使用双线性硬放大。\n- 质量优先二采样的高显存 RTX 路线：单次执行 HIGHBITRATE_ULTRA RTX VSR；不启用会产生彩条/花屏风险的 DEBLUR_LOW 双效果链，输入输出先等比中心裁切，避免拉伸。\n- 低显存二采：RTX 3070 8GB 级显卡支持 4–6 秒、FHD 像素预算；4 秒约 0.46MP 首采，5/6 秒按时长降低首采网格换取更长视频，再单独使用 RealESRGAN X2 逐帧重建到 1080p，最长 6 秒。\n- 极速4步：T2VA/FL2VA 使用官方 H3 Turbo，REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler。\n- 参考图加速：只在 Reference 兼容路线应用 SageAttention + ComfyUI 原生 EasyCache。\n- 低显存：按时长限制 H3 原生采样，低显存不开放 4K；最终最多 1080p。\n- 2K/4K 是最终 MP4 像素尺寸；高显存 4K 不是 H3 原生采样，而是神经二采细节基准后逐帧 RTX VSR。\n- 每次只执行一种兼容的性能路线；二采固定关闭 RIFE，避免重影与跳帧。",
+        "## 已整合能力\n\n- 免费智能 1080p：按实际后端、显存和时长自动选择兼容路线，最终本地 RealESRGAN X2 重建到至少 1080p。\n- FL 后端训练型 3D latent 二采：执行匹配 LoRA 首采、神经 latent 放大和低 sigma 二采；不再使用双线性硬放大。REF2VA 不使用训练型 reference latent 二采，改走 quality_sage、low_vram 或 ref_fast_4step。\n- 质量优先二采样的高显存 RTX 路线：单次执行 HIGHBITRATE_ULTRA RTX VSR；不启用会产生彩条/花屏风险的 DEBLUR_LOW 双效果链。\n- 低显存二采：RTX 3070 8GB 级显卡支持 4–6 秒、FHD 像素预算，再由 RealESRGAN X2 逐帧重建到 1080p，最长 6 秒。\n- 极速4步：T2VA/FL2VA 使用官方 H3 Turbo，REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler。\n- 参考图加速：只在 Reference 兼容路线应用 SageAttention + ComfyUI 原生 EasyCache。\n- 低显存：按时长限制 H3 原生采样，低显存不开放 4K；最终最多 1080p。\n- 2K/4K 是最终 MP4 像素尺寸；高显存 4K 不是 H3 原生采样，而是神经二采细节基准后逐帧 RTX VSR。\n- 每次只执行一种兼容的性能路线；二采固定关闭 RIFE，避免重影与跳帧。",
     )
     output_note = _note_node(
         allocate_node(), "输出说明", [1510, 1780], [900, 150],
@@ -976,9 +976,9 @@ def build_workflow(source):
             node["mode"] = 4
     for node in nodes:
         if node.get("type") == "MiniMaxH3DirectorPlus":
-            node["pos"] = [140, 470]
+            node["pos"] = [86, 470]
         elif node.get("type") == "MiniMaxH3StreamingVideoCombine":
-            node["pos"] = [1510, 470]
+            node["pos"] = [1525, 470]
         elif node.get("type") == "MiniMaxH3ColorGuard":
             node["pos"] = [1960, 1960]
         elif node.get("type") == "MarkdownNote" and node.get("title") == "输出说明":
@@ -988,8 +988,8 @@ def build_workflow(source):
         {"id": "u11-header", "title": "MiniMax H3 Director Plus", "bounding": [-430, 180, 2830, 180], "color": "#3f789e", "font_size": 26, "flags": {}},
         {"id": "u11-info", "title": "使用说明与能力", "bounding": [-1080, 400, 560, 1590], "color": "#3f789e", "font_size": 24, "flags": {}},
         {"id": "u11-settings", "title": "能力与说明", "bounding": [-430, 400, 550, 1590], "color": "#3f789e", "font_size": 24, "flags": {}},
-        {"id": "u11-director", "title": "导演控制台", "bounding": [120, 400, 1370, 1590], "color": "#4c806b", "font_size": 24, "flags": {}},
-        {"id": "u11-output", "title": "预览与最终输出", "bounding": [1500, 400, 900, 1850], "color": "#5c7580", "font_size": 24, "flags": {}},
+        {"id": "u11-director", "title": "导演控制台", "bounding": [60, 400, 1400, 1620], "color": "#4c806b", "font_size": 24, "flags": {}},
+        {"id": "u11-output", "title": "预览与最终输出", "bounding": [1500, 400, 980, 1900], "color": "#5c7580", "font_size": 24, "flags": {}},
         {"id": "u11-assets", "title": "自动素材与兼容加速", "bounding": [-430, 2290, 2560, 760], "color": "#4c6f62", "font_size": 24, "flags": {}},
     ]
     workflow.setdefault("extra", {})["u11_director_plus"] = {
@@ -1013,9 +1013,9 @@ def build_api_template():
                 "mode": "FL2VA", "prompt": "", "duration": 5, "width": 1344, "height": 768,
                 "aspect_ratio": "16:9", "resolution_preset": "0.83 MP", "custom_width": 16, "custom_height": 9,
                 "seed": 0,
-                "voice_mode": "none", "ref_image_size": "match", "performance_preset": "稳定质量",
+                "voice_mode": "none", "ref_image_size": "match", "performance_preset": "免费智能 1080p",
                 "fish_model_path": "s2-pro-w4a16 (auto download)", "timeline_data": "{\"version\":1,\"items\":[]}", "target_dialogue": "", "reference_transcript": "",
-                "postprocess_mode": "native", "rtx_quality": "HIGH", "ai_upscale_model": "auto",
+                "postprocess_mode": "ai_upscale", "rtx_quality": "HIGH", "ai_upscale_model": "RealESRGAN_x2plus.pth",
                 "motion_smoothing": "off", "audio_loudness": "auto",
                 "voice_reference_name_1": "", "voice_reference_name_2": "", "voice_reference_name_3": "",
                 "first_image": ["11", 0], "last_image": ["12", 0],

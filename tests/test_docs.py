@@ -149,3 +149,22 @@ def test_docs_describe_conservative_fhd_two_stage_route():
 
     assert "21.2GB" in troubleshooting
     assert "显卡总容量" in troubleshooting
+
+
+def test_docs_explain_free_smart_1080p_and_non_destructive_asset_removal():
+    usage = (DOCS / "使用说明.md").read_text(encoding="utf-8")
+    api = (DOCS / "API说明.md").read_text(encoding="utf-8")
+    troubleshooting = (DOCS / "故障排查.md").read_text(encoding="utf-8")
+    combined = usage + api + troubleshooting
+    for text in (
+        "生成阶段分辨率不等于最终输出分辨率",
+        "本地免费",
+        "RealESRGAN_x2plus.pth",
+        "REF2VA 不使用训练型 reference latent 二采",
+        "最多 6 秒",
+        "空闲显存",
+        "移除只取消节点引用，不删除原文件",
+        "Picture",
+        "Audio",
+    ):
+        assert text in combined

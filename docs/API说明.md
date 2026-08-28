@@ -14,11 +14,15 @@
 
 API 的 `seed` 是本次请求使用的明确整数。画布中的固定、递增、递减、随机属于 ComfyUI 客户端的连续运行状态，不作为无状态 API 入参公开；需要批量生成时，由调用方为每个请求明确传入 seed。
 
+API 模板默认使用 `performance_preset=免费智能 1080p`、`postprocess_mode=ai_upscale`、`ai_upscale_model=RealESRGAN_x2plus.pth`、`motion_smoothing=off`。这是本地免费路线，不调用付费服务。生成阶段分辨率不等于最终输出分辨率；H3 原生采样完成后才执行一次 X2 细节重建，最终目标按 `resolution_preset` 计算。低显存二采最多 6 秒，并在启动前检查空闲显存。
+
 性能预设还支持 `高清快速（v4 8步）`、`参考高清（原生20步）` 和 `参考极速（官方4步）` 三个显式路由档位。前者仅出现在 FL/T2V 后端，使用 `minimax_h3_turbo_v4_step600_ema.safetensors`、LoRA strength 1.0、8 步 simple/Euler 单采；后两者仅出现在 REF2VA/H3 音色参考后端，分别是原生 20 步 + SageAttention，以及官方 Ref2VA Turbo 4 步。Fish S2 继续排除训练型 latent 二采，旧预设的默认关系保持不变。
 
-`performance_preset` 支持 `稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存`、`低显存二采` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。两个二采预设自动解析训练型路线：FL/T2VA/硬首尾帧后端使用 `trained_latent_fl`，依次应用 `minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors` 与 `minimax_h3_fl2v_turbo_4step_v1.1_768p_comfyui_bf16.safetensors`；REF2VA 或 H3 原生音色参考后端使用 `trained_latent_ref`，两阶段应用 `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`，并通过 `H3SigmaRefiner` 强化尾段 sigma。两条路线都先完成匹配 LoRA 首采，再把 AV latent 分为视频/音频，仅用 `minimax_h3_latent_upscaler_3d_bf16.safetensors` 对 24 通道视频 latent 做约 1.5 倍训练型放大，保留原音频后执行匹配低 sigma 二采。`低显存二采` 额外限制为 4–6 秒和 FHD 像素预算：1080p 约 0.46MP/0.37MP/0.31MP 首采（4/5/6 秒），再由 `RealESRGAN_x2plus.pth` 单路重建到 FHD；时长越长，神经细节基准越低。启动前至少需要 6.0GB 空闲显存，采样期间使用 LOW_VRAM。Fish S2 与训练型二采互斥；Sage、EasyCache、RIFE 不叠加到该路线。
+`performance_preset` 支持 `免费智能 1080p`、`稳定质量`、`质量优先加速`、`质量优先二采样`、`极速4步`、`参考图加速`、`低显存`、`低显存二采` 和 `自定义`，实际可用项会按模式及音色路由过滤。`质量优先加速` 固定 20 步、只启用 SageAttention、使用 ComfyUI 动态分层加载、关闭 Turbo LoRA 与 EasyCache；Sage 不可用时保持原生 20 步并返回回退说明。训练型二采只允许 FL 后端使用 `trained_latent_fl` 及精确 FL LoRA；REF2VA 不使用训练型 reference latent 二采，安全替代为 `quality_sage`、`low_vram` 或 `ref_fast_4step`。旧状态 `trained_latent_ref` 仅用于迁移提示，不会进入实际采样。`低显存二采` 额外限制为 4–6 秒和 FHD 像素预算：1080p 约 0.46MP/0.37MP/0.31MP 首采（4/5/6 秒），再由 `RealESRGAN_x2plus.pth` 单路重建到 FHD；时长越长，神经细节基准越低。启动前至少需要 6.0GB 空闲显存，采样期间使用 LOW_VRAM。Fish S2 与训练型二采互斥；Sage、EasyCache、RIFE 不叠加到该路线。
 
 `performance_preset` 的 API 字段保持不变。依赖官方 LightX2V LoRA 的性能档位，只有在 ComfyUI 内置加载器实际新增模型补丁且 `patch_delta>0` 后才会进入采样。`POST /generate` 可能已经成功返回 `prompt_id` 并入队；官方 LoRA 会在任务执行到加速节点时验证，若验证不通过，任务会在首个 H3 采样节点前终止，调用方应从任务历史或执行错误读取原因。常见的缺文件、损坏文件和零补丁错误会包含解析后的 LoRA 文件名。上次加载失败后重新执行加速节点会再次验证，不会因旧的 `turbo_lora_applied=false` 绕过检查。
+
+REF2VA 不使用训练型 reference latent 二采；请求会安全解析为 `quality_sage`、`low_vram` 或 `ref_fast_4step`。旧工作流里的 `trained_latent_ref` 只作为迁移标识，禁止进入实际采样。
 
 `postprocess_mode` 控制最终视频输出：`native`（原生尺寸直出）、`lanczos`（CPU Lanczos 快速放大）、`ai_upscale`（ComfyUI 通用 AI 超分）或 `rtx_vsr`（RTX VSR AI 细节重建）。无新增必填入参：质量二采仍传 `performance_preset=quality_two_stage`、`postprocess_mode=rtx_vsr`。2K/4K 控制器会固定 `HIGHBITRATE_ULTRA` 并只执行一次 RTX VSR；不再启用会产生彩条/花屏风险的 `DEBLUR_LOW` 双效果链。精确 `1080p FHD` 是内部特例，无新增 API 入参：28GB+ 且至少 24GB 空闲显存时规划 `1344×768 -> 2016×1152 -> 1920×1080`；20–24GB 级显卡或空闲显存不足 24GB 的更高档显卡，在至少保留 18GB 空闲显存时规划 `1280×704 -> 1920×1056 -> 1920×1080`，返回 `vram_safety_tier=16_24gb_fhd`。两种 FHD 路线都返回 `postprocess_path=balanced_fhd_downscale`、`upscale_method=aspect_lanczos_downscale`，中心等比裁切并 Lanczos 对齐，不探测或执行 RTX VSR。`低显存二采` 只允许 `ai_upscale`，并按二采后的实际倍率自动优先选择 X2 模型，当前推荐和默认命中 `RealESRGAN_x2plus.pth`。除 FHD 最终缩小特例外，两种二采都不会叠加另一种放大器。`ai_upscale_model` 为 `auto` 或 `models/upscale_models` 中已安装的模型名；自动解析使用神经二采尺寸而不是首采尺寸，避免错误选择 X4。`rtx_quality` 的公共枚举为 `HIGH`、`ULTRA`、`HIGHBITRATE_ULTRA`，质量优先二采样的公共请求仍规范化为 `HIGHBITRATE_ULTRA`，但 FHD 特例不会实际加载 VSR。最终只保存一个视频；实际需要的 AI 模型或 RTX VSR 依赖缺失时会在生成前明确报错，不会静默回退。
 
@@ -53,6 +57,8 @@ D:\ComfyUI_windows_portable-G313\python_embeded\python.exe -c "import nvvfx; pri
 ### `POST /h3-director-plus/assets`
 
 使用 multipart 字段 `asset` 上传图片、视频或音频。文件只会写入 ComfyUI `input/h3-director-plus/`，拒绝 `../`、目录分隔符和未知扩展名。响应中的 `asset` 值可直接填入 `first_image`、`last_image`、`voice_reference_audio` 或 `references`。
+
+导演台中的“移除”只取消节点引用并更新 widget/预览，不删除 `input/h3-director-plus/` 原文件。REF2VA 中间参考图会自动补位并提示 `<Picture N>`；音频及其角色名会成对补位并提示 `<Audio N>`。
 
 ### `POST /h3-director-plus/generate`
 
