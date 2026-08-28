@@ -33,6 +33,48 @@ def test_upload_success_registers_new_file_in_combo_widget_before_queueing():
     assert "syncUploadWidget(node, input.dataset.h3pUploadFile, result.asset)" in text
 
 
+def test_upload_controls_support_non_destructive_remove_and_slot_compaction():
+    text = source()
+    assert 'data-h3p-remove-file' in text
+    assert 'button.textContent = "移除"' in text
+    assert 'const normalized = value || ""' in text
+    assert 'compactSlots' in text
+    assert 'compactBoundSlots' in text
+    assert '\u53c2\u8003\u56fe\u5df2\u91cd\u65b0\u7f16\u53f7\uff0c\u8bf7\u68c0\u67e5\u63d0\u793a\u8bcd\u4e2d\u7684 <Picture N> \u5f15\u7528\u3002' in text
+    assert '\u97f3\u8272\u53c2\u8003\u5df2\u91cd\u65b0\u7f16\u53f7\uff0c\u8bf7\u68c0\u67e5\u63d0\u793a\u8bcd\u4e2d\u7684 <Audio N> \u4e0e\u89d2\u8272\u540d\u3002' in text
+    assert 'setAttribute("role", "status")' in text
+    assert 'method: "DELETE"' not in text
+    assert 'unlink' not in text.lower()
+
+
+def test_upload_controls_expose_replace_and_non_destructive_remove_contract():
+    text = source()
+    assert 'button.textContent = filename ? "\u66f4\u6362" : "\u9009\u62e9\u6587\u4ef6"' in text
+    assert 'data-h3p-remove-file' in text
+    assert 'const normalized = value || ""' in text
+    assert 'callback?.(normalized)' in text
+    assert 'setDirtyCanvas(true, true)' in text
+    assert 'method: "DELETE"' not in text
+    assert "unlink" not in text
+
+
+def test_upload_removal_compacts_ref_images_and_bound_audio_names():
+    text = source()
+    assert "compactSlots" in text
+    assert "compactBoundSlots" in text
+    assert "REF2VA_IMAGE_SLOTS" in text
+    assert "voice_reference_name_1" in text
+    assert "\u53c2\u8003\u56fe\u5df2\u91cd\u65b0\u7f16\u53f7" in text
+    assert "\u97f3\u8272\u53c2\u8003\u5df2\u91cd\u65b0\u7f16\u53f7" in text
+
+
+def test_endpoint_removal_is_independent_from_ref_compaction():
+    text = source()
+    assert "clearSlot" in text
+    assert "mode === \"REF2VA\"" in text
+    assert "\u9009\u62e9\u6587\u4ef6" in text
+
+
 def test_ui_has_chinese_primary_sections():
     text = source()
     for label in ("快速设置", "生成规格", "导演与素材", "音色参考", "实际后端", "高级音色锁定"):
@@ -268,9 +310,13 @@ def test_director_ui_uses_stable_size_when_sidebar_changes_available_width():
     assert "DIRECTOR_UI_HEIGHT" in text
     assert "node.setSize?.([DIRECTOR_UI_WIDTH, DIRECTOR_UI_HEIGHT])" in text
     assert "node.size?.[0] || 500" not in text
-    assert "width:${DIRECTOR_UI_WIDTH}px" in text
-    assert "min-width:${DIRECTOR_UI_WIDTH}px" in text
-    assert "flex:0 0 ${DIRECTOR_UI_WIDTH}px" in text
+    assert ".h3p{box-sizing:border-box;width:100%;min-width:0;max-width:100%;" in text
+    assert "overflow-y:auto" in text
+    assert "overflow-x:hidden" in text
+    assert "DIRECTOR_CONTENT_INSET" in text
+    assert "DIRECTOR_UI_WIDTH - DIRECTOR_CONTENT_INSET" in text
+    assert "max-width:none" not in text
+    assert "flex:0 0 ${DIRECTOR_UI_WIDTH}px" not in text
     assert ".h3p select,.h3p input,.h3p textarea" in text
     assert "max-width:100%;min-width:0" in text
     assert "const DIRECTOR_UI_WIDTH = 1350;" in text

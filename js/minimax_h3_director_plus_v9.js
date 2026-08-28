@@ -5,12 +5,15 @@
  */
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
+import { clearSlot, compactBoundSlots, compactSlots } from "./media_slot_state.mjs";
 
 const NODE_CLASS = "MiniMaxH3DirectorPlus";
 // Keep node geometry independent from the browser sidebar width.
 const DIRECTOR_UI_WIDTH = 1350;
 const DIRECTOR_UI_HEIGHT = 1510;
 const DIRECTOR_DOM_HEIGHT = 1050;
+const DIRECTOR_CONTENT_INSET = 48;
+const DIRECTOR_VIEWPORT_HEIGHT = DIRECTOR_DOM_HEIGHT;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
 const PRESETS = ["稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "低显存", "低显存二采", "自定义"];
 const PERFORMANCE_PRESET_KEYS = {
@@ -110,7 +113,7 @@ function installStyles() {
   stylesInstalled = true;
   const style = document.createElement("style");
   style.textContent = `
-    .h3p{box-sizing:border-box;width:${DIRECTOR_UI_WIDTH}px;min-width:${DIRECTOR_UI_WIDTH}px;max-width:none;flex:0 0 ${DIRECTOR_UI_WIDTH}px;padding:8px;background:#0f151b;color:#d9e4eb;font:12px system-ui,sans-serif;display:flex;flex-direction:column;gap:8px}
+    .h3p{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:${DIRECTOR_VIEWPORT_HEIGHT}px;max-height:100%;padding:8px;background:#0f151b;color:#d9e4eb;font:12px system-ui,sans-serif;display:flex;flex-direction:column;gap:8px;overflow-y:auto;overflow-x:hidden}
     .h3p *{box-sizing:border-box;letter-spacing:0}.h3p-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.h3p-title{font-size:14px;font-weight:700;color:#fff}.h3p-badge{padding:2px 7px;border:1px solid #4d6372;border-radius:4px;color:#9fc5d8;background:#17232c}
     .h3p-workbench-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:10px 11px;border:1px solid #3f789e;border-radius:5px;background:#14232b;box-shadow:inset 0 1px 0 rgba(137,202,230,.08)}.h3p-workbench-copy{min-width:0}.h3p-workbench-kicker{color:#8fc6dc;font-size:10px;line-height:1.3;text-transform:uppercase}.h3p-workbench-name{margin-top:2px;color:#fff;font-size:16px;font-weight:750;line-height:1.25}.h3p-workbench-hint{margin-top:3px;color:#9fb2bf;font-size:11px;line-height:1.4}.h3p-workbench-badge{align-self:start;padding:4px 8px;border:1px solid #4c806b;border-radius:4px;background:#18372f;color:#a8e0bd;font-size:11px;white-space:nowrap}.h3p-status-strip{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:2px}.h3p-status-item{min-width:0;padding:6px 7px;border:1px solid #344956;border-radius:4px;background:#101b21}.h3p-status-label{display:block;color:#8298a6;font-size:10px;line-height:1.2}.h3p-status-value{display:block;margin-top:2px;overflow:hidden;color:#e0e8ed;font-size:11px;font-weight:650;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
     .h3p-section{border-top:1px solid #2d3b46;padding-top:8px}.h3p-section-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;color:#fff;font-weight:650}.h3p-hint{color:#8fa5b4;font-weight:400;font-size:11px}
@@ -119,7 +122,7 @@ function installStyles() {
     .h3p-prompt-tools{margin-top:6px;padding:7px;border:1px solid #344956;border-radius:4px;background:#111d24}.h3p-prompt-tools-title{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#fff;font-weight:650}.h3p-prompt-tools-hint{color:#8fa5b4;font-weight:400;font-size:11px}.h3p-prompt-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}.h3p-prompt-actions button{min-height:26px;padding:3px 8px}.h3p-prompt-help{margin-top:6px;color:#9fb2bf;font-size:11px;line-height:1.45}
     .h3p-route{display:grid;grid-template-columns:auto 1fr;gap:5px 10px;padding:7px;border:1px solid #344956;border-radius:4px;background:#111d24}.h3p-route strong{color:#8fd2f3}.h3p-route .warning{grid-column:1/-1;color:#e9c176;line-height:1.45}.h3p-route .ok{grid-column:1/-1;color:#93cda8;line-height:1.45}
     .h3p-voice{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.h3p-audio-lane{margin-top:6px;padding:7px;border:1px dashed #4e7182;border-radius:4px;background:#101b21;color:#adc2ce;line-height:1.45}.h3p-audio-lane b{color:#dfeaf0}.h3p-audio-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:7px}.h3p-voice-slot{display:flex;flex-direction:column;gap:5px;min-width:0}.h3p-fish{margin-top:6px;border:1px solid #3b4a55;border-radius:4px;background:#111920}.h3p-fish summary{padding:7px;cursor:pointer;color:#d5dee4;font-weight:600}.h3p-fish-body{padding:0 7px 7px;color:#99aebc;line-height:1.5}
-    .h3p-materials{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.h3p-material{min-height:52px;padding:7px;border:1px solid #344956;border-radius:4px;background:#111a20}.h3p-material b{display:block;color:#e0e8ed;margin-bottom:3px}.h3p-material span{color:#8298a6;font-size:11px;line-height:1.35}.h3p-upload-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:6px}.h3p-upload{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px;padding:7px;border:1px dashed #4e7182;border-radius:4px;background:#101b21;color:#adc2ce}.h3p-upload>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.h3p-upload input{display:none}.h3p-upload button{min-height:25px;padding:3px 8px}.h3p-upload.busy{opacity:.6;pointer-events:none}.h3p-upload.error{border-color:#d87979;color:#ffb1b1}.h3p-media-preview{grid-column:1/-1;min-width:0}.h3p-image-link{display:flex;width:100%;height:132px;border:1px solid #2f424e;border-radius:3px;overflow:hidden;background:#0b1116;align-items:center;justify-content:center}.h3p-image-preview{display:block;width:100%;height:100%;object-fit:contain}.h3p-audio-preview{display:block;width:100%;height:34px}.h3p-preview-status{display:block;color:#e9c176;font-size:11px;padding:4px 0}
+    .h3p-materials{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.h3p-material{min-height:52px;padding:7px;border:1px solid #344956;border-radius:4px;background:#111a20}.h3p-material b{display:block;color:#e0e8ed;margin-bottom:3px}.h3p-material span{color:#8298a6;font-size:11px;line-height:1.35}.h3p-upload-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:6px}.h3p-upload{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:6px;padding:7px;border:1px dashed #4e7182;border-radius:4px;background:#101b21;color:#adc2ce}.h3p-upload>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.h3p-upload input{display:none}.h3p-upload button{min-height:25px;padding:3px 8px}.h3p-upload.busy{opacity:.6;pointer-events:none}.h3p-upload.error{border-color:#d87979;color:#ffb1b1}.h3p-media-preview{grid-column:1/-1;min-width:0}.h3p-image-link{display:flex;width:100%;height:132px;border:1px solid #2f424e;border-radius:3px;overflow:hidden;background:#0b1116;align-items:center;justify-content:center}.h3p-image-preview{display:block;width:100%;height:100%;object-fit:contain}.h3p-audio-preview{display:block;width:100%;height:34px}.h3p-preview-status{display:block;color:#e9c176;font-size:11px;padding:4px 0}
     @media(max-width:640px){.h3p-segments,.h3p-segments.preset{grid-template-columns:repeat(3,minmax(0,1fr))}.h3p-grid,.h3p-materials,.h3p-audio-grid{grid-template-columns:1fr}.h3p-voice{grid-template-columns:1fr}}
   `;
   document.head.appendChild(style);
@@ -217,11 +220,12 @@ function keepPromptAssistantReadable(anchor) {
 
 function syncUploadWidget(node, widgetName, value) {
   const item = widget(node, widgetName);
-  if (!item || !value) return;
+  if (!item) return;
+  const normalized = value || "";
   const values = item.options?.values;
-  if (Array.isArray(values) && !values.includes(value)) item.options.values.push(value);
-  item.value = value;
-  item.callback?.(value);
+  if (normalized && Array.isArray(values) && !values.includes(normalized)) item.options.values.push(value);
+  item.value = normalized;
+  item.callback?.(normalized);
   node.graph?.setDirtyCanvas(true, true);
   app.graph?.setDirtyCanvas?.(true, true);
 }
@@ -423,7 +427,7 @@ function uploadControl(node, label, widgetName, accept) {
   name.textContent = filename || `${label}：未上传`;
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = "选择文件";
+  button.textContent = filename ? "更换" : "选择文件";
   const input = document.createElement("input");
   input.type = "file";
   input.accept = accept;
@@ -432,9 +436,57 @@ function uploadControl(node, label, widgetName, accept) {
   input.dataset.h3pUploadFile = widgetName;
   input.dataset.h3pAccept = accept;
   button.dataset.h3pUploadButton = widgetName;
-  wrapper.append(name, button, input);
+  wrapper.append(name, button);
+  if (filename) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "移除";
+    button.dataset.h3pRemoveFile = widgetName;
+    button.setAttribute("data-h3p-remove-file", widgetName);
+    button.title = `移除${label}`;
+    wrapper.append(button);
+  }
+  wrapper.append(input);
   replaceMediaPreview(wrapper, filename, accept);
   return wrapper;
+}
+
+const VOICE_AUDIO_FIELDS = [
+  "voice_reference_audio_file",
+  "voice_reference_audio_2_file",
+  "voice_reference_audio_3_file",
+];
+
+function removeUpload(node, widgetName, render) {
+  const mode = String(widget(node, "mode")?.value || "");
+  if (mode === "REF2VA") {
+    const index = REF2VA_IMAGE_SLOTS.findIndex(([, field]) => field === widgetName);
+    if (index >= 0) {
+      const values = REF2VA_IMAGE_SLOTS.map(([, field]) => widget(node, field)?.value || "");
+      const compacted = compactSlots(values, index);
+      REF2VA_IMAGE_SLOTS.forEach(([, field], slotIndex) => syncUploadWidget(node, field, compacted[slotIndex]));
+      node._h3pAssetNotice = "参考图已重新编号，请检查提示词中的 <Picture N> 引用。";
+      render();
+      return;
+    }
+  }
+  const audioIndex = VOICE_AUDIO_FIELDS.indexOf(widgetName);
+  if (audioIndex >= 0) {
+    const files = VOICE_AUDIO_FIELDS.map((field) => widget(node, field)?.value || "");
+    const names = [1, 2, 3].map((index) => widget(node, `voice_reference_name_${index}`)?.value || "");
+    const compacted = compactBoundSlots(files, names, audioIndex);
+    VOICE_AUDIO_FIELDS.forEach((field, index) => syncUploadWidget(node, field, compacted.files[index]));
+    [1, 2, 3].forEach((index) => syncUploadWidget(node, `voice_reference_name_${index}`, compacted.names[index]));
+    node._h3pAssetNotice = "音色参考已重新编号，请检查提示词中的 <Audio N> 与角色名。";
+    render();
+    return;
+  }
+  if (["first_image_file", "last_image_file"].includes(widgetName)) {
+    clearSlot([widget(node, widgetName)?.value || ""], 0);
+    syncUploadWidget(node, widgetName, "");
+    node._h3pAssetNotice = "已移除素材；当前模式可能需要重新选择必需的首帧或尾帧图片。";
+    render();
+  }
 }
 
 async function uploadFile(node, input) {
@@ -473,6 +525,10 @@ function bindDomControls(element, node, render) {
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
+    if (button.dataset.h3pRemoveFile) {
+      removeUpload(node, button.dataset.h3pRemoveFile, render);
+      return;
+    }
     if (button.dataset.h3pAction) {
       setWidget(node, button.dataset.h3pAction, button.dataset.h3pControl);
       render();
@@ -525,6 +581,12 @@ function bindDocumentControls() {
     const button = event.target.closest?.(".h3p button");
     const controller = controllerForTarget(button);
     if (!button || !controller) return;
+    if (button.dataset.h3pRemoveFile) {
+      event.preventDefault();
+      event.stopPropagation();
+      removeUpload(controller.node, button.dataset.h3pRemoveFile, controller.render);
+      return;
+    }
     if (button.dataset.h3pAction) {
       event.preventDefault();
       event.stopPropagation();
@@ -801,6 +863,13 @@ function install(node) {
       if (["FL2VA", "L2VA"].includes(mode)) uploadGrid.append(uploadControl(node, "尾帧图片", "last_image_file", "image/*"));
     }
     director.append(uploadGrid);
+    if (node._h3pAssetNotice) {
+      const notice = document.createElement("div");
+      notice.className = "h3p-spec-note";
+      notice.setAttribute("role", "status");
+      notice.textContent = node._h3pAssetNotice;
+      director.append(notice);
+    }
     const prompt = document.createElement("textarea");
     prompt.placeholder = "视频提示词：描述角色、动作、镜头、对白和时间点";
     prompt.value = widget(node, "prompt")?.value || "";
@@ -971,9 +1040,9 @@ function install(node) {
   const domWidget = node.addDOMWidget?.("minimax_h3_director_plus_ui", "custom", root, {
     serialize: false,
     hideOnZoom: false,
-    getHeight: () => DIRECTOR_DOM_HEIGHT,
+    getHeight: () => DIRECTOR_VIEWPORT_HEIGHT,
   });
-  if (domWidget) domWidget.computeSize = () => [DIRECTOR_UI_WIDTH, DIRECTOR_DOM_HEIGHT];
+  if (domWidget) domWidget.computeSize = () => [DIRECTOR_UI_WIDTH - DIRECTOR_CONTENT_INSET, DIRECTOR_VIEWPORT_HEIGHT];
   controllers.set(controllerId, { node, render });
   const bindMountedControls = () => {
     bindDomControls(domWidget?.element || domWidget?.inputEl || root, node, render);
