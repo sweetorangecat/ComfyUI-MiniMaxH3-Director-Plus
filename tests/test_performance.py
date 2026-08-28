@@ -761,6 +761,30 @@ def test_scheduler_router_rejects_reference_two_stage_before_scheduler_import():
         )
 
 
+def test_scheduler_router_allows_quality_sage_on_reference_backend(monkeypatch):
+    import sys
+    import types
+
+    class BasicScheduler:
+        @staticmethod
+        def execute(model, scheduler, steps, denoise):
+            assert (model, scheduler, steps, denoise) == ("model", "simple", 20, 1.0)
+            return (["sigma"],)
+
+    custom_sampler = types.ModuleType("comfy_extras.nodes_custom_sampler")
+    custom_sampler.BasicScheduler = BasicScheduler
+    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", custom_sampler)
+
+    guide = {
+        "performance_preset": "quality_sage",
+        "resolved_backend": "ref2va_model",
+        "voice_mode": "none",
+    }
+
+    assert MiniMaxH3SchedulerRouter().route("model", 20, guide) == (["sigma"],)
+    assert guide["scheduler_name"] == "simple"
+
+
 def test_low_vram_uses_h3_memory_efficient_sage_patch_with_more_head_chunks(monkeypatch):
     calls = []
 

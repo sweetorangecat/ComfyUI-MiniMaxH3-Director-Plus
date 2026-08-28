@@ -643,9 +643,14 @@ class MiniMaxH3SchedulerRouter:
         guide["scheduler_name"] = plan["scheduler"]
         guide["scheduler_sigma_count"] = len(sigmas)
         guide["two_stage_split_step"] = int(plan["split_step"])
+        resolved_route = (
+            resolve_two_stage_route(guide)
+            if plan["split_step"]
+            else "bypass"
+        )
         LOGGER.info(
             "[H3 scheduler] route=%s scheduler=%s steps=%s sigmas=%s split=%s refiner=%s",
-            resolve_two_stage_route(guide),
+            resolved_route,
             plan["scheduler"],
             resolved_steps,
             len(sigmas),
