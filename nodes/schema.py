@@ -88,6 +88,13 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
     "endpoint": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
     "reference": ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom"),
 }
+# Keep the public selector intentionally small. The broader route map above is
+# retained for loading older API payloads and saved workflows.
+VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE = {
+    "t2va": ("smart_free_1080p", "quality"),
+    "endpoint": ("smart_free_1080p", "quality"),
+    "reference": ("smart_free_1080p", "ref_quality_native"),
+}
 
 TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})
 
@@ -139,6 +146,15 @@ def allowed_performance_presets(mode, voice_mode="none"):
     if mode == "T2VA":
         return PERFORMANCE_PRESETS_BY_ROUTE["t2va"]
     return PERFORMANCE_PRESETS_BY_ROUTE["endpoint"]
+
+
+def visible_performance_presets(mode, voice_mode="none"):
+    """Return the two recommended presets shown by the user-facing selector."""
+    if voice_mode != "none" or mode == "REF2VA":
+        return VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE["reference"]
+    if mode == "T2VA":
+        return VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE["t2va"]
+    return VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE["endpoint"]
 
 
 def low_vram_target_limit(duration):
@@ -389,7 +405,7 @@ def public_schema():
     def labels_for(mode, voice_mode="none"):
         return [
             PERFORMANCE_PRESET_LABELS_BY_KEY[preset]
-            for preset in allowed_performance_presets(mode, voice_mode)
+            for preset in visible_performance_presets(mode, voice_mode)
         ]
 
     return {

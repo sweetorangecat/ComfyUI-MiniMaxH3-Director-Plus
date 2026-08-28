@@ -247,6 +247,13 @@ def test_frontend_filters_performance_presets_by_mode_and_voice():
     assert 'setWidget(node, "performance_preset", preset, false)' in text
 
 
+def test_frontend_exposes_only_two_best_performance_presets_per_route():
+    text = source()
+    assert 't2va: ["免费智能 1080p", "稳定质量"]' in text
+    assert 'endpoint: ["免费智能 1080p", "稳定质量"]' in text
+    assert 'reference: ["免费智能 1080p", "参考高清（原生20步）"]' in text
+
+
 def test_ui_keeps_audio_lane_for_all_reference_compatible_modes():
     text = source()
     assert "I2VA" in text and "FL2VA" in text

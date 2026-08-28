@@ -24,9 +24,9 @@ const PERFORMANCE_PRESET_KEYS = {
   "参考极速（官方4步）": "ref_fast_4step",
 };
 const PERFORMANCE_PRESETS_BY_ROUTE = {
-  t2va: ["免费智能 1080p", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"],
-  endpoint: ["免费智能 1080p", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"],
-  reference: ["免费智能 1080p", "稳定质量", "质量优先加速", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "低显存二采"],
+  t2va: ["免费智能 1080p", "稳定质量"],
+  endpoint: ["免费智能 1080p", "稳定质量"],
+  reference: ["免费智能 1080p", "参考高清（原生20步）"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
@@ -665,7 +665,7 @@ function install(node) {
     const performanceOptions = allowedPerformancePresets(mode, voiceMode);
     let preset = widget(node, "performance_preset")?.value || "稳定质量";
     if (!performanceOptions.includes(preset)) {
-      preset = "稳定质量";
+      preset = performanceOptions[1] || performanceOptions[0] || "稳定质量";
       setWidget(node, "performance_preset", preset, false);
     }
     if (preset === SMART_PRESET) {

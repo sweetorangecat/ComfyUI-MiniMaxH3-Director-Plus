@@ -298,10 +298,10 @@ def test_public_schema_documents_route_performance_options():
     assert "质量优先二采样" in property_schema["enum"]
     assert "自定义" in property_schema["enum"]
     assert property_schema["allowed_by_route"]["T2VA"] == [
-        "免费智能 1080p", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"
+        "免费智能 1080p", "稳定质量"
     ]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
-        "免费智能 1080p", "稳定质量", "质量优先加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "自定义"
+        "免费智能 1080p", "参考高清（原生20步）"
     ]
 
 
