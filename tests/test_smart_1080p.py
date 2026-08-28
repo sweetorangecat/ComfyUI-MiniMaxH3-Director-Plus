@@ -1,0 +1,103 @@
+import pytest
+
+from nodes.schema import RequestError
+from nodes.smart_1080p import (
+    LOW_VRAM_MAX_SECONDS,
+    LOW_VRAM_MIN_FREE_GB,
+    LOW_VRAM_TOTAL_GB,
+    SMART_PRESET,
+    SMART_UPSCALE_MODEL,
+    resolve_smart_1080p_plan,
+    smart_1080p_target,
+)
+
+
+@pytest.mark.parametrize(
+    "size, expected",
+    [((16, 9), (1920, 1080)), ((9, 16), (1080, 1920)), ((1, 1), (1080, 1080)),
+     ((21, 9), (2520, 1080)), ((9, 21), (1080, 2520))],
+)
+def test_smart_target_keeps_aspect_and_uses_1080_short_edge(size, expected):
+    assert smart_1080p_target(*size) == expected
+    assert all(axis % 2 == 0 for axis in smart_1080p_target(*size))
+
+
+@pytest.mark.parametrize("size", [(0, 10), (-1, 10), (10, 0), (10, -1)])
+def test_smart_target_rejects_non_positive_dimensions(size):
+    with pytest.raises(RequestError):
+        smart_1080p_target(*size)
+
+
+@pytest.mark.parametrize(
+    "backend, preset",
+    [("fl2va_model", "fast_4step"), ("ref2va_model", "quality_sage")],
+)
+def test_normal_vram_selects_backend_preset_and_free_upscale(backend, preset):
+    plan = resolve_smart_1080p_plan(backend, 10, 24, 20)
+    assert plan["performance_preset"] == preset
+    assert plan["postprocess_mode"] == "ai_upscale"
+    assert plan["ai_upscale_model"] == SMART_UPSCALE_MODEL
+    assert plan["motion_smoothing"] == "off"
+    assert plan["use_easycache"] is False
+    assert plan["low_vram"] is False
+    assert plan["warning"] == ""
+
+
+def test_low_vram_fl_uses_trained_latent_two_stage():
+    plan = resolve_smart_1080p_plan("fl2va_model", 6, 8, 7)
+    assert plan["performance_preset"] == "low_vram_two_stage"
+    assert plan["two_stage_route"] == "trained_latent_fl"
+    assert plan["low_vram"] is True
+
+
+def test_low_vram_ref_bypasses_two_stage():
+    plan = resolve_smart_1080p_plan("ref2va_model", 4, 8, 7)
+    assert plan["performance_preset"] == "low_vram"
+    assert plan["two_stage_route"] == "bypass"
+    assert plan["low_vram"] is True
+
+
+def test_low_vram_rejects_duration_above_six_with_actionable_chinese_error():
+    with pytest.raises(RequestError) as exc:
+        resolve_smart_1080p_plan("fl2va_model", 7, 8, 7)
+    message = str(exc.value)
+    assert "7 秒" in message
+    assert "最多支持 6 秒" in message
+    assert "总显存 8.0GB" in message
+    assert "空闲显存 7.0GB" in message
+    assert "缩短或拆段" in message
+
+
+def test_any_insufficient_free_vram_is_rejected_even_with_large_total_vram():
+    with pytest.raises(RequestError, match=r"空闲显存 5\.5GB.*至少 6\.0GB"):
+        resolve_smart_1080p_plan("fl2va_model", 10, 24, 5.5)
+
+
+def test_unknown_backend_is_rejected():
+    with pytest.raises(RequestError):
+        resolve_smart_1080p_plan("unknown", 10, 24, 20)
+
+
+@pytest.mark.parametrize("duration", ["6", 6.0])
+def test_duration_is_coerced_to_integer(duration):
+    plan = resolve_smart_1080p_plan("fl2va_model", duration, 8, 7)
+    assert plan["max_duration"] == 6
+
+
+@pytest.mark.parametrize("duration", [3, 7, 15.1, "bad"])
+def test_low_vram_only_allows_four_to_six_integer_seconds(duration):
+    with pytest.raises(RequestError):
+        resolve_smart_1080p_plan("fl2va_model", duration, 8, 7)
+
+
+@pytest.mark.parametrize("duration", [3, 16, "bad"])
+def test_normal_vram_keeps_public_four_to_fifteen_second_contract(duration):
+    with pytest.raises(RequestError):
+        resolve_smart_1080p_plan("fl2va_model", duration, 24, 20)
+
+
+def test_public_constants_match_smart_free_contract():
+    assert SMART_PRESET == "smart_free_1080p"
+    assert LOW_VRAM_MAX_SECONDS == 6
+    assert LOW_VRAM_MIN_FREE_GB == 6.0
+    assert LOW_VRAM_TOTAL_GB == 16.0
