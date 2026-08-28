@@ -423,8 +423,10 @@ class MiniMaxH3DirectorPlus:
         requested_performance_preset = request["performance_preset"]
         smart_mode = requested_performance_preset == SMART_PRESET
         smart_plan = None
+        smart_vram = None
         if smart_mode:
-            total_vram_gb, free_vram_gb = _cuda_memory_gb()
+            smart_vram = _cuda_memory_gb()
+            total_vram_gb, free_vram_gb = smart_vram
             smart_plan = resolve_smart_1080p_plan(
                 request["resolved_backend"], request["duration"], total_vram_gb, free_vram_gb
             )
@@ -434,9 +436,11 @@ class MiniMaxH3DirectorPlus:
             request["motion_smoothing"] = smart_plan["motion_smoothing"]
             if smart_plan["warning"]:
                 request["warnings"].append(smart_plan["warning"])
-            requested_width, requested_height = smart_1080p_target(
-                int(custom_width), int(custom_height)
-            )
+            if aspect_ratio == "CUSTOM":
+                target_ratio = (int(custom_width), int(custom_height))
+            else:
+                target_ratio = ASPECTS[aspect_ratio]
+            requested_width, requested_height = smart_1080p_target(*target_ratio)
 
         if request["performance_preset"] == "low_vram":
             limit_width, limit_height = low_vram_target_limit(request["duration"])
@@ -455,7 +459,10 @@ class MiniMaxH3DirectorPlus:
         required_assets = []
         if request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS:
             resolved_two_stage_route = resolve_two_stage_route(request)
-            total_vram_gb, free_vram_gb = _cuda_memory_gb()
+            if smart_vram is None:
+                total_vram_gb, free_vram_gb = _cuda_memory_gb()
+            else:
+                total_vram_gb, free_vram_gb = smart_vram
             if total_vram_gb <= 0:
                 raise RequestError("无法读取当前 GPU 显存，已阻止训练型二采启动")
             two_stage_plan = plan_two_stage_dimensions(
@@ -596,6 +603,11 @@ class MiniMaxH3DirectorPlus:
                 ):
                     raise ValueError(
                         "低显存二采只允许 X2 超分模型，"
+                        f"当前解析为 {request['ai_upscale_model']}"
+                    )
+                if smart_mode and Path(request["ai_upscale_model"]).name.lower() != "realesrgan_x2plus.pth".lower():
+                    raise ValueError(
+                        "免费智能 1080p 只允许 RealESRGAN_x2plus.pth，"
                         f"当前解析为 {request['ai_upscale_model']}"
                     )
                 required_assets.append(request["ai_upscale_model"])
