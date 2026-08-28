@@ -194,8 +194,20 @@ def test_low_vram_description_matches_disabled_cache():
     assert "EasyCache" not in result[3]
 
 
+SAFE_ROUTE_FALLBACKS = {
+    ("T2VA", "reference_fast"): "quality",
+    ("I2VA", "reference_fast"): "quality",
+    ("FL2VA", "reference_fast"): "quality",
+    ("L2VA", "reference_fast"): "quality",
+    ("REF2VA", "quality_two_stage"): "quality",
+    ("REF2VA", "low_vram_two_stage"): "quality",
+    ("REF2VA", "reference_fast"): "quality",
+    ("REF2VA", "fl_quality_fast_v4"): "quality",
+}
+
+
 @pytest.mark.parametrize("mode", ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"])
-@pytest.mark.parametrize("preset", ["quality", "quality_sage", "quality_two_stage", "fast_4step", "reference_fast", "low_vram", "low_vram_two_stage", "custom"])
+@pytest.mark.parametrize("preset", ["quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "reference_fast", "low_vram", "low_vram_two_stage", "custom"])
 def test_every_mode_has_a_defined_performance_contract(mode, preset):
     backend = "ref2va_model" if mode == "REF2VA" else "fl2va_model"
     values = performance._runtime_preset_values(
@@ -213,15 +225,28 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     expected_cache = preset in {"fast_4step", "reference_fast"} and not (mode == "T2VA" and preset == "fast_4step")
     assert values["use_cache"] is expected_cache
     assert plan["backend"] == backend
-    expected_preset = "quality" if mode == "T2VA" and preset == "reference_fast" else preset
-    assert plan["use_turbo_lora"] is (expected_preset in {"fast_4step", "quality_two_stage", "low_vram_two_stage"})
+    expected_preset = SAFE_ROUTE_FALLBACKS.get((mode, preset), preset)
+    assert plan["preset"] == expected_preset
+    assert plan["use_turbo_lora"] is (
+        expected_preset in {"fast_4step", "fl_quality_fast_v4", "quality_two_stage", "low_vram_two_stage"}
+    )
+    if expected_preset != preset:
+        safe_result = MiniMaxH3PerformancePreset().apply({
+            "mode": mode,
+            "performance_preset": preset,
+            "resolved_backend": backend,
+        })
+        assert plan["route"] == "bypass"
+        assert safe_result[1:3] == (False, False)
     if expected_preset in {"quality_two_stage", "low_vram_two_stage"}:
         assert plan["first_lora_name"] == (
             REF_STAGE_LORA if backend == "ref2va_model" else FL_STAGE1_LORA
         )
     else:
         assert plan["lora_name"] == (
-            performance.REF2VA_TURBO_LORA_NAME if backend == "ref2va_model" else performance.TURBO_LORA_NAME
+            performance.FL_V4_LORA_NAME
+            if expected_preset == "fl_quality_fast_v4"
+            else performance.REF2VA_TURBO_LORA_NAME if backend == "ref2va_model" else performance.TURBO_LORA_NAME
         )
 
 
@@ -433,7 +458,7 @@ def test_t2va_fast_uses_official_h3_turbo_contract():
         "resolved_backend": "fl2va_model",
     }
     assert performance.allowed_performance_presets("T2VA", "none") == (
-        "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"
+        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"
     )
     assert acceleration_plan(guide)["use_turbo_lora"] is True
     assert acceleration_plan(guide)["lora_name"] == performance.TURBO_LORA_NAME
@@ -714,7 +739,7 @@ def test_quality_priority_acceleration_failure_keeps_twenty_steps(monkeypatch):
     assert MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=result[2])[0] == 20
 
 
-def test_reference_fast_applies_sage_and_easycache_on_routed_model(monkeypatch):
+def test_reference_fast_bypassing_schema_is_safely_rejected(monkeypatch):
     calls = []
 
     def apply_sage(model, guide):
@@ -735,11 +760,11 @@ def test_reference_fast_applies_sage_and_easycache_on_routed_model(monkeypatch):
     }
     result = MiniMaxH3AccelerationRouter().apply("model", guide)
 
-    assert result[0] == "model:sage:cache"
-    assert calls == ["sage", "cache"]
-    assert guide["sage_applied"] is True
-    assert guide["easycache_applied"] is True
-    assert result[2] is True
+    assert result[0] == "model"
+    assert calls == []
+    assert guide["sage_applied"] is False
+    assert guide["easycache_applied"] is False
+    assert result[2] is False
 
 
 def test_reference_fast_uses_safe_steps_when_requested_acceleration_fails(monkeypatch):
