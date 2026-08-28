@@ -28,6 +28,12 @@ def test_smart_target_rejects_non_positive_dimensions(size):
         smart_1080p_target(*size)
 
 
+def test_smart_target_rounds_non_integer_long_edge_to_nearest_even():
+    width, height = smart_1080p_target(13, 7)
+    assert (width, height) == (2006, 1080)
+    assert width % 2 == 0 and height % 2 == 0
+
+
 @pytest.mark.parametrize(
     "backend, preset",
     [("fl2va_model", "fast_4step"), ("ref2va_model", "quality_sage")],
@@ -55,6 +61,30 @@ def test_low_vram_ref_bypasses_two_stage():
     assert plan["performance_preset"] == "low_vram"
     assert plan["two_stage_route"] == "bypass"
     assert plan["low_vram"] is True
+
+
+@pytest.mark.parametrize("backend", ["fl2va_model", "ref2va_model"])
+def test_low_vram_common_free_upscale_contract(backend):
+    plan = resolve_smart_1080p_plan(backend, 4, 8, 7)
+    assert plan["postprocess_mode"] == "ai_upscale"
+    assert plan["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+    assert plan["motion_smoothing"] == "off"
+    assert plan["use_easycache"] is False
+    assert plan["max_duration"] == 6
+    assert plan["warning"] == (
+        "已启用低显存 1080p 模式。当前显存档位最多支持 6 秒；系统会降低生成阶段分辨率，"
+        "并在生成后免费超分到目标 1080p 尺寸。"
+    )
+
+
+@pytest.mark.parametrize("total_vram_gb, low_vram", [(16.0, True), (16.1, False)])
+def test_total_vram_boundary_selects_low_vram_at_sixteen_gb(total_vram_gb, low_vram):
+    plan = resolve_smart_1080p_plan("fl2va_model", 6, total_vram_gb, 7)
+    assert plan["low_vram"] is low_vram
+
+
+def test_smart_upscale_model_is_the_approved_model_name():
+    assert SMART_UPSCALE_MODEL == "RealESRGAN_x2plus.pth"
 
 
 def test_low_vram_rejects_duration_above_six_with_actionable_chinese_error():
