@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import numpy as np
 from PIL import Image
 
-from .upscale import resolve_upscale_model_name
+from .upscale import resolve_upscale_model_name, validate_frames_for_reconstruction
 from .rtx_vsr_stream import DeblurVsrFrameProcessor, VsrFrameProcessor, load_vsr_api
 from .rife_stream import (
     DEFAULT_RIFE_MODEL,
@@ -790,6 +790,7 @@ class MiniMaxH3StreamingVideoCombine:
         if motion_smoothing == "rife_x2":
             probe_rife_capability(guide.get("rife_model", DEFAULT_RIFE_MODEL))
         if postprocess_path == "ai_upscale":
+            validate_frames_for_reconstruction(source)
             try:
                 resolve_upscale_model_name(
                     guide.get("ai_upscale_model", "auto"),
@@ -828,6 +829,8 @@ class MiniMaxH3StreamingVideoCombine:
         def report_encode_progress(encoded_seconds):
             if progress_bar is not None:
                 progress_bar.update_absolute(min(total_frames, max(0, int(encoded_seconds * output_frame_rate))))
+
+        ai_edge_frames = {}
 
         def frame_chunks():
             chunk_kwargs = {
@@ -886,6 +889,10 @@ class MiniMaxH3StreamingVideoCombine:
                     )
             try:
                 for chunk in chunks:
+                    if postprocess_path == "ai_upscale" and len(chunk):
+                        if "first" not in ai_edge_frames:
+                            ai_edge_frames["first"] = chunk[0].detach().cpu().clone()
+                        ai_edge_frames["last"] = chunk[-1].detach().cpu().clone()
                     yield dasiwa._frame_bytes(chunk, selected_bit_depth)
             finally:
                 close = getattr(chunks, "close", None)
@@ -978,7 +985,10 @@ class MiniMaxH3StreamingVideoCombine:
                 elif postprocess_path == "lanczos":
                     frame_exports.append(_save_lanczos_frame(source, 0, target_width, target_height, output_path, "first"))
                 elif postprocess_path == "ai_upscale":
-                    frame_exports.append(_save_ai_upscale_frame(source, 0, target_width, target_height, guide.get("ai_upscale_model", "auto"), output_path, "first"))
+                    if "first" in ai_edge_frames:
+                        frame_exports.append(_save_native_frame(ai_edge_frames["first"].unsqueeze(0), 0, output_path, "first"))
+                    else:
+                        frame_exports.append(_save_ai_upscale_frame(source, 0, target_width, target_height, guide.get("ai_upscale_model", "auto"), output_path, "first"))
                 else:
                     frame_exports.append(_save_vsr_frame(
                         source, 0, target_width, target_height,
@@ -996,7 +1006,10 @@ class MiniMaxH3StreamingVideoCombine:
                 elif postprocess_path == "lanczos":
                     frame_exports.append(_save_lanczos_frame(source, last_index, target_width, target_height, output_path, "last"))
                 elif postprocess_path == "ai_upscale":
-                    frame_exports.append(_save_ai_upscale_frame(source, last_index, target_width, target_height, guide.get("ai_upscale_model", "auto"), output_path, "last"))
+                    if "last" in ai_edge_frames:
+                        frame_exports.append(_save_native_frame(ai_edge_frames["last"].unsqueeze(0), 0, output_path, "last"))
+                    else:
+                        frame_exports.append(_save_ai_upscale_frame(source, last_index, target_width, target_height, guide.get("ai_upscale_model", "auto"), output_path, "last"))
                 else:
                     frame_exports.append(_save_vsr_frame(
                         source, last_index, target_width, target_height,

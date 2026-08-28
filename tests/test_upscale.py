@@ -6,6 +6,7 @@ from nodes.upscale import (
     MiniMaxH3VideoUpscale,
     is_x2_upscale_model_name,
     resolve_upscale_model_name,
+    validate_frames_for_reconstruction,
 )
 from nodes.stream_output import (
     _iter_ai_upscale_frame_chunks,
@@ -44,6 +45,22 @@ def test_x2_model_name_guard_rejects_x4_models():
     assert is_x2_upscale_model_name("OmniSR_X2_DIV2K.safetensors") is True
     assert is_x2_upscale_model_name("RealESRGAN_x4plus.pth") is False
     assert is_x2_upscale_model_name("4x-UltraSharp.pth") is False
+
+
+@pytest.mark.parametrize("images", [
+    torch.full((4, 16, 16, 3), float("nan")),
+    torch.full((4, 16, 16, 3), float("inf")),
+    torch.zeros((4, 16, 16, 3)),
+    torch.full((4, 16, 16, 3), 0.5),
+])
+def test_invalid_decoded_video_is_rejected_before_reconstruction(images):
+    with pytest.raises(ValueError, match="生成阶段输出无效，请重新生成"):
+        validate_frames_for_reconstruction(images)
+
+
+def test_low_saturation_but_structured_video_is_valid():
+    ramp = torch.linspace(0.1, 0.9, 16).view(1, 1, 16, 1).repeat(4, 16, 1, 3)
+    validate_frames_for_reconstruction(ramp)
 
 
 def test_video_upscale_passes_through_when_not_requested():

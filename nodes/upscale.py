@@ -58,6 +58,22 @@ def resolve_upscale_model_name(model_name="auto", scale_factor=2.0, available=No
     )
 
 
+def validate_frames_for_reconstruction(images, minimum_dynamic_range=1.0 / 1024.0):
+    """Reject malformed or structurally empty BHWC video before reconstruction."""
+    if not isinstance(images, torch.Tensor) or images.ndim != 4:
+        raise ValueError("生成阶段输出无效，请重新生成：帧张量必须是 BHWC 四维数据")
+    if images.shape[0] < 1 or images.shape[1] < 8 or images.shape[2] < 8:
+        raise ValueError("生成阶段输出无效，请重新生成：帧数或画面尺寸过小")
+    if images.shape[3] not in (3, 4):
+        raise ValueError("生成阶段输出无效，请重新生成：视频通道数必须为 3 或 4")
+    finite = torch.isfinite(images)
+    if not bool(finite.all()):
+        raise ValueError("生成阶段输出无效，请重新生成：帧中包含 NaN 或 Inf")
+    values = images[..., :3].float()
+    if float(values.max() - values.min()) < float(minimum_dynamic_range):
+        raise ValueError("生成阶段输出无效，请重新生成：帧几乎没有有效动态范围")
+
+
 class MiniMaxH3VideoUpscale:
     """Resize decoded H3 frames without allocating the target video on CUDA."""
 
