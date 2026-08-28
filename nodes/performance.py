@@ -156,9 +156,20 @@ def _patch_entry_count(model):
         raise H3LoRAApplicationError(f"无法读取 H3 LoRA 模型补丁: {exc}") from exc
 
 
+def _lora_effect_count(model):
+    """Count regular patches and runtime injections created by an H3 LoRA."""
+    injections = getattr(model, "injections", {})
+    if not isinstance(injections, dict):
+        injections = {}
+    injection_count = sum(
+        len(entries) if isinstance(entries, (list, tuple)) else int(bool(entries))
+        for entries in injections.values()
+    )
+    return _patch_entry_count(model) + injection_count
+
+
 def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
-    """Apply an official H3 adapter with ComfyUI's core model-only loader."""
-    del low_vram  # ComfyUI's current memory policy owns low-VRAM handling.
+    """Apply an official H3 adapter, with a H3-specific fallback for key maps."""
     requested_lora_name = lora_name or TURBO_LORA_NAME
     resolved_name = resolve_registered_model_name("loras", requested_lora_name)
     if resolved_name is None:
@@ -178,7 +189,35 @@ def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
         raise H3LoRAApplicationError(f"官方 H3 Turbo LoRA 加载失败: {resolved_name}: {exc}") from exc
     patch_delta = _patch_entry_count(loaded_model) - before_count
     if patch_delta <= 0:
-        raise H3LoRAApplicationError(f"官方 H3 Turbo LoRA 未应用任何模型补丁: {resolved_name}")
+        core_error = H3LoRAApplicationError(
+            f"官方 H3 Turbo LoRA 未应用任何模型补丁: {resolved_name}"
+        )
+        try:
+            # H3 adapters use module names that are not covered by ComfyUI's
+            # generic UNet key map. The bundled H3 loader normalizes those keys
+            # and supports both bypass and merged low-VRAM application.
+            h3_loader = _turbo_class("MiniMaxH3TurboLoRA")()
+            fallback_model = h3_loader.apply_lora(
+                model,
+                resolved_name,
+                float(strength),
+                low_vram=bool(low_vram),
+            )[0]
+            fallback_delta = _lora_effect_count(fallback_model) - _lora_effect_count(model)
+            if fallback_delta <= 0:
+                raise H3LoRAApplicationError(
+                    f"H3 专用加载器也未产生补丁或运行时注入（delta={fallback_delta}）"
+                )
+            LOGGER.warning(
+                "[H3 LoRA] 通用加载器未匹配 %s，已切换 H3 专用加载器 effect_delta=%s",
+                resolved_name,
+                fallback_delta,
+            )
+            return fallback_model
+        except Exception as exc:
+            raise H3LoRAApplicationError(
+                f"{core_error}；H3 专用加载器失败: {exc}"
+            ) from exc
     LOGGER.info(
         "[H3 LoRA] 官方加载成功 name=%s strength=%s patch_delta=%s",
         resolved_name,

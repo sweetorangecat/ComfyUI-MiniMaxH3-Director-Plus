@@ -111,6 +111,46 @@ def test_official_lora_rejects_zero_patch_delta(monkeypatch):
         performance._load_lightx2v_lora(Model(), "adapter.safetensors")
 
 
+def test_official_lora_uses_h3_loader_when_core_loader_matches_zero(monkeypatch):
+    class FolderPaths:
+        @staticmethod
+        def get_full_path(category, name):
+            assert category == "loras"
+            if name == "minimax/adapter.safetensors":
+                return f"/models/{name}"
+            return None
+
+        @staticmethod
+        def get_filename_list(category):
+            assert category == "loras"
+            return ["minimax/adapter.safetensors"]
+
+    class Model:
+        def __init__(self, patches=None, injections=None):
+            self.patches = patches or {"adapter": [object()]}
+            self.injections = injections or {}
+
+    class CoreLoader:
+        def load_lora_model_only(self, model, name, strength):
+            return (model,)
+
+    class H3Loader:
+        def apply_lora(self, model, name, strength, low_vram=False):
+            assert name == "minimax/adapter.safetensors"
+            assert strength == 1.0
+            assert low_vram is False
+            return (Model(injections={"bypass_lora": [object()]}),)
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
+    monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": CoreLoader})())
+    monkeypatch.setattr(performance, "_turbo_class", lambda name: H3Loader if name == "MiniMaxH3TurboLoRA" else pytest.fail(name))
+
+    result = performance._load_lightx2v_lora(Model(), "adapter.safetensors")
+
+    assert performance._lora_effect_count(result) > performance._lora_effect_count(Model())
+
+
 
 def test_official_lora_wraps_unexpected_core_loader_exception(monkeypatch):
     class FolderPaths:
