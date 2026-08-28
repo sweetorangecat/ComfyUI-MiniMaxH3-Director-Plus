@@ -48,8 +48,9 @@ def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb):
     """Resolve Smart 1080p generation policy for a backend and VRAM state."""
     if free_vram_gb < LOW_VRAM_MIN_FREE_GB:
         raise RequestError(
-            f"空闲显存 {float(free_vram_gb):.1f}GB 低于 Smart 1080p 安全要求，至少需要 "
-            f"至少 {LOW_VRAM_MIN_FREE_GB:.1f}GB"
+            f"低于最低安全预算：当前空闲显存 {float(free_vram_gb):.1f}GB，"
+            f"至少需要 {LOW_VRAM_MIN_FREE_GB:.1f}GB；"
+            "请关闭其他任务、等待模型卸载或重启 ComfyUI。"
         )
     if backend not in ("fl2va_model", "ref2va_model"):
         raise RequestError(f"不支持的 Smart 1080p backend：{backend}")

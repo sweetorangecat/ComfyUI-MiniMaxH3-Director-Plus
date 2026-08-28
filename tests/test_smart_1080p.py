@@ -99,8 +99,22 @@ def test_low_vram_rejects_duration_above_six_with_actionable_chinese_error():
 
 
 def test_any_insufficient_free_vram_is_rejected_even_with_large_total_vram():
-    with pytest.raises(RequestError, match=r"空闲显存 5\.5GB.*至少 6\.0GB"):
+    with pytest.raises(RequestError) as exc:
         resolve_smart_1080p_plan("fl2va_model", 10, 24, 5.5)
+    assert str(exc.value) == (
+        "低于最低安全预算：当前空闲显存 5.5GB，至少需要 6.0GB；"
+        "请关闭其他任务、等待模型卸载或重启 ComfyUI。"
+    )
+
+
+def test_free_vram_exactly_at_safety_floor_is_allowed():
+    plan = resolve_smart_1080p_plan("fl2va_model", 6, 8, 6.0)
+    assert plan["low_vram"] is True
+
+
+def test_free_vram_just_below_safety_floor_is_rejected():
+    with pytest.raises(RequestError):
+        resolve_smart_1080p_plan("fl2va_model", 6, 8, 5.99)
 
 
 def test_unknown_backend_is_rejected():
