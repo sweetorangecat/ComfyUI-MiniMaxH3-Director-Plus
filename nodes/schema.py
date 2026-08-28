@@ -74,6 +74,13 @@ PERFORMANCE_PRESET_LABELS_BY_KEY = {
     "custom": "自定义",
 }
 
+REFERENCE_UNSAFE_FALLBACKS = {
+    "quality_two_stage": "quality_sage",
+    "reference_fast": "quality_sage",
+    "fl_quality_fast_v4": "quality_sage",
+    "low_vram_two_stage": "low_vram",
+}
+
 PERFORMANCE_PRESETS_BY_ROUTE = {
     # The official H3 Turbo LoRA ships with a T2V example workflow and is
     # compatible with the same FL2VA model endpoint used by T2VA/FL2VA/I2VA.
@@ -307,18 +314,18 @@ def normalize_request(raw=None):
             "已因音色参考切换到 REF2VA；首尾图片属于提示词约束，不是硬端点。"
         )
     if request["resolved_backend"] == "ref2va_model":
-        reference_fallbacks = {
-            "quality_two_stage": "quality_sage",
-            "reference_fast": "quality_sage",
-            "fl_quality_fast_v4": "quality_sage",
-            "low_vram_two_stage": "low_vram",
-        }
-        fallback = reference_fallbacks.get(preset)
+        fallback = REFERENCE_UNSAFE_FALLBACKS.get(preset)
         if fallback:
             request["performance_preset"] = fallback
             request["warnings"].append(
-                f"REF2VA 后端不支持性能预设 {preset}，已安全回退为 {fallback}。"
+                f"{PERFORMANCE_PRESET_LABELS_BY_KEY[preset]} ({preset}) 已回退为 "
+                f"{PERFORMANCE_PRESET_LABELS_BY_KEY[fallback]} ({fallback})。"
             )
+            if preset == "quality_two_stage" and request["rtx_quality"] == "HIGHBITRATE_ULTRA":
+                request["rtx_quality"] = "HIGH"
+                request["warnings"].append(
+                    "质量优先二采样专属 HIGHBITRATE_ULTRA 已随 REF 回退协调为 HIGH。"
+                )
 
     resolved_preset = request["performance_preset"]
     allowed = allowed_performance_presets(request["mode"], request["voice_mode"])

@@ -456,15 +456,17 @@ def test_reference_routes_have_exact_safe_preset_set():
 
 
 @pytest.mark.parametrize(
-    ("preset", "fallback", "postprocess_mode"),
+    ("preset", "fallback", "label", "fallback_label", "postprocess_mode"),
     [
-        ("quality_two_stage", "quality_sage", "rtx_vsr"),
-        ("reference_fast", "quality_sage", "native"),
-        ("fl_quality_fast_v4", "quality_sage", "native"),
-        ("low_vram_two_stage", "low_vram", "ai_upscale"),
+        ("quality_two_stage", "quality_sage", "质量优先二采样", "质量优先加速", "rtx_vsr"),
+        ("reference_fast", "quality_sage", "参考图加速", "质量优先加速", "native"),
+        ("fl_quality_fast_v4", "quality_sage", "高清快速（v4 8步）", "质量优先加速", "native"),
+        ("low_vram_two_stage", "low_vram", "低显存二采", "低显存", "ai_upscale"),
     ],
 )
-def test_ref2va_unsafe_legacy_preset_falls_back_after_backend_resolution(preset, fallback, postprocess_mode):
+def test_ref2va_unsafe_legacy_preset_falls_back_after_backend_resolution(
+    preset, fallback, label, fallback_label, postprocess_mode
+):
     request = normalize_request({
         "mode": "REF2VA",
         "performance_preset": preset,
@@ -473,6 +475,46 @@ def test_ref2va_unsafe_legacy_preset_falls_back_after_backend_resolution(preset,
     assert request["resolved_backend"] == "ref2va_model"
     assert request["performance_preset"] == fallback
     assert any(preset in warning and fallback in warning for warning in request["warnings"])
+    assert any(label in warning and fallback_label in warning for warning in request["warnings"])
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "mode": "REF2VA",
+            "performance_preset": "quality_two_stage",
+            "postprocess_mode": "rtx_vsr",
+            "rtx_quality": "HIGHBITRATE_ULTRA",
+        },
+        {
+            "mode": "I2VA",
+            "first_image": "opening.png",
+            "voice_mode": "h3_reference",
+            "voice_reference_audio": "voice.wav",
+            "performance_preset": "quality_two_stage",
+            "postprocess_mode": "rtx_vsr",
+            "rtx_quality": "HIGHBITRATE_ULTRA",
+        },
+    ],
+)
+def test_complete_legacy_reference_two_stage_state_migrates_to_repeatable_quality_sage(payload):
+    request = normalize_request(payload)
+
+    assert request["resolved_backend"] == "ref2va_model"
+    assert request["performance_preset"] == "quality_sage"
+    assert request["postprocess_mode"] == "rtx_vsr"
+    assert request["rtx_quality"] == "HIGH"
+    assert any("HIGHBITRATE_ULTRA" in warning and "HIGH" in warning for warning in request["warnings"])
+
+    reloaded = normalize_request(request)
+    assert {
+        field: reloaded[field]
+        for field in ("performance_preset", "postprocess_mode", "rtx_quality")
+    } == {
+        field: request[field]
+        for field in ("performance_preset", "postprocess_mode", "rtx_quality")
+    }
 
 
 def test_h3_reference_backend_falls_back_unsafe_legacy_preset():

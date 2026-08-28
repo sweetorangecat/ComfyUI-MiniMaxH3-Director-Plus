@@ -194,7 +194,9 @@ def test_low_vram_description_matches_disabled_cache():
     assert "EasyCache" not in result[3]
 
 
-SAFE_ROUTE_FALLBACKS = {
+# Public legacy-preset migration happens in schema; this table covers only the
+# defensive quality fallback for guides that bypass schema normalization.
+PERFORMANCE_DEFENSIVE_FALLBACKS = {
     ("T2VA", "reference_fast"): "quality",
     ("I2VA", "reference_fast"): "quality",
     ("FL2VA", "reference_fast"): "quality",
@@ -225,7 +227,7 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     expected_cache = preset in {"fast_4step", "reference_fast"} and not (mode == "T2VA" and preset == "fast_4step")
     assert values["use_cache"] is expected_cache
     assert plan["backend"] == backend
-    expected_preset = SAFE_ROUTE_FALLBACKS.get((mode, preset), preset)
+    expected_preset = PERFORMANCE_DEFENSIVE_FALLBACKS.get((mode, preset), preset)
     assert plan["preset"] == expected_preset
     assert plan["use_turbo_lora"] is (
         expected_preset in {"fast_4step", "fl_quality_fast_v4", "quality_two_stage", "low_vram_two_stage"}
