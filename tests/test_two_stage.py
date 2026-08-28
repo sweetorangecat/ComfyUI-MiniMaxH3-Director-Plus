@@ -18,7 +18,7 @@ from nodes.two_stage import (
 
 def test_quality_two_stage_is_high_vram_only_route():
     assert "quality_two_stage" in allowed_performance_presets("T2VA", "none")
-    assert "quality_two_stage" in allowed_performance_presets("REF2VA", "none")
+    assert "quality_two_stage" not in allowed_performance_presets("REF2VA", "none")
     assert "quality_two_stage" not in allowed_performance_presets("T2VA", "fish_lock")
     values = preset_values("quality_two_stage")
     assert values["steps"] == 8

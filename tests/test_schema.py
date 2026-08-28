@@ -16,10 +16,10 @@ def test_public_schema_lists_every_public_api_key():
     assert set(PUBLIC_API_KEYS) <= set(public_schema()["properties"])
 
 
-def test_low_vram_two_stage_is_a_public_route_but_fish_excludes_it():
+def test_two_stage_presets_remain_available_only_on_non_reference_routes():
     assert "low_vram" in allowed_performance_presets("T2VA", "none")
     assert "low_vram_two_stage" in allowed_performance_presets("T2VA", "none")
-    assert "low_vram_two_stage" in allowed_performance_presets("REF2VA", "h3_reference")
+    assert "low_vram_two_stage" not in allowed_performance_presets("REF2VA", "h3_reference")
     assert "low_vram_two_stage" not in allowed_performance_presets("T2VA", "fish_lock")
 
 
@@ -32,7 +32,7 @@ def test_schema_exposes_final_postprocess_controls():
         "质量优先二采样": ["HIGHBITRATE_ULTRA"],
         "其他性能预设": ["HIGH", "ULTRA"],
     }
-    assert schema["ai_upscale_model"]["default"] == "auto"
+    assert schema["ai_upscale_model"]["default"] == "RealESRGAN_x2plus.pth"
     assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["rtx_vsr"]
     assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == ["ai_upscale"]
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
@@ -41,12 +41,13 @@ def test_schema_exposes_final_postprocess_controls():
     assert schema["audio_loudness"]["default"] == "auto"
 
 
-def test_normalize_request_defaults_to_native_postprocess():
+def test_normalize_request_defaults_to_smart_free_1080p():
     request = normalize_request({"mode": "T2VA", "duration": 4})
 
-    assert request["postprocess_mode"] == "native"
+    assert request["performance_preset"] == "smart_free_1080p"
+    assert request["postprocess_mode"] == "ai_upscale"
     assert request["rtx_quality"] == "HIGH"
-    assert request["ai_upscale_model"] == "auto"
+    assert request["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
     assert request["motion_smoothing"] == "off"
     assert request["audio_loudness"] == "auto"
 
@@ -87,6 +88,27 @@ def test_normalize_request_accepts_generic_upscale_model_override():
 
     assert request["postprocess_mode"] == "ai_upscale"
     assert request["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+
+
+def test_smart_free_1080p_aliases_and_output_controls_are_locked():
+    for preset in ("免费智能 1080p", "smart_free_1080p"):
+        request = normalize_request({"mode": "T2VA", "performance_preset": preset})
+        assert request["performance_preset"] == "smart_free_1080p"
+    assert allowed_postprocess_modes("smart_free_1080p") == ("ai_upscale",)
+    assert schema_module.allowed_motion_smoothing("smart_free_1080p", "ai_upscale") == ("off",)
+
+    with pytest.raises(RequestError, match="smart_free_1080p.*后处理模式"):
+        normalize_request({
+            "mode": "T2VA",
+            "performance_preset": "smart_free_1080p",
+            "postprocess_mode": "native",
+        })
+    with pytest.raises(RequestError, match="RIFE"):
+        normalize_request({
+            "mode": "T2VA",
+            "performance_preset": "smart_free_1080p",
+            "motion_smoothing": "rife_x2",
+        })
 
 
 def test_quality_two_stage_only_allows_rtx_vsr_postprocess():
@@ -271,13 +293,15 @@ def test_public_schema_exposes_fish_model_choice():
 
 def test_public_schema_documents_route_performance_options():
     property_schema = public_schema()["properties"]["performance_preset"]
+    assert property_schema["enum"][0] == "免费智能 1080p"
+    assert property_schema["default"] == "免费智能 1080p"
     assert "质量优先二采样" in property_schema["enum"]
     assert "自定义" in property_schema["enum"]
     assert property_schema["allowed_by_route"]["T2VA"] == [
-        "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"
+        "免费智能 1080p", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"
     ]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
-        "稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "低显存二采"
+        "免费智能 1080p", "稳定质量", "质量优先加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "自定义"
     ]
 
 
@@ -351,12 +375,12 @@ def test_reference_mode_never_accepts_copy_semantics():
 @pytest.mark.parametrize(
     ("preset", "expected"),
     [
+        ("免费智能 1080p", "smart_free_1080p"),
         ("高清快速（v4 8步）", "fl_quality_fast_v4"),
         ("参考高清（原生20步）", "ref_quality_native"),
         ("参考极速（官方4步）", "ref_fast_4step"),
         ("稳定质量", "quality"),
         ("极速4步", "fast_4step"),
-        ("参考图加速", "reference_fast"),
         ("质量优先加速", "quality_sage"),
         ("质量优先二采样", "quality_two_stage"),
         ("低显存", "low_vram"),
@@ -366,12 +390,11 @@ def test_reference_mode_never_accepts_copy_semantics():
 )
 def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
     request = normalize_request({
-            "mode": "FL2VA" if expected == "fl_quality_fast_v4" else "REF2VA",
-            "first_image": "first.png" if expected == "fl_quality_fast_v4" else None,
+        "mode": "T2VA" if expected in {"quality_two_stage", "low_vram_two_stage", "fl_quality_fast_v4"} else "REF2VA",
         "performance_preset": preset,
         "postprocess_mode": (
             "rtx_vsr" if expected == "quality_two_stage"
-            else "ai_upscale" if expected == "low_vram_two_stage"
+            else "ai_upscale" if expected in {"smart_free_1080p", "low_vram_two_stage"}
             else "native"
         ),
     })
@@ -382,15 +405,15 @@ def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
 @pytest.mark.parametrize(
     ("mode", "voice_mode", "expected"),
     [
-        ("T2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("I2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("FL2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("L2VA", "none", ("quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("REF2VA", "none", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("I2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("FL2VA", "fish_lock", ("quality", "quality_sage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram")),
-        ("L2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("T2VA", "h3_reference", ("quality", "quality_sage", "quality_two_stage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("T2VA", "none", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("I2VA", "none", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("FL2VA", "none", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("L2VA", "none", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
+        ("REF2VA", "none", ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
+        ("I2VA", "h3_reference", ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
+        ("FL2VA", "fish_lock", ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
+        ("L2VA", "h3_reference", ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
+        ("T2VA", "h3_reference", ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
     ],
 )
 def test_allowed_performance_presets_follow_mode_and_voice(mode, voice_mode, expected):
@@ -411,7 +434,8 @@ def test_voice_reference_uses_ref2va_performance_set_even_in_fl2va():
         "voice_reference_audio": "voice.wav",
     })
     assert request["resolved_backend"] == "ref2va_model"
-    assert "reference_fast" in allowed_performance_presets("FL2VA", "h3_reference")
+    assert "smart_free_1080p" in allowed_performance_presets("FL2VA", "h3_reference")
+    assert "reference_fast" not in allowed_performance_presets("FL2VA", "h3_reference")
 
 
 def test_route_specific_presets_are_not_cross_exposed():
@@ -420,6 +444,64 @@ def test_route_specific_presets_are_not_cross_exposed():
     assert "ref_quality_native" in allowed_performance_presets("REF2VA", "none")
     assert "ref_fast_4step" in allowed_performance_presets("REF2VA", "none")
     assert "ref_quality_native" not in allowed_performance_presets("FL2VA", "none")
+
+
+def test_reference_routes_have_exact_safe_preset_set():
+    allowed = set(allowed_performance_presets("REF2VA", "none"))
+    assert allowed == {
+        "smart_free_1080p", "quality", "quality_sage", "ref_quality_native",
+        "ref_fast_4step", "fast_4step", "low_vram", "custom",
+    }
+    assert not allowed & {"quality_two_stage", "low_vram_two_stage", "reference_fast", "fl_quality_fast_v4"}
+
+
+@pytest.mark.parametrize(
+    ("preset", "fallback", "postprocess_mode"),
+    [
+        ("quality_two_stage", "quality_sage", "rtx_vsr"),
+        ("reference_fast", "quality_sage", "native"),
+        ("fl_quality_fast_v4", "quality_sage", "native"),
+        ("low_vram_two_stage", "low_vram", "ai_upscale"),
+    ],
+)
+def test_ref2va_unsafe_legacy_preset_falls_back_after_backend_resolution(preset, fallback, postprocess_mode):
+    request = normalize_request({
+        "mode": "REF2VA",
+        "performance_preset": preset,
+        "postprocess_mode": postprocess_mode,
+    })
+    assert request["resolved_backend"] == "ref2va_model"
+    assert request["performance_preset"] == fallback
+    assert any(preset in warning and fallback in warning for warning in request["warnings"])
+
+
+def test_h3_reference_backend_falls_back_unsafe_legacy_preset():
+    request = normalize_request({
+        "mode": "I2VA",
+        "first_image": "opening.png",
+        "voice_mode": "h3_reference",
+        "voice_reference_audio": "voice.wav",
+        "performance_preset": "quality_two_stage",
+        "postprocess_mode": "rtx_vsr",
+    })
+    assert request["resolved_backend"] == "ref2va_model"
+    assert request["performance_preset"] == "quality_sage"
+    assert any("quality_two_stage" in warning and "quality_sage" in warning for warning in request["warnings"])
+
+
+def test_fish_backend_falls_back_low_vram_two_stage_after_compatibility_resolution():
+    request = normalize_request({
+        "mode": "FL2VA",
+        "first_image": "opening.png",
+        "voice_mode": "fish_lock",
+        "voice_reference_audio": "voice.wav",
+        "target_dialogue": "我们回家。",
+        "performance_preset": "low_vram_two_stage",
+        "postprocess_mode": "ai_upscale",
+    })
+    assert request["resolved_backend"] == "ref2va_model"
+    assert request["performance_preset"] == "low_vram"
+    assert request["postprocess_mode"] == "ai_upscale"
 
 
 def test_duration_uses_h3_native_four_to_fifteen_second_range():

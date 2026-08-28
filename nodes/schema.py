@@ -18,6 +18,7 @@ PUBLIC_API_KEYS = (
     "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness",
 )
 PERFORMANCE_PRESETS = {
+    "免费智能 1080p": "smart_free_1080p",
     "稳定质量": "quality",
     "质量优先加速": "quality_sage",
     "质量优先二采样": "quality_two_stage",
@@ -40,9 +41,11 @@ PERFORMANCE_PRESETS = {
     "low_vram": "low_vram",
     "low_vram_two_stage": "low_vram_two_stage",
     "custom": "custom",
+    "smart_free_1080p": "smart_free_1080p",
 }
 
 USER_PERFORMANCE_PRESET_LABELS = (
+    "免费智能 1080p",
     "稳定质量",
     "质量优先加速",
     "质量优先二采样",
@@ -56,12 +59,27 @@ USER_PERFORMANCE_PRESET_LABELS = (
     "自定义",
 )
 
+PERFORMANCE_PRESET_LABELS_BY_KEY = {
+    "smart_free_1080p": "免费智能 1080p",
+    "quality": "稳定质量",
+    "quality_sage": "质量优先加速",
+    "quality_two_stage": "质量优先二采样",
+    "fl_quality_fast_v4": "高清快速（v4 8步）",
+    "fast_4step": "极速4步",
+    "reference_fast": "参考图加速",
+    "ref_quality_native": "参考高清（原生20步）",
+    "ref_fast_4step": "参考极速（官方4步）",
+    "low_vram": "低显存",
+    "low_vram_two_stage": "低显存二采",
+    "custom": "自定义",
+}
+
 PERFORMANCE_PRESETS_BY_ROUTE = {
     # The official H3 Turbo LoRA ships with a T2V example workflow and is
     # compatible with the same FL2VA model endpoint used by T2VA/FL2VA/I2VA.
-    "t2va": ("quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
-    "endpoint": ("quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
-    "reference": ("quality", "quality_sage", "quality_two_stage", "reference_fast", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "low_vram_two_stage"),
+    "t2va": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
+    "endpoint": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
+    "reference": ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom"),
 }
 
 TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})
@@ -71,6 +89,7 @@ TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_st
 # verified final reconstruction route. Other presets still expose one
 # selectable final-output method at a time.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
+    "smart_free_1080p": ("ai_upscale",),
     "quality_two_stage": ("rtx_vsr",),
     "low_vram_two_stage": ("ai_upscale",),
     "quality": POSTPROCESS_MODES,
@@ -101,19 +120,13 @@ def allowed_rtx_qualities(performance_preset):
 def allowed_motion_smoothing(performance_preset, postprocess_mode):
     """Return resolved motion-smoothing paths compatible with this route."""
     preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
-    if preset in {"low_vram", *TWO_STAGE_PERFORMANCE_PRESETS} or postprocess_mode != "rtx_vsr":
+    if preset in {"smart_free_1080p", "low_vram", *TWO_STAGE_PERFORMANCE_PRESETS} or postprocess_mode != "rtx_vsr":
         return ("off",)
     return ("off", "rife_x2")
 
 
 def allowed_performance_presets(mode, voice_mode="none"):
     """Return the safe, user-facing presets for the active H3 route."""
-    if voice_mode == "fish_lock":
-        return tuple(
-            item
-            for item in PERFORMANCE_PRESETS_BY_ROUTE["reference"]
-            if item not in {"quality_two_stage", "low_vram_two_stage"}
-        )
     if voice_mode != "none" or mode == "REF2VA":
         return PERFORMANCE_PRESETS_BY_ROUTE["reference"]
     if mode == "T2VA":
@@ -169,10 +182,10 @@ DEFAULT_REQUEST = {
     "reference_transcript": "",
     "fish_model_path": "s2-pro-w4a16 (auto download)",
     "ref_image_size": "match",
-    "performance_preset": "quality",
-    "postprocess_mode": "native",
+    "performance_preset": "smart_free_1080p",
+    "postprocess_mode": "ai_upscale",
     "rtx_quality": "HIGH",
-    "ai_upscale_model": "auto",
+    "ai_upscale_model": "RealESRGAN_x2plus.pth",
     "motion_smoothing": "off",
     "audio_loudness": "auto",
     "ignored_media": [],
@@ -251,7 +264,7 @@ def normalize_request(raw=None):
     request["audio_loudness"] = str(request.get("audio_loudness") or "auto")
     if request["audio_loudness"] not in AUDIO_LOUDNESS_MODES:
         raise RequestError(f"不支持的最终音频响度模式：{request['audio_loudness']}")
-    request["ai_upscale_model"] = str(request.get("ai_upscale_model") or "auto").strip() or "auto"
+    request["ai_upscale_model"] = str(request.get("ai_upscale_model") or "RealESRGAN_x2plus.pth").strip() or "RealESRGAN_x2plus.pth"
 
     try:
         duration = int(request["duration"])
@@ -278,14 +291,52 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的性能预设：{request['performance_preset']}")
     request["performance_preset"] = preset
 
-    allowed_postprocess = allowed_postprocess_modes(preset)
+    request["warnings"] = []
+    if ignored_media:
+        request["warnings"].append(
+            f"已忽略与 {request['mode']} 不兼容的图片输入：{'、'.join(ignored_media)}。"
+        )
+
+    request["resolved_backend"] = (
+        "ref2va_model"
+        if request["mode"] == "REF2VA" or request["voice_mode"] != "none"
+        else "fl2va_model"
+    )
+    if request["resolved_backend"] == "ref2va_model" and request["mode"] != "REF2VA":
+        request["warnings"].append(
+            "已因音色参考切换到 REF2VA；首尾图片属于提示词约束，不是硬端点。"
+        )
+    if request["resolved_backend"] == "ref2va_model":
+        reference_fallbacks = {
+            "quality_two_stage": "quality_sage",
+            "reference_fast": "quality_sage",
+            "fl_quality_fast_v4": "quality_sage",
+            "low_vram_two_stage": "low_vram",
+        }
+        fallback = reference_fallbacks.get(preset)
+        if fallback:
+            request["performance_preset"] = fallback
+            request["warnings"].append(
+                f"REF2VA 后端不支持性能预设 {preset}，已安全回退为 {fallback}。"
+            )
+
+    resolved_preset = request["performance_preset"]
+    allowed = allowed_performance_presets(request["mode"], request["voice_mode"])
+    if resolved_preset not in allowed and resolved_preset != "custom":
+        request["performance_preset"] = "quality"
+        resolved_preset = "quality"
+        request["warnings"].append(
+            f"{request['mode']} / {request['voice_mode']} 不支持性能预设 {preset}，已自动切换为稳定质量。"
+        )
+
+    allowed_postprocess = allowed_postprocess_modes(resolved_preset)
     if request["postprocess_mode"] not in allowed_postprocess:
-        if preset == "quality_two_stage":
+        if resolved_preset == "quality_two_stage":
             raise RequestError(
                 "质量优先二采样已包含 H3 latent 放大重绘，只能搭配 RTX VSR；"
                 "请将最终输出切换为 RTX VSR（HIGH 或 ULTRA）"
             )
-        if preset == "low_vram_two_stage":
+        if resolved_preset == "low_vram_two_stage":
             raise RequestError(
                 "低显存二采只能搭配 AI 自动超分的 X2 细节重建；"
                 "请将最终输出切换为 AI 自动超分"
@@ -295,19 +346,6 @@ def normalize_request(raw=None):
             f"{request['postprocess_mode']}"
         )
 
-    request["warnings"] = []
-    if ignored_media:
-        request["warnings"].append(
-            f"已忽略与 {request['mode']} 不兼容的图片输入：{'、'.join(ignored_media)}。"
-        )
-    allowed = allowed_performance_presets(request["mode"], request["voice_mode"])
-    if preset not in allowed and preset != "custom":
-        request["performance_preset"] = "quality"
-        request["warnings"].append(
-            f"{request['mode']} / {request['voice_mode']} 不支持性能预设 {preset}，已自动切换为稳定质量。"
-        )
-
-    resolved_preset = request["performance_preset"]
     allowed_rtx = allowed_rtx_qualities(resolved_preset)
     if resolved_preset == "quality_two_stage":
         if request["rtx_quality"] != "HIGHBITRATE_ULTRA":
@@ -337,19 +375,16 @@ def normalize_request(raw=None):
             raise RequestError("低显存模式不支持 RIFE 运动平滑，请将运动平滑切换为关闭")
         raise RequestError("RIFE 2x 运动平滑只能搭配 RTX VSR 最终输出")
 
-    request["resolved_backend"] = (
-        "ref2va_model"
-        if request["mode"] == "REF2VA" or request["voice_mode"] != "none"
-        else "fl2va_model"
-    )
-    if request["resolved_backend"] == "ref2va_model" and request["mode"] != "REF2VA":
-        request["warnings"].append(
-            "已因音色参考切换到 REF2VA；首尾图片属于提示词约束，不是硬端点。"
-        )
     return request
 
 
 def public_schema():
+    def labels_for(mode, voice_mode="none"):
+        return [
+            PERFORMANCE_PRESET_LABELS_BY_KEY[preset]
+            for preset in allowed_performance_presets(mode, voice_mode)
+        ]
+
     return {
         "version": "1.0",
         "properties": {
@@ -373,23 +408,24 @@ def public_schema():
             "performance_preset": {
                 "中文名称": "性能预设",
                 "enum": list(USER_PERFORMANCE_PRESET_LABELS),
-                "default": "稳定质量",
+                "default": "免费智能 1080p",
                 "allowed_by_route": {
-                    "T2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"],
-                    "I2VA / FL2VA / L2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"],
-                    "REF2VA": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "低显存二采"],
-                    "I2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "低显存二采"],
-                    "FL2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "低显存二采"],
-                    "L2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "低显存二采"],
-                    "T2VA + 音色参考": ["稳定质量", "质量优先加速", "质量优先二采样", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存", "低显存二采"],
+                    "T2VA": labels_for("T2VA"),
+                    "I2VA / FL2VA / L2VA": labels_for("I2VA"),
+                    "REF2VA": labels_for("REF2VA"),
+                    "I2VA + 音色参考": labels_for("I2VA", "h3_reference"),
+                    "FL2VA + 音色参考": labels_for("FL2VA", "h3_reference"),
+                    "L2VA + 音色参考": labels_for("L2VA", "h3_reference"),
+                    "T2VA + 音色参考": labels_for("T2VA", "h3_reference"),
                 },
             },
             "postprocess_mode": {
                 "中文名称": "最终输出后处理模式",
                 "enum": list(POSTPROCESS_MODES),
-                "default": "native",
+                "default": "ai_upscale",
                 "description": "四种最终输出路线：原生尺寸直出、Lanczos 快速放大、通用 AI 自动超分、NVIDIA RTX VSR AI 细节重建。",
                 "allowed_by_performance": {
+                    "免费智能 1080p": ["ai_upscale"],
                     "质量优先二采样": ["rtx_vsr"],
                     "低显存二采": ["ai_upscale"],
                     "其他性能预设": list(POSTPROCESS_MODES),
@@ -408,7 +444,7 @@ def public_schema():
             "ai_upscale_model": {
                 "中文名称": "通用 AI 超分模型",
                 "type": "string",
-                "default": "auto",
+                "default": "RealESRGAN_x2plus.pth",
                 "description": "自动选择或指定 models/upscale_models 中的通用 AI 超分模型，仅在 ai_upscale 模式生效。",
             },
             "motion_smoothing": {
@@ -417,6 +453,7 @@ def public_schema():
                 "default": "off",
                 "description": "默认关闭以保留 H3 原始帧；可手动启用流式 RIFE 2x，旧 auto 值按关闭处理。质量优先二采样和低显存模式只允许关闭。",
                 "allowed_by_performance": {
+                    "免费智能 1080p + AI 自动超分": ["auto", "off"],
                     "质量优先二采样 + RTX VSR": ["auto", "off"],
                     "低显存": ["off"],
                     "其他 RTX VSR": ["auto", "off", "rife_x2"],
