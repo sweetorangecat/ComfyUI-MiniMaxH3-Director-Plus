@@ -12,8 +12,9 @@ const SMART_PRESET = "免费智能 1080p";
 const SMART_UPSCALE_MODEL = "RealESRGAN_x2plus.pth";
 // Keep node geometry independent from the browser sidebar width.
 const DIRECTOR_UI_WIDTH = 1350;
-const DIRECTOR_UI_HEIGHT = 1510;
-const DIRECTOR_DOM_HEIGHT = 1050;
+const DIRECTOR_MIN_CONTENT_WIDTH = 1180;
+const DIRECTOR_UI_HEIGHT = 1760;
+const DIRECTOR_DOM_HEIGHT = 1280;
 const DIRECTOR_CONTENT_INSET = 48;
 const DIRECTOR_VIEWPORT_HEIGHT = DIRECTOR_DOM_HEIGHT;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
@@ -116,7 +117,7 @@ function installStyles() {
   stylesInstalled = true;
   const style = document.createElement("style");
   style.textContent = `
-    .h3p{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:${DIRECTOR_VIEWPORT_HEIGHT}px;max-height:100%;padding:8px;background:#0f151b;color:#d9e4eb;font:12px system-ui,sans-serif;display:flex;flex-direction:column;gap:8px;overflow-y:auto;overflow-x:hidden}
+    .h3p{box-sizing:border-box;width:100%;min-width:${DIRECTOR_MIN_CONTENT_WIDTH}px;max-width:none;height:${DIRECTOR_VIEWPORT_HEIGHT}px;max-height:none;padding:8px;background:#0f151b;color:#d9e4eb;font:12px system-ui,sans-serif;display:flex;flex-direction:column;gap:8px;overflow-y:auto;overflow-x:auto}
     .h3p *{box-sizing:border-box;letter-spacing:0}.h3p-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.h3p-title{font-size:14px;font-weight:700;color:#fff}.h3p-badge{padding:2px 7px;border:1px solid #4d6372;border-radius:4px;color:#9fc5d8;background:#17232c}
     .h3p-workbench-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:10px 11px;border:1px solid #3f789e;border-radius:5px;background:#14232b;box-shadow:inset 0 1px 0 rgba(137,202,230,.08)}.h3p-workbench-copy{min-width:0}.h3p-workbench-kicker{color:#8fc6dc;font-size:10px;line-height:1.3;text-transform:uppercase}.h3p-workbench-name{margin-top:2px;color:#fff;font-size:16px;font-weight:750;line-height:1.25}.h3p-workbench-hint{margin-top:3px;color:#9fb2bf;font-size:11px;line-height:1.4}.h3p-workbench-badge{align-self:start;padding:4px 8px;border:1px solid #4c806b;border-radius:4px;background:#18372f;color:#a8e0bd;font-size:11px;white-space:nowrap}.h3p-status-strip{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:2px}.h3p-status-item{min-width:0;padding:6px 7px;border:1px solid #344956;border-radius:4px;background:#101b21}.h3p-status-label{display:block;color:#8298a6;font-size:10px;line-height:1.2}.h3p-status-value{display:block;margin-top:2px;overflow:hidden;color:#e0e8ed;font-size:11px;font-weight:650;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
     .h3p-section{border-top:1px solid #2d3b46;padding-top:8px}.h3p-section-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;color:#fff;font-weight:650}.h3p-hint{color:#8fa5b4;font-weight:400;font-size:11px}
@@ -1085,7 +1086,9 @@ function install(node) {
     backend.append(route);
     root.append(backend);
 
-    node.setSize?.([DIRECTOR_UI_WIDTH, DIRECTOR_UI_HEIGHT]);
+    const currentWidth = Number(node.size?.[0]) || 0;
+    const currentHeight = Number(node.size?.[1]) || 0;
+    node.setSize?.([Math.max(currentWidth, DIRECTOR_UI_WIDTH), Math.max(currentHeight, DIRECTOR_UI_HEIGHT)]);
     node.graph?.setDirtyCanvas(true, true);
     requestAnimationFrame(bindRenderedControllers);
   }

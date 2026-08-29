@@ -105,7 +105,7 @@ def _replace_director(node):
     node.update({
         "type": "MiniMaxH3DirectorPlus",
         "title": "快速设置 / API 入参",
-        "size": [1350, 1510],
+        "size": [1350, 1760],
         "flags": {"collapsed": False},
         "mode": 0,
         "inputs": [
@@ -988,7 +988,7 @@ def build_workflow(source):
         {"id": "u11-header", "title": "MiniMax H3 Director Plus", "bounding": [-430, 180, 2830, 180], "color": "#3f789e", "font_size": 26, "flags": {}},
         {"id": "u11-info", "title": "使用说明与能力", "bounding": [-1080, 400, 560, 1590], "color": "#3f789e", "font_size": 24, "flags": {}},
         {"id": "u11-settings", "title": "能力与说明", "bounding": [-430, 400, 550, 1590], "color": "#3f789e", "font_size": 24, "flags": {}},
-        {"id": "u11-director", "title": "导演控制台", "bounding": [60, 400, 1400, 1620], "color": "#4c806b", "font_size": 24, "flags": {}},
+        {"id": "u11-director", "title": "导演控制台", "bounding": [60, 400, 1400, 1880], "color": "#4c806b", "font_size": 24, "flags": {}},
         {"id": "u11-output", "title": "预览与最终输出", "bounding": [1500, 400, 980, 1900], "color": "#5c7580", "font_size": 24, "flags": {}},
         {"id": "u11-assets", "title": "自动素材与兼容加速", "bounding": [-430, 2290, 2560, 760], "color": "#4c6f62", "font_size": 24, "flags": {}},
     ]
