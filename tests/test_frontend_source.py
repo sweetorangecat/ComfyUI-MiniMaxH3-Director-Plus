@@ -339,7 +339,7 @@ def test_director_ui_uses_stable_size_when_sidebar_changes_available_width():
     text = source()
     assert "DIRECTOR_UI_WIDTH" in text
     assert "DIRECTOR_UI_HEIGHT" in text
-    assert "node.setSize?.([Math.max(currentWidth, DIRECTOR_UI_WIDTH), Math.max(currentHeight, DIRECTOR_UI_HEIGHT)])" in text
+    assert "function enforceDirectorSize(node)" in text
     assert "node.size?.[0] || 500" not in text
     assert ".h3p{box-sizing:border-box;width:100%;min-width:${DIRECTOR_MIN_CONTENT_WIDTH}px;max-width:none;" in text
     assert "overflow-y:auto" in text
@@ -353,8 +353,18 @@ def test_director_ui_uses_stable_size_when_sidebar_changes_available_width():
     assert "const DIRECTOR_MIN_CONTENT_WIDTH = 1180;" in text
     assert "const DIRECTOR_UI_HEIGHT = 1760;" in text
     assert "const DIRECTOR_DOM_HEIGHT = 1280;" in text
-    assert "Math.max(currentWidth, DIRECTOR_UI_WIDTH)" in text
-    assert "Math.max(currentHeight, DIRECTOR_UI_HEIGHT)" in text
+    assert "enforceDirectorSize(node);" in text
+
+
+def test_director_ui_protects_node_and_dom_widget_size_from_comfy_reflow():
+    text = source()
+    assert "function enforceDirectorSize(node)" in text
+    assert "const originalComputeSize = node.computeSize?.bind(node)" in text
+    assert "node.computeSize = (...args) =>" in text
+    assert "Math.max(Number(computed?.[0]) || 0, DIRECTOR_UI_WIDTH)" in text
+    assert "Math.max(Number(computed?.[1]) || 0, DIRECTOR_UI_HEIGHT)" in text
+    assert "root.style.minWidth = `${DIRECTOR_MIN_CONTENT_WIDTH}px`" in text
+    assert "domWidget.element.style.minWidth" in text
 
 
 def test_fish_mode_exposes_model_dialogue_and_sample_transcript_controls():

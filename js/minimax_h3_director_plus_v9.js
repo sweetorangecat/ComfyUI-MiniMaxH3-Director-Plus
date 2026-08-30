@@ -143,6 +143,26 @@ function hideWidget(item) {
   item.draw = () => {};
 }
 
+function enforceDirectorSize(node) {
+  const currentWidth = Number(node.size?.[0]) || 0;
+  const currentHeight = Number(node.size?.[1]) || 0;
+  const width = Math.max(currentWidth, DIRECTOR_UI_WIDTH);
+  const height = Math.max(currentHeight, DIRECTOR_UI_HEIGHT);
+  if (width !== currentWidth || height !== currentHeight) node.setSize?.([width, height]);
+  return [width, height];
+}
+
+function protectDirectorComputeSize(node) {
+  const originalComputeSize = node.computeSize?.bind(node);
+  node.computeSize = (...args) => {
+    const computed = originalComputeSize ? originalComputeSize(...args) : [0, 0];
+    return [
+      Math.max(Number(computed?.[0]) || 0, DIRECTOR_UI_WIDTH),
+      Math.max(Number(computed?.[1]) || 0, DIRECTOR_UI_HEIGHT),
+    ];
+  };
+}
+
 function setWidget(node, name, value, notify = true) {
   const item = widget(node, name);
   if (!item || item.value === value) return;
@@ -655,6 +675,7 @@ function install(node) {
   node.__h3DirectorPlusInstalled = true;
   installStyles();
   bindDocumentControls();
+  protectDirectorComputeSize(node);
 
   const hidden = [
     "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset", "custom_width", "custom_height", "seed", "seed_mode", "voice_mode", "fish_model_path",
@@ -668,6 +689,8 @@ function install(node) {
 
   const root = document.createElement("div");
   root.className = "h3p";
+  root.style.minWidth = `${DIRECTOR_MIN_CONTENT_WIDTH}px`;
+  root.style.width = `${DIRECTOR_UI_WIDTH - DIRECTOR_CONTENT_INSET}px`;
   const controllerId = `h3p-${++nextControllerId}`;
   root.dataset.h3pController = controllerId;
   let fishPanel;
@@ -1086,9 +1109,7 @@ function install(node) {
     backend.append(route);
     root.append(backend);
 
-    const currentWidth = Number(node.size?.[0]) || 0;
-    const currentHeight = Number(node.size?.[1]) || 0;
-    node.setSize?.([Math.max(currentWidth, DIRECTOR_UI_WIDTH), Math.max(currentHeight, DIRECTOR_UI_HEIGHT)]);
+    enforceDirectorSize(node);
     node.graph?.setDirtyCanvas(true, true);
     requestAnimationFrame(bindRenderedControllers);
   }
@@ -1099,6 +1120,11 @@ function install(node) {
     getHeight: () => DIRECTOR_VIEWPORT_HEIGHT,
   });
   if (domWidget) domWidget.computeSize = () => [DIRECTOR_UI_WIDTH - DIRECTOR_CONTENT_INSET, DIRECTOR_VIEWPORT_HEIGHT];
+  if (domWidget?.element) {
+    domWidget.element.style.minWidth = `${DIRECTOR_MIN_CONTENT_WIDTH}px`;
+    domWidget.element.style.width = `${DIRECTOR_UI_WIDTH - DIRECTOR_CONTENT_INSET}px`;
+  }
+  enforceDirectorSize(node);
   controllers.set(controllerId, { node, render });
   const bindMountedControls = () => {
     bindDomControls(domWidget?.element || domWidget?.inputEl || root, node, render);
