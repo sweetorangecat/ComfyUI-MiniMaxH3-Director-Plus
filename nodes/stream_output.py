@@ -38,6 +38,8 @@ _AUDIO_MAX_GAIN = 10 ** (30 / 20)
 _AUDIO_GATE_REDUCTION = 0.12
 _AUDIO_GATE_RATIO = 1.8
 _AUDIO_GATE_MIN_DYNAMIC_RANGE = 4.0
+_SMART_UPSCALE_PROFILE = "smart_conservative_blend_v1"
+_SMART_UPSCALE_AI_WEIGHT = 0.8
 _TRAINED_TWO_STAGE_PRESETS = {
     "quality_two_stage",
     "质量优先二采样",
@@ -331,6 +333,7 @@ def _iter_ai_upscale_frame_chunks(
     target_width,
     target_height,
     model_name="auto",
+    profile="standard",
     max_chunk_bytes=64 * 1024 * 1024,
     bytes_per_channel=1,
     pingpong=False,
@@ -362,6 +365,14 @@ def _iter_ai_upscale_frame_chunks(
             # once for every frame or flood the ComfyUI log.
             result = _upscale_image_with_model(model, frame_batch)
             result = _resize_cpu_chunk(result, int(target_width), int(target_height), method="lanczos")
+            if profile == _SMART_UPSCALE_PROFILE:
+                baseline = _resize_cpu_chunk(
+                    frame_batch, int(target_width), int(target_height), method="lanczos"
+                )
+                result = (
+                    result * _SMART_UPSCALE_AI_WEIGHT
+                    + baseline * (1.0 - _SMART_UPSCALE_AI_WEIGHT)
+                ).clamp(0.0, 1.0)
             yield result.contiguous()
     finally:
         if model is not None:
@@ -541,11 +552,23 @@ def _prepare_postprocess_runtime(guide, postprocess_path):
         release_sampling_models()
 
 
+def _resolve_upscale_profile(guide, postprocess_path):
+    """Resolve the conservative profile for smart AI reconstruction only."""
+    if postprocess_path != "ai_upscale":
+        return "standard"
+    requested = str((guide or {}).get("requested_performance_preset") or "")
+    explicit = str((guide or {}).get("upscale_profile") or "")
+    if explicit == _SMART_UPSCALE_PROFILE or requested == "smart_free_1080p":
+        return _SMART_UPSCALE_PROFILE
+    return "standard"
+
+
 def _resolved_encode_quality(guide, postprocess_path, requested_quality):
-    """Use a visually lossless CRF ceiling only for the trained two-stage route."""
+    """Use a visually lossless CRF ceiling for high-quality reconstruction routes."""
     quality = int(requested_quality)
     preset = str((guide or {}).get("performance_preset") or "")
-    if preset in _TRAINED_TWO_STAGE_PRESETS:
+    requested_preset = str((guide or {}).get("requested_performance_preset") or "")
+    if preset in _TRAINED_TWO_STAGE_PRESETS or requested_preset == "smart_free_1080p":
         return min(quality, 16)
     return quality
 
@@ -640,10 +663,12 @@ def _save_balanced_fhd_downscale_frame(
 
 
 def _save_ai_upscale_frame(
-    source, index, target_width, target_height, model_name, output_path, suffix
+    source, index, target_width, target_height, model_name, output_path, suffix,
+    profile="standard",
 ):
     chunks = _iter_ai_upscale_frame_chunks(
-        source[index:index + 1], target_width, target_height, model_name=model_name
+        source[index:index + 1], target_width, target_height,
+        model_name=model_name, profile=profile,
     )
     try:
         frame = next(chunks)[0]
@@ -796,6 +821,7 @@ class MiniMaxH3StreamingVideoCombine:
         target_width = int(guide.get("target_width") or source.shape[2])
         target_height = int(guide.get("target_height") or source.shape[1])
         postprocess_path = _resolve_postprocess_path(guide, source_width, source_height)
+        upscale_profile = _resolve_upscale_profile(guide, postprocess_path)
         encode_quality = _resolved_encode_quality(guide, postprocess_path, quality)
         motion_smoothing = str(guide.get("motion_smoothing") or "off")
         if motion_smoothing not in {"off", "rife_x2"}:
@@ -892,6 +918,7 @@ class MiniMaxH3StreamingVideoCombine:
                     target_width,
                     target_height,
                     model_name=guide.get("ai_upscale_model", "auto"),
+                    profile=upscale_profile,
                     **chunk_kwargs,
                 )
             else:
@@ -1035,7 +1062,7 @@ class MiniMaxH3StreamingVideoCombine:
                     if "first" in ai_edge_frames:
                         frame_exports.append(_save_native_frame(ai_edge_frames["first"].unsqueeze(0), 0, output_path, "first"))
                     else:
-                        frame_exports.append(_save_ai_upscale_frame(source, 0, target_width, target_height, guide.get("ai_upscale_model", "auto"), output_path, "first"))
+                        frame_exports.append(_save_ai_upscale_frame(source, 0, target_width, target_height, guide.get("ai_upscale_model", "auto"), output_path, "first", profile=upscale_profile))
                 else:
                     frame_exports.append(_save_vsr_frame(
                         source, 0, target_width, target_height,
@@ -1056,7 +1083,7 @@ class MiniMaxH3StreamingVideoCombine:
                     if "last" in ai_edge_frames:
                         frame_exports.append(_save_native_frame(ai_edge_frames["last"].unsqueeze(0), 0, output_path, "last"))
                     else:
-                        frame_exports.append(_save_ai_upscale_frame(source, last_index, target_width, target_height, guide.get("ai_upscale_model", "auto"), output_path, "last"))
+                        frame_exports.append(_save_ai_upscale_frame(source, last_index, target_width, target_height, guide.get("ai_upscale_model", "auto"), output_path, "last", profile=upscale_profile))
                 else:
                     frame_exports.append(_save_vsr_frame(
                         source, last_index, target_width, target_height,
@@ -1082,6 +1109,7 @@ class MiniMaxH3StreamingVideoCombine:
             "format": output_mime_type, "width": target_width, "height": target_height,
             "codec": selected_codec, "bit_depth": selected_bit_depth, "container": selected_container,
             "postprocess_path": postprocess_path, "encode_quality": encode_quality,
+            "upscale_profile": upscale_profile,
             "color_metadata": "bt709" if bt709_tagged else "unchanged",
         }]
         assets.extend({
@@ -1108,11 +1136,12 @@ class MiniMaxH3StreamingVideoCombine:
                  "audio_channels": audio_path[2] if audio_path else None,
                  "audio_bitrate": str(audio_bitrate) if audio_path else None,
                  "postprocess_path": postprocess_path, "encode_quality": encode_quality,
+                 "upscale_profile": upscale_profile,
                  "color_metadata": "bt709" if bt709_tagged else "unchanged",
              }]
         LOGGER.info(
             "[H3 output] source=%sx%s final=%sx%s frames=%s fps=%.3f video=%s/%s "
-            "quality=%s bt709=%s audio=%s cleanup=%s path=%s",
+            "quality=%s bt709=%s upscale_profile=%s audio=%s cleanup=%s path=%s",
             source_width,
             source_height,
             target_width,
@@ -1123,6 +1152,7 @@ class MiniMaxH3StreamingVideoCombine:
             selected_container,
             encode_quality,
             bt709_tagged,
+            upscale_profile,
             audio_codec if audio_path is not None else "none",
             audio_cleanup,
             output_path,

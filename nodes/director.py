@@ -710,6 +710,8 @@ class MiniMaxH3DirectorPlus:
             "requested_height": int(requested_height),
             "target_width": int(final_target_width),
             "target_height": int(final_target_height),
+            "final_width": int(final_target_width),
+            "final_height": int(final_target_height),
             "upscale_required": final_upscale_required,
             "postprocess_mode": request["postprocess_mode"],
             "rtx_quality_requested": request["rtx_quality_requested"],
@@ -718,9 +720,19 @@ class MiniMaxH3DirectorPlus:
             "ai_upscale_model": request["ai_upscale_model"],
             "motion_smoothing": request["motion_smoothing"],
             "audio_loudness": request["audio_loudness"],
+            "audio_cleanup_requested": (
+                "auto_gate_peak_limit"
+                if request["audio_loudness"] == "auto"
+                else "disabled"
+            ),
             "rife_model": DEFAULT_RIFE_MODEL,
             "output_frame_multiplier": 2 if request["motion_smoothing"] == "rife_x2" else 1,
             "postprocess_path": postprocess_path,
+            "upscale_profile": (
+                "smart_conservative_blend_v1"
+                if smart_mode and postprocess_path == "ai_upscale"
+                else "standard"
+            ),
             "upscale_method": {
                 "rtx_vsr": "rtx_vsr",
                 "ai_upscale": "comfy_upscale_model",
