@@ -527,7 +527,7 @@ function removeUpload(node, widgetName, render) {
   }
 }
 
-async function uploadFile(node, input) {
+async function uploadFile(node, input, render) {
   const file = input.files?.[0];
   if (!file) return;
   const wrapper = input.closest(".h3p-upload");
@@ -545,6 +545,7 @@ async function uploadFile(node, input) {
     if (name) name.textContent = result.asset;
     replaceMediaPreview(wrapper, result.asset, input.dataset.h3pAccept);
     wrapper?.classList.remove("error");
+    render?.();
   } catch (error) {
     if (name) name.textContent = `上传失败：${error.message}`;
     wrapper?.classList.add("error");
@@ -579,7 +580,7 @@ function bindDomControls(element, node, render) {
     const input = event.target.closest?.(".h3p input[type=file]");
     if (input) {
       event.stopPropagation();
-      uploadFile(node, input);
+      uploadFile(node, input, render);
       return;
     }
     const valueInput = event.target.closest?.("[data-h3p-value-widget]");
@@ -644,7 +645,7 @@ function bindDocumentControls() {
     const fileInput = event.target.closest?.(".h3p input[type=file]");
     if (fileInput) {
       event.stopPropagation();
-      uploadFile(controller.node, fileInput);
+      uploadFile(controller.node, fileInput, controller.render);
       return;
     }
     const valueInput = event.target.closest?.(".h3p [data-h3p-value-widget]");

@@ -289,6 +289,13 @@ def test_ui_uses_embedded_upload_widgets_instead_of_connection_instructions():
     text = source()
     assert "first_image_file" in text
     assert "last_image_file" in text
+
+
+def test_upload_success_rebuilds_controls_with_replace_and_remove_actions():
+    text = source()
+    assert "async function uploadFile(node, input, render)" in text
+    assert "uploadFile(controller.node, fileInput, controller.render)" in text
+    assert "render?.();" in text
     assert "reference_image_1_file" in text
     assert "voice_reference_audio_file" in text
     assert "连接 first_image" not in text
