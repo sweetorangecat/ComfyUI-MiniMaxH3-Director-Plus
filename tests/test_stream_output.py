@@ -400,6 +400,7 @@ def test_rife_motion_smoothing_streams_seven_frames_at_48fps(monkeypatch):
 
 def test_auto_audio_loudness_is_applied_before_dasiwa_encoding(monkeypatch):
     waveform = torch.full((1, 2, 320), 10 ** (-31 / 20), dtype=torch.float32)
+    waveform[..., 120:200] = 0.2
     audio = {"waveform": waveform, "sample_rate": 32000}
     audio_inputs = []
 
@@ -427,6 +428,71 @@ def test_auto_audio_loudness_is_applied_before_dasiwa_encoding(monkeypatch):
     assert torch.equal(audio["waveform"], waveform)
 
 
+def test_auto_audio_cleanup_reduces_stable_noise_floor():
+    timeline = torch.arange(4096, dtype=torch.float32)
+    waveform = (0.01 * torch.sin(timeline * 2.1)).reshape(1, 1, -1)
+    waveform[..., 1200:2800] += 0.2 * torch.sin(timeline[:1600] * 0.17)
+
+    cleaned = stream_output._clean_output_audio(waveform)
+
+    original_noise_rms = waveform[..., :900].square().mean().sqrt()
+    cleaned_noise_rms = cleaned[..., :900].square().mean().sqrt()
+    assert cleaned_noise_rms < original_noise_rms * 0.75
+    assert cleaned.abs().max().item() <= 10 ** (-1.5 / 20) + 1e-6
+
+
+def test_auto_audio_cleanup_reports_actual_status(monkeypatch):
+    audio = {"waveform": torch.rand(1, 1, 320), "sample_rate": 32000}
+    result = _combine(
+        monkeypatch,
+        {
+            "target_width": 3,
+            "target_height": 2,
+            "postprocess_path": "native_bypass",
+            "audio_loudness": "auto",
+        },
+        torch.rand(3, 2, 3, 3),
+        [],
+        audio=audio,
+        audio_inputs=[],
+    )
+
+    output = result["ui"]["gifs"][0]
+    assert output["audio_cleanup"] == "auto_gate_peak_limit"
+    assert output["audio_cleanup_reason"] == "applied"
+
+
+def test_auto_audio_cleanup_failure_bypasses_original_audio(monkeypatch):
+    audio = {"waveform": torch.rand(1, 1, 320), "sample_rate": 32000}
+    audio_inputs = []
+    monkeypatch.setattr(
+        stream_output,
+        "_clean_output_audio",
+        lambda waveform: (_ for _ in ()).throw(RuntimeError("cleanup unavailable")),
+        raising=False,
+    )
+
+    result = _combine(
+        monkeypatch,
+        {
+            "target_width": 3,
+            "target_height": 2,
+            "postprocess_path": "native_bypass",
+            "audio_loudness": "auto",
+        },
+        torch.rand(3, 2, 3, 3),
+        [],
+        audio=audio,
+        audio_inputs=audio_inputs,
+    )
+
+    assert len(audio_inputs) == 1
+    assert audio_inputs[0] is audio
+    output = result["ui"]["gifs"][0]
+    assert output["audio_cleanup"] == "bypass_error"
+    assert "cleanup unavailable" in output["audio_cleanup_reason"]
+
+
 def test_original_audio_loudness_preserves_audio_object():
     audio = {"waveform": torch.rand(1, 2, 16), "sample_rate": 32000}
     assert stream_output._normalize_output_audio(audio, "original") is audio
@@ -436,7 +502,9 @@ def test_auto_audio_loudness_keeps_silence_and_caps_gain():
     silent = {"waveform": torch.zeros(1, 1, 16), "sample_rate": 32000}
     assert stream_output._normalize_output_audio(silent, "auto") is silent
 
-    quiet = {"waveform": torch.full((1, 1, 16), 1e-6), "sample_rate": 32000}
+    quiet_waveform = torch.zeros(1, 1, 512)
+    quiet_waveform[..., 128:384] = 1e-6
+    quiet = {"waveform": quiet_waveform, "sample_rate": 32000}
     normalized = stream_output._normalize_output_audio(quiet, "auto")
     assert normalized["waveform"].abs().max().item() == pytest.approx(
         1e-6 * 10 ** (30 / 20), rel=1e-5
