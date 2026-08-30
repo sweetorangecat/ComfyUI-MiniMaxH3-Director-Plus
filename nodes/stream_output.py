@@ -35,6 +35,9 @@ class _VsrProcessingError(RuntimeError):
 
 _AUDIO_TARGET_PEAK = 10 ** (-1.5 / 20)
 _AUDIO_MAX_GAIN = 10 ** (30 / 20)
+_AUDIO_GATE_REDUCTION = 0.12
+_AUDIO_GATE_RATIO = 1.8
+_AUDIO_GATE_MIN_DYNAMIC_RANGE = 4.0
 _TRAINED_TWO_STAGE_PRESETS = {
     "quality_two_stage",
     "质量优先二采样",
@@ -105,8 +108,50 @@ def _should_use_deblur_before_upscale(guide, postprocess_path):
     return False
 
 
+def _clean_output_audio(waveform):
+    """Reduce stable low-energy noise and apply bounded peak normalization."""
+    clean = torch.nan_to_num(
+        waveform.detach().to(device="cpu", dtype=torch.float32),
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
+    if not clean.numel():
+        return clean
+    peak = float(clean.abs().max().item())
+    if peak <= 1e-8:
+        return clean
+
+    sample_count = int(clean.shape[-1]) if clean.ndim else 1
+    if clean.ndim and sample_count >= 3:
+        window = min(257, sample_count if sample_count % 2 else sample_count - 1)
+        channels = clean.reshape(-1, 1, sample_count)
+        padding = window // 2
+        padded = F.pad(channels.square(), (padding, padding), mode="replicate")
+        envelope = F.avg_pool1d(padded, kernel_size=window, stride=1).sqrt()
+        positive_envelope = envelope[envelope > 1e-8]
+        if positive_envelope.numel():
+            noise_floor = float(torch.quantile(positive_envelope, 0.2).item())
+            max_envelope = float(envelope.max().item())
+            if (
+                noise_floor > 1e-8
+                and max_envelope / noise_floor >= _AUDIO_GATE_MIN_DYNAMIC_RANGE
+            ):
+                gate_ceiling = noise_floor * _AUDIO_GATE_RATIO
+                blend = ((envelope - noise_floor) / max(1e-8, gate_ceiling - noise_floor))
+                blend = blend.clamp(0.0, 1.0)
+                gate = _AUDIO_GATE_REDUCTION + (1.0 - _AUDIO_GATE_REDUCTION) * blend
+                clean = (channels * gate).reshape_as(clean)
+
+    cleaned_peak = float(clean.abs().max().item())
+    if cleaned_peak <= 1e-8:
+        return clean
+    gain = min(_AUDIO_TARGET_PEAK / cleaned_peak, _AUDIO_MAX_GAIN)
+    return (clean * gain).clamp(-_AUDIO_TARGET_PEAK, _AUDIO_TARGET_PEAK)
+
+
 def _normalize_output_audio(audio, mode):
-    """Apply bounded peak normalization without modifying the source AUDIO."""
+    """Clean and normalize auto audio without modifying the source AUDIO."""
     mode = str(mode or "original")
     if audio is None or mode == "original":
         return audio
@@ -119,23 +164,12 @@ def _normalize_output_audio(audio, mode):
     if not torch.is_floating_point(waveform):
         raise ValueError("自动音频响度只支持浮点 AUDIO 波形")
     finite = bool(torch.isfinite(waveform).all().item())
-    clean_waveform = waveform if finite else torch.nan_to_num(
-        waveform,
-        nan=0.0,
-        posinf=0.0,
-        neginf=0.0,
-    )
-    peak = float(clean_waveform.detach().abs().max().item()) if clean_waveform.numel() else 0.0
-    if peak <= 1e-8:
-        if finite:
-            return audio
-        sanitized = dict(audio)
-        sanitized["waveform"] = clean_waveform
-        return sanitized
+    peak = float(waveform.detach().abs().max().item()) if waveform.numel() and finite else None
+    if finite and peak <= 1e-8:
+        return audio
 
-    gain = min(_AUDIO_TARGET_PEAK / peak, _AUDIO_MAX_GAIN)
     normalized = dict(audio)
-    normalized["waveform"] = (clean_waveform * gain).clamp(-1.0, 1.0)
+    normalized["waveform"] = _clean_output_audio(waveform)
     return normalized
 
 
@@ -900,10 +934,23 @@ class MiniMaxH3StreamingVideoCombine:
                     close()
 
         metadata_path = dasiwa._metadata_file(prompt, extra_pnginfo) if save_metadata else None
-        output_audio = _normalize_output_audio(
-            audio,
-            guide.get("audio_loudness", "original"),
-        )
+        audio_loudness = str(guide.get("audio_loudness", "original") or "original")
+        audio_cleanup = "disabled"
+        audio_cleanup_reason = "original_mode"
+        if audio_loudness == "auto":
+            try:
+                output_audio = _normalize_output_audio(audio, audio_loudness)
+                audio_cleanup = "auto_gate_peak_limit"
+                audio_cleanup_reason = "applied"
+            except ValueError:
+                raise
+            except Exception as exc:
+                LOGGER.warning("[H3 audio] cleanup failed; using original audio: %s", exc)
+                output_audio = audio
+                audio_cleanup = "bypass_error"
+                audio_cleanup_reason = str(exc)
+        else:
+            output_audio = _normalize_output_audio(audio, audio_loudness)
         audio_path, audio_duration = dasiwa._audio_file(output_audio)
         attempts = []
         output_path = None
@@ -1042,20 +1089,30 @@ class MiniMaxH3StreamingVideoCombine:
             "format": "image/png", "width": target_width, "height": target_height,
             "postprocess_path": postprocess_path,
         } for path in frame_exports)
-        ui = {"images": assets, "postprocess_path": postprocess_path}
+        ui = {
+            "images": assets,
+            "postprocess_path": postprocess_path,
+            "audio_cleanup": audio_cleanup,
+            "audio_cleanup_reason": audio_cleanup_reason,
+        }
         if not dasiwa._animated_image_settings(selected_container):
             ui["gifs"] = [{
                 "filename": os.path.basename(output_path), "subfolder": subfolder, "type": output_type,
                 "format": output_mime_type, "codec": selected_codec, "bit_depth": selected_bit_depth,
                 "container": selected_container, "width": target_width, "height": target_height, "fps": output_frame_rate,
                 "source_fps": float(frame_rate), "motion_smoothing": motion_smoothing,
-                 "audio_loudness": str(guide.get("audio_loudness") or "original"),
+                 "audio_loudness": audio_loudness,
+                 "audio_cleanup": audio_cleanup,
+                 "audio_cleanup_reason": audio_cleanup_reason,
+                 "audio_sample_rate": audio_path[1] if audio_path else None,
+                 "audio_channels": audio_path[2] if audio_path else None,
+                 "audio_bitrate": str(audio_bitrate) if audio_path else None,
                  "postprocess_path": postprocess_path, "encode_quality": encode_quality,
                  "color_metadata": "bt709" if bt709_tagged else "unchanged",
              }]
         LOGGER.info(
             "[H3 output] source=%sx%s final=%sx%s frames=%s fps=%.3f video=%s/%s "
-            "quality=%s bt709=%s audio=%s path=%s",
+            "quality=%s bt709=%s audio=%s cleanup=%s path=%s",
             source_width,
             source_height,
             target_width,
@@ -1067,6 +1124,7 @@ class MiniMaxH3StreamingVideoCombine:
             encode_quality,
             bt709_tagged,
             audio_codec if audio_path is not None else "none",
+            audio_cleanup,
             output_path,
         )
         return {"ui": ui, "result": (output_frames, output_path)}
