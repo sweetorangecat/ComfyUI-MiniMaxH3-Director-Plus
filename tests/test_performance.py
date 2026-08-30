@@ -241,8 +241,8 @@ PERFORMANCE_DEFENSIVE_FALLBACKS = {
     ("I2VA", "reference_fast"): "quality",
     ("FL2VA", "reference_fast"): "quality",
     ("L2VA", "reference_fast"): "quality",
-    ("REF2VA", "quality_two_stage"): "quality",
-    ("REF2VA", "low_vram_two_stage"): "quality",
+    ("REF2VA", "quality_two_stage"): "quality_sage",
+    ("REF2VA", "low_vram_two_stage"): "low_vram",
     ("REF2VA", "reference_fast"): "quality",
     ("REF2VA", "fl_quality_fast_v4"): "quality",
 }
@@ -261,11 +261,6 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
         "performance_preset": preset,
         "resolved_backend": backend,
     }
-
-    if mode == "REF2VA" and preset in {"quality_two_stage", "low_vram_two_stage"}:
-        with pytest.raises(ValueError, match="REF2VA.*二采.*quality_sage.*low_vram.*ref_fast_4step"):
-            acceleration_plan(guide)
-        return
 
     plan = acceleration_plan(guide)
 
@@ -286,7 +281,8 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
             "resolved_backend": backend,
         })
         assert plan["route"] == "bypass"
-        assert safe_result[1:3] == (False, False)
+        assert safe_result[1] is (expected_preset in {"quality_sage", "low_vram"})
+        assert safe_result[2] is False
     if expected_preset in {"quality_two_stage", "low_vram_two_stage"}:
         assert plan["first_lora_name"] == (
             REF_STAGE_LORA if backend == "ref2va_model" else FL_STAGE1_LORA
@@ -675,15 +671,15 @@ def test_fl_two_stage_uses_u17_model_lora_contract():
 
 @pytest.mark.parametrize("preset", ["quality_two_stage", "low_vram_two_stage"])
 @pytest.mark.parametrize(
-    "entry",
+    ("entry", "expects_error"),
     [
-        acceleration_plan,
-        lambda guide: MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True),
-        resolve_two_stage_route,
+        (acceleration_plan, False),
+        (lambda guide: MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True), False),
+        (resolve_two_stage_route, True),
     ],
     ids=["acceleration_plan", "performance_apply", "two_stage_route"],
 )
-def test_reference_backend_rejects_trained_two_stage_at_every_entry(preset, entry):
+def test_reference_backend_migrates_legacy_two_stage_at_performance_entries(preset, entry, expects_error):
     guide = {
         "mode": "T2VA",
         "voice_mode": "none",
@@ -691,11 +687,16 @@ def test_reference_backend_rejects_trained_two_stage_at_every_entry(preset, entr
         "resolved_backend": "ref2va_model",
     }
 
-    with pytest.raises(
-        (ValueError, RuntimeError),
-        match="REF2VA.*二采.*quality_sage.*low_vram.*ref_fast_4step",
-    ):
-        entry(guide)
+    if expects_error:
+        with pytest.raises(ValueError, match="REF2VA.*二采.*quality_sage.*low_vram.*ref_fast_4step"):
+            entry(guide)
+    else:
+        result = entry(guide)
+        expected = "low_vram" if preset == "low_vram_two_stage" else "quality_sage"
+        assert guide["resolved_performance_preset"] == expected
+        assert guide["two_stage_enabled"] is False
+        if isinstance(result, dict):
+            assert result["preset"] == expected
 
 
 @pytest.mark.parametrize(
@@ -748,17 +749,29 @@ def test_every_trained_two_stage_route_forces_euler():
     ) == "euler"
 
 
-def test_scheduler_router_rejects_reference_two_stage_before_scheduler_import():
-    with pytest.raises(ValueError, match="REF2VA.*二采.*quality_sage"):
-        MiniMaxH3SchedulerRouter().route(
-            "model",
-            8,
-            {
-                "performance_preset": "quality_two_stage",
-                "resolved_backend": "ref2va_model",
-                "voice_mode": "h3_reference",
-            },
-        )
+def test_scheduler_router_falls_back_reference_two_stage_before_scheduler_import(monkeypatch):
+    import sys
+    import types
+
+    class BasicScheduler:
+        @staticmethod
+        def execute(model, scheduler, steps, denoise):
+            assert (model, scheduler, steps, denoise) == ("model", "simple", 20, 1.0)
+            return ([("sigma", steps)],)
+
+    custom_sampler = types.ModuleType("comfy_extras.nodes_custom_sampler")
+    custom_sampler.BasicScheduler = BasicScheduler
+    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", custom_sampler)
+
+    guide = {
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "ref2va_model",
+        "voice_mode": "h3_reference",
+    }
+
+    assert MiniMaxH3SchedulerRouter().route("model", 8, guide) == ([("sigma", 20)],)
+    assert guide["resolved_performance_preset"] == "quality_sage"
+    assert guide["two_stage_enabled"] is False
 
 
 def test_scheduler_router_allows_quality_sage_on_reference_backend(monkeypatch):

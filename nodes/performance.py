@@ -10,7 +10,11 @@ import sys
 from pathlib import Path
 
 from .h3_reuse_attention import apply_h3_reuse_attention
-from .schema import TWO_STAGE_PERFORMANCE_PRESETS, allowed_performance_presets
+from .schema import (
+    REFERENCE_UNSAFE_FALLBACKS,
+    TWO_STAGE_PERFORMANCE_PRESETS,
+    allowed_performance_presets,
+)
 from .two_stage_assets import (
     FL_STAGE1_LORA,
     FL_STAGE2_LORA,
@@ -499,15 +503,22 @@ def _safe_guide_preset(guide):
     voice_mode = guide.get("voice_mode", "none")
     backend = guide.get("resolved_backend")
     if backend == "ref2va_model" and name in TWO_STAGE_PERFORMANCE_PRESETS:
-        raise ValueError(
-            "REF2VA 不支持训练型二采，请使用 quality_sage、low_vram 或 ref_fast_4step"
+        fallback = REFERENCE_UNSAFE_FALLBACKS.get(name, "quality_sage")
+        guide["resolved_performance_preset"] = fallback
+        guide["two_stage_enabled"] = False
+        guide["two_stage_status"] = "旁路"
+        guide["two_stage_fallback"] = True
+        guide.setdefault("warnings", []).append(
+            f"REF2VA 不支持训练型二采 {name}，已自动切换为兼容路线 {fallback}。"
         )
+        return fallback, True
     if backend == "ref2va_model" and name == "fl_quality_fast_v4":
         return "quality", True
     if backend == "fl2va_model" and name in {"ref_quality_native", "ref_fast_4step"}:
         return "quality", True
     if mode and name != "custom" and name not in allowed_performance_presets(mode, voice_mode):
         return "quality", True
+    guide["resolved_performance_preset"] = name
     return name, False
 
 
@@ -631,7 +642,14 @@ class MiniMaxH3SchedulerRouter:
         from comfy_extras.nodes_custom_sampler import BasicScheduler
 
         plan = scheduler_plan(guide)
-        resolved_steps = int(plan["steps"] if plan["split_step"] else steps)
+        # A legacy REF2VA guide may carry an 8-step trained-two-stage value.
+        # After normalizing it to quality_sage, use the normalized 20-step
+        # schedule instead of trusting the stale connected widget value.
+        resolved_steps = int(
+            plan["steps"]
+            if plan["split_step"] or guide.get("two_stage_fallback")
+            else steps
+        )
         sigmas = _node_model(BasicScheduler.execute(
             model,
             plan["scheduler"],
