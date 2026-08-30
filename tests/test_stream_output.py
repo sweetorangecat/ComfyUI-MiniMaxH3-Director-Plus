@@ -286,6 +286,42 @@ def test_generic_upscale_paths_are_preserved_for_larger_targets(path):
     assert stream_output._resolve_postprocess_path(guide, 3, 2) == path
 
 
+def test_smart_upscale_profile_blends_ai_with_lanczos_baseline(monkeypatch):
+    images = torch.full((1, 2, 2, 3), 0.2)
+    monkeypatch.setattr(stream_output, "resolve_upscale_model_name", lambda *args, **kwargs: "fake.pth")
+    monkeypatch.setattr(stream_output, "_load_upscale_model", lambda name: object())
+    monkeypatch.setattr(
+        stream_output,
+        "_upscale_image_with_model",
+        lambda model, image: torch.full((len(image), 4, 4, 3), 0.8),
+    )
+
+    chunks = list(stream_output._iter_ai_upscale_frame_chunks(
+        images, 4, 4, model_name="fake.pth", profile="smart_conservative_blend_v1"
+    ))
+
+    assert len(chunks) == 1
+    assert chunks[0].shape == (1, 4, 4, 3)
+    assert chunks[0].mean().item() == pytest.approx(0.68, abs=1e-4)
+
+
+def test_non_smart_upscale_profile_keeps_ai_output(monkeypatch):
+    images = torch.full((1, 2, 2, 3), 0.2)
+    monkeypatch.setattr(stream_output, "resolve_upscale_model_name", lambda *args, **kwargs: "fake.pth")
+    monkeypatch.setattr(stream_output, "_load_upscale_model", lambda name: object())
+    monkeypatch.setattr(
+        stream_output,
+        "_upscale_image_with_model",
+        lambda model, image: torch.full((len(image), 4, 4, 3), 0.8),
+    )
+
+    chunk = next(stream_output._iter_ai_upscale_frame_chunks(
+        images, 4, 4, model_name="fake.pth", profile="standard"
+    ))
+
+    assert chunk.mean().item() == pytest.approx(0.8, abs=1e-4)
+
+
 def test_rtx_vsr_path_processes_frames_and_preserves_frame_count(monkeypatch):
     images = torch.rand(5, 2, 3, 3)
     captured = []

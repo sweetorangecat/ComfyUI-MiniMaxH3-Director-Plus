@@ -65,6 +65,37 @@ def test_smart_free_1080p_resolves_base_backend_to_sage_and_x2(monkeypatch):
     assert guide["performance_preset"] == "quality_sage"
     assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
     assert guide["postprocess_path"] == "ai_upscale"
+    assert guide["upscale_profile"] == "smart_conservative_blend_v1"
+
+
+def test_smart_free_1080p_uses_high_quality_encoder_ceiling():
+    from nodes.stream_output import _resolved_encode_quality
+
+    assert _resolved_encode_quality(
+        {"performance_preset": "quality_sage", "requested_performance_preset": "smart_free_1080p"},
+        "ai_upscale",
+        20,
+    ) == 16
+
+
+def test_smart_free_1080p_portrait_preserves_exact_fhd_target(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
+    monkeypatch.setattr(
+        "nodes.director.resolve_upscale_model_name",
+        lambda *args, **kwargs: "RealESRGAN_x2plus.pth",
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="稳定推进。", duration=5, width=1080, height=1920,
+        aspect_ratio="9:16", voice_mode="none", ref_image_size="match",
+        performance_preset="免费智能 1080p", postprocess_mode="ai_upscale",
+        resolution_preset="1080p FHD", timeline_data="{}", target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert (guide["target_width"], guide["target_height"]) == (1080, 1920)
+    assert guide["upscale_profile"] == "smart_conservative_blend_v1"
+    assert guide["audio_cleanup_requested"] == "auto_gate_peak_limit"
 
 
 def test_smart_free_1080p_reference_uses_sage_without_trained_route(monkeypatch):
