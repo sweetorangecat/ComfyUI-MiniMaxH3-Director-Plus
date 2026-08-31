@@ -336,6 +336,12 @@ def normalize_request(raw=None):
         request["warnings"].append(
             "已因音色参考切换到 REF2VA；首尾图片属于提示词约束，不是硬端点。"
         )
+    if request["voice_mode"] == "h3_reference" and audio_references:
+        audio_markers = tuple(f"<Audio {index}>" for index in range(1, len(audio_references) + 1))
+        if not any(marker in str(request.get("prompt") or "") for marker in audio_markers):
+            request["warnings"].append(
+                "已上传音色参考，但提示词没有把 <Audio 1> 等音色绑定到角色对白；请明确写出“角色使用 <Audio 1> 的音色说：……”否则可能只生成环境声。"
+            )
     if request["resolved_backend"] == "ref2va_model":
         fallback = REFERENCE_UNSAFE_FALLBACKS.get(preset)
         if fallback:

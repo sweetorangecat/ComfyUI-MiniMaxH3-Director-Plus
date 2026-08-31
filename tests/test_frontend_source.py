@@ -330,6 +330,7 @@ def test_ui_explains_native_reference_routing():
     assert "H3 原生参考（非严格克隆）" in text
     assert "Fish S2 声纹锁定（更像本人）" in text
     assert "仍可能发生声线漂移" in text
+    assert "当前提示词未绑定 <Audio 1>" in text
     assert "ref2va_model" in text
     assert "fl2va_model" in text
 

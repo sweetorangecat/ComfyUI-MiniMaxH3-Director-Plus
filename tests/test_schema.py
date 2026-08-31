@@ -65,6 +65,17 @@ def test_h3_reference_preserves_explicit_voice_gender_constraint_with_warning():
     assert any("性别/音域约束" in warning and "Fish S2" in warning for warning in request["warnings"])
 
 
+def test_h3_reference_warns_when_prompt_does_not_bind_audio_to_dialogue():
+    request = normalize_request({
+        "mode": "REF2VA",
+        "prompt": "安静的室内环境声，门铃保持静音。",
+        "voice_mode": "h3_reference",
+        "voice_reference_audio": object(),
+    })
+
+    assert any("<Audio 1>" in warning and "对白" in warning for warning in request["warnings"])
+
+
 def test_normalize_request_rejects_unknown_voice_gender():
     with pytest.raises(RequestError, match="音色性别约束"):
         normalize_request({"voice_gender": "baritone"})

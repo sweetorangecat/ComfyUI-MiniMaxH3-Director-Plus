@@ -1065,6 +1065,14 @@ function install(node) {
       nativeVoiceNote.className = "h3p-spec-note";
       nativeVoiceNote.textContent = "H3 原生参考只能约束音色、表达和性别音域，仍可能发生声线漂移；需要尽量像上传者时请选择 Fish S2 声纹锁定。";
       voice.append(nativeVoiceNote);
+      const hasVoiceSample = Boolean(String(widget(node, "voice_reference_audio_file")?.value || "").trim());
+      const promptText = String(widget(node, "prompt")?.value || "");
+      if (hasVoiceSample && !promptText.includes("<Audio 1>")) {
+        const bindingNote = document.createElement("div");
+        bindingNote.className = "h3p-spec-note";
+        bindingNote.textContent = "已上传音色参考，但当前提示词未绑定 <Audio 1>；请写“角色使用 <Audio 1> 的音色说：……”否则可能只生成环境声。";
+        voice.append(bindingNote);
+      }
     }
     const audioLane = document.createElement("div");
     audioLane.className = "h3p-audio-lane";
