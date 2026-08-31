@@ -37,7 +37,8 @@ def test_director_exposes_native_upload_widgets_for_each_media_role():
     assert optional["voice_reference_audio_3_file"][1]["audio_upload"] is True
     assert optional["reference_image_9_file"][1]["image_upload"] is True
     assert "voice_gender" not in inputs["required"]
-    assert optional["voice_gender"][0] == ["auto", "male", "female", "neutral"]
+    assert optional["voice_gender"][0] == ["", "auto", "male", "female", "neutral"]
+    assert optional["voice_gender"][1]["default"] == "auto"
 
 
 def test_director_raw_combo_exposes_both_low_vram_presets():

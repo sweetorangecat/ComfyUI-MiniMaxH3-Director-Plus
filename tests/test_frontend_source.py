@@ -322,6 +322,7 @@ def test_dom_controls_stop_litegraph_pointer_events():
     assert 'valueControl("生成模式", "mode"' in text
     assert 'valueControl("音色模式", "voice_mode"' in text
     assert 'valueControl("性别/音域约束", "voice_gender"' in text
+    assert 'setWidget(node, "voice_gender", "auto", false)' in text
 
 
 def test_ui_explains_native_reference_routing():

@@ -705,6 +705,10 @@ function install(node) {
   function render() {
     const mode = widget(node, "mode")?.value || "FL2VA";
     const voiceMode = widget(node, "voice_mode")?.value || "none";
+    const savedVoiceGender = String(widget(node, "voice_gender")?.value || "");
+    if (!VOICE_GENDERS.some(([value]) => value === savedVoiceGender)) {
+      setWidget(node, "voice_gender", "auto", false);
+    }
     const performanceOptions = allowedPerformancePresets(mode, voiceMode);
     let preset = widget(node, "performance_preset")?.value || "稳定质量";
     if (!performanceOptions.includes(preset)) {
