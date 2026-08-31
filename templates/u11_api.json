@@ -73,6 +73,7 @@
       "ai_upscale_model": "RealESRGAN_x2plus.pth",
       "motion_smoothing": "off",
       "audio_loudness": "auto",
+      "voice_gender": "auto",
       "voice_reference_name_1": "",
       "voice_reference_name_2": "",
       "voice_reference_name_3": "",

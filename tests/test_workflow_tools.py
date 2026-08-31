@@ -302,8 +302,8 @@ def test_built_workflow_keeps_duration_and_resolution_widgets():
     input_names = {item["name"] for item in director["inputs"]}
     assert {"width", "height"} <= input_names
     assert director["widgets_values"][:5] == ["FL2VA", "", 5, 1344, 768]
-    assert director["widgets_values"][15:18] == ["免费智能 1080p", "ai_upscale", "HIGH"]
-    assert director["widgets_values"][12] == "auto"
+    assert director["widgets_values"][14:17] == ["免费智能 1080p", "ai_upscale", "HIGH"]
+    assert director["widgets_values"][-3:] == ["off", "auto", "auto"]
 
 
 def test_built_settings_removes_legacy_resolution_calculator():
@@ -344,6 +344,7 @@ def test_api_template_has_clean_output_prefix_and_all_reference_slots():
     assert "reference_image_9" in controller
     assert controller["motion_smoothing"] == "off"
     assert controller["audio_loudness"] == "auto"
+    assert controller["voice_gender"] == "auto"
 
 
 def test_generated_director_appends_safe_output_defaults_without_shifting_timeline():
@@ -365,8 +366,8 @@ def test_generated_director_appends_safe_output_defaults_without_shifting_timeli
         if node["type"] == "MiniMaxH3DirectorPlus"
     )
 
-    assert director["widgets_values"][19] == '{"version":1,"items":[]}'
-    assert director["widgets_values"][-2:] == ["off", "auto"]
+    assert director["widgets_values"][18] == '{"version":1,"items":[]}'
+    assert director["widgets_values"][-3:] == ["off", "auto", "auto"]
 
 
 def test_api_template_scopes_low_vram_policy_around_sampling():
