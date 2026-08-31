@@ -5,6 +5,23 @@ from __future__ import annotations
 from .performance import memory_policy, preset_values
 
 
+def normalize_h3_reference_audio(audio):
+    """Normalize reference waveforms to the stereo contract used by H3's audio VAE."""
+    if not isinstance(audio, dict):
+        return audio
+    waveform = audio.get("waveform")
+    shape = getattr(waveform, "shape", ())
+    if len(shape) != 3 or int(shape[1]) == 2:
+        return audio
+    if int(shape[1]) == 1:
+        normalized_waveform = waveform.repeat(1, 2, 1)
+    else:
+        normalized_waveform = waveform.mean(dim=1, keepdim=True).repeat(1, 2, 1)
+    normalized = audio.copy()
+    normalized["waveform"] = normalized_waveform
+    return normalized
+
+
 def native_node(name):
     try:
         from comfy_extras import nodes_minimax_h3
@@ -64,6 +81,10 @@ class MiniMaxH3DirectorPlusGuide:
                     state.get("last_frame"),
                 )
 
+            state["ref_audios"] = {
+                name: normalize_h3_reference_audio(audio)
+                for name, audio in (state.get("ref_audios") or {}).items()
+            }
             return native_node("MiniMaxH3ReferenceToVideo").execute(
                 clip,
                 video_vae,

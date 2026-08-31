@@ -1,5 +1,25 @@
 from nodes import guide
 from nodes import fish
+import torch
+
+
+def test_h3_reference_audio_normalizes_mono_to_stereo_before_native_vae():
+    audio = {"waveform": torch.zeros(1, 1, 8), "sample_rate": 24000}
+
+    normalized = guide.normalize_h3_reference_audio(audio)
+
+    assert normalized["waveform"].shape == (1, 2, 8)
+    assert torch.equal(normalized["waveform"][:, 0], normalized["waveform"][:, 1])
+    assert normalized["sample_rate"] == 24000
+
+
+def test_h3_reference_audio_keeps_stereo_channels_unchanged():
+    waveform = torch.stack((torch.zeros(8), torch.ones(8))).unsqueeze(0)
+    audio = {"waveform": waveform, "sample_rate": 32000}
+
+    normalized = guide.normalize_h3_reference_audio(audio)
+
+    assert torch.equal(normalized["waveform"], waveform)
 
 
 def test_fl_backend_calls_native_image_to_video(monkeypatch):
@@ -68,6 +88,42 @@ def test_ref_backend_calls_native_reference_to_video(monkeypatch):
         "clip", "video_vae", "audio_vae", "prompt", 1344, 768, 124, "match",
         {"ref_image_1": "image"}, {}, {}, {"ref_audio_1": "audio"},
     )]
+
+
+def test_ref_backend_passes_stereo_reference_audio_to_native_node(monkeypatch):
+    calls = []
+
+    class NativeReferenceToVideo:
+        @staticmethod
+        def execute(*args):
+            calls.append(args)
+            return "conditioning", "latent"
+
+    monkeypatch.setattr(guide, "native_node", lambda name: NativeReferenceToVideo)
+    audio = {"waveform": torch.zeros(1, 1, 8), "sample_rate": 24000}
+    state = {
+        "resolved_backend": "ref2va_model",
+        "prompt": "prompt",
+        "width": 1344,
+        "height": 768,
+        "length": 124,
+        "ref_image_size": "match",
+        "ref_images": {"ref_image_1": "image"},
+        "ref_videos": {},
+        "ref_video_audios": {},
+        "ref_audios": {"ref_audio_1": audio},
+    }
+
+    guide.MiniMaxH3DirectorPlusGuide().apply(
+        clip="clip",
+        video_vae="video_vae",
+        audio_vae="audio_vae",
+        guide=state,
+    )
+
+    forwarded_audio = calls[0][-1]["ref_audio_1"]
+    assert forwarded_audio["waveform"].shape == (1, 2, 8)
+    assert audio["waveform"].shape == (1, 1, 8)
 
 
 def test_low_vram_preserves_native_dynamic_routes():
