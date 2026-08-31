@@ -71,15 +71,21 @@ const REF2VA_IMAGE_SLOTS = [
 ];
 const VOICE_MODES = [
   ["none", "不使用音色"],
-  ["h3_reference", "H3 原生音色参考"],
-  ["fish_lock", "Fish S2 高级锁定"],
+  ["h3_reference", "H3 原生参考（非严格克隆）"],
+  ["fish_lock", "Fish S2 声纹锁定（更像本人）"],
 ];
-const VOICE_MODE_LABELS = {none: "不使用音色", h3_reference: "H3 原生音色参考", fish_lock: "Fish S2 高级锁定"};
+const VOICE_MODE_LABELS = {none: "不使用音色", h3_reference: "H3 原生参考（非严格克隆）", fish_lock: "Fish S2 声纹锁定"};
 const POSTPROCESS_MODES = [
   ["native", "原生尺寸直出"],
   ["lanczos", "Lanczos 快速放大"],
   ["ai_upscale", "AI 自动超分"],
   ["rtx_vsr", "AI 细节重建（RTX VSR）"],
+];
+const VOICE_GENDERS = [
+  ["auto", "自动保持样本"],
+  ["male", "男声"],
+  ["female", "女声"],
+  ["neutral", "中性音域"],
 ];
 const POSTPROCESS_MODES_BY_PERFORMANCE = {
   "免费智能 1080p": [["ai_upscale", "AI X2 超分（智能锁定）"]],
@@ -681,7 +687,7 @@ function install(node) {
   const hidden = [
     "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset", "custom_width", "custom_height", "seed", "seed_mode", "voice_mode", "fish_model_path",
     "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness", "timeline_data",
-    "target_dialogue", "reference_transcript", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
+    "target_dialogue", "reference_transcript", "voice_gender", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
     "first_image_file", "last_image_file", "voice_reference_audio_file", "voice_reference_audio_2_file", "voice_reference_audio_3_file",
     "reference_image_1_file", "reference_image_2_file", "reference_image_3_file", "reference_image_4_file", "reference_image_5_file",
     "reference_image_6_file", "reference_image_7_file", "reference_image_8_file", "reference_image_9_file",
@@ -1046,7 +1052,16 @@ function install(node) {
     const voiceBar = document.createElement("div");
     voiceBar.className = "h3p-grid";
     voiceBar.append(valueControl("音色模式", "voice_mode", VOICE_MODES, voiceMode));
+    if (voiceMode !== "none") {
+      voiceBar.append(valueControl("性别/音域约束", "voice_gender", VOICE_GENDERS, widget(node, "voice_gender")?.value || "auto"));
+    }
     voice.append(voiceBar);
+    if (voiceMode === "h3_reference") {
+      const nativeVoiceNote = document.createElement("div");
+      nativeVoiceNote.className = "h3p-spec-note";
+      nativeVoiceNote.textContent = "H3 原生参考只能约束音色、表达和性别音域，仍可能发生声线漂移；需要尽量像上传者时请选择 Fish S2 声纹锁定。";
+      voice.append(nativeVoiceNote);
+    }
     const audioLane = document.createElement("div");
     audioLane.className = "h3p-audio-lane";
     const audioHintTitle = document.createElement("b");

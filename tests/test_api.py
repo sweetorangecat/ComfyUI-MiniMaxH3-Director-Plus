@@ -31,6 +31,18 @@ BASE_TEMPLATE = {
 def test_schema_contains_chinese_names():
     schema = public_schema()
     assert schema["properties"]["voice_mode"]["中文名称"] == "音色模式"
+    assert schema["properties"]["voice_gender"]["中文名称"] == "音色性别约束"
+
+
+def test_patch_template_forwards_voice_gender_to_director():
+    prompt = patch_template(BASE_TEMPLATE, {
+        "mode": "REF2VA",
+        "voice_mode": "h3_reference",
+        "voice_gender": "male",
+        "voice_reference_audio": "voice.wav",
+    })
+
+    assert prompt["10"]["inputs"]["voice_gender"] == "male"
 
 
 def test_patch_template_routes_i2va_voice_to_ref_backend():

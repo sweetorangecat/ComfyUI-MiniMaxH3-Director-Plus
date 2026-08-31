@@ -321,11 +321,14 @@ def test_dom_controls_stop_litegraph_pointer_events():
     assert "controllerForTarget" in text
     assert 'valueControl("生成模式", "mode"' in text
     assert 'valueControl("音色模式", "voice_mode"' in text
+    assert 'valueControl("性别/音域约束", "voice_gender"' in text
 
 
 def test_ui_explains_native_reference_routing():
     text = source()
-    assert "H3 原生音色参考" in text
+    assert "H3 原生参考（非严格克隆）" in text
+    assert "Fish S2 声纹锁定（更像本人）" in text
+    assert "仍可能发生声线漂移" in text
     assert "ref2va_model" in text
     assert "fl2va_model" in text
 

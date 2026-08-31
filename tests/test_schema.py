@@ -50,6 +50,24 @@ def test_normalize_request_defaults_to_smart_free_1080p():
     assert request["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
     assert request["motion_smoothing"] == "off"
     assert request["audio_loudness"] == "auto"
+    assert request["voice_gender"] == "auto"
+
+
+def test_h3_reference_preserves_explicit_voice_gender_constraint_with_warning():
+    request = normalize_request({
+        "mode": "REF2VA",
+        "voice_mode": "h3_reference",
+        "voice_gender": "male",
+        "voice_reference_audio": object(),
+    })
+
+    assert request["voice_gender"] == "male"
+    assert any("性别/音域约束" in warning and "Fish S2" in warning for warning in request["warnings"])
+
+
+def test_normalize_request_rejects_unknown_voice_gender():
+    with pytest.raises(RequestError, match="音色性别约束"):
+        normalize_request({"voice_gender": "baritone"})
 
 
 @pytest.mark.parametrize(

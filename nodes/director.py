@@ -185,6 +185,7 @@ class MiniMaxH3DirectorPlus:
                 "custom_height": ("INT", {"default": 9, "min": 1, "max": 8192, "tooltip": "自定义比例高"}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": "seed_mode", "tooltip": "噪音种子；可选择固定、递增、递减或随机"}),
                 "voice_mode": (["none", "h3_reference", "fish_lock"], {"default": "none", "tooltip": "无音色 / H3原生参考 / Fish高级锁定"}),
+                "voice_gender": (["auto", "male", "female", "neutral"], {"default": "auto", "tooltip": "保持参考音色的性别与音域；男声/女声可明确锁定，auto 为自动保持"}),
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
                 "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "免费智能 1080p", "tooltip": "性能预设；默认本地免费智能 1080p"}),
@@ -261,6 +262,7 @@ class MiniMaxH3DirectorPlus:
         custom_width=16,
         custom_height=9,
         seed=0,
+        voice_gender="auto",
         voice_reference_name_1="",
         voice_reference_name_2="",
         voice_reference_name_3="",
@@ -404,6 +406,7 @@ class MiniMaxH3DirectorPlus:
             "first_image": first_image,
             "last_image": last_image,
             "voice_mode": voice_mode,
+            "voice_gender": voice_gender,
             "voice_reference_audio": voice_reference_audio,
             "voice_reference_audios": voice_references,
             "target_dialogue": str(target_dialogue or "").strip(),
@@ -659,6 +662,7 @@ class MiniMaxH3DirectorPlus:
                 extra_reference_count=len(request["references"]),
                 audio_count=len(voice_references),
                 audio_names=(voice_reference_name_1, voice_reference_name_2, voice_reference_name_3),
+                voice_gender=request["voice_gender"],
             )
 
         length = align_frame_count(int(duration) * 24)
@@ -666,6 +670,7 @@ class MiniMaxH3DirectorPlus:
             "version": 1,
             "mode": mode,
             "voice_mode": voice_mode,
+            "voice_gender": request["voice_gender"],
             "resolved_backend": request["resolved_backend"],
             "prompt": resolved_prompt,
             "width": int(native_width),

@@ -8,7 +8,7 @@
 
 返回版本化字段 schema 和中文名称。当前公开字段为：
 
-`mode`、`prompt`、`duration`、`aspect_ratio`、`resolution_preset`、`custom_width`、`custom_height`、`seed`、`first_image`、`last_image`、`references`、`voice_mode`、`voice_reference_audio`、`voice_reference_audios`、`voice_reference_names`、`target_dialogue`、`reference_transcript`、`fish_model_path`、`ref_image_size`、`performance_preset`、`postprocess_mode`、`rtx_quality`、`ai_upscale_model`、`motion_smoothing`、`audio_loudness`。
+`mode`、`prompt`、`duration`、`aspect_ratio`、`resolution_preset`、`custom_width`、`custom_height`、`seed`、`first_image`、`last_image`、`references`、`voice_mode`、`voice_gender`、`voice_reference_audio`、`voice_reference_audios`、`voice_reference_names`、`target_dialogue`、`reference_transcript`、`fish_model_path`、`ref_image_size`、`performance_preset`、`postprocess_mode`、`rtx_quality`、`ai_upscale_model`、`motion_smoothing`、`audio_loudness`。
 
 `duration` 为 4-15 秒整数。`references` 最多 9 张；`voice_reference_audios` 最多 3 路，`voice_reference_names` 按相同下标绑定角色。旧字段 `voice_reference_audio` 继续兼容，等价于音色参考 1。
 
@@ -37,6 +37,8 @@ API 中的 `resolution_preset` 表示请求的最终输出目标，支持精确 
 `GET /schema` 的 `resolved_outputs` 描述运行前可观察结果：`resolved_two_stage_route`、`first_stage_width/height`、`second_stage_width/height`、`final_upscale_scale_x/y`、`final_upscale_scale`、`max_final_vsr_scale`、`vram_safety_tier`、`quality_basis` 与 `required_assets`。实际 `generate` 响应和任务元数据还可查看 guide/status 的 `rtx_deblur_mode`、`postprocess_path`、`source` 与 final尺寸，展示“首采 -> 神经二采 -> 最终输出”，不要只显示最终分辨率标签。
 
 `voice_mode = "fish_lock"` 时只使用 `voice_reference_audios` 的第 1 路作为 Fish 音色样本，`target_dialogue` 是要新生成的对白，`reference_transcript` 是样本音频原文（建议填写），`fish_model_path` 默认使用 `s2-pro-w4a16 (auto download)`。Fish 失败会返回明确错误，不会静默回退到 H3 原生音色。
+
+`voice_gender` 可选 `auto`、`male`、`female`、`neutral`，默认 `auto`。它会写入 H3 reference 提示词，用于保持性别与音域；H3 原生参考仍不是严格声纹克隆。要尽量避免男声漂移为女声，请传 `voice_gender = "male"`；要锁定本人声线，请使用 `fish_lock`。
 
 ### `GET /h3-director-plus/status`
 

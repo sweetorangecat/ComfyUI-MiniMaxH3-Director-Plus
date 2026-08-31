@@ -23,6 +23,7 @@ def build_reference_prompt(
     extra_reference_count=0,
     audio_count=0,
     audio_names=None,
+    voice_gender="auto",
 ):
     definitions = []
     retention = []
@@ -59,6 +60,13 @@ def build_reference_prompt(
 
     resolved_audio_count = max(int(bool(has_audio)), min(3, int(audio_count or 0)))
     names = list(audio_names or [])
+    gender = str(voice_gender or "auto").strip().lower()
+    gender_instruction = {
+        "male": "Preserve the reference speaker's gender (male) and vocal register; do not feminize the voice.",
+        "female": "Preserve the reference speaker's gender (female) and vocal register; do not masculinize the voice.",
+        "neutral": "Preserve the reference speaker's gender-neutral vocal register and timbre without introducing a gender shift.",
+        "auto": "Preserve the reference speaker's apparent gender and vocal register; do not shift the voice to another gender.",
+    }.get(gender, "Preserve the reference speaker's apparent gender and vocal register; do not shift the voice to another gender.")
     for index in range(1, resolved_audio_count + 1):
         subject = str(names[index - 1]).strip() if index <= len(names) else ""
         owner = f"，对应角色“{subject}”" if subject else f"，对应提示词中的音色参考 {index}"
@@ -66,6 +74,8 @@ def build_reference_prompt(
             f"<Audio {index}> 仅作为人物音色与表达方式的 reference{owner}，不复制原音频信号。"
         )
         retention.append(f"<Audio {index}>: reference - 保持音色参考 {index} 的音色与表达方式。")
+    if resolved_audio_count:
+        retention.append(gender_instruction)
 
     endpoint_note = ""
     if mode == "REF2VA" and (has_first or has_last):

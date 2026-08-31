@@ -47,7 +47,7 @@ def patch_template(template, request):
     last_allowed = mode in {"FL2VA", "L2VA", "REF2VA"}
     references_allowed = mode == "REF2VA"
     public_controller_fields = (
-        "mode", "prompt", "duration", "width", "height", "voice_mode",
+        "mode", "prompt", "duration", "width", "height", "voice_mode", "voice_gender",
         "aspect_ratio", "resolution_preset", "custom_width", "custom_height",
         "ref_image_size", "performance_preset", "target_dialogue", "reference_transcript",
         "fish_model_path", "postprocess_mode", "rtx_quality", "ai_upscale_model",

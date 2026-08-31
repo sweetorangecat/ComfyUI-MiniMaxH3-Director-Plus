@@ -83,3 +83,19 @@ def test_reference_prompt_numbers_multiple_audio_samples():
     assert "音色参考 1" in prompt
     assert "音色参考 2" in prompt
     assert "<Audio 3>" not in prompt
+
+
+def test_reference_prompt_can_lock_male_voice_register():
+    prompt = build_reference_prompt(
+        mode="REF2VA",
+        detail="橘总说新的中文台词。",
+        duration=5,
+        has_audio=True,
+        audio_count=1,
+        audio_names=("橘总",),
+        voice_gender="male",
+    )
+
+    assert "male" in prompt.lower()
+    assert "preserve the reference speaker's gender" in prompt.lower()
+    assert "do not feminize" in prompt.lower()

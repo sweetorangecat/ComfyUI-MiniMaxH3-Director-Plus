@@ -14,7 +14,7 @@ AUDIO_LOUDNESS_MODES = ("auto", "original")
 PUBLIC_API_KEYS = (
     "mode", "prompt", "duration", "aspect_ratio", "resolution_preset", "custom_width", "custom_height",
     "seed", "first_image", "last_image", "references", "voice_mode", "voice_reference_audio", "voice_reference_audios", "voice_reference_names",
-    "target_dialogue", "reference_transcript", "fish_model_path", "ref_image_size", "performance_preset",
+    "voice_gender", "target_dialogue", "reference_transcript", "fish_model_path", "ref_image_size", "performance_preset",
     "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness",
 )
 PERFORMANCE_PRESETS = {
@@ -201,6 +201,7 @@ DEFAULT_REQUEST = {
     "voice_reference_audio": None,
     "voice_reference_audios": [],
     "voice_reference_names": [],
+    "voice_gender": "auto",
     "target_dialogue": "",
     "reference_transcript": "",
     "fish_model_path": "s2-pro-w4a16 (auto download)",
@@ -235,6 +236,9 @@ def normalize_request(raw=None):
     if len(voice_names) > 3:
         raise RequestError("音色参考角色名最多支持 3 个")
     request["voice_reference_names"] = [str(name or "").strip() for name in voice_names]
+    request["voice_gender"] = str(request.get("voice_gender") or "auto").strip().lower()
+    if request["voice_gender"] not in {"auto", "male", "female", "neutral"}:
+        raise RequestError("不支持的音色性别约束：请使用 auto、male、female 或 neutral")
 
     if request["mode"] not in MODES:
         raise RequestError(f"不支持的生成模式：{request['mode']}")
@@ -308,13 +312,16 @@ def normalize_request(raw=None):
         raise RequestError("当前音色模式需要音色参考音频")
     if request["voice_mode"] == "fish_lock" and not str(request["target_dialogue"]).strip():
         raise RequestError("Fish 高级音色锁定需要目标对白")
-
     preset = PERFORMANCE_PRESETS.get(request["performance_preset"])
     if preset is None:
         raise RequestError(f"不支持的性能预设：{request['performance_preset']}")
     request["performance_preset"] = preset
 
     request["warnings"] = []
+    if request["voice_mode"] == "h3_reference" and request["voice_gender"] in {"male", "female"}:
+        request["warnings"].append(
+            "H3 原生音色参考仅提供性别/音域约束，不保证严格声纹一致；要尽量保持本人声线请使用 Fish S2。"
+        )
     if ignored_media:
         request["warnings"].append(
             f"已忽略与 {request['mode']} 不兼容的图片输入：{'、'.join(ignored_media)}。"
@@ -424,6 +431,7 @@ def public_schema():
             "voice_reference_audio": {"中文名称": "音色参考音频", "type": ["string", "null"]},
             "voice_reference_audios": {"中文名称": "编号音色参考音频", "type": "array", "maxItems": 3, "default": []},
             "voice_reference_names": {"中文名称": "编号音色对应角色", "type": "array", "maxItems": 3, "default": []},
+            "voice_gender": {"中文名称": "音色性别约束", "enum": ["auto", "male", "female", "neutral"], "default": "auto"},
             "target_dialogue": {"中文名称": "目标对白", "type": "string", "default": ""},
             "reference_transcript": {"中文名称": "音色样本文本", "type": "string", "default": ""},
             "fish_model_path": {"中文名称": "Fish S2 模型", "type": "string", "default": "s2-pro-w4a16 (auto download)"},
