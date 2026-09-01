@@ -9,7 +9,7 @@ import { clearSlot, compactBoundSlots, compactSlots } from "./media_slot_state.m
 
 const NODE_CLASS = "MiniMaxH3DirectorPlus";
 const SMART_PRESET = "免费智能 1080p";
-const SMART_UPSCALE_MODEL = "RealESRGAN_x2plus.pth";
+const SMART_UPSCALE_MODEL = "4x-UltraSharpV2.safetensors";
 // Keep node geometry independent from the browser sidebar width.
 const DIRECTOR_UI_WIDTH = 1350;
 const DIRECTOR_MIN_CONTENT_WIDTH = 1180;
@@ -79,6 +79,7 @@ const POSTPROCESS_MODES = [
   ["native", "原生尺寸直出"],
   ["lanczos", "Lanczos 快速放大"],
   ["ai_upscale", "AI 自动超分"],
+  ["video_sr", "SeedVR2 视频超分（时间一致）"],
   ["rtx_vsr", "AI 细节重建（RTX VSR）"],
 ];
 const VOICE_GENDERS = [
@@ -88,7 +89,7 @@ const VOICE_GENDERS = [
   ["neutral", "中性音域"],
 ];
 const POSTPROCESS_MODES_BY_PERFORMANCE = {
-  "免费智能 1080p": [["ai_upscale", "AI X2 超分（智能锁定）"]],
+  "免费智能 1080p": [["video_sr", "SeedVR2 视频超分（推荐）"], ["ai_upscale", "AI 超分（无 SeedVR2 时）"]],
   "质量优先二采样": [["rtx_vsr", "AI 细节重建（RTX VSR）"]],
   "低显存二采": [["ai_upscale", "AI X2 细节重建（低显存）"]],
 };
@@ -883,7 +884,7 @@ function install(node) {
       if (modelSelect && (aiModelOptions.length || preset === SMART_PRESET)) {
         modelSelect.replaceChildren();
         const modelOptions = preset === SMART_PRESET
-          ? [[SMART_UPSCALE_MODEL, "RealESRGAN X2（智能锁定）"]]
+          ? [[SMART_UPSCALE_MODEL, "4x-UltraSharpV2（智能锁定）"]]
           : [["auto", "自动选择"], ...aiModelOptions.filter((value) => value && value !== "auto" && (preset !== "低显存二采" || isX2UpscaleModel(value))).map((value) => [value, value])];
         modelOptions.forEach(([value, display]) => {
           const option = document.createElement("option");
@@ -901,7 +902,8 @@ function install(node) {
     const postprocessNotes = {
       native: "原生尺寸直出：保留 H3 实际生成尺寸，不进行放大。选择 2K/4K 时不会自动变成 2K/4K。",
       lanczos: "Lanczos 快速放大：使用 CPU 分块缩放，兼容性最好、速度快，但只重采样不重建 AI 细节。",
-      ai_upscale: "AI 自动超分：使用已安装的通用超分模型逐帧重建细节；默认自动选择合适倍率模型，模型不存在会在生成前提示。",
+      ai_upscale: "AI 自动超分：使用已安装的通用超分模型逐帧重建细节；默认 4x-UltraSharpV2，模型不存在会在生成前提示。",
+      video_sr: "SeedVR2 视频超分：ByteDance 单步扩散视频超分，帧间一致性显著优于逐帧超分；需要已安装 SeedVR2 节点与 models/SEEDVR2 权重，缺失会在生成前提示。",
       rtx_vsr: "RTX VSR：目标尺寸大于 H3 原生尺寸时逐帧使用 NVIDIA RTX VSR；首次使用前请安装 nvidia-vfx、NVIDIA Broadcast SDK 与匹配驱动，导演节点会在生成前检查；同尺寸自动旁路。",
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;

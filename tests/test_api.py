@@ -118,7 +118,7 @@ def test_api_template_and_patcher_expose_final_postprocess_controls():
     assert template["10"]["inputs"]["performance_preset"] == "免费智能 1080p"
     assert template["10"]["inputs"]["postprocess_mode"] == "ai_upscale"
     assert template["10"]["inputs"]["rtx_quality"] == "HIGH"
-    assert template["10"]["inputs"]["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+    assert template["10"]["inputs"]["ai_upscale_model"] == "4x-UltraSharpV2.safetensors"
     assert template["24"]["inputs"]["quality"] == 20
 
     prompt = patch_template(template, {

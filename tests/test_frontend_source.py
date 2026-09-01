@@ -178,10 +178,10 @@ def test_ui_locks_low_vram_two_stage_to_six_second_fhd_ai_x2_reconstruction():
 def test_ui_makes_smart_free_1080p_fully_automatic():
     text = source()
 
-    assert '"免费智能 1080p": [["ai_upscale"' in text
+    assert '"免费智能 1080p": [["video_sr"' in text
     assert 'preset === SMART_PRESET' in text
     assert 'setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false)' in text
-    assert 'const SMART_UPSCALE_MODEL = "RealESRGAN_x2plus.pth"' in text
+    assert 'const SMART_UPSCALE_MODEL = "4x-UltraSharpV2.safetensors"' in text
     assert '关闭（智能锁定）' in text
     assert "按后端、显存和时长自动选择路线" in text
     assert "无需手动组合超分、模型和运动平滑" in text

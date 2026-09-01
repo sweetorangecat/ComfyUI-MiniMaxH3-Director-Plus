@@ -8,7 +8,8 @@ from .schema import RequestError
 
 
 SMART_PRESET = "smart_free_1080p"
-SMART_UPSCALE_MODEL = "RealESRGAN_x2plus.pth"
+SMART_UPSCALE_MODEL = "4x-UltraSharpV2.safetensors"
+SMART_LOW_VRAM_UPSCALE_MODEL = "RealESRGAN_x2plus.pth"
 LOW_VRAM_MAX_SECONDS = 6
 LOW_VRAM_MIN_FREE_GB = 6.0
 LOW_VRAM_TOTAL_GB = 16.0
@@ -44,7 +45,7 @@ def _duration_seconds(duration):
     return seconds
 
 
-def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb):
+def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb, seedvr2_ready=False):
     """Resolve Smart 1080p generation policy for a backend and VRAM state."""
     if free_vram_gb < LOW_VRAM_MIN_FREE_GB:
         raise RequestError(
@@ -81,10 +82,14 @@ def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb):
         warning = ""
         max_duration = 15
 
+    postprocess_mode = "video_sr" if seedvr2_ready else "ai_upscale"
     return {
         "performance_preset": preset,
-        "postprocess_mode": "ai_upscale",
-        "ai_upscale_model": SMART_UPSCALE_MODEL,
+        "postprocess_mode": postprocess_mode,
+        "ai_upscale_model": (
+            SMART_LOW_VRAM_UPSCALE_MODEL if low_vram else SMART_UPSCALE_MODEL
+        ),
+        "seedvr2_ready": bool(seedvr2_ready),
         "motion_smoothing": "off",
         "use_easycache": False,
         "low_vram": low_vram,

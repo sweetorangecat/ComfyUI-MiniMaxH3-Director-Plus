@@ -20,6 +20,7 @@ from .schema import (
 )
 from .smart_1080p import SMART_PRESET, resolve_smart_1080p_plan, smart_1080p_target
 from .two_stage_assets import dependency_report, resolve_two_stage_route
+from .video_sr import resolve_seedvr2_plan, seedvr2_dependency_report
 from .upscale import (
     _available_upscale_models,
     is_x2_upscale_model_name,
@@ -54,6 +55,18 @@ def _trained_two_stage_dependency_report(route):
         mappings = {}
     comfy_root = Path(__file__).resolve().parents[3]
     return dependency_report(comfy_root, route, mappings)
+
+
+def _seedvr2_dependency_report():
+    """Check SeedVR2 nodes and on-disk weights before any H3 sampling starts."""
+    try:
+        import nodes as comfy_nodes
+
+        mappings = getattr(comfy_nodes, "NODE_CLASS_MAPPINGS", {})
+    except (AttributeError, ImportError):
+        mappings = {}
+    comfy_root = Path(__file__).resolve().parents[3]
+    return seedvr2_dependency_report(comfy_root, node_mappings=mappings)
 
 
 def _uploaded_files(content_types):
@@ -188,9 +201,9 @@ class MiniMaxH3DirectorPlus:
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
                 "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "免费智能 1080p", "tooltip": "性能预设；默认本地免费智能 1080p"}),
-                "postprocess_mode": (["native", "lanczos", "ai_upscale", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "原生直出 / Lanczos / 通用 AI 超分 / AI 细节重建（RTX VSR）"}),
+                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "原生直出 / Lanczos / 通用 AI 超分 / SeedVR2 扩散视频超分 / AI 细节重建（RTX VSR）"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
-                "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "RealESRGAN_x2plus.pth", "tooltip": "通用 AI 超分模型；默认本地 RealESRGAN X2"}),
+                "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "4x-UltraSharpV2.safetensors", "tooltip": "通用 AI 超分模型；默认本地 4x-UltraSharpV2"}),
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
                 "target_dialogue": ("STRING", {"default": "", "multiline": True, "tooltip": "Fish高级音色锁定的目标对白"}),
                 "reference_transcript": ("STRING", {"default": "", "multiline": True, "tooltip": "音色样本对应文本，可留空"}),
@@ -253,7 +266,7 @@ class MiniMaxH3DirectorPlus:
         reference_transcript,
         postprocess_mode="ai_upscale",
         rtx_quality="HIGH",
-        ai_upscale_model="RealESRGAN_x2plus.pth",
+        ai_upscale_model="4x-UltraSharpV2.safetensors",
         motion_smoothing="off",
         audio_loudness="auto",
         fish_model_path="s2-pro-w4a16 (auto download)",
@@ -430,8 +443,10 @@ class MiniMaxH3DirectorPlus:
         if smart_mode:
             smart_vram = _cuda_memory_gb()
             total_vram_gb, free_vram_gb = smart_vram
+            seedvr2_ready = _seedvr2_dependency_report().get("ready", False)
             smart_plan = resolve_smart_1080p_plan(
-                request["resolved_backend"], request["duration"], total_vram_gb, free_vram_gb
+                request["resolved_backend"], request["duration"], total_vram_gb, free_vram_gb,
+                seedvr2_ready=seedvr2_ready,
             )
             request["performance_preset"] = smart_plan["performance_preset"]
             request["postprocess_mode"] = smart_plan["postprocess_mode"]
@@ -518,7 +533,7 @@ class MiniMaxH3DirectorPlus:
             postprocess_path = "native_bypass"
         elif requested_width < postprocess_source_width or requested_height < postprocess_source_height:
             postprocess_path = "downscale"
-        elif request["postprocess_mode"] in {"lanczos", "ai_upscale", "rtx_vsr"}:
+        elif request["postprocess_mode"] in {"lanczos", "ai_upscale", "video_sr", "rtx_vsr"}:
             postprocess_path = request["postprocess_mode"]
         else:
             postprocess_path = "native_bypass"
@@ -591,8 +606,37 @@ class MiniMaxH3DirectorPlus:
                     raise RequestError(
                         f"RIFE 运动平滑前置检查失败，尚未开始 H3 视频生成：{exc}"
                     ) from exc
+        if postprocess_path == "video_sr":
+            seedvr2_report = _seedvr2_dependency_report()
+            if not seedvr2_report["ready"]:
+                raise RequestError(
+                    "SeedVR2 视频超分依赖缺失，尚未开始 H3 视频生成："
+                    + "、".join(seedvr2_report["missing"])
+                    + "。请安装 ComfyUI-SeedVR2_VideoUpscaler 节点并将 "
+                    "seedvr2_ema_3b 与 ema_vae_fp16.safetensors 放入 models/SEEDVR2，"
+                    "或改用通用 AI 超分。"
+                )
+            total_for_sr = _cuda_memory_gb()[0]
+            request["video_sr_plan"] = resolve_seedvr2_plan(
+                total_for_sr, available_dit=seedvr2_report.get("available_dit")
+            )
+            request["warnings"].append(
+                "最终输出使用 SeedVR2 扩散视频超分（逐帧时间一致性优于通用 AI 超分）："
+                f"模型 {request['video_sr_plan']['dit_model']}，"
+                f"批大小 {request['video_sr_plan']['batch_size']}。"
+            )
+
         if postprocess_path == "ai_upscale":
             try:
+                if (
+                    request["performance_preset"] == "low_vram_two_stage"
+                    and Path(str(request["ai_upscale_model"])).name.lower() == "4x-ultrasharpv2.safetensors"
+                ):
+                    request["ai_upscale_model"] = "RealESRGAN_x2plus.pth"
+                    request["warnings"].append(
+                        "低显存二采已自动将默认 4x-UltraSharpV2 降级为 "
+                        "RealESRGAN_x2plus.pth（X2 模型），以守住 8GB 显存安全线。"
+                    )
                 request["ai_upscale_model"] = resolve_upscale_model_name(
                     request["ai_upscale_model"],
                     max(
@@ -608,9 +652,12 @@ class MiniMaxH3DirectorPlus:
                         "低显存二采只允许 X2 超分模型，"
                         f"当前解析为 {request['ai_upscale_model']}"
                     )
-                if smart_mode and Path(request["ai_upscale_model"]).name.lower() != "realesrgan_x2plus.pth".lower():
+                if smart_mode and Path(request["ai_upscale_model"]).name.lower() not in {
+                    "4x-ultrasharpv2.safetensors",
+                    "realesrgan_x2plus.pth",
+                }:
                     raise ValueError(
-                        "免费智能 1080p 只允许 RealESRGAN_x2plus.pth，"
+                        "免费智能 1080p 只允许 4x-UltraSharpV2.safetensors 或旧版 RealESRGAN_x2plus.pth，"
                         f"当前解析为 {request['ai_upscale_model']}"
                     )
                 required_assets.append(request["ai_upscale_model"])
@@ -723,6 +770,7 @@ class MiniMaxH3DirectorPlus:
             "rtx_quality": request["rtx_quality"],
             "rtx_deblur_mode": request["rtx_deblur_mode"],
             "ai_upscale_model": request["ai_upscale_model"],
+            "video_sr_plan": request.get("video_sr_plan"),
             "motion_smoothing": request["motion_smoothing"],
             "audio_loudness": request["audio_loudness"],
             "audio_cleanup_requested": (
@@ -741,6 +789,7 @@ class MiniMaxH3DirectorPlus:
             "upscale_method": {
                 "rtx_vsr": "rtx_vsr",
                 "ai_upscale": "comfy_upscale_model",
+                "video_sr": "seedvr2",
                 "lanczos": "lanczos",
                 "balanced_fhd_downscale": "aspect_lanczos_downscale",
                 "downscale": "cpu_bicubic",

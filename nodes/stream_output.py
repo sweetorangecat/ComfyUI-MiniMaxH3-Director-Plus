@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 
 from .upscale import resolve_upscale_model_name, validate_frames_for_reconstruction
+from .video_sr import resolve_seedvr2_callables
 from .rtx_vsr_stream import DeblurVsrFrameProcessor, VsrFrameProcessor, load_vsr_api
 from .rife_stream import (
     DEFAULT_RIFE_MODEL,
@@ -379,6 +380,99 @@ def _iter_ai_upscale_frame_chunks(
             _release_upscale_model(model)
 
 
+def _unwrap_node_result(result, index=0):
+    result = getattr(result, "result", result)
+    if isinstance(result, (tuple, list)):
+        return result[index]
+    if index == 0:
+        return result
+    raise IndexError(f"节点结果没有第 {index} 个输出")
+
+
+def _iter_video_sr_frame_chunks(
+    images,
+    target_width,
+    target_height,
+    seed=42,
+    plan=None,
+    max_chunk_frames=4,
+):
+    """Run SeedVR2 diffusion video SR once, then yield bounded CPU chunks.
+
+    SeedVR2 batches and offloads internally, so the full clip is submitted in
+    one call with a hardware-tiered plan; the upscaled tensor is yielded back
+    in small CPU chunks to keep encoder feeding bounded.
+    """
+    callables = resolve_seedvr2_callables()
+    if callables is None:
+        raise RuntimeError(
+            "缺少 SeedVR2 视频超分节点：请安装 ComfyUI-SeedVR2_VideoUpscaler，"
+            "或在导演台把最终输出改为通用 AI 超分"
+        )
+    upscale_fn, dit_loader_fn, vae_loader_fn = callables
+    plan = dict(plan or {})
+    dit_config = _unwrap_node_result(
+        dit_loader_fn(
+            model=plan.get("dit_model"),
+            device="cuda:0",
+            offload_device=plan.get("dit_offload_device", "cpu"),
+            blocks_to_swap=int(plan.get("blocks_to_swap", 0)),
+            swap_io_components=bool(plan.get("swap_io_components", False)),
+        )
+    )
+    vae_config = _unwrap_node_result(
+        vae_loader_fn(
+            model=plan.get("vae_model"),
+            device="cuda:0",
+            offload_device="cpu",
+            encode_tiled=bool(plan.get("encode_tiled", False)),
+            decode_tiled=bool(plan.get("decode_tiled", False)),
+        )
+    )
+    result = _unwrap_node_result(
+        upscale_fn(
+            image=images.detach().to(device="cpu", dtype=torch.float32),
+            dit=dit_config,
+            vae=vae_config,
+            seed=int(seed),
+            resolution=int(min(target_width, target_height)),
+            max_resolution=int(max(target_width, target_height)),
+            batch_size=int(plan.get("batch_size", 5)),
+            uniform_batch_size=False,
+            temporal_overlap=int(plan.get("temporal_overlap", 0)),
+            color_correction=str(plan.get("color_correction", "lab")),
+            offload_device="cpu",
+        )
+    )
+    if not isinstance(result, torch.Tensor) or result.ndim != 4:
+        raise RuntimeError("SeedVR2 视频超分返回了无效结果")
+    step = max(1, int(max_chunk_frames))
+    for start in range(0, int(result.shape[0]), step):
+        yield _resize_cpu_chunk(
+            result[start:start + step], int(target_width), int(target_height),
+            method="lanczos",
+        ).clamp(0.0, 1.0)
+
+
+def _save_video_sr_frame(source, index, target_width, target_height, seed, plan, output_path, suffix):
+    single_plan = dict(plan or {})
+    single_plan["batch_size"] = 1
+    chunks = _iter_video_sr_frame_chunks(
+        source[index:index + 1], target_width, target_height,
+        seed=seed, plan=single_plan,
+    )
+    try:
+        frame = next(chunks)[0]
+    finally:
+        close = getattr(chunks, "close", None)
+        if callable(close):
+            close()
+    pixels = torch.round(frame[..., :3].clamp(0.0, 1.0) * 255).to(torch.uint8).numpy()
+    path = f"{os.path.splitext(output_path)[0]}-{suffix}-frame.png"
+    Image.fromarray(pixels, mode="RGB").save(path, "PNG")
+    return path
+
+
 def _iter_native_frame_chunks(images, max_frames=4, pingpong=False):
     """Yield source-size CPU chunks without duplicating the complete batch."""
     max_frames = max(1, min(4, int(max_frames)))
@@ -514,6 +608,7 @@ def _resolve_postprocess_path(guide, source_width, source_height):
         "balanced_fhd_downscale",
         "lanczos",
         "ai_upscale",
+        "video_sr",
         "rtx_vsr",
     }:
         # Equal native/target dimensions are always a bypass, even if an old
@@ -548,7 +643,7 @@ def release_sampling_models():
 
 def _prepare_postprocess_runtime(guide, postprocess_path):
     preset = str((guide or {}).get("performance_preset") or "")
-    if preset in _TRAINED_TWO_STAGE_PRESETS and postprocess_path in {"rtx_vsr", "ai_upscale"}:
+    if preset in _TRAINED_TWO_STAGE_PRESETS and postprocess_path in {"rtx_vsr", "ai_upscale", "video_sr"}:
         release_sampling_models()
 
 
@@ -849,6 +944,13 @@ class MiniMaxH3StreamingVideoCombine:
                 raise _VsrProcessingError(str(exc)) from exc
         if motion_smoothing == "rife_x2":
             probe_rife_capability(guide.get("rife_model", DEFAULT_RIFE_MODEL))
+        if postprocess_path == "video_sr":
+            validate_frames_for_reconstruction(source)
+            if resolve_seedvr2_callables() is None:
+                raise RuntimeError(
+                    "缺少 SeedVR2 视频超分节点：请安装 ComfyUI-SeedVR2_VideoUpscaler，"
+                    "或在导演台把最终输出改为通用 AI 超分"
+                )
         if postprocess_path == "ai_upscale":
             validate_frames_for_reconstruction(source)
             try:
@@ -912,6 +1014,14 @@ class MiniMaxH3StreamingVideoCombine:
                 chunks = _iter_lanczos_frame_chunks(
                     source, target_width, target_height, **chunk_kwargs
                 )
+            elif postprocess_path == "video_sr":
+                chunks = _iter_video_sr_frame_chunks(
+                    source,
+                    target_width,
+                    target_height,
+                    seed=int(guide.get("seed", 42) or 42),
+                    plan=guide.get("video_sr_plan"),
+                )
             elif postprocess_path == "ai_upscale":
                 chunks = _iter_ai_upscale_frame_chunks(
                     source,
@@ -950,7 +1060,7 @@ class MiniMaxH3StreamingVideoCombine:
                     )
             try:
                 for chunk in chunks:
-                    if postprocess_path == "ai_upscale" and len(chunk):
+                    if postprocess_path in {"ai_upscale", "video_sr"} and len(chunk):
                         if "first" not in ai_edge_frames:
                             ai_edge_frames["first"] = chunk[0].detach().cpu().clone()
                         ai_edge_frames["last"] = chunk[-1].detach().cpu().clone()
@@ -1058,6 +1168,11 @@ class MiniMaxH3StreamingVideoCombine:
                     frame_exports.append(_save_balanced_fhd_downscale_frame(source, 0, target_width, target_height, output_path, "first"))
                 elif postprocess_path == "lanczos":
                     frame_exports.append(_save_lanczos_frame(source, 0, target_width, target_height, output_path, "first"))
+                elif postprocess_path == "video_sr":
+                    if "first" in ai_edge_frames:
+                        frame_exports.append(_save_native_frame(ai_edge_frames["first"].unsqueeze(0), 0, output_path, "first"))
+                    else:
+                        frame_exports.append(_save_video_sr_frame(source, 0, target_width, target_height, guide.get("seed", 42), guide.get("video_sr_plan"), output_path, "first"))
                 elif postprocess_path == "ai_upscale":
                     if "first" in ai_edge_frames:
                         frame_exports.append(_save_native_frame(ai_edge_frames["first"].unsqueeze(0), 0, output_path, "first"))
@@ -1079,6 +1194,11 @@ class MiniMaxH3StreamingVideoCombine:
                     frame_exports.append(_save_balanced_fhd_downscale_frame(source, last_index, target_width, target_height, output_path, "last"))
                 elif postprocess_path == "lanczos":
                     frame_exports.append(_save_lanczos_frame(source, last_index, target_width, target_height, output_path, "last"))
+                elif postprocess_path == "video_sr":
+                    if "last" in ai_edge_frames:
+                        frame_exports.append(_save_native_frame(ai_edge_frames["last"].unsqueeze(0), 0, output_path, "last"))
+                    else:
+                        frame_exports.append(_save_video_sr_frame(source, last_index, target_width, target_height, guide.get("seed", 42), guide.get("video_sr_plan"), output_path, "last"))
                 elif postprocess_path == "ai_upscale":
                     if "last" in ai_edge_frames:
                         frame_exports.append(_save_native_frame(ai_edge_frames["last"].unsqueeze(0), 0, output_path, "last"))

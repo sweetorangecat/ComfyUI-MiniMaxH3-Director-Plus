@@ -52,7 +52,7 @@ def test_director_defaults_to_smart_free_1080p_and_local_x2():
     required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
     assert required["performance_preset"][1]["default"] == "免费智能 1080p"
     assert required["postprocess_mode"][1]["default"] == "ai_upscale"
-    assert required["ai_upscale_model"][1]["default"] == "RealESRGAN_x2plus.pth"
+    assert required["ai_upscale_model"][1]["default"] == "4x-UltraSharpV2.safetensors"
 
 
 def test_smart_free_1080p_resolves_base_backend_to_sage_and_x2(monkeypatch):
@@ -125,7 +125,7 @@ def test_director_exposes_postprocess_widgets():
     required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
     optional = MiniMaxH3DirectorPlus.INPUT_TYPES()["optional"]
 
-    assert required["postprocess_mode"][0] == ["native", "lanczos", "ai_upscale", "rtx_vsr"]
+    assert required["postprocess_mode"][0] == ["native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"]
     assert "AI 细节重建（RTX VSR）" in required["postprocess_mode"][1]["tooltip"]
     assert required["rtx_quality"][0] == ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"]
     assert required["ai_upscale_model"][0][0] == "auto"

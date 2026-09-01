@@ -26,13 +26,13 @@ def test_two_stage_presets_remain_available_only_on_non_reference_routes():
 def test_schema_exposes_final_postprocess_controls():
     schema = public_schema()["properties"]
 
-    assert schema["postprocess_mode"]["enum"] == ["native", "lanczos", "ai_upscale", "rtx_vsr"]
+    assert schema["postprocess_mode"]["enum"] == ["native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"]
     assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"]
     assert schema["rtx_quality"]["allowed_by_performance"] == {
         "质量优先二采样": ["HIGHBITRATE_ULTRA"],
         "其他性能预设": ["HIGH", "ULTRA"],
     }
-    assert schema["ai_upscale_model"]["default"] == "RealESRGAN_x2plus.pth"
+    assert schema["ai_upscale_model"]["default"] == "4x-UltraSharpV2.safetensors"
     assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["rtx_vsr"]
     assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == ["ai_upscale"]
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
@@ -47,7 +47,7 @@ def test_normalize_request_defaults_to_smart_free_1080p():
     assert request["performance_preset"] == "smart_free_1080p"
     assert request["postprocess_mode"] == "ai_upscale"
     assert request["rtx_quality"] == "HIGH"
-    assert request["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+    assert request["ai_upscale_model"] == "4x-UltraSharpV2.safetensors"
     assert request["motion_smoothing"] == "off"
     assert request["audio_loudness"] == "auto"
     assert request["voice_gender"] == "auto"
@@ -139,7 +139,7 @@ def test_smart_free_1080p_aliases_and_output_controls_are_locked():
     for preset in ("免费智能 1080p", "smart_free_1080p"):
         request = normalize_request({"mode": "T2VA", "performance_preset": preset})
         assert request["performance_preset"] == "smart_free_1080p"
-    assert allowed_postprocess_modes("smart_free_1080p") == ("ai_upscale",)
+    assert allowed_postprocess_modes("smart_free_1080p") == ("ai_upscale", "video_sr")
     assert schema_module.allowed_motion_smoothing("smart_free_1080p", "ai_upscale") == ("off",)
 
     with pytest.raises(RequestError, match="smart_free_1080p.*后处理模式"):

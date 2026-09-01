@@ -37,9 +37,9 @@ def resolve_upscale_model_name(model_name="auto", scale_factor=2.0, available=No
 
     factor = float(scale_factor)
     preferred = (
-        ["realesrgan_x2plus.pth", "omnisr_x2_div2k.safetensors"]
+        ["4x-ultrasharpv2.safetensors", "realesrgan_x2plus.pth", "omnisr_x2_div2k.safetensors"]
         if factor <= 2.0
-        else ["omnisr_x4_div2k.safetensors", "realesrgan_x4plus.pth"]
+        else ["4x-ultrasharpv2.safetensors", "omnisr_x4_div2k.safetensors", "realesrgan_x4plus.pth"]
     )
     for name in preferred:
         if name in by_lower:

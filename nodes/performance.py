@@ -728,7 +728,7 @@ def _reconcile_two_stage_fallback_geometry(guide):
     elif requested_width < native_width or requested_height < native_height:
         postprocess_path = "downscale"
         target_width, target_height = requested_width, requested_height
-    elif postprocess_mode in {"lanczos", "ai_upscale", "rtx_vsr"}:
+    elif postprocess_mode in {"lanczos", "ai_upscale", "video_sr", "rtx_vsr"}:
         postprocess_path = postprocess_mode
         target_width, target_height = requested_width, requested_height
     else:
@@ -748,10 +748,11 @@ def _reconcile_two_stage_fallback_geometry(guide):
     guide["target_width"] = target_width
     guide["target_height"] = target_height
     guide["postprocess_path"] = postprocess_path
-    guide["upscale_required"] = postprocess_path in {"lanczos", "ai_upscale", "rtx_vsr"}
+    guide["upscale_required"] = postprocess_path in {"lanczos", "ai_upscale", "video_sr", "rtx_vsr"}
     guide["upscale_method"] = {
         "rtx_vsr": "rtx_vsr",
         "ai_upscale": "comfy_upscale_model",
+        "video_sr": "seedvr2",
         "lanczos": "lanczos",
         "downscale": "cpu_bicubic",
         "native_bypass": "none",

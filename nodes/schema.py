@@ -7,7 +7,7 @@ from copy import deepcopy
 
 MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA")
 VOICE_MODES = ("none", "h3_reference", "fish_lock")
-POSTPROCESS_MODES = ("native", "lanczos", "ai_upscale", "rtx_vsr")
+POSTPROCESS_MODES = ("native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr")
 RTX_QUALITIES = ("HIGH", "ULTRA", "HIGHBITRATE_ULTRA")
 MOTION_SMOOTHING_MODES = ("auto", "off", "rife_x2")
 AUDIO_LOUDNESS_MODES = ("auto", "original")
@@ -103,7 +103,7 @@ TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_st
 # verified final reconstruction route. Other presets still expose one
 # selectable final-output method at a time.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
-    "smart_free_1080p": ("ai_upscale",),
+    "smart_free_1080p": ("ai_upscale", "video_sr"),
     "quality_two_stage": ("rtx_vsr",),
     "low_vram_two_stage": ("ai_upscale",),
     "quality": POSTPROCESS_MODES,
@@ -209,7 +209,7 @@ DEFAULT_REQUEST = {
     "performance_preset": "smart_free_1080p",
     "postprocess_mode": "ai_upscale",
     "rtx_quality": "HIGH",
-    "ai_upscale_model": "RealESRGAN_x2plus.pth",
+    "ai_upscale_model": "4x-UltraSharpV2.safetensors",
     "motion_smoothing": "off",
     "audio_loudness": "auto",
     "ignored_media": [],
@@ -291,7 +291,7 @@ def normalize_request(raw=None):
     request["audio_loudness"] = str(request.get("audio_loudness") or "auto")
     if request["audio_loudness"] not in AUDIO_LOUDNESS_MODES:
         raise RequestError(f"不支持的最终音频响度模式：{request['audio_loudness']}")
-    request["ai_upscale_model"] = str(request.get("ai_upscale_model") or "RealESRGAN_x2plus.pth").strip() or "RealESRGAN_x2plus.pth"
+    request["ai_upscale_model"] = str(request.get("ai_upscale_model") or "4x-UltraSharpV2.safetensors").strip() or "4x-UltraSharpV2.safetensors"
 
     try:
         duration = int(request["duration"])
@@ -460,9 +460,9 @@ def public_schema():
                 "中文名称": "最终输出后处理模式",
                 "enum": list(POSTPROCESS_MODES),
                 "default": "ai_upscale",
-                "description": "四种最终输出路线：原生尺寸直出、Lanczos 快速放大、通用 AI 自动超分、NVIDIA RTX VSR AI 细节重建。",
+                "description": "五种最终输出路线：原生尺寸直出、Lanczos 快速放大、通用 AI 自动超分、SeedVR2 扩散视频超分（时间一致性最好）、NVIDIA RTX VSR AI 细节重建。",
                 "allowed_by_performance": {
-                    "免费智能 1080p": ["ai_upscale"],
+                    "免费智能 1080p": ["ai_upscale", "video_sr"],
                     "质量优先二采样": ["rtx_vsr"],
                     "低显存二采": ["ai_upscale"],
                     "其他性能预设": list(POSTPROCESS_MODES),
@@ -481,7 +481,7 @@ def public_schema():
             "ai_upscale_model": {
                 "中文名称": "通用 AI 超分模型",
                 "type": "string",
-                "default": "RealESRGAN_x2plus.pth",
+                "default": "4x-UltraSharpV2.safetensors",
                 "description": "自动选择或指定 models/upscale_models 中的通用 AI 超分模型，仅在 ai_upscale 模式生效。",
             },
             "motion_smoothing": {
