@@ -243,8 +243,18 @@ def run_trained_latent_upscaler(video_latent, scale):
     samples = result.get("samples") if isinstance(result, dict) else None
     if not isinstance(samples, torch.Tensor) or samples.ndim not in (4, 5):
         raise RuntimeError("训练型 H3 latent 放大节点返回了无效结果")
+    if samples.ndim != source_samples.ndim:
+        raise RuntimeError(
+            "训练型 H3 latent 放大结果维度与输入不一致："
+            f"{source_samples.ndim}D -> {samples.ndim}D"
+        )
     if int(samples.shape[1]) != 24:
         raise RuntimeError(f"训练型 H3 latent 放大结果通道数错误：{samples.shape[1]}，应为 24")
+    if tuple(samples.shape[:-2]) != tuple(source_samples.shape[:-2]):
+        raise RuntimeError(
+            "训练型 H3 latent 放大结果非空间尺寸与输入不一致："
+            f"{tuple(source_samples.shape[:-2])} -> {tuple(samples.shape[:-2])}"
+        )
     if float(scale) > 1.0 and (
         int(samples.shape[-2]) <= int(source_samples.shape[-2])
         or int(samples.shape[-1]) <= int(source_samples.shape[-1])
