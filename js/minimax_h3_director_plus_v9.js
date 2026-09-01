@@ -686,8 +686,9 @@ function install(node) {
 
   const hidden = [
     "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset", "custom_width", "custom_height", "seed", "seed_mode", "voice_mode", "fish_model_path",
-    "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness", "timeline_data",
-    "target_dialogue", "reference_transcript", "voice_gender", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
+    "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data",
+    "target_dialogue", "reference_transcript", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
+    "motion_smoothing", "audio_loudness", "voice_gender",
     "first_image_file", "last_image_file", "voice_reference_audio_file", "voice_reference_audio_2_file", "voice_reference_audio_3_file",
     "reference_image_1_file", "reference_image_2_file", "reference_image_3_file", "reference_image_4_file", "reference_image_5_file",
     "reference_image_6_file", "reference_image_7_file", "reference_image_8_file", "reference_image_9_file",

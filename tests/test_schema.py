@@ -76,9 +76,25 @@ def test_h3_reference_warns_when_prompt_does_not_bind_audio_to_dialogue():
     assert any("<Audio 1>" in warning and "对白" in warning for warning in request["warnings"])
 
 
-def test_normalize_request_rejects_unknown_voice_gender():
-    with pytest.raises(RequestError, match="音色性别约束"):
-        normalize_request({"voice_gender": "baritone"})
+def test_normalize_request_normalizes_unknown_voice_gender_to_auto():
+    """Unknown voice_gender values (from widget misalignment) normalize to auto."""
+    request = normalize_request({"mode": "T2VA", "duration": 4, "voice_gender": "baritone"})
+    assert request["voice_gender"] == "auto"
+
+
+def test_normalize_request_normalizes_shifted_voice_gender_from_widget_misalignment():
+    """Old saved workflows may shift widget values by position, causing voice_gender
+    to receive values from other fields like fish_model_path.  These must normalize
+    to auto instead of raising, so the node output is not silently ignored."""
+    request = normalize_request({"mode": "T2VA", "duration": 4, "voice_gender": "s2-pro-w4a16 (auto download)"})
+    assert request["voice_gender"] == "auto"
+
+
+def test_normalize_request_normalizes_blank_voice_gender_from_old_workflow():
+    """ComfyUI strips empty strings from combo lists, so the cf1a6c2 trick of
+    adding empty string to the combo did not work.  A blank value must normalize to auto."""
+    request = normalize_request({"mode": "T2VA", "duration": 4, "voice_gender": ""})
+    assert request["voice_gender"] == "auto"
 
 
 @pytest.mark.parametrize(

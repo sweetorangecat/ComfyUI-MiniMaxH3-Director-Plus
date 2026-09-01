@@ -127,7 +127,7 @@ def test_ui_exposes_separate_low_vram_two_stage_without_changing_layout():
     assert 'valueControl("AI 超分模型", "ai_upscale_model"' in text
     assert 'postprocessMode === "ai_upscale"' in text
     assert 'const aiModelOptions' in text
-    assert '"postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness", "timeline_data"' in text
+    assert '"postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data"' in text
     assert "同尺寸自动旁路" in text
 
 
@@ -237,7 +237,7 @@ def test_ui_exposes_compatible_chinese_motion_smoothing_control():
     assert '关闭（二采固定，避免重影）' in text
     assert 'preset === "低显存"' in text
     assert 'postprocessMode !== "rtx_vsr"' in text
-    assert '"motion_smoothing", "audio_loudness", "timeline_data"' in text
+    assert '"motion_smoothing", "audio_loudness", "voice_gender"' in text
 
 
 def test_ui_exposes_final_audio_loudness_control():

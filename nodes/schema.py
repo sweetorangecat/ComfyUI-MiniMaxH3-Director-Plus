@@ -238,7 +238,7 @@ def normalize_request(raw=None):
     request["voice_reference_names"] = [str(name or "").strip() for name in voice_names]
     request["voice_gender"] = str(request.get("voice_gender") or "auto").strip().lower()
     if request["voice_gender"] not in {"auto", "male", "female", "neutral"}:
-        raise RequestError("不支持的音色性别约束：请使用 auto、male、female 或 neutral")
+        request["voice_gender"] = "auto"
 
     if request["mode"] not in MODES:
         raise RequestError(f"不支持的生成模式：{request['mode']}")

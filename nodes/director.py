@@ -215,7 +215,7 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_9_file": (image_files, {"image_upload": True}),
                 "motion_smoothing": (["off", "rife_x2"], {"default": "off", "tooltip": "运动平滑：默认关闭以保留原始帧；需要 48 FPS 时手动启用流式 RIFE 2x；低显存模式只允许关闭"}),
                 "audio_loudness": (["auto", "original"], {"default": "auto", "tooltip": "最终音频：自动增强过小的 H3 音量，或保持原始响度"}),
-                "voice_gender": (["", "auto", "male", "female", "neutral"], {"default": "auto", "tooltip": "保持参考音色的性别与音域；空值仅用于兼容旧工作流并按 auto 处理"}),
+                "voice_gender": ("STRING", {"default": "auto", "tooltip": "保持参考音色的性别与音域；旧工作流错位值在 normalize_request 中自动归一化为 auto"}),
                 "first_image": ("IMAGE",),
                 "last_image": ("IMAGE",),
                 "voice_reference_audio": ("AUDIO",),
