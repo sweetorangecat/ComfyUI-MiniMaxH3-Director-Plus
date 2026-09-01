@@ -162,6 +162,130 @@ def test_bypass_route_has_no_required_assets(tmp_path):
     assert report["missing"] == []
 
 
+def test_trained_upscaler_adapter_supports_current_temporal_api(monkeypatch):
+    import types
+    import torch
+    import nodes.two_stage_assets as assets
+
+    calls = []
+
+    class CurrentUpscaler:
+        @classmethod
+        def execute(
+            cls,
+            latent,
+            model_name,
+            mode,
+            align,
+            enable_temporal_chunking,
+            force_unload,
+            device,
+            precision,
+        ):
+            calls.append(
+                (
+                    latent,
+                    model_name,
+                    mode,
+                    align,
+                    enable_temporal_chunking,
+                    force_unload,
+                    device,
+                    precision,
+                )
+            )
+            return types.SimpleNamespace(result=({"samples": torch.ones(1, 24, 2, 6, 6)},))
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": CurrentUpscaler},
+        raising=False,
+    )
+    latent = {"samples": torch.zeros(1, 24, 2, 4, 4)}
+
+    result = run_trained_latent_upscaler(latent, 1.5)
+
+    assert result["samples"].shape == (1, 24, 2, 6, 6)
+    assert calls == [
+        (
+            latent,
+            LATENT_UPSCALER_MODEL,
+            {"mode": "scale by multiplier", "scale": 1.5},
+            32,
+            True,
+            True,
+            "cuda",
+            "bf16",
+        )
+    ]
+
+
+def test_trained_upscaler_adapter_prefers_real_execute_over_comfy_v3_wrapper(monkeypatch):
+    import types
+    import torch
+    import nodes.two_stage_assets as assets
+
+    calls = []
+
+    class WrappedCurrentUpscaler:
+        FUNCTION = "EXECUTE_NORMALIZED"
+
+        @classmethod
+        def execute(
+            cls,
+            latent,
+            model_name,
+            mode,
+            align,
+            enable_temporal_chunking,
+            force_unload,
+            device,
+            precision,
+        ):
+            calls.append(
+                (
+                    latent,
+                    model_name,
+                    mode,
+                    align,
+                    enable_temporal_chunking,
+                    force_unload,
+                    device,
+                    precision,
+                )
+            )
+            return types.SimpleNamespace(result=({"samples": torch.ones(1, 24, 2, 6, 6)},))
+
+        @classmethod
+        def EXECUTE_NORMALIZED(cls, *args, **kwargs):
+            raise AssertionError("the ComfyUI v3 wrapper must not be called")
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": WrappedCurrentUpscaler},
+        raising=False,
+    )
+    latent = {"samples": torch.zeros(1, 24, 2, 4, 4)}
+
+    result = run_trained_latent_upscaler(latent, 1.5)
+
+    assert result["samples"].shape == (1, 24, 2, 6, 6)
+    assert calls == [
+        (
+            latent,
+            LATENT_UPSCALER_MODEL,
+            {"mode": "scale by multiplier", "scale": 1.5},
+            32,
+            True,
+            True,
+            "cuda",
+            "bf16",
+        )
+    ]
+
+
 def test_trained_upscaler_adapter_uses_model_scale_cuda_bf16_and_chunking(monkeypatch):
     import types
     import torch

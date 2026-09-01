@@ -132,6 +132,82 @@ def _unwrap_node_output(result):
     return result
 
 
+def _is_unbound_self_method(function):
+    if not inspect.isfunction(function):
+        return False
+    parameters = tuple(inspect.signature(function).parameters.values())
+    return bool(parameters) and parameters[0].name == "self"
+
+
+def _resolve_upscaler_callable(node_class):
+    """Resolve the callable while bypassing ComfyUI v3's normalized wrapper."""
+    if not callable(node_class):
+        raise RuntimeError("训练型 H3 latent 放大节点没有可调用实现")
+    function_name = getattr(node_class, "FUNCTION", None)
+    node = None
+    if function_name is None:
+        node = node_class()
+        function_name = getattr(node, "FUNCTION", "execute")
+    if str(function_name).startswith("EXECUTE_NORMALIZED"):
+        class_execute = getattr(node_class, "execute", None)
+        if callable(class_execute) and not _is_unbound_self_method(class_execute):
+            return class_execute
+
+    if node is None:
+        node = node_class()
+    function = getattr(node, function_name, None)
+    if not callable(function):
+        raise RuntimeError(
+            f"训练型 H3 latent 放大节点没有可调用实现：{function_name}"
+        )
+    return function
+
+
+def _upscaler_kwargs(function, video_latent, scale):
+    parameters = inspect.signature(function).parameters
+    declared = {
+        name: parameter
+        for name, parameter in parameters.items()
+        if parameter.kind
+        not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    }
+    if "mode" not in declared and "scale" not in declared:
+        raise RuntimeError(
+            "训练型 H3 latent 放大节点调用契约必须声明 mode 或 scale"
+        )
+
+    kwargs = {
+        "latent": video_latent,
+        "model_name": LATENT_UPSCALER_MODEL,
+        "device": "cuda",
+        "precision": "bf16",
+    }
+    if "mode" in declared:
+        kwargs["mode"] = {"mode": "scale by multiplier", "scale": float(scale)}
+    else:
+        kwargs["scale"] = float(scale)
+    kwargs.update(
+        {
+            "align": 32,
+            "enable_temporal_chunking": True,
+            "force_unload": True,
+            "enable_chunking": True,
+            "keep_proportion": False,
+        }
+    )
+    kwargs = {name: value for name, value in kwargs.items() if name in declared}
+    missing = [
+        name
+        for name, parameter in declared.items()
+        if parameter.default is inspect.Parameter.empty and name not in kwargs
+    ]
+    if missing:
+        raise RuntimeError(
+            "训练型 H3 latent 放大节点缺少必需参数：" + ", ".join(missing)
+        )
+    return kwargs
+
+
 def run_trained_latent_upscaler(video_latent, scale):
     """Run the installed learned H3 3D upscaler on video latent only."""
     mappings = _comfy_node_mappings()
@@ -139,35 +215,8 @@ def run_trained_latent_upscaler(video_latent, scale):
     if node_id is None:
         raise RuntimeError("缺少 MinimaxH3LatentUpscaler3D，请先安装训练型 H3 latent 放大节点")
     node_class = mappings[node_id]
-    node = node_class()
-    function_name = getattr(node, "FUNCTION", getattr(node_class, "FUNCTION", "execute"))
-    function = getattr(node, function_name)
-    signature_target = function
-    if str(function_name).startswith("EXECUTE_NORMALIZED"):
-        signature_target = getattr(node_class, "execute", function)
-    parameters = inspect.signature(signature_target).parameters
-    kwargs = {
-        "latent": video_latent,
-        "model_name": LATENT_UPSCALER_MODEL,
-        "device": "cuda",
-        "precision": "bf16",
-    }
-    if "mode" in parameters:
-        kwargs.update(
-            mode={"mode": "scale by multiplier", "scale": float(scale)},
-            align=32,
-        )
-        if "enable_chunking" in parameters:
-            kwargs["enable_chunking"] = True
-        if "keep_proportion" in parameters:
-            kwargs["keep_proportion"] = False
-    else:
-        kwargs["scale"] = float(scale)
-        if "align" in parameters:
-            kwargs["align"] = 32
-        if "enable_chunking" in parameters:
-            kwargs["enable_chunking"] = True
-    kwargs = {name: value for name, value in kwargs.items() if name in parameters}
+    function = _resolve_upscaler_callable(node_class)
+    kwargs = _upscaler_kwargs(function, video_latent, scale)
     result = _unwrap_node_output(function(**kwargs))
     samples = result.get("samples") if isinstance(result, dict) else None
     if samples is None or getattr(samples, "ndim", 0) not in (4, 5):
