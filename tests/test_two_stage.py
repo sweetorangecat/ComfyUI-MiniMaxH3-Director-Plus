@@ -305,3 +305,212 @@ def test_disabled_route_still_runs_one_native_sampler_call(monkeypatch):
     assert result == ("sampled", "denoised")
     assert len(calls) == 1
     assert guide["two_stage_status"] == "旁路"
+
+
+def test_resolve_split_upscale_callables_returns_none_without_node():
+    from nodes.two_stage_assets import resolve_split_upscale_callables
+
+    assert resolve_split_upscale_callables({}) is None
+    assert resolve_split_upscale_callables({"UnrelatedNode": object()}) is None
+
+
+def test_resolve_split_upscale_callables_resolves_main_node_with_optional_params():
+    from nodes.two_stage_assets import resolve_split_upscale_callables
+
+    class FakeSplitUpscale:
+        @classmethod
+        def execute(cls, **kwargs):
+            return kwargs
+
+    upscale, temporal, spatial = resolve_split_upscale_callables(
+        {"MMH3SplitUpscale": FakeSplitUpscale}
+    )
+
+    assert callable(upscale)
+    assert temporal is None
+    assert spatial is None
+
+
+def test_resolve_split_upscale_callables_resolves_param_nodes_when_present():
+    from nodes.two_stage_assets import resolve_split_upscale_callables
+
+    class FakeSplitUpscale:
+        @classmethod
+        def execute(cls, **kwargs):
+            return kwargs
+
+    class FakeTemporalParams:
+        @classmethod
+        def execute(cls, chunk_frames, temporal_overlap_frames, anchor_strength,
+                    motion_anchor_frames, identity_anchor_frames):
+            return None
+
+    class FakeSpatialParams:
+        @classmethod
+        def execute(cls, tile_width, tile_height, overlap_ratio, fade_ratio,
+                    min_tile_size, seam_denoise):
+            return None
+
+    upscale, temporal, spatial = resolve_split_upscale_callables({
+        "MMH3SplitUpscale": FakeSplitUpscale,
+        "MMH3TemporalSplitParamsV10": FakeTemporalParams,
+        "MMH3SpatialSplitParamsV10": FakeSpatialParams,
+    })
+
+    assert callable(upscale)
+    assert callable(temporal)
+    assert callable(spatial)
+
+
+def _run_two_stage_with_fakes(monkeypatch, *, split_callables, guide_extra=None):
+    from comfy_extras.nodes_lt import LTXVConcatAVLatent
+    import nodes.performance as performance
+    import nodes.two_stage as two_stage
+
+    original_video = {"samples": torch.ones(1, 24, 5, 4, 4)}
+    original_audio = {"samples": torch.full((1, 32, 2, 20), 7.0)}
+    first_denoised = _node_output(LTXVConcatAVLatent.execute(original_video, original_audio))
+    events = {"sampler": [], "tiled": [], "upscale": []}
+
+    class FakeNoise:
+        def __init__(self, seed):
+            self.seed = seed
+
+    class EmptyNoise:
+        seed = 0
+
+    class FakeSampler:
+        @classmethod
+        def execute(cls, noise, guider, sampler, sigmas, latent):
+            events["sampler"].append((noise, guider, sigmas.clone(), latent))
+            if len(events["sampler"]) == 1:
+                return types.SimpleNamespace(result=(first_denoised, first_denoised))
+            return types.SimpleNamespace(result=(latent, latent))
+
+    def fake_upscale(video_latent, scale):
+        events["upscale"].append(scale)
+        return {"samples": torch.ones(1, 24, 5, 6, 6)}
+
+    monkeypatch.setattr(performance, "memory_policy", lambda guide: nullcontext())
+    monkeypatch.setattr(two_stage, "_release_between_stages", lambda: None, raising=False)
+    monkeypatch.setattr(two_stage, "run_trained_latent_upscaler", fake_upscale)
+    monkeypatch.setattr(
+        two_stage, "resolve_split_upscale_callables", lambda: split_callables
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "comfy_extras.nodes_custom_sampler",
+        types.SimpleNamespace(
+            Noise_RandomNoise=FakeNoise,
+            Noise_EmptyNoise=EmptyNoise,
+            SamplerCustomAdvanced=FakeSampler,
+        ),
+    )
+
+    first_model = types.SimpleNamespace(model_options={"route": "first"})
+    second_model = types.SimpleNamespace(model_options={"route": "second"})
+    positive = [[torch.zeros(1), {"prompt": "keep"}]]
+    guider = types.SimpleNamespace(
+        model_patcher=first_model,
+        model_options=first_model.model_options,
+        original_conds={"positive": positive},
+    )
+    sigmas = torch.tensor([10.0, 8.0, 6.0, 4.0, 2.0, 1.0, 0.5, 0.2, 0.0])
+    guide = {
+        "two_stage_enabled": True,
+        "two_stage_split_step": 4,
+        "two_stage_scale": 1.5,
+        "resolved_two_stage_route": "trained_latent_fl",
+    }
+    guide.update(guide_extra or {})
+
+    result = MiniMaxH3TwoStageSampler().execute(
+        FakeNoise(9),
+        guider,
+        object(),
+        sigmas,
+        {"samples": torch.zeros(1, 24, 5, 4, 4)},
+        guide,
+        second_model=second_model,
+    )
+    return events, result, guide, sigmas, positive, second_model, original_audio
+
+
+def test_tiled_second_stage_routes_through_split_upscale(monkeypatch):
+    holder = {}
+
+    def fake_temporal(chunk_frames, temporal_overlap_frames, anchor_strength,
+                      motion_anchor_frames, identity_anchor_frames):
+        return types.SimpleNamespace(result=({
+            "p": (chunk_frames, temporal_overlap_frames, anchor_strength,
+                  int(motion_anchor_frames), identity_anchor_frames),
+        },))
+
+    def fake_spatial(tile_width, tile_height, overlap_ratio, fade_ratio,
+                     min_tile_size, seam_denoise):
+        return types.SimpleNamespace(result=({
+            "tw": tile_width // 16, "th": tile_height // 16,
+            "ol_w": 8, "ol_h": 8, "fw": 4, "fh": 4,
+            "mt": min_tile_size // 16, "cap": seam_denoise,
+        }, "preview"))
+
+    def fake_split_upscale(**kwargs):
+        holder["call"] = kwargs
+        samples = kwargs["latent"]["samples"]
+        assert getattr(samples, "is_nested", False)
+        video, audio = samples.unbind()
+        assert video.shape == (1, 24, 5, 6, 6)
+        assert torch.equal(audio, torch.full((1, 32, 2, 20), 7.0))
+        return types.SimpleNamespace(result=(kwargs["latent"],))
+
+    events, result, guide, sigmas, positive, second_model, original_audio = (
+        _run_two_stage_with_fakes(
+            monkeypatch,
+            split_callables=(fake_split_upscale, fake_temporal, fake_spatial),
+        )
+    )
+
+    assert len(events["sampler"]) == 1, "整帧采样器只应执行首采"
+    assert "call" in holder, "应路由到 MMH3SplitUpscale 分块二采"
+    call = holder["call"]
+    assert call["model"] is second_model
+    assert call["conditioning"] is positive
+    assert call["negative"] is None
+    assert call["noise"].__class__.__name__ == "EmptyNoise"
+    assert torch.equal(call["sigmas"], sigmas[4:])
+    assert call["cfg"] == 1.0
+    assert call["temporal_split_param"] == {"p": (141, 39, 0.999, 39, 24)}
+    assert call["spatial_split_param"]["cap"] == 0.65
+    assert call["seam_polish"] == "auto"
+    assert call["color_match"] is True
+    assert result[0] is result[1]
+    assert result[0] is call["latent"]
+    assert guide["two_stage_second_stage_path"] == "mmh3_split_upscale"
+    assert "分块" in guide["two_stage_status"]
+
+
+def test_full_frame_second_stage_when_split_upscale_missing(monkeypatch):
+    events, result, guide, sigmas, positive, second_model, original_audio = (
+        _run_two_stage_with_fakes(monkeypatch, split_callables=None)
+    )
+
+    assert len(events["sampler"]) == 2, "缺少分块节点时第二阶段必须回退整帧采样"
+    assert torch.equal(events["sampler"][1][2], sigmas[4:])
+    assert guide["two_stage_second_stage_path"] == "full_frame"
+    assert guide["two_stage_status"] == "训练型 3D latent 二采完成"
+
+
+def test_full_frame_second_stage_when_tiled_disabled_in_guide(monkeypatch):
+    def forbidden_split_upscale(**kwargs):
+        raise AssertionError("guide 关闭分块时不得调用 MMH3SplitUpscale")
+
+    events, result, guide, sigmas, positive, second_model, original_audio = (
+        _run_two_stage_with_fakes(
+            monkeypatch,
+            split_callables=(forbidden_split_upscale, None, None),
+            guide_extra={"two_stage_tiled": False},
+        )
+    )
+
+    assert len(events["sampler"]) == 2
+    assert guide["two_stage_second_stage_path"] == "full_frame"

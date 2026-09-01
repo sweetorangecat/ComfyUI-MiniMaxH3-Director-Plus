@@ -8,7 +8,10 @@ import logging
 import torch
 import torch.nn.functional as F
 
-from .two_stage_assets import run_trained_latent_upscaler
+from .two_stage_assets import (
+    resolve_split_upscale_callables,
+    run_trained_latent_upscaler,
+)
 
 
 LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus.TwoStage")
@@ -166,6 +169,80 @@ def _release_between_stages():
         LOGGER.warning("[H3 two-stage] 阶段间显存释放未完整执行: %s", exc)
 
 
+def _positive_conditioning(guider):
+    """Return raw positive CONDITIONING for nodes that build their own guider."""
+    original = getattr(guider, "original_conds", None)
+    positive = original.get("positive") if isinstance(original, dict) else None
+    if not isinstance(positive, list):
+        raise ValueError("H3 分块二采缺少 positive conditioning，无法构建分块引导")
+    return positive
+
+
+def run_tiled_second_stage(
+    split_callables,
+    *,
+    model,
+    guider,
+    noise,
+    sampler,
+    sigmas,
+    latent,
+    guide,
+):
+    """Run the MMH3 tiled second stage through the installed SplitUpscale node.
+
+    MMH3SplitUpscale re-denoises the enlarged AV latent tile by tile, keeping
+    the peak VRAM of the second pass proportional to one tile instead of the
+    full 2K frame.  It rebuilds its own guider from raw conditioning and
+    re-anchors/crops ``minimax_keyframes`` internally, so FL keyframes do not
+    need the full-frame grid alignment done by ``prepare_second_stage_guider``.
+    """
+    upscale_fn, temporal_fn, spatial_fn = split_callables
+    positive = _positive_conditioning(guider)
+
+    temporal_param = None
+    if temporal_fn is not None:
+        temporal_param = _node_output(
+            temporal_fn(
+                chunk_frames=int(guide.get("split_chunk_frames", 141)),
+                temporal_overlap_frames=int(guide.get("split_temporal_overlap_frames", 39)),
+                anchor_strength=float(guide.get("split_anchor_strength", 0.999)),
+                motion_anchor_frames=str(guide.get("split_motion_anchor_frames", "39")),
+                identity_anchor_frames=int(guide.get("split_identity_anchor_frames", 24)),
+            ),
+            0,
+        )
+    spatial_param = None
+    if spatial_fn is not None:
+        spatial_param = _node_output(
+            spatial_fn(
+                tile_width=int(guide.get("split_tile_width", 512)),
+                tile_height=int(guide.get("split_tile_height", 512)),
+                overlap_ratio=float(guide.get("split_overlap_ratio", 0.25)),
+                fade_ratio=float(guide.get("split_fade_ratio", 0.5)),
+                min_tile_size=int(guide.get("split_min_tile_size", 256)),
+                seam_denoise=float(guide.get("split_seam_denoise", 0.65)),
+            ),
+            0,
+        )
+
+    result = upscale_fn(
+        latent=latent,
+        conditioning=positive,
+        negative=None,
+        model=model,
+        noise=noise,
+        sampler=sampler,
+        sigmas=sigmas,
+        cfg=1.0,
+        temporal_split_param=temporal_param,
+        spatial_split_param=spatial_param,
+        seam_polish=str(guide.get("split_seam_polish", "auto")),
+        color_match=bool(guide.get("split_color_match", True)),
+    )
+    return _node_output(result, 0)
+
+
 class MiniMaxH3TwoStageSampler:
     """Run FL 4+4 or Reference 4+5 while preserving pass-one audio."""
 
@@ -266,22 +343,50 @@ class MiniMaxH3TwoStageSampler:
             )
             merged = _node_output(LTXVConcatAVLatent.execute(upscaled_video, audio_latent))
             merged_video_shape = _latent_shape(upscaled_video)
-            second_guider = prepare_second_stage_guider(guider, second_model, merged_video_shape)
-            validate_second_stage_condition_shapes(second_guider, merged_video_shape)
             # Continue from the clean first-pass x0 latent.  Injecting a new
             # random field here repaints the enlarged latent and was the
             # source of the soft, grainy 1080p output reported in production.
             second_noise = Noise_EmptyNoise()
-            second = SamplerCustomAdvanced.execute(
-                second_noise,
-                second_guider,
-                sampler,
-                second_sigmas,
-                merged,
-            )
+            split_callables = None
+            if guide.get("two_stage_tiled", True):
+                try:
+                    split_callables = resolve_split_upscale_callables()
+                except RuntimeError as exc:
+                    LOGGER.warning(
+                        "[H3 two-stage] MMH3SplitUpscale 不可用，回退整帧二采: %s", exc
+                    )
+            if split_callables is not None:
+                LOGGER.info(
+                    "[H3 two-stage] 第二阶段使用 MMH3SplitUpscale 时空分块采样，显存峰值按瓦片计"
+                )
+                final_denoised = run_tiled_second_stage(
+                    split_callables,
+                    model=second_model,
+                    guider=guider,
+                    noise=second_noise,
+                    sampler=sampler,
+                    sigmas=second_sigmas,
+                    latent=merged,
+                    guide=guide,
+                )
+                guide["two_stage_second_stage_path"] = "mmh3_split_upscale"
+                guide["two_stage_status"] = "训练型 3D latent 二采完成（分块）"
+            else:
+                second_guider = prepare_second_stage_guider(
+                    guider, second_model, merged_video_shape
+                )
+                validate_second_stage_condition_shapes(second_guider, merged_video_shape)
+                second = SamplerCustomAdvanced.execute(
+                    second_noise,
+                    second_guider,
+                    sampler,
+                    second_sigmas,
+                    merged,
+                )
+                final_denoised = _node_output(second, 1)
+                guide["two_stage_second_stage_path"] = "full_frame"
+                guide["two_stage_status"] = "训练型 3D latent 二采完成"
 
-        final_denoised = _node_output(second, 1)
-        guide["two_stage_status"] = "训练型 3D latent 二采完成"
         guide["two_stage_first_sigma_count"] = len(first_sigmas)
         guide["two_stage_second_sigma_count"] = len(second_sigmas)
         LOGGER.info("[H3 two-stage] completed output=%s", _latent_shape(final_denoised))

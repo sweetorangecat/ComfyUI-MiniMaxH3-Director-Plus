@@ -12,6 +12,9 @@ REF_STAGE_LORA = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
 LATENT_UPSCALER_MODEL = "minimax_h3_latent_upscaler_3d_bf16.safetensors"
 UPSCALE_NODE_IDS = ("MinimaxH3LatentUpscaler3D", "MinimaxH3LatentUpscalerNode3D")
 SIGMA_REFINER_NODE_ID = "H3SigmaRefiner"
+SPLIT_UPSCALE_NODE_ID = "MMH3SplitUpscale"
+SPLIT_TEMPORAL_NODE_ID = "MMH3TemporalSplitParamsV10"
+SPLIT_SPATIAL_NODE_ID = "MMH3SpatialSplitParamsV10"
 
 
 def resolve_two_stage_route(guide):
@@ -220,6 +223,34 @@ def _upscaler_kwargs(function, video_latent, scale):
             "训练型 H3 latent 放大节点缺少必需参数：" + ", ".join(missing)
         )
     return kwargs
+
+
+def resolve_split_upscale_callables(node_mappings=None):
+    """Resolve the MMH3 tiled second-stage chain when the plugin is installed.
+
+    Returns ``(upscale, temporal, spatial)`` callables, with the two
+    parameter-node callables set to ``None`` when only the main node is
+    registered. Returns ``None`` when ``MMH3SplitUpscale`` is absent so the
+    caller can fall back to the single-pass full-frame second sampler.
+    """
+    mappings = dict(node_mappings) if node_mappings is not None else _comfy_node_mappings()
+    node_class = mappings.get(SPLIT_UPSCALE_NODE_ID)
+    if node_class is None:
+        return None
+    upscale = _resolve_upscaler_callable(node_class)
+    temporal_class = mappings.get(SPLIT_TEMPORAL_NODE_ID)
+    spatial_class = mappings.get(SPLIT_SPATIAL_NODE_ID)
+    temporal = (
+        _resolve_upscaler_callable(temporal_class)
+        if temporal_class is not None
+        else None
+    )
+    spatial = (
+        _resolve_upscaler_callable(spatial_class)
+        if spatial_class is not None
+        else None
+    )
+    return upscale, temporal, spatial
 
 
 def run_trained_latent_upscaler(video_latent, scale):
