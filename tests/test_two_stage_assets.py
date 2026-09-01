@@ -286,6 +286,52 @@ def test_trained_upscaler_adapter_prefers_real_execute_over_comfy_v3_wrapper(mon
     ]
 
 
+def test_trained_upscaler_adapter_binds_instance_execute_behind_comfy_v3_wrapper(monkeypatch):
+    import types
+    import torch
+    import nodes.two_stage_assets as assets
+
+    calls = []
+
+    class WrappedInstanceUpscaler:
+        FUNCTION = "EXECUTE_NORMALIZED"
+
+        def execute(
+            self,
+            latent,
+            model_name,
+            mode,
+            align,
+            enable_temporal_chunking,
+            force_unload,
+            device,
+            precision,
+        ):
+            calls.append((enable_temporal_chunking, force_unload, mode))
+            return types.SimpleNamespace(
+                result=({"samples": torch.ones(1, 24, 2, 6, 6)},)
+            )
+
+        def EXECUTE_NORMALIZED(self, *args, **kwargs):
+            raise AssertionError("the ComfyUI v3 wrapper must not be called")
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": WrappedInstanceUpscaler},
+        raising=False,
+    )
+
+    result = run_trained_latent_upscaler(
+        {"samples": torch.zeros(1, 24, 2, 4, 4)}, 1.5
+    )
+
+    assert result["samples"].shape == (1, 24, 2, 6, 6)
+    assert calls == [
+        (True, True, {"mode": "scale by multiplier", "scale": 1.5})
+    ]
+
+
 def test_trained_upscaler_adapter_uses_model_scale_cuda_bf16_and_chunking(monkeypatch):
     import types
     import torch
@@ -401,3 +447,144 @@ def test_trained_upscaler_adapter_supports_pre_chunking_keep_proportion_interfac
         "cuda",
         "bf16",
     )]
+
+
+def test_trained_upscaler_adapter_rejects_unknown_required_fields(monkeypatch):
+    import torch
+    import nodes.two_stage_assets as assets
+
+    class UnknownUpscaler:
+        @classmethod
+        def execute(cls, latent, model_name, mode, required_future_flag):
+            raise AssertionError("unsupported node must not execute")
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": UnknownUpscaler},
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="required_future_flag"):
+        run_trained_latent_upscaler(
+            {"samples": torch.zeros(1, 24, 2, 4, 4)}, 1.5
+        )
+
+
+def test_trained_upscaler_adapter_rejects_required_positional_only_fields(monkeypatch):
+    import torch
+    import nodes.two_stage_assets as assets
+
+    class PositionalOnlyUpscaler:
+        @classmethod
+        def execute(cls, latent, /, model_name, mode, device, precision):
+            raise AssertionError("unsupported node must not execute")
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": PositionalOnlyUpscaler},
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="latent"):
+        run_trained_latent_upscaler(
+            {"samples": torch.zeros(1, 24, 2, 4, 4)}, 1.5
+        )
+
+
+def test_trained_upscaler_rejects_invalid_input_before_external_execution(monkeypatch):
+    import torch
+    import nodes.two_stage_assets as assets
+
+    class Upscaler:
+        @classmethod
+        def execute(cls, latent, model_name, mode, device, precision):
+            raise AssertionError("invalid input must fail before external execution")
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": Upscaler},
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="输入无效"):
+        run_trained_latent_upscaler({"samples": torch.zeros(24, 4, 4)}, 1.5)
+
+
+def test_trained_upscaler_rejects_non_tensor_output(monkeypatch):
+    import types
+    import torch
+    import nodes.two_stage_assets as assets
+
+    class FakeSamples:
+        ndim = 5
+        shape = (1, 24, 2, 6, 6)
+
+    class BrokenUpscaler:
+        @classmethod
+        def execute(cls, latent, model_name, mode, device, precision):
+            return types.SimpleNamespace(result=({"samples": FakeSamples()},))
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": BrokenUpscaler},
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="无效结果"):
+        run_trained_latent_upscaler(
+            {"samples": torch.zeros(1, 24, 2, 4, 4)}, 1.5
+        )
+
+
+def test_trained_upscaler_rejects_invalid_output_channel_count(monkeypatch):
+    import types
+    import torch
+    import nodes.two_stage_assets as assets
+
+    class BrokenUpscaler:
+        @classmethod
+        def execute(cls, latent, model_name, mode, device, precision):
+            return types.SimpleNamespace(
+                result=({"samples": torch.ones(1, 16, 2, 6, 6)},)
+            )
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": BrokenUpscaler},
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="通道数错误"):
+        run_trained_latent_upscaler(
+            {"samples": torch.zeros(1, 24, 2, 4, 4)}, 1.5
+        )
+
+
+def test_trained_upscaler_rejects_non_growing_spatial_output(monkeypatch):
+    import types
+    import torch
+    import nodes.two_stage_assets as assets
+
+    class BrokenUpscaler:
+        @classmethod
+        def execute(cls, latent, model_name, mode, device, precision):
+            return types.SimpleNamespace(
+                result=({"samples": torch.ones(1, 24, 2, 4, 4)},)
+            )
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": BrokenUpscaler},
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="空间尺寸没有增长"):
+        run_trained_latent_upscaler(
+            {"samples": torch.zeros(1, 24, 2, 4, 4)}, 1.5
+        )

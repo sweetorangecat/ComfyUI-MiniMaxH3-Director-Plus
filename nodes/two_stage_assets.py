@@ -150,7 +150,10 @@ def _resolve_upscaler_callable(node_class):
         function_name = getattr(node, "FUNCTION", "execute")
     if str(function_name).startswith("EXECUTE_NORMALIZED"):
         class_execute = getattr(node_class, "execute", None)
-        if callable(class_execute) and not _is_unbound_self_method(class_execute):
+        if callable(class_execute):
+            if _is_unbound_self_method(class_execute):
+                node = node_class()
+                return node.execute
             return class_execute
 
     if node is None:
@@ -165,11 +168,22 @@ def _resolve_upscaler_callable(node_class):
 
 def _upscaler_kwargs(function, video_latent, scale):
     parameters = inspect.signature(function).parameters
+    positional_only_required = [
+        name
+        for name, parameter in parameters.items()
+        if parameter.kind is inspect.Parameter.POSITIONAL_ONLY
+        and parameter.default is inspect.Parameter.empty
+    ]
+    if positional_only_required:
+        raise RuntimeError(
+            "训练型 H3 latent 放大节点缺少必需参数："
+            + ", ".join(positional_only_required)
+        )
     declared = {
         name: parameter
         for name, parameter in parameters.items()
         if parameter.kind
-        not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
     }
     if "mode" not in declared and "scale" not in declared:
         raise RuntimeError(
@@ -210,6 +224,14 @@ def _upscaler_kwargs(function, video_latent, scale):
 
 def run_trained_latent_upscaler(video_latent, scale):
     """Run the installed learned H3 3D upscaler on video latent only."""
+    import torch
+
+    source_samples = (
+        video_latent.get("samples") if isinstance(video_latent, dict) else None
+    )
+    if not isinstance(source_samples, torch.Tensor) or source_samples.ndim not in (4, 5):
+        raise RuntimeError("训练型 H3 latent 放大输入无效")
+
     mappings = _comfy_node_mappings()
     node_id = next((name for name in UPSCALE_NODE_IDS if name in mappings), None)
     if node_id is None:
@@ -219,8 +241,16 @@ def run_trained_latent_upscaler(video_latent, scale):
     kwargs = _upscaler_kwargs(function, video_latent, scale)
     result = _unwrap_node_output(function(**kwargs))
     samples = result.get("samples") if isinstance(result, dict) else None
-    if samples is None or getattr(samples, "ndim", 0) not in (4, 5):
+    if not isinstance(samples, torch.Tensor) or samples.ndim not in (4, 5):
         raise RuntimeError("训练型 H3 latent 放大节点返回了无效结果")
     if int(samples.shape[1]) != 24:
         raise RuntimeError(f"训练型 H3 latent 放大结果通道数错误：{samples.shape[1]}，应为 24")
+    if float(scale) > 1.0 and (
+        int(samples.shape[-2]) <= int(source_samples.shape[-2])
+        or int(samples.shape[-1]) <= int(source_samples.shape[-1])
+    ):
+        raise RuntimeError(
+            "训练型 H3 latent 放大结果空间尺寸没有增长："
+            f"{tuple(source_samples.shape[-2:])} -> {tuple(samples.shape[-2:])}"
+        )
     return result
