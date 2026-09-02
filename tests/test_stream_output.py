@@ -1387,3 +1387,88 @@ def test_quality_vsr_failure_does_not_retry_other_codecs(monkeypatch):
         )
 
     assert attempts == ["H.264"]
+
+
+def test_encoder_probe_hides_broken_encoders_and_caches(monkeypatch):
+    dasiwa = SimpleNamespace(
+        _available_encoders=lambda ffmpeg: {"h264_nvenc", "libx264"},
+        _ENCODER_NAMES={"H.264": ("h264_nvenc", "libx264")},
+    )
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        encoder = command[command.index("-c:v") + 1]
+        return SimpleNamespace(returncode=1 if "nvenc" in encoder else 0)
+
+    monkeypatch.setattr(stream_output.subprocess, "run", run)
+    stream_output._ENCODER_PROBE_CACHE.clear()
+
+    assert stream_output._probe_working_video_encoders("ffmpeg") == {"libx264"}
+    assert stream_output._probe_working_video_encoders("ffmpeg") == {"libx264"}
+    assert len(calls) == 2
+
+
+def test_encoder_probe_total_failure_keeps_original_list(monkeypatch):
+    dasiwa = SimpleNamespace(
+        _available_encoders=lambda ffmpeg: {"libx264"},
+        _ENCODER_NAMES={"H.264": ("libx264",)},
+    )
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+    monkeypatch.setattr(
+        stream_output.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1)
+    )
+    stream_output._ENCODER_PROBE_CACHE.clear()
+
+    assert stream_output._probe_working_video_encoders("ffmpeg") is None
+
+
+def test_encoder_retry_replays_cached_ai_upscale_frames(monkeypatch):
+    images = torch.rand(3, 8, 8, 3)
+    compute_calls = []
+    consumed = []
+
+    def fake_iter(source, target_width, target_height, **kwargs):
+        compute_calls.append(1)
+        yield torch.full((2, target_height, target_width, 3), 0.5)
+        yield torch.full((1, target_height, target_width, 3), 0.25)
+
+    monkeypatch.setattr(stream_output, "_iter_ai_upscale_frame_chunks", fake_iter)
+    monkeypatch.setattr(stream_output, "resolve_upscale_model_name", lambda *args, **kwargs: "fake_x2.pth")
+    monkeypatch.setattr(stream_output, "validate_frames_for_reconstruction", lambda *args, **kwargs: None)
+
+    dasiwa = _fake_dasiwa(consumed)
+    dasiwa._codec_candidates = lambda codec: ["H.264"]
+    encode_calls = []
+
+    def flaky_encode(*args, **kwargs):
+        frame_chunks = args[6]
+        consumed.extend(list(frame_chunks()))
+        encode_calls.append(1)
+        if len(encode_calls) == 1:
+            raise RuntimeError("h264_nvenc: broken on this machine")
+        return SimpleNamespace()
+
+    dasiwa._encode_with_available_encoder = flaky_encode
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+    monkeypatch.setattr(stream_output.os, "unlink", lambda path: None)
+
+    stream_output.MiniMaxH3StreamingVideoCombine().combine(
+        images=images,
+        guide={
+            "postprocess_path": "ai_upscale",
+            "target_width": 16,
+            "target_height": 12,
+            "performance_preset": "quality",
+            "ai_upscale_model": "auto",
+        },
+        frame_rate=24.0, codec="Auto", container="MP4", bit_depth="8-bit", quality=20,
+        log_level="Standard", pingpong=False, save_metadata=False, filename_prefix="stream-test",
+        save_output=True, pass_frames=False, crop_to_audio=False, audio_codec="Auto",
+        audio_bitrate="192k", save_first_frame=False, save_last_frame=False,
+    )
+
+    assert len(encode_calls) == 2
+    assert len(compute_calls) == 1
+    assert len(consumed) == 4

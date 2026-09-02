@@ -193,6 +193,55 @@ def _dasiwa_video_module():
     raise RuntimeError("缺少 DaSiWa Enhanced Video Combine 编码器")
 
 
+_ENCODER_PROBE_CACHE = {}
+
+
+def _probe_working_video_encoders(ffmpeg):
+    """Return the video encoders that can actually open, encode and finalize here.
+
+    ``ffmpeg -encoders`` lists encoders that were compiled in, not ones that
+    work on this machine (e.g. h264_nvenc inside a container without NVENC
+    access). A broken encoder only fails after consuming the entire frame
+    stream, and every retry re-runs the expensive upstream pass (SeedVR2 /
+    AI upscale) from scratch — the encode log then shows the whole SR
+    pipeline running twice. Probe each listed encoder once per session with
+    a one-frame synthetic encode and hide the broken ones from the retry
+    loop. Returns None when probing itself is impossible, in which case the
+    caller must keep the original availability list.
+    """
+    if ffmpeg in _ENCODER_PROBE_CACHE:
+        return _ENCODER_PROBE_CACHE[ffmpeg]
+    try:
+        dasiwa = _dasiwa_video_module()
+        listed = set(dasiwa._available_encoders(ffmpeg))
+        encoder_names = dasiwa._ENCODER_NAMES
+    except Exception:
+        _ENCODER_PROBE_CACHE[ffmpeg] = None
+        return None
+    candidates = sorted({name for names in encoder_names.values() for name in names} & listed)
+    working = set()
+    for encoder in candidates:
+        command = [
+            ffmpeg, "-hide_banner", "-v", "error",
+            "-f", "lavfi", "-i", "color=c=black:s=64x64:r=24",
+            "-frames:v", "1", "-c:v", encoder, "-pix_fmt", "yuv420p",
+            "-f", "null", "-",
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, timeout=20)
+        except Exception:
+            continue
+        if result.returncode == 0:
+            working.add(encoder)
+    if not working:
+        # Probing itself failed (restricted environment); hide nothing rather
+        # than breaking encoding entirely.
+        _ENCODER_PROBE_CACHE[ffmpeg] = None
+        return None
+    _ENCODER_PROBE_CACHE[ffmpeg] = working
+    return working
+
+
 def _resize_cpu_chunk(images, target_width, target_height, method="bicubic"):
     chunk = images.detach().to(device="cpu", dtype=torch.float32)
     if chunk.shape[1] == target_height and chunk.shape[2] == target_width:
@@ -1093,6 +1142,42 @@ class MiniMaxH3StreamingVideoCombine:
                 if callable(close):
                     close()
 
+        # Expensive upstream passes (SeedVR2 / AI upscale) recompute from
+        # scratch every time the encoder retry loop asks for the stream
+        # again. Replay the byte chunks from the first fully consumed pass
+        # when the total size stays within a safe memory budget; a partially
+        # consumed pass is never replayed.
+        inner_frame_chunks = frame_chunks
+        bytes_per_frame = target_width * target_height * (6 if selected_bit_depth == 10 else 3)
+        replay_budget_bytes = 1536 * 1024 * 1024
+        replayable = (
+            postprocess_path in {"video_sr", "ai_upscale"}
+            and bytes_per_frame * max(1, int(total_frames)) <= replay_budget_bytes
+        )
+        replay_chunks = []
+        replay_complete = False
+
+        def frame_chunks():
+            nonlocal replay_complete
+            if not replayable:
+                yield from inner_frame_chunks()
+                return
+            if replay_complete:
+                yield from replay_chunks
+                return
+            replay_chunks.clear()
+            completed = False
+            try:
+                for chunk in inner_frame_chunks():
+                    replay_chunks.append(chunk)
+                    yield chunk
+                completed = True
+            finally:
+                if completed:
+                    replay_complete = True
+                else:
+                    replay_chunks.clear()
+
         metadata_path = dasiwa._metadata_file(prompt, extra_pnginfo) if save_metadata else None
         audio_loudness = str(guide.get("audio_loudness", "original") or "original")
         audio_cleanup = "disabled"
@@ -1117,6 +1202,14 @@ class MiniMaxH3StreamingVideoCombine:
         selected_container = None
         selected_codec = None
         encoder = None
+        # Hide encoders that are compiled into FFmpeg but broken on this
+        # machine (e.g. NVENC inside a container). Without this, the retry
+        # loop discovers the failure only after consuming the entire frame
+        # stream, re-running SeedVR2/AI upscale once per broken encoder.
+        original_available_encoders = getattr(dasiwa, "_available_encoders", None)
+        working_encoders = _probe_working_video_encoders(ffmpeg)
+        if working_encoders is not None and original_available_encoders is not None:
+            dasiwa._available_encoders = lambda _ffmpeg: set(working_encoders)
         try:
             animated_settings = dasiwa._animated_image_settings(container)
             if animated_settings:
@@ -1166,6 +1259,8 @@ class MiniMaxH3StreamingVideoCombine:
                         audio_codec, audio_bitrate, report_encode_progress,
                     )
         finally:
+            if original_available_encoders is not None:
+                dasiwa._available_encoders = original_available_encoders
             if metadata_path:
                 os.unlink(metadata_path)
             if audio_path:
