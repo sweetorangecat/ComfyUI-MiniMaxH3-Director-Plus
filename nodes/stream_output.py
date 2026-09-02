@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import gc
 import logging
 import os
 import subprocess
@@ -389,6 +390,27 @@ def _unwrap_node_result(result, index=0):
     raise IndexError(f"节点结果没有第 {index} 个输出")
 
 
+def _release_comfy_models_before_video_sr():
+    """Evict cached H3 weights so SeedVR2 gets the whole card.
+
+    ComfyUI keeps the H3 DiT/TE/VAE resident for reuse, but it cannot see
+    SeedVR2's own runner, so the SR pass would otherwise start with ~25GB
+    already occupied — exactly the 32GB-tier decode OOM seen in the field.
+    Sampling and safe VAE decode are finished by the time this node runs;
+    evicting is safe and simply forces a reload if a later node needs H3.
+    """
+    try:
+        import comfy.model_management as model_management
+
+        model_management.unload_all_models()
+        model_management.soft_empty_cache()
+    except (ImportError, AttributeError):
+        pass
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def _iter_video_sr_frame_chunks(
     images,
     target_width,
@@ -409,6 +431,7 @@ def _iter_video_sr_frame_chunks(
             "缺少 SeedVR2 视频超分节点：请安装 ComfyUI-SeedVR2_VideoUpscaler，"
             "或在导演台把最终输出改为通用 AI 超分"
         )
+    _release_comfy_models_before_video_sr()
     upscale_fn, dit_loader_fn, vae_loader_fn = callables
     plan = dict(plan or {})
     dit_config = _unwrap_node_result(

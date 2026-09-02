@@ -93,7 +93,9 @@ def test_seedvr2_plan_scales_with_hardware():
     assert high["blocks_to_swap"] == 0
     assert high["dit_offload_device"] == "none"
     assert high["encode_tiled"] is False
-    assert high["decode_tiled"] is False
+    # VAE decode stays tiled even on 24GB+ cards: an untiled 1080p+ portrait
+    # decode spikes past 2.5GB per chunk against the resident DiT and OOMs.
+    assert high["decode_tiled"] is True
     assert high["batch_size"] == 13
 
 
@@ -180,6 +182,12 @@ def test_stream_output_video_sr_routes_through_seedvr2(monkeypatch):
         "resolve_seedvr2_callables",
         lambda: (FakeUpscaler.execute, FakeDiTLoader.execute, FakeVAELoader.execute),
     )
+    released = []
+    monkeypatch.setattr(
+        stream_output,
+        "_release_comfy_models_before_video_sr",
+        lambda: released.append(True),
+    )
     plan = resolve_seedvr2_plan(24.0)
     images = torch.rand(6, 4, 6, 3)
     chunks = list(
@@ -193,6 +201,15 @@ def test_stream_output_video_sr_routes_through_seedvr2(monkeypatch):
     assert calls["upscale"]["color_correction"] == "lab"
     assert calls["dit"]["model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
     assert calls["vae"]["model"] == SEEDVR2_VAE_MODEL
+    assert released == [True]
+
+
+def test_video_sr_evicts_cached_h3_models_before_seedvr2():
+    import nodes.stream_output as stream_output
+
+    # The release hook must exist and tolerate environments without ComfyUI's
+    # model management (tests, bare python), never raising through the caller.
+    stream_output._release_comfy_models_before_video_sr()
 
 
 def test_stream_output_video_sr_requires_seedvr2_nodes(monkeypatch):

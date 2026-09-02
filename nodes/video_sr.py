@@ -60,7 +60,9 @@ def resolve_seedvr2_plan(total_vram_gb, available_dit=None):
 
     Tiers follow the official ComfyUI integration guidance: GGUF + aggressive
     BlockSwap + tiled VAE at 8GB, lighter swap at 12-20GB, and unswapped FP8
-    with larger 4n+1 batches at 24GB+.
+    with larger 4n+1 batches at 24GB+.  VAE decode stays tiled on every tier:
+    an untiled 1080p+ portrait decode spikes past 2.5GB per chunk and collides
+    with the still-resident DiT, which is exactly what OOMs 32GB cards.
     """
     total = float(total_vram_gb)
     if total <= 12.0:
@@ -98,7 +100,7 @@ def resolve_seedvr2_plan(total_vram_gb, available_dit=None):
         "blocks_to_swap": 0,
         "swap_io_components": False,
         "encode_tiled": False,
-        "decode_tiled": False,
+        "decode_tiled": True,
         "batch_size": 13,
         "temporal_overlap": 0,
         "color_correction": "lab",
