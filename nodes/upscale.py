@@ -23,6 +23,12 @@ def is_x2_upscale_model_name(model_name):
     return re.search(r"(^|[^0-9])(x2|2x)(?=[^0-9]|$)", value, re.IGNORECASE) is not None
 
 
+def is_x4_upscale_model_name(model_name):
+    """Return whether a model basename explicitly declares an X4 scale."""
+    value = str(model_name or "").replace("\\", "/").rsplit("/", 1)[-1]
+    return re.search(r"(^|[^0-9])(x4|4x)(?=[^0-9]|$)", value, re.IGNORECASE) is not None
+
+
 def resolve_upscale_model_name(model_name="auto", scale_factor=2.0, available=None):
     """Resolve an installed general-purpose model without hiding missing files."""
     available = list(_available_upscale_models() if available is None else available)
@@ -36,8 +42,12 @@ def resolve_upscale_model_name(model_name="auto", scale_factor=2.0, available=No
         return by_lower[requested.lower()]
 
     factor = float(scale_factor)
+    # For targets at or below 2x, prefer a native X2 model: running an X4
+    # model and downscaling back wastes several times the compute per frame.
+    # X4 remains a last-resort fallback so installs with only UltraSharpV2
+    # keep working.
     preferred = (
-        ["4x-ultrasharpv2.safetensors", "realesrgan_x2plus.pth", "omnisr_x2_div2k.safetensors"]
+        ["realesrgan_x2plus.pth", "omnisr_x2_div2k.safetensors", "4x-ultrasharpv2.safetensors"]
         if factor <= 2.0
         else ["4x-ultrasharpv2.safetensors", "omnisr_x4_div2k.safetensors", "realesrgan_x4plus.pth"]
     )

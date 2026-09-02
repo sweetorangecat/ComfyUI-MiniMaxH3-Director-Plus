@@ -83,8 +83,8 @@ def test_total_vram_boundary_selects_low_vram_at_sixteen_gb(total_vram_gb, low_v
     assert plan["low_vram"] is low_vram
 
 
-def test_smart_upscale_model_is_the_approved_model_name():
-    assert SMART_UPSCALE_MODEL == "4x-UltraSharpV2.safetensors"
+def test_smart_upscale_model_uses_auto_scale_aware_resolution():
+    assert SMART_UPSCALE_MODEL == "auto"
 
 
 def test_low_vram_rejects_duration_above_six_with_actionable_chinese_error():

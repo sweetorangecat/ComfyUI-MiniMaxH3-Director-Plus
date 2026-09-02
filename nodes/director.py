@@ -25,6 +25,7 @@ from .voice_guard import analyze_voice_reference
 from .upscale import (
     _available_upscale_models,
     is_x2_upscale_model_name,
+    is_x4_upscale_model_name,
     resolve_upscale_model_name,
 )
 from .vram_budget import plan_two_stage_dimensions
@@ -204,7 +205,7 @@ class MiniMaxH3DirectorPlus:
                 "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "免费智能 1080p", "tooltip": "性能预设；默认本地免费智能 1080p"}),
                 "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "原生直出 / Lanczos / 通用 AI 超分 / SeedVR2 扩散视频超分 / AI 细节重建（RTX VSR）"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
-                "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "4x-UltraSharpV2.safetensors", "tooltip": "通用 AI 超分模型；默认本地 4x-UltraSharpV2"}),
+                "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "auto", "tooltip": "通用 AI 超分模型；默认 auto 按实际倍率自动选择 X2/X4"}),
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
                 "target_dialogue": ("STRING", {"default": "", "multiline": True, "tooltip": "Fish高级音色锁定的目标对白"}),
                 "reference_transcript": ("STRING", {"default": "", "multiline": True, "tooltip": "音色样本对应文本，可留空"}),
@@ -267,7 +268,7 @@ class MiniMaxH3DirectorPlus:
         reference_transcript,
         postprocess_mode="ai_upscale",
         rtx_quality="HIGH",
-        ai_upscale_model="4x-UltraSharpV2.safetensors",
+        ai_upscale_model="auto",
         motion_smoothing="off",
         audio_loudness="auto",
         fish_model_path="s2-pro-w4a16 (auto download)",
@@ -667,20 +668,39 @@ class MiniMaxH3DirectorPlus:
             try:
                 if (
                     request["performance_preset"] == "low_vram_two_stage"
-                    and Path(str(request["ai_upscale_model"])).name.lower() == "4x-ultrasharpv2.safetensors"
+                    and Path(str(request["ai_upscale_model"])).name.lower()
+                    in {"auto", "4x-ultrasharpv2.safetensors"}
                 ):
-                    request["ai_upscale_model"] = "RealESRGAN_x2plus.pth"
+                    request["ai_upscale_model"] = "auto"
                     request["warnings"].append(
-                        "低显存二采已自动将默认 4x-UltraSharpV2 降级为 "
-                        "RealESRGAN_x2plus.pth（X2 模型），以守住 8GB 显存安全线。"
+                        "低显存二采已切换为 auto 超分模型选择，将按实际倍率解析为 "
+                        "X2 模型，以守住 8GB 显存安全线。"
                     )
+                upscale_factor = max(
+                    float(requested_width) / max(1, postprocess_source_width),
+                    float(requested_height) / max(1, postprocess_source_height),
+                )
+                requested_upscale_model = str(request["ai_upscale_model"])
                 request["ai_upscale_model"] = resolve_upscale_model_name(
                     request["ai_upscale_model"],
-                    max(
-                        float(requested_width) / max(1, postprocess_source_width),
-                        float(requested_height) / max(1, postprocess_source_height),
-                    ),
+                    upscale_factor,
                 )
+                if (
+                    upscale_factor <= 2.0
+                    and is_x4_upscale_model_name(request["ai_upscale_model"])
+                ):
+                    if requested_upscale_model.strip().lower() == "auto":
+                        request["warnings"].append(
+                            f"未安装 X2 超分模型，auto 已回退到 X4 模型 {request['ai_upscale_model']}；"
+                            f"目标仅放大 {upscale_factor:.2f} 倍，X4 会先放大再缩回，速度明显更慢。"
+                            "建议安装 RealESRGAN_x2plus.pth，或改用 SeedVR2 视频超分。"
+                        )
+                    else:
+                        request["warnings"].append(
+                            f"目标仅放大 {upscale_factor:.2f} 倍，显式指定的 X4 模型 "
+                            f"{request['ai_upscale_model']} 会先放大到 4 倍再缩回，浪费数倍算力；"
+                            "建议改用 auto 或 X2 模型（如 RealESRGAN_x2plus.pth），或切换 SeedVR2。"
+                        )
                 if (
                     request["performance_preset"] == "low_vram_two_stage"
                     and not is_x2_upscale_model_name(request["ai_upscale_model"])

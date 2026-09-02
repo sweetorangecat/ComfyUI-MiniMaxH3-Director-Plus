@@ -32,7 +32,7 @@ def test_schema_exposes_final_postprocess_controls():
         "质量优先二采样": ["HIGHBITRATE_ULTRA"],
         "其他性能预设": ["HIGH", "ULTRA"],
     }
-    assert schema["ai_upscale_model"]["default"] == "4x-UltraSharpV2.safetensors"
+    assert schema["ai_upscale_model"]["default"] == "auto"
     assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["rtx_vsr"]
     assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == ["ai_upscale"]
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
@@ -47,7 +47,7 @@ def test_normalize_request_defaults_to_smart_free_1080p():
     assert request["performance_preset"] == "smart_free_1080p"
     assert request["postprocess_mode"] == "ai_upscale"
     assert request["rtx_quality"] == "HIGH"
-    assert request["ai_upscale_model"] == "4x-UltraSharpV2.safetensors"
+    assert request["ai_upscale_model"] == "auto"
     assert request["motion_smoothing"] == "off"
     assert request["audio_loudness"] == "auto"
     assert request["voice_gender"] == "auto"
@@ -364,10 +364,10 @@ def test_public_schema_documents_route_performance_options():
     assert "质量优先二采样" in property_schema["enum"]
     assert "自定义" in property_schema["enum"]
     assert property_schema["allowed_by_route"]["T2VA"] == [
-        "免费智能 1080p", "稳定质量"
+        "免费智能 1080p", "质量优先加速", "质量优先二采样", "极速4步"
     ]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
-        "免费智能 1080p", "参考高清（原生20步）"
+        "免费智能 1080p", "参考高清（原生20步）", "参考极速（官方4步）"
     ]
 
 

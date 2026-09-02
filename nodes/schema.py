@@ -92,9 +92,9 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
 # Keep the public selector intentionally small. The broader route map above is
 # retained for loading older API payloads and saved workflows.
 VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE = {
-    "t2va": ("smart_free_1080p", "quality"),
-    "endpoint": ("smart_free_1080p", "quality"),
-    "reference": ("smart_free_1080p", "ref_quality_native"),
+    "t2va": ("smart_free_1080p", "quality_sage", "quality_two_stage", "fast_4step"),
+    "endpoint": ("smart_free_1080p", "quality_sage", "quality_two_stage", "fast_4step"),
+    "reference": ("smart_free_1080p", "ref_quality_native", "ref_fast_4step"),
 }
 
 TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})
@@ -150,7 +150,7 @@ def allowed_performance_presets(mode, voice_mode="none"):
 
 
 def visible_performance_presets(mode, voice_mode="none"):
-    """Return the two recommended presets shown by the user-facing selector."""
+    """Return the curated presets shown by the user-facing selector."""
     if voice_mode != "none" or mode == "REF2VA":
         return VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE["reference"]
     if mode == "T2VA":
@@ -210,7 +210,7 @@ DEFAULT_REQUEST = {
     "performance_preset": "smart_free_1080p",
     "postprocess_mode": "ai_upscale",
     "rtx_quality": "HIGH",
-    "ai_upscale_model": "4x-UltraSharpV2.safetensors",
+    "ai_upscale_model": "auto",
     "motion_smoothing": "off",
     "audio_loudness": "auto",
     "ignored_media": [],
@@ -292,7 +292,7 @@ def normalize_request(raw=None):
     request["audio_loudness"] = str(request.get("audio_loudness") or "auto")
     if request["audio_loudness"] not in AUDIO_LOUDNESS_MODES:
         raise RequestError(f"不支持的最终音频响度模式：{request['audio_loudness']}")
-    request["ai_upscale_model"] = str(request.get("ai_upscale_model") or "4x-UltraSharpV2.safetensors").strip() or "4x-UltraSharpV2.safetensors"
+    request["ai_upscale_model"] = str(request.get("ai_upscale_model") or "auto").strip() or "auto"
 
     try:
         duration = int(request["duration"])
@@ -492,8 +492,8 @@ def public_schema():
             "ai_upscale_model": {
                 "中文名称": "通用 AI 超分模型",
                 "type": "string",
-                "default": "4x-UltraSharpV2.safetensors",
-                "description": "自动选择或指定 models/upscale_models 中的通用 AI 超分模型，仅在 ai_upscale 模式生效。",
+                "default": "auto",
+                "description": "默认 auto 按实际放大倍率自动选择 models/upscale_models 中的 X2/X4 模型（≤2 倍优先 X2，避免 X4 放大再缩回的浪费），仅在 ai_upscale 模式生效。",
             },
             "motion_smoothing": {
                 "中文名称": "运动平滑",

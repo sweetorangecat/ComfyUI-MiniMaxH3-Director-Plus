@@ -8,7 +8,7 @@ from .schema import RequestError
 
 
 SMART_PRESET = "smart_free_1080p"
-SMART_UPSCALE_MODEL = "4x-UltraSharpV2.safetensors"
+SMART_UPSCALE_MODEL = "auto"
 SMART_LOW_VRAM_UPSCALE_MODEL = "RealESRGAN_x2plus.pth"
 LOW_VRAM_MAX_SECONDS = 6
 LOW_VRAM_MIN_FREE_GB = 6.0

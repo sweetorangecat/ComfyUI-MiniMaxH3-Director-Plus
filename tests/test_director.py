@@ -52,7 +52,7 @@ def test_director_defaults_to_smart_free_1080p_and_local_x2():
     required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
     assert required["performance_preset"][1]["default"] == "免费智能 1080p"
     assert required["postprocess_mode"][1]["default"] == "ai_upscale"
-    assert required["ai_upscale_model"][1]["default"] == "4x-UltraSharpV2.safetensors"
+    assert required["ai_upscale_model"][1]["default"] == "auto"
 
 
 def test_smart_free_1080p_resolves_base_backend_to_sage_and_x2(monkeypatch):
@@ -937,7 +937,7 @@ def test_low_vram_two_stage_builds_safe_six_second_fhd_plan(monkeypatch):
     assert guide["rtx_deblur_mode"] == "off"
     assert normal_probes == []
     assert len(resolved_models) == 1
-    assert resolved_models[0][0] == "RealESRGAN_x2plus.pth"
+    assert resolved_models[0][0] == "auto"
     assert resolved_models[0][1] == pytest.approx(1920 / guide["second_stage_width"])
 
 

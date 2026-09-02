@@ -5,6 +5,7 @@ import pytest
 from nodes.upscale import (
     MiniMaxH3VideoUpscale,
     is_x2_upscale_model_name,
+    is_x4_upscale_model_name,
     resolve_upscale_model_name,
     validate_frames_for_reconstruction,
 )
@@ -23,6 +24,34 @@ def test_auto_upscale_model_prefers_x2_for_two_times_target():
     )
 
     assert selected == "RealESRGAN_x2plus.pth"
+
+
+def test_auto_upscale_model_prefers_x2_over_ultrasharp_for_two_times_target():
+    selected = resolve_upscale_model_name(
+        "auto",
+        scale_factor=1.5,
+        available=["4x-UltraSharpV2.safetensors", "RealESRGAN_x2plus.pth"],
+    )
+
+    assert selected == "RealESRGAN_x2plus.pth"
+
+
+def test_auto_upscale_model_falls_back_to_x4_when_no_x2_installed():
+    selected = resolve_upscale_model_name(
+        "auto",
+        scale_factor=1.5,
+        available=["4x-UltraSharpV2.safetensors"],
+    )
+
+    assert selected == "4x-UltraSharpV2.safetensors"
+
+
+def test_x4_model_name_guard():
+    assert is_x4_upscale_model_name("4x-UltraSharpV2.safetensors") is True
+    assert is_x4_upscale_model_name("RealESRGAN_x4plus.pth") is True
+    assert is_x4_upscale_model_name("OmniSR_X4_DIV2K.safetensors") is True
+    assert is_x4_upscale_model_name("RealESRGAN_x2plus.pth") is False
+    assert is_x4_upscale_model_name("auto") is False
 
 
 def test_auto_upscale_model_prefers_x4_for_four_k_target():

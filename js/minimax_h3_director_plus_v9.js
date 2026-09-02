@@ -9,7 +9,7 @@ import { clearSlot, compactBoundSlots, compactSlots } from "./media_slot_state.m
 
 const NODE_CLASS = "MiniMaxH3DirectorPlus";
 const SMART_PRESET = "免费智能 1080p";
-const SMART_UPSCALE_MODEL = "4x-UltraSharpV2.safetensors";
+const SMART_UPSCALE_MODEL = "auto";
 // Keep node geometry independent from the browser sidebar width.
 const DIRECTOR_UI_WIDTH = 1350;
 const DIRECTOR_MIN_CONTENT_WIDTH = 1180;
@@ -25,9 +25,9 @@ const PERFORMANCE_PRESET_KEYS = {
   "参考极速（官方4步）": "ref_fast_4step",
 };
 const PERFORMANCE_PRESETS_BY_ROUTE = {
-  t2va: ["免费智能 1080p", "稳定质量"],
-  endpoint: ["免费智能 1080p", "稳定质量"],
-  reference: ["免费智能 1080p", "参考高清（原生20步）"],
+  t2va: ["免费智能 1080p", "质量优先加速", "质量优先二采样", "极速4步"],
+  endpoint: ["免费智能 1080p", "质量优先加速", "质量优先二采样", "极速4步"],
+  reference: ["免费智能 1080p", "参考高清（原生20步）", "参考极速（官方4步）"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
@@ -910,7 +910,7 @@ function install(node) {
     }
     const postprocessControl = valueControl("最终输出", "postprocess_mode", postprocessOptions, postprocessMode);
     const aiModelControlOptions = preset === SMART_PRESET
-      ? [[SMART_UPSCALE_MODEL, "RealESRGAN X2（智能锁定）"]]
+      ? [[SMART_UPSCALE_MODEL, "自动选择（按倍率选 X2/X4，智能锁定）"]]
       : [["auto", "自动选择"]];
     const aiModelControl = postprocessMode === "ai_upscale"
       ? valueControl("AI 超分模型", "ai_upscale_model", aiModelControlOptions, aiUpscaleModel)
@@ -937,7 +937,7 @@ function install(node) {
       if (modelSelect && (aiModelOptions.length || preset === SMART_PRESET)) {
         modelSelect.replaceChildren();
         const modelOptions = preset === SMART_PRESET
-          ? [[SMART_UPSCALE_MODEL, "4x-UltraSharpV2（智能锁定）"]]
+          ? [[SMART_UPSCALE_MODEL, "自动（按倍率选 X2/X4，智能锁定）"]]
           : [["auto", "自动选择"], ...aiModelOptions.filter((value) => value && value !== "auto" && (preset !== "低显存二采" || isX2UpscaleModel(value))).map((value) => [value, value])];
         modelOptions.forEach(([value, display]) => {
           const option = document.createElement("option");
@@ -955,7 +955,7 @@ function install(node) {
     const postprocessNotes = {
       native: "原生尺寸直出：保留 H3 实际生成尺寸，不进行放大。选择 2K/4K 时不会自动变成 2K/4K。",
       lanczos: "Lanczos 快速放大：使用 CPU 分块缩放，兼容性最好、速度快，但只重采样不重建 AI 细节。",
-      ai_upscale: "AI 自动超分：使用已安装的通用超分模型逐帧重建细节；默认 4x-UltraSharpV2，模型不存在会在生成前提示。",
+      ai_upscale: "AI 自动超分：使用已安装的通用超分模型逐帧重建细节；默认 auto 按实际倍率自动选择 X2/X4（≤2 倍优先 X2，避免 X4 放大再缩回的浪费），模型不存在会在生成前提示。",
       video_sr: "SeedVR2 视频超分：ByteDance 单步扩散视频超分，帧间一致性显著优于逐帧超分；需要已安装 SeedVR2 节点与 models/SEEDVR2 权重，缺失会在生成前提示。",
       rtx_vsr: "RTX VSR：目标尺寸大于 H3 原生尺寸时逐帧使用 NVIDIA RTX VSR；首次使用前请安装 nvidia-vfx、NVIDIA Broadcast SDK 与匹配驱动，导演节点会在生成前检查；同尺寸自动旁路。",
     };
