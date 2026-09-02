@@ -280,9 +280,24 @@ def test_ref2va_ui_maps_nine_picture_slots_without_exceeding_native_limit():
     assert "REF2VA_IMAGE_SLOTS" in text
     assert "genericPictureLabels" in text
     assert "REF2VA 参考图均为普通参考图" in text
-    assert '"参考图 1（起始构图建议）", "first_image_file"' in text
-    assert '"参考图 2（结束构图建议）", "last_image_file"' in text
+    assert '"参考图 1", "first_image_file"' in text
+    assert '"参考图 2", "last_image_file"' in text
     assert '"参考图 9", "reference_image_7_file"' in text
+    assert "起始构图建议" not in text
+    assert "结束构图建议" not in text
+    assert '作为普通参考图 1（非首帧）' in text
+    assert '作为普通参考图 2（非尾帧）' in text
+
+
+def test_stale_upload_values_are_cleared_before_frontend_blocks_run():
+    text = source()
+    assert "function sanitizeUploadWidgets(node)" in text
+    assert "UPLOAD_WIDGET_FIELDS" in text
+    assert "function uploadWidgetOptions(item)" in text
+    assert 'node.onWidgetChanged?.(name, "", previous, item)' in text
+    assert "sanitizeUploadWidgets(node);" in text
+    assert "已自动清除" in text
+    assert "失效素材引用" in text
 
 
 def test_ui_uses_embedded_upload_widgets_instead_of_connection_instructions():
@@ -305,7 +320,7 @@ def test_upload_success_rebuilds_controls_with_replace_and_remove_actions():
 
 def test_each_mode_only_exposes_the_media_uploads_it_needs():
     text = source()
-    assert '["FL2VA", "L2VA", "REF2VA"].includes(mode)' in text
+    assert '["FL2VA", "L2VA"].includes(mode)' in text
     assert 'VOICE_REFERENCE_MODES.includes(mode)' in text
 
 

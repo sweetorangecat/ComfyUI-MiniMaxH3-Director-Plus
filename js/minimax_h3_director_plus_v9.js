@@ -62,8 +62,11 @@ const SEED_MODES = [
   ["randomize", "每次随机"],
 ];
 const REF2VA_IMAGE_SLOTS = [
-  ["参考图 1（起始构图建议）", "first_image_file"],
-  ["参考图 2（结束构图建议）", "last_image_file"],
+  // Official Ref2VA is omni-reference: every slot is a generic reference and
+  // no slot is implicitly a first or last frame. Temporal/keyframe roles are
+  // assigned by the prompt via <Picture N>, never by upload position.
+  ["参考图 1", "first_image_file"],
+  ["参考图 2", "last_image_file"],
   ["参考图 3", "reference_image_1_file"], ["参考图 4", "reference_image_2_file"],
   ["参考图 5", "reference_image_3_file"], ["参考图 6", "reference_image_4_file"],
   ["参考图 7", "reference_image_5_file"], ["参考图 8", "reference_image_6_file"],
@@ -261,6 +264,55 @@ function syncUploadWidget(node, widgetName, value) {
   item.callback?.(normalized);
   node.graph?.setDirtyCanvas(true, true);
   app.graph?.setDirtyCanvas?.(true, true);
+}
+
+const UPLOAD_WIDGET_FIELDS = [
+  "first_image_file", "last_image_file",
+  "voice_reference_audio_file", "voice_reference_audio_2_file", "voice_reference_audio_3_file",
+  "reference_image_1_file", "reference_image_2_file", "reference_image_3_file",
+  "reference_image_4_file", "reference_image_5_file", "reference_image_6_file",
+  "reference_image_7_file", "reference_image_8_file", "reference_image_9_file",
+];
+
+function uploadWidgetOptions(item) {
+  const values = item?.options?.values;
+  if (Array.isArray(values)) return values;
+  if (typeof values === "function") {
+    try {
+      const resolved = values();
+      return Array.isArray(resolved) ? resolved : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+// A workflow saved on another machine (or saved before files left the input
+// folder) keeps stale upload filenames in hidden widgets. The current
+// frontend flags any non-empty upload widget whose value is not in the option
+// list as a missing media input and blocks the whole run — even in modes
+// like T2VA that ignore those files entirely. Clear dead references up front
+// so every mode stays runnable; fresh uploads are safe because
+// syncUploadWidget registers them into the option list immediately.
+function sanitizeUploadWidgets(node) {
+  const cleared = [];
+  UPLOAD_WIDGET_FIELDS.forEach((name) => {
+    const item = widget(node, name);
+    if (!item) return;
+    const value = String(item.value ?? "").trim();
+    if (!value) return;
+    const options = uploadWidgetOptions(item);
+    if (!options.length || options.includes(item.value) || options.includes(value)) return;
+    const previous = item.value;
+    item.value = "";
+    cleared.push(name);
+    node.onWidgetChanged?.(name, "", previous, item);
+  });
+  if (cleared.length) {
+    node._h3pAssetNotice = `已自动清除 ${cleared.length} 个失效素材引用（文件不在 input 目录），需要时请重新上传。`;
+    node.graph?.setDirtyCanvas(true, true);
+  }
 }
 
 function controlButton(label, action, value, current) {
@@ -705,6 +757,7 @@ function install(node) {
   let fishPanel;
 
   function render() {
+    sanitizeUploadWidgets(node);
     const mode = widget(node, "mode")?.value || "FL2VA";
     const voiceMode = widget(node, "voice_mode")?.value || "none";
     const savedVoiceGender = String(widget(node, "voice_gender")?.value || "");
@@ -933,8 +986,8 @@ function install(node) {
     const materials = document.createElement("div");
     materials.className = "h3p-materials";
     materials.append(
-      material("首帧图片", mode === "T2VA" ? "当前模式不需要" : "I2VA / FL2VA 可用"),
-      material("尾帧图片", ["FL2VA", "L2VA", "REF2VA"].includes(mode) ? "FL2VA / L2VA / REF2VA 可用" : "当前模式不需要"),
+      material("首帧图片", mode === "REF2VA" ? "作为普通参考图 1（非首帧）" : mode === "T2VA" ? "当前模式不需要" : "I2VA / FL2VA 可用"),
+      material("尾帧图片", mode === "REF2VA" ? "作为普通参考图 2（非尾帧）" : ["FL2VA", "L2VA"].includes(mode) ? "FL2VA / L2VA 可用" : "当前模式不需要"),
       material("音色参考", VOICE_REFERENCE_MODES.includes(mode) ? "启用音色后上传样本" : "当前模式不需要"),
     );
     director.append(materials);
@@ -945,9 +998,8 @@ function install(node) {
       const genericPictureLabels = ["参考图 1", "参考图 2", "参考图 3", "参考图 4", "参考图 5", "参考图 6", "参考图 7", "参考图 8", "参考图 9"];
       REF2VA_IMAGE_SLOTS.forEach(([label, field], index) => uploadGrid.append(uploadControl(node, genericPictureLabels[index] || label, field, "image/*")));
       const pictureOrderHint = document.createElement("div");
-      pictureOrderHint.textContent = "REF2VA 参考图均为普通参考图，不自动指定首帧或尾帧；请在提示词中用 <Picture N> 指定时间位置。";
       pictureOrderHint.className = "h3p-spec-note";
-      pictureOrderHint.textContent = "图片编号与 <Picture N> 一一对应，请从参考图 1 开始连续上传，不要跳过中间编号。";
+      pictureOrderHint.textContent = "REF2VA 参考图均为普通参考图，不自动指定首帧或尾帧；请在提示词中用 <Picture N> 指定时间位置。编号与 <Picture N> 一一对应，请从参考图 1 开始连续上传，不要跳过中间编号。";
       director.append(pictureOrderHint);
     } else {
       if (["I2VA", "FL2VA"].includes(mode)) uploadGrid.append(uploadControl(node, "首帧图片", "first_image_file", "image/*"));
