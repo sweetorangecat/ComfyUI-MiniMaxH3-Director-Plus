@@ -114,6 +114,22 @@ def test_smart_free_1080p_reference_uses_sage_without_trained_route(monkeypatch)
     assert guide["resolved_two_stage_route"] == "bypass"
 
 
+def test_director_warns_when_voice_sample_dropped_with_voice_mode_none(monkeypatch):
+    """Uploading a voice sample while 音色模式=不使用音色 must never be silent:
+    the audio never reaches H3 and the run would invent a voice."""
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
+    monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA", prompt="人物走动，环境安静。", duration=5, width=1920, height=1080,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="ai_upscale", resolution_preset="1080p FHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+        voice_reference_audio_file="h3-director-plus/voice.wav",
+    )
+    assert any("音色参考音频" in warning for warning in guide["warnings"])
+    assert any("音色参考音频" in item for item in guide["ignored_media"])
+
+
 def test_resolution_preset_is_labeled_as_the_final_output_target():
     resolution_spec = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]["resolution_preset"]
 

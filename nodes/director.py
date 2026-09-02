@@ -347,6 +347,17 @@ class MiniMaxH3DirectorPlus:
             )
         ):
             ignored_media.append("参考图")
+        if voice_mode == "none" and any(
+            supplied(value, filename)
+            for value, filename in zip(
+                (voice_reference_audio, voice_reference_audio_2, voice_reference_audio_3),
+                (voice_reference_audio_file, voice_reference_audio_2_file, voice_reference_audio_3_file),
+            )
+        ):
+            # Never drop a bound voice sample silently: with voice_mode=none the
+            # audio never reaches H3 and the run invents a voice from the text
+            # prior, which surfaces only after the full sampling budget burned.
+            ignored_media.append("音色参考音频（音色模式为不使用音色）")
         first_image = (
             first_image
             if first_allowed and first_image is not None

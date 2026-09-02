@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 
 
@@ -310,6 +311,16 @@ def normalize_request(raw=None):
 
     if request["voice_mode"] != "none" and not audio_references:
         raise RequestError("当前音色模式需要音色参考音频")
+    # Reverse check: a prompt that binds <Audio N> without any uploaded voice
+    # reference makes H3 invent a voice from the text prior — the run is
+    # guaranteed to miss the intended timbre, so fail before sampling starts.
+    if re.search(r"<Audio\s*\d+>", str(request.get("prompt") or "")) and not audio_references:
+        raise RequestError(
+            "提示词引用了 <Audio N> 音色标记，但没有绑定任何音色参考音频"
+            "（音色模式为“不使用音色”或未上传样本），H3 将凭空生成嗓音。"
+            "请将音色模式切换为 H3 原生参考或 Fish 高级音色锁定并上传样本，"
+            "或删除提示词中的 <Audio N> 标记。"
+        )
     if request["voice_mode"] == "fish_lock" and not str(request["target_dialogue"]).strip():
         raise RequestError("Fish 高级音色锁定需要目标对白")
     preset = PERFORMANCE_PRESETS.get(request["performance_preset"])
@@ -324,7 +335,7 @@ def normalize_request(raw=None):
         )
     if ignored_media:
         request["warnings"].append(
-            f"已忽略与 {request['mode']} 不兼容的图片输入：{'、'.join(ignored_media)}。"
+            f"已忽略与 {request['mode']} / 当前音色设置不兼容的素材输入：{'、'.join(ignored_media)}。"
         )
 
     request["resolved_backend"] = (

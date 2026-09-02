@@ -76,6 +76,27 @@ def test_h3_reference_warns_when_prompt_does_not_bind_audio_to_dialogue():
     assert any("<Audio 1>" in warning and "对白" in warning for warning in request["warnings"])
 
 
+def test_audio_marker_without_bound_reference_fails_before_sampling():
+    """A prompt binding <Audio 1> with voice_mode=none must not burn a full run
+    inventing a voice from the text prior."""
+    with pytest.raises(RequestError, match="音色标记"):
+        normalize_request({
+            "mode": "REF2VA",
+            "prompt": "橘总用 <Audio 1> 的音色说：“慢着。”",
+            "voice_mode": "none",
+        })
+
+
+def test_audio_marker_with_bound_reference_passes():
+    request = normalize_request({
+        "mode": "REF2VA",
+        "prompt": "橘总用 <Audio 1> 的音色说：“慢着。”",
+        "voice_mode": "h3_reference",
+        "voice_reference_audio": object(),
+    })
+    assert request["resolved_backend"] == "ref2va_model"
+
+
 def test_normalize_request_normalizes_unknown_voice_gender_to_auto():
     """Unknown voice_gender values (from widget misalignment) normalize to auto."""
     request = normalize_request({"mode": "T2VA", "duration": 4, "voice_gender": "baritone"})
