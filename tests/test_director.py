@@ -1233,3 +1233,127 @@ def test_smaller_target_selects_downscale(monkeypatch):
     )
     assert guide["upscale_required"] is False
     assert guide["upscale_method"] == "cpu_bicubic"
+
+
+def _clean_voice(seconds=6.0, sample_rate=32000):
+    import torch
+
+    length = int(seconds * sample_rate)
+    return {"waveform": torch.full((1, 1, length), 0.3), "sample_rate": sample_rate}
+
+
+def test_too_short_voice_sample_fails_before_h3_generation():
+    import torch
+
+    short_voice = {"waveform": torch.full((1, 1, 32000), 0.3), "sample_rate": 32000}
+
+    with pytest.raises(RequestError, match="音色样本未通过前置检查.*官方 2 秒下限"):
+        MiniMaxH3DirectorPlus().build(
+            mode="REF2VA",
+            prompt="橘总使用 <Audio 1> 的音色说：慢着。",
+            duration=4,
+            width=1088,
+            height=1920,
+            aspect_ratio="9:16",
+            resolution_preset="1080p FHD",
+            voice_mode="h3_reference",
+            ref_image_size="match",
+            performance_preset="稳定质量",
+            postprocess_mode="lanczos",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+            first_image=object(),
+            voice_reference_audio=short_voice,
+        )
+
+
+def test_two_to_five_second_voice_sample_builds_with_recommendation_warning():
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="橘总使用 <Audio 1> 的音色说：慢着。",
+        duration=4,
+        width=1088,
+        height=1920,
+        aspect_ratio="9:16",
+        resolution_preset="1080p FHD",
+        voice_mode="h3_reference",
+        ref_image_size="match",
+        performance_preset="稳定质量",
+        postprocess_mode="lanczos",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image=object(),
+        voice_reference_audio=_clean_voice(3.0),
+    )
+
+    assert guide["ref_audios"]
+    assert any("5–10 秒" in warning for warning in guide["warnings"])
+
+
+def test_low_step_route_warns_about_voice_fidelity():
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="橘总使用 <Audio 1> 的音色说：慢着。",
+        duration=4,
+        width=1088,
+        height=1920,
+        aspect_ratio="9:16",
+        resolution_preset="1080p FHD",
+        voice_mode="h3_reference",
+        ref_image_size="match",
+        performance_preset="低显存",
+        postprocess_mode="lanczos",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image=object(),
+        voice_reference_audio=_clean_voice(),
+    )
+
+    assert any("音色保真提醒" in warning for warning in guide["warnings"])
+
+
+def test_match_ref_image_size_warns_when_final_upscale_exceeds_one_and_half_x():
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="角色从客厅走向门口。",
+        duration=5,
+        width=2560,
+        height=1440,
+        aspect_ratio="16:9",
+        resolution_preset="2K QHD",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="稳定质量",
+        postprocess_mode="lanczos",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image=object(),
+    )
+
+    assert any("参考图尺寸策略为 match" in warning for warning in guide["warnings"])
+
+
+def test_max_ref_image_size_skips_upscale_dilution_warning():
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="角色从客厅走向门口。",
+        duration=5,
+        width=2560,
+        height=1440,
+        aspect_ratio="16:9",
+        resolution_preset="2K QHD",
+        voice_mode="none",
+        ref_image_size="max",
+        performance_preset="稳定质量",
+        postprocess_mode="lanczos",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        first_image=object(),
+    )
+
+    assert not any("参考图尺寸策略为 match" in warning for warning in guide["warnings"])

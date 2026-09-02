@@ -99,3 +99,92 @@ def test_reference_prompt_can_lock_male_voice_register():
     assert "male" in prompt.lower()
     assert "preserve the reference speaker's gender" in prompt.lower()
     assert "do not feminize" in prompt.lower()
+
+
+def test_structured_prompt_passes_through_without_rewrapping():
+    detail = (
+        "subject_definitions:\n"
+        "<Subject 1> 橘总 is the cat from <Picture 2>.\n"
+        "<Audio 1> is the voice-timbre reference for 橘总; transfer timbre only.\n\n"
+        "summary:\n"
+        "[reference generation + audio reference] custom authored content.\n\n"
+        "detailed_description:\n"
+        "橘总 says a line.\n"
+    )
+
+    prompt = build_reference_prompt(
+        mode="REF2VA",
+        detail=detail,
+        duration=5,
+        has_first=True,
+        has_last=True,
+        has_audio=True,
+        extra_reference_count=3,
+        audio_count=1,
+        audio_names=("橘总",),
+    )
+
+    assert prompt == detail.strip()
+    assert prompt.count("subject_definitions:") == 1
+    assert "generic reference image" not in prompt
+
+
+def test_structured_prompt_fills_only_missing_audio_binding():
+    detail = (
+        "subject_definitions:\n"
+        "<Subject 1> 橘总 is the cat from <Picture 1>.\n\n"
+        "detailed_description:\n"
+        "橘总 says a line.\n"
+    )
+
+    prompt = build_reference_prompt(
+        mode="REF2VA",
+        detail=detail,
+        duration=5,
+        has_first=True,
+        has_audio=True,
+        audio_count=1,
+        audio_names=("橘总",),
+    )
+
+    assert detail.strip() in prompt
+    assert prompt.count("subject_definitions:") == 1
+    assert "audio_reference_notes:" in prompt
+    assert "<Audio 1> 仅作为人物音色与表达方式的 reference，对应角色“橘总”" in prompt
+
+
+def test_reference_transcript_is_injected_for_timbre_alignment():
+    prompt = build_reference_prompt(
+        mode="REF2VA",
+        detail="橘总说新的中文台词。",
+        duration=5,
+        has_audio=True,
+        audio_count=1,
+        audio_names=("橘总",),
+        audio_transcripts=("江湖规矩，先来后到。",),
+    )
+
+    assert "样本原文是“江湖规矩，先来后到。”" in prompt
+    assert "仅用于音色对齐" in prompt
+
+
+def test_structured_prompt_keeps_author_text_and_appends_transcript():
+    detail = (
+        "subject_definitions:\n"
+        "<Audio 1> is the voice-timbre reference for 橘总.\n\n"
+        "detailed_description:\n"
+        "橘总 says a line.\n"
+    )
+
+    prompt = build_reference_prompt(
+        mode="REF2VA",
+        detail=detail,
+        duration=5,
+        has_audio=True,
+        audio_count=1,
+        audio_transcripts=("江湖规矩，先来后到。",),
+    )
+
+    assert detail.strip() in prompt
+    assert "样本原文是“江湖规矩，先来后到。”" in prompt
+    assert prompt.count("<Audio 1> 仅作为") == 0  # binding already present

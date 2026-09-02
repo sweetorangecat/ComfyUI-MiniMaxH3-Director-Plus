@@ -21,6 +21,7 @@ from .schema import (
 from .smart_1080p import SMART_PRESET, resolve_smart_1080p_plan, smart_1080p_target
 from .two_stage_assets import dependency_report, resolve_two_stage_route
 from .video_sr import resolve_seedvr2_plan, seedvr2_dependency_report
+from .voice_guard import analyze_voice_reference
 from .upscale import (
     _available_upscale_models,
     is_x2_upscale_model_name,
@@ -436,6 +437,19 @@ class MiniMaxH3DirectorPlus:
             "ignored_media": ignored_media,
         })
 
+        # Voice sample quality gate: fail (or warn) before H3 sampling starts.
+        # Official H3 bounds each reference clip to 2–15s; the stable timbre
+        # window in practice is 5–10s of clean single-speaker speech.
+        if voice_mode != "none":
+            for audio_index, audio in enumerate(voice_references, 1):
+                voice_report = analyze_voice_reference(audio, index=audio_index)
+                if voice_report["errors"]:
+                    raise RequestError(
+                        "音色样本未通过前置检查，尚未开始 H3 视频生成："
+                        + "；".join(voice_report["errors"])
+                    )
+                request["warnings"].extend(voice_report["warnings"])
+
         requested_performance_preset = request["performance_preset"]
         smart_mode = requested_performance_preset == SMART_PRESET
         smart_plan = None
@@ -471,6 +485,18 @@ class MiniMaxH3DirectorPlus:
                     f"低显存模式下 {request['duration']} 秒视频的最终输出目标最大为 "
                     f"{limit_width}×{limit_height}"
                 )
+
+        # Voice fidelity needs enough denoising steps: the reference self-host
+        # recipe runs 50 steps, the ComfyUI template 20. Fast / low-VRAM routes
+        # (4-8 steps) are a known cause of weak timbre lock and audio artifacts.
+        if voice_mode != "none" and request["performance_preset"] in {
+            "low_vram", "low_vram_two_stage", "fast_4step", "ref_fast_4step", "reference_fast",
+        }:
+            request["warnings"].append(
+                "音色保真提醒：当前是少步数快速/低显存路线，音色锁定与口型细节会明显变弱；"
+                "重要对白请改用“参考高清（原生20步）”（需要 16GB+ 显存），"
+                "或用 Fish S2 高级锁定严格复刻声线。"
+            )
 
         two_stage_plan = None
         resolved_two_stage_route = "bypass"
@@ -681,6 +707,21 @@ class MiniMaxH3DirectorPlus:
             if postprocess_mode == "rtx_vsr" and requested_width != native_width:
                 request["warnings"][-1] += " 将在生成后通过 RTX VSR 重建。"
 
+        if (
+            request["resolved_backend"] == "ref2va_model"
+            and str(ref_image_size or "match") == "match"
+            and final_upscale_required
+            and max(
+                final_target_width / max(1, postprocess_source_width),
+                final_target_height / max(1, postprocess_source_height),
+            ) >= 1.5
+        ):
+            request["warnings"].append(
+                "参考图尺寸策略为 match，角色参考图会被压缩到生成阶段分辨率，"
+                "再放大到最终目标会丢失身份细节；追求角色清晰度时建议把“参考图尺寸”改为 "
+                "max（保留约 2048px 短边，耗时和显存略增）。"
+            )
+
         ref_images = {}
         ref_audios = {}
         first_frame = first_image
@@ -710,6 +751,7 @@ class MiniMaxH3DirectorPlus:
                 audio_count=len(voice_references),
                 audio_names=(voice_reference_name_1, voice_reference_name_2, voice_reference_name_3),
                 voice_gender=request["voice_gender"],
+                audio_transcripts=(request["reference_transcript"],),
             )
 
         length = align_frame_count(int(duration) * 24)

@@ -6,6 +6,46 @@ from __future__ import annotations
 FORBIDDEN_AUDIO_MARKERS = ("fully_" + "copy", "partially_" + "copy", "audio " + "reuse")
 
 
+def is_structured_reference_prompt(detail):
+    """Detect a prompt that already follows the official R2V section layout."""
+    text = str(detail or "")
+    return "subject_definitions:" in text and "detailed_description:" in text
+
+
+def _audio_binding_line(index, subject):
+    owner = f"，对应角色“{subject}”" if subject else f"，对应提示词中的音色参考 {index}"
+    return f"<Audio {index}> 仅作为人物音色与表达方式的 reference{owner}，不复制原音频信号。"
+
+
+def _transcript_line(index, transcript):
+    return f"<Audio {index}> 的样本原文是“{transcript}”（仅用于音色对齐，不复制其内容）。"
+
+
+def _augment_structured_prompt(detail, audio_count, audio_names, transcripts):
+    """Pass a structured prompt through, only filling in missing audio bindings.
+
+    Re-wrapping a professionally structured prompt would duplicate the
+    subject_definitions/retention sections and dilute the author's explicit
+    reference-to-role assignments, which is exactly what the official R2V
+    prompt guide warns against.  Instead we keep the author's text verbatim
+    and append only the pieces that are actually missing.
+    """
+    text = str(detail or "").strip()
+    names = list(audio_names or [])
+    additions = []
+    for index in range(1, audio_count + 1):
+        if f"<Audio {index}>" in text:
+            continue
+        subject = str(names[index - 1]).strip() if index <= len(names) else ""
+        additions.append(_audio_binding_line(index, subject))
+    for index, transcript in enumerate(transcripts, 1):
+        if transcript and index <= audio_count and transcript not in text:
+            additions.append(_transcript_line(index, transcript))
+    if not additions:
+        return text
+    return text + "\n\naudio_reference_notes:\n" + "\n".join(additions)
+
+
 def _timestamp(seconds):
     seconds = float(seconds)
     if seconds.is_integer():
@@ -24,7 +64,18 @@ def build_reference_prompt(
     audio_count=0,
     audio_names=None,
     voice_gender="auto",
+    audio_transcripts=None,
 ):
+    transcripts = [str(item or "").strip() for item in (audio_transcripts or [])]
+    resolved_audio_count = max(int(bool(has_audio)), min(3, int(audio_count or 0)))
+    if is_structured_reference_prompt(detail):
+        prompt = _augment_structured_prompt(
+            detail, resolved_audio_count, audio_names, transcripts
+        )
+        if any(marker in prompt for marker in FORBIDDEN_AUDIO_MARKERS):
+            raise ValueError("提示词包含不允许的音频复制语义")
+        return prompt
+
     definitions = []
     retention = []
 
@@ -58,7 +109,6 @@ def build_reference_prompt(
             for index in range(1, total + 1)
         ]
 
-    resolved_audio_count = max(int(bool(has_audio)), min(3, int(audio_count or 0)))
     names = list(audio_names or [])
     gender = str(voice_gender or "auto").strip().lower()
     gender_instruction = {
@@ -69,11 +119,11 @@ def build_reference_prompt(
     }.get(gender, "Preserve the reference speaker's apparent gender and vocal register; do not shift the voice to another gender.")
     for index in range(1, resolved_audio_count + 1):
         subject = str(names[index - 1]).strip() if index <= len(names) else ""
-        owner = f"，对应角色“{subject}”" if subject else f"，对应提示词中的音色参考 {index}"
-        definitions.append(
-            f"<Audio {index}> 仅作为人物音色与表达方式的 reference{owner}，不复制原音频信号。"
-        )
+        definitions.append(_audio_binding_line(index, subject))
         retention.append(f"<Audio {index}>: reference - 保持音色参考 {index} 的音色与表达方式。")
+    for index, transcript in enumerate(transcripts, 1):
+        if transcript and index <= resolved_audio_count:
+            definitions.append(_transcript_line(index, transcript))
     if resolved_audio_count:
         retention.append(gender_instruction)
 
