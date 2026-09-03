@@ -76,7 +76,9 @@ PERFORMANCE_PRESET_LABELS_BY_KEY = {
 }
 
 REFERENCE_UNSAFE_FALLBACKS = {
-    "quality_two_stage": "quality_sage",
+    # quality_two_stage is now safe on REF2VA: the U22-validated turbo v4
+    # 8+4 recipe drives the trained latent redraw while the AV split/concat
+    # contract preserves the audio (voice) latent.
     "reference_fast": "quality_sage",
     "fl_quality_fast_v4": "quality_sage",
     "low_vram_two_stage": "low_vram",
@@ -87,7 +89,7 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
     # compatible with the same FL2VA model endpoint used by T2VA/FL2VA/I2VA.
     "t2va": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
     "endpoint": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
-    "reference": ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom"),
+    "reference": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom"),
 }
 # Keep the public selector intentionally small. The broader route map above is
 # retained for loading older API payloads and saved workflows.
@@ -160,7 +162,14 @@ def allowed_motion_smoothing(performance_preset, postprocess_mode):
 def allowed_performance_presets(mode, voice_mode="none"):
     """Return the safe, user-facing presets for the active H3 route."""
     if voice_mode != "none" or mode == "REF2VA":
-        return PERFORMANCE_PRESETS_BY_ROUTE["reference"]
+        presets = PERFORMANCE_PRESETS_BY_ROUTE["reference"]
+        if voice_mode == "fish_lock":
+            # Fish S2 and the trained latent redraw are mutually exclusive.
+            presets = tuple(
+                preset for preset in presets
+                if preset not in TWO_STAGE_PERFORMANCE_PRESETS
+            )
+        return presets
     if mode == "T2VA":
         return PERFORMANCE_PRESETS_BY_ROUTE["t2va"]
     return PERFORMANCE_PRESETS_BY_ROUTE["endpoint"]

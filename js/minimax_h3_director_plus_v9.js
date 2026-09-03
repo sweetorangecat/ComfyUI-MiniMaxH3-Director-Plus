@@ -965,7 +965,7 @@ function install(node) {
     } else if (preset === "低显存二采") {
       postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight), "AI X2")}；1080p 4 秒保留约 1MP 神经二采基准，5–6 秒会按时长降低首采网格以控制显存，再逐帧 RealESRGAN X2 重建到 FHD；最长 6 秒，开始前检查至少 6GB 空闲显存。`;
     } else if (preset === SMART_PRESET) {
-      postprocessNote.textContent = "免费智能 1080p：普通显存使用 20 步 SageAttention 保留细节，再执行一次 RealESRGAN X2 免费超分；低显存设备自动切换安全策略，可能限制为最长 6 秒，生成前会提示原因。";
+      postprocessNote.textContent = "免费智能 1080p：显存 ≥20GB 且空闲 ≥18GB、二采依赖就绪时，自动启用训练型 latent 二采直出 1080p（U22 验证配方：8 步首采 + 训练型 3D latent 放大 + 4 步低 sigma 重绘），不再多跑 SeedVR2/AI 超分；否则回退 20 步 SageAttention + SeedVR2/AI 超分，低显存设备自动切换安全策略，生成前会提示原因。";
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {

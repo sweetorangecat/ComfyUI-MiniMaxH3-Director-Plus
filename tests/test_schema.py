@@ -478,11 +478,11 @@ def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
         ("I2VA", "none", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
         ("FL2VA", "none", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
         ("L2VA", "none", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage")),
-        ("REF2VA", "none", ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
-        ("I2VA", "h3_reference", ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
+        ("REF2VA", "none", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
+        ("I2VA", "h3_reference", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
         ("FL2VA", "fish_lock", ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
-        ("L2VA", "h3_reference", ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
-        ("T2VA", "h3_reference", ("smart_free_1080p", "quality", "quality_sage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
+        ("L2VA", "h3_reference", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
+        ("T2VA", "h3_reference", ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom")),
     ],
 )
 def test_allowed_performance_presets_follow_mode_and_voice(mode, voice_mode, expected):
@@ -518,16 +518,15 @@ def test_route_specific_presets_are_not_cross_exposed():
 def test_reference_routes_have_exact_safe_preset_set():
     allowed = set(allowed_performance_presets("REF2VA", "none"))
     assert allowed == {
-        "smart_free_1080p", "quality", "quality_sage", "ref_quality_native",
+        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native",
         "ref_fast_4step", "fast_4step", "low_vram", "custom",
     }
-    assert not allowed & {"quality_two_stage", "low_vram_two_stage", "reference_fast", "fl_quality_fast_v4"}
+    assert not allowed & {"low_vram_two_stage", "reference_fast", "fl_quality_fast_v4"}
 
 
 @pytest.mark.parametrize(
     ("preset", "fallback", "label", "fallback_label", "postprocess_mode"),
     [
-        ("quality_two_stage", "quality_sage", "质量优先二采样", "质量优先加速", "rtx_vsr"),
         ("reference_fast", "quality_sage", "参考图加速", "质量优先加速", "native"),
         ("fl_quality_fast_v4", "quality_sage", "高清快速（v4 8步）", "质量优先加速", "native"),
         ("low_vram_two_stage", "low_vram", "低显存二采", "低显存", "ai_upscale"),
@@ -567,14 +566,15 @@ def test_ref2va_unsafe_legacy_preset_falls_back_after_backend_resolution(
         },
     ],
 )
-def test_complete_legacy_reference_two_stage_state_migrates_to_repeatable_quality_sage(payload):
+def test_legacy_reference_two_stage_state_now_runs_u22_v4_route(payload):
     request = normalize_request(payload)
 
     assert request["resolved_backend"] == "ref2va_model"
-    assert request["performance_preset"] == "quality_sage"
+    # REF2VA two-stage is no longer migrated away: the U22-validated turbo v4
+    # 8+4 recipe runs the trained latent redraw on the reference backend.
+    assert request["performance_preset"] == "quality_two_stage"
     assert request["postprocess_mode"] == "rtx_vsr"
-    assert request["rtx_quality"] == "HIGH"
-    assert any("HIGHBITRATE_ULTRA" in warning and "HIGH" in warning for warning in request["warnings"])
+    assert request["rtx_quality"] == "HIGHBITRATE_ULTRA"
 
     reloaded = normalize_request(request)
     assert {
@@ -586,7 +586,7 @@ def test_complete_legacy_reference_two_stage_state_migrates_to_repeatable_qualit
     }
 
 
-def test_h3_reference_backend_falls_back_unsafe_legacy_preset():
+def test_h3_reference_backend_keeps_two_stage_preset():
     request = normalize_request({
         "mode": "I2VA",
         "first_image": "opening.png",
@@ -596,8 +596,7 @@ def test_h3_reference_backend_falls_back_unsafe_legacy_preset():
         "postprocess_mode": "rtx_vsr",
     })
     assert request["resolved_backend"] == "ref2va_model"
-    assert request["performance_preset"] == "quality_sage"
-    assert any("quality_two_stage" in warning and "quality_sage" in warning for warning in request["warnings"])
+    assert request["performance_preset"] == "quality_two_stage"
 
 
 def test_fish_backend_falls_back_low_vram_two_stage_after_compatibility_resolution():

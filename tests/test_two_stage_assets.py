@@ -10,7 +10,10 @@ from nodes.two_stage_assets import (
     FL_STAGE2_LORA,
     LATENT_UPSCALER_MODEL,
     REF_STAGE_LORA,
+    V4_TURBO_LORA,
+    V4_TURBO_LORA_PRUNED,
     dependency_report,
+    resolve_v4_turbo_lora_name,
     run_trained_latent_upscaler,
     resolve_two_stage_route,
 )
@@ -26,10 +29,9 @@ def test_route_is_locked_to_backend_and_excludes_fish():
     assert resolve_two_stage_route(
         {"resolved_backend": "fl2va_model", "voice_mode": "none"}
     ) == "trained_latent_fl"
-    with pytest.raises(ValueError, match="quality_sage、low_vram 或 ref_fast_4step"):
-        resolve_two_stage_route(
-            {"resolved_backend": "ref2va_model", "voice_mode": "h3_reference"}
-        )
+    assert resolve_two_stage_route(
+        {"resolved_backend": "ref2va_model", "voice_mode": "h3_reference"}
+    ) == "trained_latent_ref"
     assert resolve_two_stage_route(
         {"resolved_backend": "ref2va_model", "voice_mode": "fish_lock"}
     ) == "bypass"
@@ -53,7 +55,7 @@ def test_fl_dependency_report_requires_only_fl_assets(tmp_path):
     assert "H3SigmaRefiner" not in report["missing"]
 
 
-def test_reference_dependency_report_requires_refiner_and_ref_lora(tmp_path):
+def test_reference_dependency_report_requires_v4_lora_without_refiner(tmp_path):
     report = dependency_report(
         tmp_path,
         "trained_latent_ref",
@@ -63,12 +65,40 @@ def test_reference_dependency_report_requires_refiner_and_ref_lora(tmp_path):
     assert report["ready"] is False
     assert report["missing"] == [
         "MinimaxH3LatentUpscaler3D",
-        "H3SigmaRefiner",
         LATENT_UPSCALER_MODEL,
-        REF_STAGE_LORA,
+        f"{V4_TURBO_LORA} 或 {V4_TURBO_LORA_PRUNED}",
     ]
     assert FL_STAGE1_LORA not in report["missing"]
     assert FL_STAGE2_LORA not in report["missing"]
+    assert REF_STAGE_LORA not in report["missing"]
+    assert "H3SigmaRefiner" not in report["missing"]
+    assert report["required_assets"] == [
+        LATENT_UPSCALER_MODEL,
+        V4_TURBO_LORA,
+        V4_TURBO_LORA_PRUNED,
+    ]
+
+
+def test_pruned_v4_lora_variant_satisfies_reference_dependency(tmp_path):
+    _touch(tmp_path, f"models/latent_upscale_models/{LATENT_UPSCALER_MODEL}")
+    _touch(tmp_path, f"models/loras/{V4_TURBO_LORA_PRUNED}")
+
+    report = dependency_report(
+        tmp_path,
+        "trained_latent_ref",
+        node_mappings={"MinimaxH3LatentUpscaler3D": object()},
+    )
+
+    assert report["ready"] is True
+    assert report["missing"] == []
+    assert resolve_v4_turbo_lora_name(tmp_path) == V4_TURBO_LORA_PRUNED
+
+
+def test_original_v4_lora_is_preferred_over_pruned_variant(tmp_path):
+    _touch(tmp_path, f"models/loras/{V4_TURBO_LORA}")
+    _touch(tmp_path, f"models/loras/{V4_TURBO_LORA_PRUNED}")
+
+    assert resolve_v4_turbo_lora_name(tmp_path) == V4_TURBO_LORA
 
 
 def test_installed_legacy_upscaler_id_is_accepted(tmp_path):

@@ -9,6 +9,16 @@ from pathlib import Path
 FL_STAGE1_LORA = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
 FL_STAGE2_LORA = "minimax_h3_fl2v_turbo_4step_v1.1_768p_comfyui_bf16.safetensors"
 REF_STAGE_LORA = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+# Community-proven U22 recipe: the 12-step-capable turbo v4 adapter drives both
+# passes of a REF2VA trained two-stage run (8 high-sigma steps + 4-step
+# low-sigma redraw after the learned 3D latent upscale).  The legacy
+# ref2v_turbo_4step adapter stays listed for old workflows only.
+V4_TURBO_LORA = "minimax_h3_turbo_v4_step600_ema.safetensors"
+# drbaph's pruned ComfyUI conversion of the same v4 adapter (the exact file
+# the U22 workflow ships with).  Either file satisfies the REF two-stage
+# dependency and both load through the native LoRA path.
+V4_TURBO_LORA_PRUNED = "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors"
+V4_TURBO_LORA_CANDIDATES = (V4_TURBO_LORA, V4_TURBO_LORA_PRUNED)
 LATENT_UPSCALER_MODEL = "minimax_h3_latent_upscaler_3d_bf16.safetensors"
 UPSCALE_NODE_IDS = ("MinimaxH3LatentUpscaler3D", "MinimaxH3LatentUpscalerNode3D")
 SIGMA_REFINER_NODE_ID = "H3SigmaRefiner"
@@ -25,15 +35,16 @@ def resolve_two_stage_route(guide):
     if str(guide.get("voice_mode", "none")) == "fish_lock":
         return "bypass"
     if str(guide.get("resolved_backend", "fl2va_model")) == "ref2va_model":
-        raise ValueError(
-            "REF2VA 不支持训练型二采，请使用 quality_sage、low_vram 或 ref_fast_4step"
-        )
+        # U22-validated: turbo v4 (12-step) + trained 3D latent upscale works
+        # on the REF2VA backend and preserves the audio latent via the LTXV
+        # AV split/concat contract.
+        return "trained_latent_ref"
     return "trained_latent_fl"
 
 
 def _required_assets(route):
     if route == "trained_latent_ref":
-        return (REF_STAGE_LORA,)
+        return (V4_TURBO_LORA,)
     if route == "trained_latent_fl":
         return (FL_STAGE1_LORA, FL_STAGE2_LORA)
     return ()
@@ -77,6 +88,17 @@ def _asset_exists(comfy_root, category, directory, name):
     ).is_file()
 
 
+def resolve_v4_turbo_lora_name(comfy_root=None):
+    """Return the installed turbo-v4 adapter name, preferring the original."""
+    for name in V4_TURBO_LORA_CANDIDATES:
+        if comfy_root is None:
+            if resolve_registered_model_name("loras", name) is not None:
+                return name
+        elif _asset_exists(comfy_root, "loras", "loras", name):
+            return name
+    return None
+
+
 def dependency_report(comfy_root, route, node_mappings=None):
     """Return route-specific missing assets without loading any model."""
     root = Path(comfy_root)
@@ -97,8 +119,9 @@ def dependency_report(comfy_root, route, node_mappings=None):
     missing = []
     if upscaler_node_id is None:
         missing.append(UPSCALE_NODE_IDS[0])
-    if route == "trained_latent_ref" and SIGMA_REFINER_NODE_ID not in mappings:
-        missing.append(SIGMA_REFINER_NODE_ID)
+    # The revived U22-style REF route runs plain beta/Euler sigmas; the legacy
+    # H3SigmaRefiner belonged to the banned 4-step ref recipe and is no longer
+    # a dependency.
 
     if not _asset_exists(
         root,
@@ -109,16 +132,24 @@ def dependency_report(comfy_root, route, node_mappings=None):
         missing.append(LATENT_UPSCALER_MODEL)
 
     loras = _required_assets(route)
-    for name in loras:
-        if not _asset_exists(root, "loras", "loras", name):
-            missing.append(name)
+    if route == "trained_latent_ref":
+        # The v4 adapter ships under two file names (original + pruned
+        # ComfyUI conversion); either one satisfies the dependency.
+        if resolve_v4_turbo_lora_name(root) is None:
+            missing.append(" 或 ".join(V4_TURBO_LORA_CANDIDATES))
+        required_loras = list(V4_TURBO_LORA_CANDIDATES)
+    else:
+        for name in loras:
+            if not _asset_exists(root, "loras", "loras", name):
+                missing.append(name)
+        required_loras = list(loras)
 
     return {
         "route": route,
         "ready": not missing,
         "missing": missing,
         "upscaler_node_id": upscaler_node_id,
-        "required_assets": [LATENT_UPSCALER_MODEL, *loras],
+        "required_assets": [LATENT_UPSCALER_MODEL, *required_loras],
     }
 
 

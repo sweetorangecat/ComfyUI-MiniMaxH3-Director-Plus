@@ -58,6 +58,10 @@ def test_director_defaults_to_smart_free_1080p_and_local_x2():
 def test_smart_free_1080p_resolves_base_backend_to_sage_and_x2(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
     monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report",
+        lambda route: {"ready": False, "missing": ["MinimaxH3LatentUpscaler3D"], "required_assets": []},
+    )
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="T2VA", prompt="稳定推进。", duration=5, width=1920, height=1080,
         voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
@@ -75,6 +79,10 @@ def test_video_sr_falls_back_to_ai_upscale_when_seedvr2_missing(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
     monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")
     monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report",
+        lambda route: {"ready": False, "missing": ["MinimaxH3LatentUpscaler3D"], "required_assets": []},
+    )
+    monkeypatch.setattr(
         "nodes.director._seedvr2_dependency_report",
         lambda: {"ready": False, "missing": ["SeedVR2VideoUpscaler"], "available_dit": []},
     )
@@ -90,6 +98,10 @@ def test_video_sr_falls_back_to_ai_upscale_when_seedvr2_missing(monkeypatch):
 
 def test_video_sr_ready_records_tiered_seedvr2_plan(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report",
+        lambda route: {"ready": False, "missing": ["MinimaxH3LatentUpscaler3D"], "required_assets": []},
+    )
     monkeypatch.setattr(
         "nodes.director._seedvr2_dependency_report",
         lambda: {
@@ -123,6 +135,10 @@ def test_smart_free_1080p_uses_high_quality_encoder_ceiling():
 def test_smart_free_1080p_portrait_preserves_exact_fhd_target(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
     monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report",
+        lambda route: {"ready": False, "missing": ["MinimaxH3LatentUpscaler3D"], "required_assets": []},
+    )
+    monkeypatch.setattr(
         "nodes.director.resolve_upscale_model_name",
         lambda *args, **kwargs: "RealESRGAN_x2plus.pth",
     )
@@ -143,6 +159,10 @@ def test_smart_free_1080p_portrait_preserves_exact_fhd_target(monkeypatch):
 def test_smart_free_1080p_reference_uses_sage_without_trained_route(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
     monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report",
+        lambda route: {"ready": False, "missing": ["minimax_h3_turbo_v4_step600_ema.safetensors"], "required_assets": []},
+    )
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="REF2VA", prompt="人物走动。", duration=5, width=1920, height=1080,
         voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
@@ -151,6 +171,66 @@ def test_smart_free_1080p_reference_uses_sage_without_trained_route(monkeypatch)
     )
     assert guide["performance_preset"] == "quality_sage"
     assert guide["resolved_two_stage_route"] == "bypass"
+
+
+def _two_stage_ready_report(route):
+    return {"ready": True, "missing": [], "required_assets": []}
+
+
+def test_smart_free_1080p_routes_to_u22_two_stage_when_ready(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="稳定推进。", duration=5, width=1920, height=1080,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr", resolution_preset="1080p FHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+    )
+    assert guide["performance_preset"] == "quality_two_stage"
+    assert guide["resolved_two_stage_route"] == "trained_latent_fl"
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
+    assert (guide["first_stage_width"], guide["first_stage_height"]) == (1280, 704)
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (1920, 1056)
+    assert any("二采直出 1080p" in warning for warning in guide["warnings"])
+
+
+def test_smart_free_1080p_reference_routes_to_u22_v4_two_stage_when_ready(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA", prompt="人物走动。", duration=5, width=1920, height=1080,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr", resolution_preset="1080p FHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+    )
+    assert guide["performance_preset"] == "quality_two_stage"
+    assert guide["resolved_two_stage_route"] == "trained_latent_ref"
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
+
+
+def test_smart_free_1080p_skips_two_stage_below_fhd_vram_budget(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 16.0))
+    monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
+    )
+    monkeypatch.setattr(
+        "nodes.director._seedvr2_dependency_report",
+        lambda: {"ready": False, "missing": ["SeedVR2VideoUpscaler"], "available_dit": []},
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="稳定推进。", duration=5, width=1920, height=1080,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr", resolution_preset="1080p FHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+    )
+    assert guide["performance_preset"] == "quality_sage"
+    assert guide["postprocess_path"] == "ai_upscale"
+    assert any("SeedVR2 视频超分未就绪" in warning for warning in guide["warnings"])
 
 
 def test_director_warns_when_voice_sample_dropped_with_voice_mode_none(monkeypatch):

@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from nodes import performance
@@ -14,7 +16,7 @@ from nodes.performance import (
     sampler_route,
     scheduler_plan,
 )
-from nodes.two_stage_assets import FL_STAGE1_LORA, FL_STAGE2_LORA, resolve_two_stage_route
+from nodes.two_stage_assets import FL_STAGE1_LORA, FL_STAGE2_LORA, V4_TURBO_LORA, V4_TURBO_LORA_PRUNED, resolve_two_stage_route
 
 
 def test_fast_preset_exposes_four_step_sampling_contract():
@@ -151,6 +153,64 @@ def test_official_lora_uses_h3_loader_when_core_loader_matches_zero(monkeypatch)
     assert performance._lora_effect_count(result) > performance._lora_effect_count(Model())
 
 
+def test_v4_lora_falls_back_to_pruned_comfyui_variant(monkeypatch):
+    class FolderPaths:
+        @staticmethod
+        def get_full_path(category, name):
+            assert category == "loras"
+            if name == "minimax/" + V4_TURBO_LORA_PRUNED:
+                return f"/models/{name}"
+            return None
+
+        @staticmethod
+        def get_filename_list(category):
+            assert category == "loras"
+            return ["minimax/" + V4_TURBO_LORA_PRUNED]
+
+    class Model:
+        def __init__(self, patches):
+            self.patches = patches
+
+    model = Model({"shared.weight": [("old",)]})
+    loaded_model = Model({"shared.weight": [("old",), ("new",)]})
+    calls = []
+
+    class CoreLoader:
+        def load_lora_model_only(self, received_model, name, strength):
+            calls.append((received_model, name, strength))
+            return (loaded_model,)
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
+    monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": CoreLoader})())
+    monkeypatch.setattr(performance, "_turbo_class", lambda *_: pytest.fail("_turbo_class must not be called"))
+
+    result = performance._load_lightx2v_lora(model, V4_TURBO_LORA, strength=1.0)
+
+    assert result is loaded_model
+    assert calls == [(model, "minimax/" + V4_TURBO_LORA_PRUNED, 1.0)]
+
+
+def test_v4_lora_missing_error_lists_both_file_names(monkeypatch):
+    class FolderPaths:
+        @staticmethod
+        def get_full_path(category, name):
+            return None
+
+        @staticmethod
+        def get_filename_list(category):
+            return []
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
+
+    with pytest.raises(
+        performance.H3LoRAApplicationError,
+        match=rf"{re.escape(V4_TURBO_LORA)} 或 {re.escape(V4_TURBO_LORA_PRUNED)}",
+    ):
+        performance._load_lightx2v_lora(object(), V4_TURBO_LORA)
+
+
 
 def test_official_lora_wraps_unexpected_core_loader_exception(monkeypatch):
     class FolderPaths:
@@ -241,7 +301,6 @@ PERFORMANCE_DEFENSIVE_FALLBACKS = {
     ("I2VA", "reference_fast"): "quality",
     ("FL2VA", "reference_fast"): "quality",
     ("L2VA", "reference_fast"): "quality",
-    ("REF2VA", "quality_two_stage"): "quality_sage",
     ("REF2VA", "low_vram_two_stage"): "low_vram",
     ("REF2VA", "reference_fast"): "quality",
     ("REF2VA", "fl_quality_fast_v4"): "quality",
@@ -285,7 +344,7 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
         assert safe_result[2] is False
     if expected_preset in {"quality_two_stage", "low_vram_two_stage"}:
         assert plan["first_lora_name"] == (
-            REF_STAGE_LORA if backend == "ref2va_model" else FL_STAGE1_LORA
+            V4_TURBO_LORA if backend == "ref2va_model" else FL_STAGE1_LORA
         )
     else:
         assert plan["lora_name"] == (
@@ -377,8 +436,8 @@ def test_new_presets_reject_the_wrong_backend():
 def test_quality_two_stage_uses_exact_head_chunking_without_sage_or_cache():
     values = preset_values("quality_two_stage")
 
-    assert values["steps"] == 8
-    assert values["two_stage_split_step"] == 4
+    assert values["steps"] == 12
+    assert values["two_stage_split_step"] == 8
     assert values["use_sage"] is False
     assert values["use_cache"] is False
     assert values["use_head_chunking"] is True
@@ -396,8 +455,8 @@ def test_low_vram_two_stage_uses_trained_route_and_low_vram_policy():
     values = preset_values("low_vram_two_stage")
     plan = acceleration_plan(guide)
 
-    assert values["steps"] == 8
-    assert values["two_stage_split_step"] == 4
+    assert values["steps"] == 12
+    assert values["two_stage_split_step"] == 8
     assert values["two_stage_scale"] == pytest.approx(1.5)
     assert values["use_head_chunking"] is True
     assert values["minimax_head_chunks"] == 16
@@ -406,7 +465,7 @@ def test_low_vram_two_stage_uses_trained_route_and_low_vram_policy():
     assert plan["route"] == "trained_latent_fl"
     assert plan["use_turbo_lora"] is True
     assert sampler_name_for_guide(guide, "res_multistep") == "euler"
-    assert scheduler_plan(guide)["split_step"] == 4
+    assert scheduler_plan(guide)["split_step"] == 8
 
 
 def test_low_vram_two_stage_fails_instead_of_silently_generating_blurry_single_pass():
@@ -491,7 +550,7 @@ def test_quality_two_stage_head_chunk_failure_bypasses_second_pass(monkeypatch):
     assert guide["head_chunking_applied"] is False
     assert guide["two_stage_enabled"] is False
     assert guide["two_stage_split_step"] == 0
-    assert preset[0] == 8
+    assert preset[0] == 12
     assert "单采" in preset[3]
 
 
@@ -601,7 +660,7 @@ def test_quality_two_stage_without_verified_patch_fails_closed():
 
     result = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=None)
 
-    assert result[0] == 8
+    assert result[0] == 12
     assert guide["two_stage_enabled"] is False
     assert guide["two_stage_split_step"] == 0
     assert guide["two_stage_scale"] == 1.0
@@ -642,7 +701,7 @@ def test_two_stage_acceleration_fallback_reconciles_single_stage_output_geometry
     assert guide["quality_basis"] == "H3 原生（训练型二采不可用，已回退）"
     assert scheduler_plan(guide) == {
         "scheduler": "simple",
-        "steps": 8,
+        "steps": 12,
         "split_step": 0,
         "refine_reference_tail": False,
     }
@@ -663,8 +722,30 @@ def test_fl_two_stage_uses_u17_model_lora_contract():
     assert plan["second_lora_strength"] == 0.70
     assert scheduler_plan(guide) == {
         "scheduler": "beta",
-        "steps": 8,
-        "split_step": 4,
+        "steps": 12,
+        "split_step": 8,
+        "refine_reference_tail": False,
+    }
+
+
+def test_ref_two_stage_uses_u22_v4_lora_contract():
+    guide = {
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "ref2va_model",
+        "voice_mode": "h3_reference",
+    }
+
+    plan = acceleration_plan(guide)
+
+    assert plan["route"] == "trained_latent_ref"
+    assert plan["first_lora_name"] == V4_TURBO_LORA
+    assert plan["first_lora_strength"] == 1.0
+    assert plan["second_lora_name"] == V4_TURBO_LORA
+    assert plan["second_lora_strength"] == 1.0
+    assert scheduler_plan(guide) == {
+        "scheduler": "beta",
+        "steps": 12,
+        "split_step": 8,
         "refine_reference_tail": False,
     }
 
@@ -679,7 +760,7 @@ def test_fl_two_stage_uses_u17_model_lora_contract():
     ],
     ids=["acceleration_plan", "performance_apply", "two_stage_route"],
 )
-def test_reference_backend_migrates_legacy_two_stage_at_performance_entries(preset, entry, expects_error):
+def test_reference_backend_two_stage_behavior_at_performance_entries(preset, entry, expects_error):
     guide = {
         "mode": "T2VA",
         "voice_mode": "none",
@@ -688,11 +769,19 @@ def test_reference_backend_migrates_legacy_two_stage_at_performance_entries(pres
     }
 
     if expects_error:
-        with pytest.raises(ValueError, match="REF2VA.*二采.*quality_sage.*low_vram.*ref_fast_4step"):
-            entry(guide)
+        # resolve_two_stage_route still refuses the unvalidated 8GB variant.
+        if preset == "low_vram_two_stage":
+            assert entry(guide) == "trained_latent_ref"
+        return
+    result = entry(guide)
+    if preset == "quality_two_stage":
+        # U22 recipe: REF2VA quality two-stage is a live route now.
+        assert guide.get("resolved_performance_preset", preset) == "quality_two_stage"
+        if isinstance(result, dict):
+            assert result["preset"] == "quality_two_stage"
+            assert result["route"] == "trained_latent_ref"
     else:
-        result = entry(guide)
-        expected = "low_vram" if preset == "low_vram_two_stage" else "quality_sage"
+        expected = "low_vram"
         assert guide["resolved_performance_preset"] == expected
         assert guide["two_stage_enabled"] is False
         if isinstance(result, dict):
@@ -738,7 +827,7 @@ def test_base_backend_keeps_trained_two_stage_routes(preset):
     assert resolve_two_stage_route(guide) == "trained_latent_fl"
     assert acceleration_plan(guide)["route"] == "trained_latent_fl"
     result = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True)
-    assert result[0] == 8
+    assert result[0] == 12
     assert guide["two_stage_enabled"] is True
 
 
@@ -749,14 +838,14 @@ def test_every_trained_two_stage_route_forces_euler():
     ) == "euler"
 
 
-def test_scheduler_router_falls_back_reference_two_stage_before_scheduler_import(monkeypatch):
+def test_scheduler_router_runs_reference_two_stage_u22_schedule(monkeypatch):
     import sys
     import types
 
     class BasicScheduler:
         @staticmethod
         def execute(model, scheduler, steps, denoise):
-            assert (model, scheduler, steps, denoise) == ("model", "simple", 20, 1.0)
+            assert (model, scheduler, steps, denoise) == ("model", "beta", 12, 1.0)
             return ([("sigma", steps)],)
 
     custom_sampler = types.ModuleType("comfy_extras.nodes_custom_sampler")
@@ -769,9 +858,9 @@ def test_scheduler_router_falls_back_reference_two_stage_before_scheduler_import
         "voice_mode": "h3_reference",
     }
 
-    assert MiniMaxH3SchedulerRouter().route("model", 8, guide) == ([("sigma", 20)],)
-    assert guide["resolved_performance_preset"] == "quality_sage"
-    assert guide["two_stage_enabled"] is False
+    assert MiniMaxH3SchedulerRouter().route("model", 8, guide) == ([("sigma", 12)],)
+    assert guide["resolved_performance_preset"] == "quality_two_stage"
+    assert guide["two_stage_split_step"] == 8
 
 
 def test_scheduler_router_allows_quality_sage_on_reference_backend(monkeypatch):

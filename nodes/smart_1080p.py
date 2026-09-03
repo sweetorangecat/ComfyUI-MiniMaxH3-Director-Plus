@@ -45,7 +45,7 @@ def _duration_seconds(duration):
     return seconds
 
 
-def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb, seedvr2_ready=False):
+def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb, seedvr2_ready=False, two_stage_ready=False):
     """Resolve Smart 1080p generation policy for a backend and VRAM state."""
     if free_vram_gb < LOW_VRAM_MIN_FREE_GB:
         raise RequestError(
@@ -74,12 +74,28 @@ def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb, see
     else:
         if not 4 <= seconds <= 15:
             raise RequestError("视频时长必须在 4 到 15 秒之间")
-        # Keep the full 20-step denoising path and accelerate attention only.
-        # Turbo's four-step shortcut is fast, but leaves less native detail for
-        # the single local upscale pass to reconstruct.
-        preset = "quality_sage"
-        route = "bypass"
-        warning = ""
+        # Clarity-first: when the trained two-stage assets and the FHD VRAM
+        # budget are present, use the U22-validated 8+4 latent redraw and
+        # output 1080p directly -- no separate SeedVR2/AI upscale pass at all.
+        if (
+            two_stage_ready
+            and float(total_vram_gb) >= 20.0
+            and float(free_vram_gb) >= 18.0
+        ):
+            preset = "quality_two_stage"
+            route = "trained_latent_ref" if backend == "ref2va_model" else "trained_latent_fl"
+            warning = (
+                "已启用训练型 latent 二采直出 1080p：8 步首采 + 训练型 3D latent 放大 + "
+                "4 步低 sigma 重绘（U22 验证配方），最终只裁切对齐到 1920×1080，"
+                "不再执行额外的 SeedVR2/AI 超分。"
+            )
+        else:
+            # Keep the full 20-step denoising path and accelerate attention only.
+            # Turbo's four-step shortcut is fast, but leaves less native detail for
+            # the single local upscale pass to reconstruct.
+            preset = "quality_sage"
+            route = "bypass"
+            warning = ""
         max_duration = 15
 
     postprocess_mode = "video_sr" if seedvr2_ready else "ai_upscale"

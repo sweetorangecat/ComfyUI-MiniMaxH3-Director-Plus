@@ -19,20 +19,21 @@ from nodes.two_stage_assets import resolve_two_stage_route
 
 def test_quality_two_stage_is_high_vram_only_route():
     assert "quality_two_stage" in allowed_performance_presets("T2VA", "none")
-    assert "quality_two_stage" not in allowed_performance_presets("REF2VA", "none")
+    # U22 recipe: REF2VA quality two-stage is allowed; fish stays excluded.
+    assert "quality_two_stage" in allowed_performance_presets("REF2VA", "none")
     assert "quality_two_stage" not in allowed_performance_presets("T2VA", "fish_lock")
     values = preset_values("quality_two_stage")
-    assert values["steps"] == 8
-    assert values["two_stage_split_step"] == 4
+    assert values["steps"] == 12
+    assert values["two_stage_split_step"] == 8
     assert values["two_stage_scale"] == pytest.approx(1.5)
 
 
 def test_performance_node_marks_two_stage_guide():
     guide = {"mode": "T2VA", "voice_mode": "none", "performance_preset": "quality_two_stage"}
     result = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True)
-    assert result[0] == 8
+    assert result[0] == 12
     assert guide["two_stage_enabled"] is True
-    assert guide["two_stage_split_step"] == 4
+    assert guide["two_stage_split_step"] == 8
     assert "latent" in result[3]
 
 
@@ -45,19 +46,25 @@ def test_performance_node_marks_low_vram_two_stage_guide():
 
     result = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True)
 
-    assert result[0] == 8
+    assert result[0] == 12
     assert guide["two_stage_enabled"] is True
-    assert guide["two_stage_split_step"] == 4
+    assert guide["two_stage_split_step"] == 8
     assert guide["two_stage_scale"] == pytest.approx(1.5)
 
 
-@pytest.mark.parametrize("preset", ["quality_two_stage", "low_vram_two_stage"])
-def test_two_stage_asset_route_rejects_reference_backend(preset):
-    with pytest.raises(ValueError, match="REF2VA.*二采.*quality_sage.*low_vram.*ref_fast_4step"):
-        resolve_two_stage_route({
-            "performance_preset": preset,
-            "resolved_backend": "ref2va_model",
-        })
+def test_two_stage_asset_route_allows_reference_backend():
+    assert resolve_two_stage_route({
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "ref2va_model",
+    }) == "trained_latent_ref"
+
+
+def test_two_stage_asset_route_bypasses_fish_lock():
+    assert resolve_two_stage_route({
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "ref2va_model",
+        "voice_mode": "fish_lock",
+    }) == "bypass"
 
 
 def test_quality_two_stage_has_no_interpolation_call():

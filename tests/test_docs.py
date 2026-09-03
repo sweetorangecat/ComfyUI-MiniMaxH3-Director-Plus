@@ -160,7 +160,7 @@ def test_docs_explain_free_smart_1080p_and_non_destructive_asset_removal():
         "生成阶段分辨率不等于最终输出分辨率",
         "本地免费",
         "RealESRGAN_x2plus.pth",
-        "REF2VA 不使用训练型 reference latent 二采",
+        "支持训练型 reference latent 二采",
         "最多 6 秒",
         "空闲显存",
         "移除只取消节点引用，不删除原文件",

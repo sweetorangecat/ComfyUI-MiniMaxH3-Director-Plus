@@ -471,9 +471,19 @@ class MiniMaxH3DirectorPlus:
             total_vram_gb, free_vram_gb = smart_vram
             seedvr2_report = _seedvr2_dependency_report()
             seedvr2_ready = seedvr2_report.get("ready", False)
+            two_stage_ready = False
+            if request["voice_mode"] != "fish_lock":
+                smart_two_stage_route = (
+                    "trained_latent_ref"
+                    if request["resolved_backend"] == "ref2va_model"
+                    else "trained_latent_fl"
+                )
+                two_stage_ready = bool(
+                    _trained_two_stage_dependency_report(smart_two_stage_route).get("ready", False)
+                )
             smart_plan = resolve_smart_1080p_plan(
                 request["resolved_backend"], request["duration"], total_vram_gb, free_vram_gb,
-                seedvr2_ready=seedvr2_ready,
+                seedvr2_ready=seedvr2_ready, two_stage_ready=two_stage_ready,
             )
             request["performance_preset"] = smart_plan["performance_preset"]
             request["postprocess_mode"] = smart_plan["postprocess_mode"]
@@ -481,7 +491,11 @@ class MiniMaxH3DirectorPlus:
             request["motion_smoothing"] = smart_plan["motion_smoothing"]
             if smart_plan["warning"]:
                 request["warnings"].append(smart_plan["warning"])
-            if not seedvr2_ready and not smart_plan["low_vram"]:
+            if (
+                not seedvr2_ready
+                and not smart_plan["low_vram"]
+                and smart_plan["performance_preset"] != "quality_two_stage"
+            ):
                 # The curated default final-output route is SeedVR2; make the
                 # silent smart-mode downgrade loud so users know what to install.
                 request["warnings"].append(

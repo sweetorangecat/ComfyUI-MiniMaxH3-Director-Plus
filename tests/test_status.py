@@ -10,6 +10,7 @@ from nodes.two_stage_assets import (
     FL_STAGE2_LORA,
     LATENT_UPSCALER_MODEL,
     REF_STAGE_LORA,
+    V4_TURBO_LORA,
 )
 
 
@@ -158,6 +159,7 @@ def test_status_reports_trained_two_stage_assets_by_route(tmp_path):
     (loras / FL_STAGE1_LORA).write_bytes(b"x")
     (loras / FL_STAGE2_LORA).write_bytes(b"x")
     (loras / REF_STAGE_LORA).write_bytes(b"x")
+    (loras / V4_TURBO_LORA).write_bytes(b"x")
 
     status = detect_capabilities(
         tmp_path,

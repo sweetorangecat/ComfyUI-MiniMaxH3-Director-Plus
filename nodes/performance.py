@@ -20,6 +20,8 @@ from .two_stage_assets import (
     FL_STAGE2_LORA,
     REF_STAGE_LORA,
     SIGMA_REFINER_NODE_ID,
+    V4_TURBO_LORA,
+    V4_TURBO_LORA_PRUNED,
     resolve_registered_model_name,
     resolve_two_stage_route,
 )
@@ -42,9 +44,11 @@ PRESETS = {
     },
     # Trained H3 latent route: the first pass establishes the composition,
     # then the route-specific learned 3D upscaler feeds a matched tail model.
+    # U22 recipe: 12-step budget split 8+4 so the 8-step stage-1 LoRA gets its
+    # full denoising schedule and the 4-step stage-2 LoRA does the redraw.
     "quality_two_stage": {
-        "steps": 8,
-        "two_stage_split_step": 4,
+        "steps": 12,
+        "two_stage_split_step": 8,
         "two_stage_scale": 1.5,
         # Keep native attention math, release the large normalized input, use
         # the consumed Q region as scratch, and chunk both attention and MLP.
@@ -67,12 +71,12 @@ PRESETS = {
         "use_turbo_sampler": False,
         "lora_strength": 1.0,
     },
-    # RTX 3070-class route: keep the trained 4+4 contract but shrink the
+    # RTX 3070-class route: keep the trained 8+4 contract but shrink the
     # first/second grids in the director and stage both samplers through
-    # ComfyUI LOW_VRAM. The deterministic planner limits this to four seconds.
+    # ComfyUI LOW_VRAM. The deterministic planner limits this to six seconds.
     "low_vram_two_stage": {
-        "steps": 8,
-        "two_stage_split_step": 4,
+        "steps": 12,
+        "two_stage_split_step": 8,
         "two_stage_scale": 1.5,
         "use_head_chunking": True,
         "minimax_head_chunks": 16,
@@ -118,7 +122,7 @@ PRESETS = {
 
 # Existing official FL2VA adapter and the separate official Ref2VA adapter.
 TURBO_LORA_NAME = "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors"
-FL_V4_LORA_NAME = "minimax_h3_turbo_v4_step600_ema.safetensors"
+FL_V4_LORA_NAME = V4_TURBO_LORA
 REF2VA_TURBO_LORA_NAME = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
 
 PRESET_LABELS = {
@@ -172,12 +176,30 @@ def _lora_effect_count(model):
     return _patch_entry_count(model) + injection_count
 
 
+def _lora_name_candidates(lora_name):
+    """Return acceptable file names for a requested adapter.
+
+    The turbo v4 adapter circulates under two names (the original and
+    drbaph's pruned ComfyUI conversion); either one loads identically
+    through the native LoRA path.
+    """
+    if lora_name == V4_TURBO_LORA:
+        return (V4_TURBO_LORA, V4_TURBO_LORA_PRUNED)
+    return (lora_name,)
+
+
 def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
     """Apply an official H3 adapter, with a H3-specific fallback for key maps."""
     requested_lora_name = lora_name or TURBO_LORA_NAME
-    resolved_name = resolve_registered_model_name("loras", requested_lora_name)
+    resolved_name = None
+    for candidate in _lora_name_candidates(requested_lora_name):
+        resolved_name = resolve_registered_model_name("loras", candidate)
+        if resolved_name is not None:
+            break
     if resolved_name is None:
-        raise H3LoRAApplicationError(f"缺少 H3 Turbo LoRA: {requested_lora_name}")
+        raise H3LoRAApplicationError(
+            "缺少 H3 Turbo LoRA: " + " 或 ".join(_lora_name_candidates(requested_lora_name))
+        )
     before_count = _patch_entry_count(model)
     try:
         import nodes as comfy_nodes
@@ -461,7 +483,7 @@ class MiniMaxH3PerformancePreset:
         descriptions = {
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
-            "quality_two_stage": "质量优先二采样：匹配 LoRA 首采 4 步 + 训练型 3D latent 放大 + 低 sigma 二采；自动保留音频 latent",
+            "quality_two_stage": "质量优先二采样：匹配 LoRA 首采 8 步（共 12 步）+ 训练型 3D latent 放大 + 4 步低 sigma 重绘；自动保留音频 latent；REF2VA 使用社区验证的 turbo v4 配方",
             "fl_quality_fast_v4": "高清快速（v4 8 步）：FL/T2V 后端使用社区 v4 LoRA，单采 8 步 + simple/Euler，不启用 latent 二采",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
@@ -482,7 +504,7 @@ class MiniMaxH3PerformancePreset:
         if name in TWO_STAGE_PERFORMANCE_PRESETS and not two_stage_enabled:
             values["two_stage_split_step"] = 0
             values["two_stage_scale"] = 1.0
-            descriptions[name] = "二采精确低显存注意力不可用，已在采样前回退为 8 步单采，避免第二阶段显存溢出"
+            descriptions[name] = "二采精确低显存注意力不可用，已在采样前回退为 12 步原生单采，避免第二阶段显存溢出"
             if name == "quality_two_stage":
                 _reconcile_two_stage_fallback_geometry(guide)
         guide["two_stage_enabled"] = two_stage_enabled
@@ -503,6 +525,11 @@ def _safe_guide_preset(guide):
     voice_mode = guide.get("voice_mode", "none")
     backend = guide.get("resolved_backend")
     if backend == "ref2va_model" and name in TWO_STAGE_PERFORMANCE_PRESETS:
+        # quality_two_stage is allowed on REF2VA (U22 turbo-v4 8+4 recipe);
+        # only the unvalidated 8GB low-VRAM variant still falls back.
+        if name == "quality_two_stage":
+            guide["resolved_performance_preset"] = name
+            return name, False
         fallback = REFERENCE_UNSAFE_FALLBACKS.get(name, "quality_sage")
         guide["resolved_performance_preset"] = fallback
         guide["two_stage_enabled"] = False
@@ -550,11 +577,13 @@ def acceleration_plan(guide):
         plan["lora_name"] = None
     if use_two_stage:
         if route == "trained_latent_ref":
+            # U22 REF2VA recipe: one 12-step turbo v4 adapter drives both the
+            # 8-step composition pass and the 4-step low-sigma redraw.
             plan.update(
-                first_lora_name=REF_STAGE_LORA,
-                first_lora_strength=0.75,
-                second_lora_name=REF_STAGE_LORA,
-                second_lora_strength=0.75,
+                first_lora_name=V4_TURBO_LORA,
+                first_lora_strength=1.0,
+                second_lora_name=V4_TURBO_LORA,
+                second_lora_strength=1.0,
             )
         else:
             plan.update(
@@ -572,17 +601,23 @@ def scheduler_plan(guide):
     if preset in TWO_STAGE_PERFORMANCE_PRESETS and guide.get("two_stage_enabled") is not False:
         route = resolve_two_stage_route(guide)
         if route == "trained_latent_ref":
-            return {
-                "scheduler": "simple",
-                "steps": 8,
-                "split_step": 4,
-                "refine_reference_tail": True,
-            }
-        if route == "trained_latent_fl":
+            # U22-validated REF2VA recipe: beta schedule, 12 turbo-v4 steps,
+            # 8 high-sigma composition steps then a 4-step low-sigma redraw on
+            # the 1.5x learned latent grid.  The legacy YCNodes tail refiner
+            # belonged to the banned 4-step ref route and stays off.
             return {
                 "scheduler": "beta",
-                "steps": 8,
-                "split_step": 4,
+                "steps": 12,
+                "split_step": 8,
+                "refine_reference_tail": False,
+            }
+        if route == "trained_latent_fl":
+            # The stage-1 LoRA is trained for 8 steps: give the composition
+            # pass the full 8 of 12 and let the 4-step stage-2 LoRA redraw.
+            return {
+                "scheduler": "beta",
+                "steps": 12,
+                "split_step": 8,
                 "refine_reference_tail": False,
             }
     return {
