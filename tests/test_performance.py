@@ -855,6 +855,51 @@ def test_ref_two_stage_applies_u22_detail_loras_when_registered(monkeypatch):
     assert "4 个社区 LoRA" in result[1]
 
 
+def test_fingerprint_base_model_hashes_adaln_t_table():
+    import hashlib
+
+    import numpy as np
+
+    table = np.arange(1025 * 8, dtype="<f4").reshape(1025, 8)
+
+    class FakeTensor:
+        def __init__(self, array):
+            self._array = array
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def contiguous(self):
+            return self
+
+        def numpy(self):
+            return self._array
+
+    class FakeInner:
+        def state_dict(self):
+            return {"adaln_t_table": FakeTensor(table), "unrelated": FakeTensor(table)}
+
+    class FakeModel:
+        model = FakeInner()
+
+    expected = hashlib.sha256(table.tobytes()).hexdigest()
+    assert performance._fingerprint_base_model(FakeModel()) == expected
+    assert performance._fingerprint_base_model("model") is None
+    assert performance._fingerprint_base_model(object()) is None
+
+    class BrokenInner:
+        def state_dict(self):
+            raise RuntimeError("no weights")
+
+    class BrokenModel:
+        model = BrokenInner()
+
+    assert performance._fingerprint_base_model(BrokenModel()) is None
+
+
 def test_ref_two_stage_extra_loras_fall_back_to_alternate_file_names(monkeypatch):
     calls = []
     present = {

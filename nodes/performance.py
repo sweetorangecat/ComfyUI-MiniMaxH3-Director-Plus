@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
 import importlib
 import importlib.util
 import logging
@@ -881,6 +882,43 @@ def _apply_ref_detail_loras(model, guide):
     return model
 
 
+# SHA-256 of the raw adaln_t_table tensor bytes in the stock H3 diffusion
+# checkpoints (measured locally on the safetensors payload).  The b25-49
+# hybrid keeps the FL2VA table; the REF2VA pruned checkpoint is the one that
+# weaves a cross-hatch texture (and audio impurities) under the dual-stage
+# SageAttention kernels.  ComfyUI's "Native ops" log line is only the global
+# quant-op registry and cannot identify which checkpoint was loaded — this
+# fingerprint can.
+_BASE_TABLE_SHA_FL2VA = "ac8727cdec52137c73878d004de5bd2a0e19227e8311e29ab3b68f328310e34e"
+_BASE_TABLE_SHA_REF2VA = "c02a6c11888297688c1e6278185ea1f947023acfc69f9003bbcdcec9a229a8e7"
+
+
+def _fingerprint_base_model(model):
+    """Hash the tiny adaln_t_table tensor to identify the loaded checkpoint.
+
+    Returns the hex digest, or None when the model object does not expose a
+    readable state dict.  Fingerprinting must never break a run, so every
+    failure path is swallowed.
+    """
+    try:
+        inner = getattr(model, "model", None)
+        state_dict = inner.state_dict() if inner is not None else None
+        if not state_dict:
+            return None
+        for key, tensor in state_dict.items():
+            if "adaln_t_table" not in key:
+                continue
+            t = tensor.detach() if hasattr(tensor, "detach") else tensor
+            dequantize = getattr(t, "dequantize", None)
+            if callable(dequantize):
+                t = dequantize()
+            array = t.cpu().contiguous().numpy()
+            return hashlib.sha256(array.tobytes()).hexdigest()
+    except Exception:  # noqa: BLE001 - diagnostics must stay side-effect free
+        return None
+    return None
+
+
 def _apply_two_stage_models(model, guide, plan, values):
     """Build independently patched first/second models for trained sampling."""
     original_model = model
@@ -903,6 +941,26 @@ def _apply_two_stage_models(model, guide, plan, values):
     guide.pop("sage_error", None)
     guide.pop("head_chunking_error", None)
     guide["minimax_head_chunks"] = int(values.get("minimax_head_chunks", 8))
+    base_table_sha = _fingerprint_base_model(original_model)
+    guide["base_table_sha"] = base_table_sha
+    if base_table_sha == _BASE_TABLE_SHA_REF2VA:
+        LOGGER.warning(
+            "[H3 two-stage models] 底模指纹 %s = REF2VA pruned convrot：该底模在双阶段 SageAttention 下会产生全画面编织纹与音频杂质，请把底模切换为 minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors（FL2VA 系指纹 %s）",
+            base_table_sha[:12],
+            _BASE_TABLE_SHA_FL2VA[:12],
+        )
+    elif base_table_sha == _BASE_TABLE_SHA_FL2VA:
+        LOGGER.info(
+            "[H3 two-stage models] 底模指纹 %s = FL2VA 系（hybrid/官方 FL2VA），双阶段 Sage 干净路线",
+            base_table_sha[:12],
+        )
+    elif base_table_sha:
+        LOGGER.info(
+            "[H3 two-stage models] 底模指纹 %s（未登记的变体，若出现编织纹请对照指纹库）",
+            base_table_sha[:12],
+        )
+    else:
+        LOGGER.info("[H3 two-stage models] 未能读取底模指纹（非标准模型对象），跳过底模识别")
     two_stage_sage = _env_flag("MMH3_TWO_STAGE_SAGE", True)
     second_stage_sage = two_stage_sage and _env_flag("MMH3_SECOND_STAGE_SAGE", True)
     try:
