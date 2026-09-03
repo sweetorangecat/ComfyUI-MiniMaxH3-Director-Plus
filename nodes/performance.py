@@ -514,7 +514,12 @@ class MiniMaxH3PerformancePreset:
                 _reconcile_two_stage_fallback_geometry(guide)
         guide["two_stage_enabled"] = two_stage_enabled
         guide["two_stage_split_step"] = int(values.get("two_stage_split_step", 0))
-        guide["two_stage_scale"] = float(values.get("two_stage_scale", 1.0))
+        if two_stage_enabled:
+            # Keep the upscaler multiplier aligned with the VRAM budget plan
+            # (e.g. U22 recipe 544->1088 = 2.0x) instead of the preset constant.
+            guide["two_stage_scale"] = _planned_two_stage_scale(guide, values)
+        else:
+            guide["two_stage_scale"] = float(values.get("two_stage_scale", 1.0))
         guide["two_stage_status"] = "待执行" if guide["two_stage_enabled"] else "旁路"
         if downgraded:
             descriptions[name] = f"{mode} / {voice_mode} 不支持所选预设，已回退稳定质量"
@@ -810,6 +815,20 @@ def _reconcile_two_stage_fallback_geometry(guide):
     guide["resolved_two_stage_route"] = "bypass"
 
 
+def _planned_two_stage_scale(guide, values):
+    """Prefer the VRAM budget plan's first->second ratio over preset constants.
+
+    The learned latent upscaler multiplier must match the grid the director
+    actually planned (U22 recipe: 544x960 -> 1088x1920 = 2.0x).  The preset
+    constant only remains as a fallback for guides without a budget plan.
+    """
+    first_stage_width = int(guide.get("first_stage_width") or 0)
+    second_stage_width = int(guide.get("second_stage_width") or 0)
+    if first_stage_width > 0 and second_stage_width > first_stage_width:
+        return float(second_stage_width) / float(first_stage_width)
+    return float(values.get("two_stage_scale", 1.0))
+
+
 def _apply_two_stage_models(model, guide, plan, values):
     """Build independently patched first/second models for trained sampling."""
     original_model = model
@@ -884,15 +903,7 @@ def _apply_two_stage_models(model, guide, plan, values):
     guide["two_stage_enabled"] = True
     guide["two_stage_status"] = "待执行"
     guide["two_stage_split_step"] = int(values.get("two_stage_split_step", 0))
-    # The learned latent upscaler multiplier must match the VRAM budget plan's
-    # first->second ratio (U22 recipe: 0.5 MP first pass, exactly 2.0x).  The
-    # preset constant only remains as a fallback for guides without a plan.
-    first_stage_width = int(guide.get("first_stage_width") or 0)
-    second_stage_width = int(guide.get("second_stage_width") or 0)
-    if first_stage_width > 0 and second_stage_width > first_stage_width:
-        guide["two_stage_scale"] = float(second_stage_width) / float(first_stage_width)
-    else:
-        guide["two_stage_scale"] = float(values.get("two_stage_scale", 1.0))
+    guide["two_stage_scale"] = _planned_two_stage_scale(guide, values)
     guide["first_lora_name"] = plan["first_lora_name"]
     guide["second_lora_name"] = plan["second_lora_name"]
     guide["resolved_two_stage_route"] = plan["route"]

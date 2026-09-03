@@ -52,6 +52,24 @@ def test_performance_node_marks_low_vram_two_stage_guide():
     assert guide["two_stage_scale"] == pytest.approx(1.5)
 
 
+def test_performance_node_keeps_budget_planned_two_stage_scale():
+    """The preset node runs after the acceleration router and must not clobber
+    the U22-recipe 2.0x ratio the VRAM budget plan derived."""
+    guide = {
+        "mode": "T2VA",
+        "voice_mode": "none",
+        "performance_preset": "quality_two_stage",
+        "first_stage_width": 544,
+        "second_stage_width": 1088,
+    }
+
+    result = MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True)
+
+    assert result[0] == 12
+    assert guide["two_stage_enabled"] is True
+    assert guide["two_stage_scale"] == pytest.approx(2.0)
+
+
 def test_two_stage_asset_route_allows_reference_backend():
     assert resolve_two_stage_route({
         "performance_preset": "quality_two_stage",
