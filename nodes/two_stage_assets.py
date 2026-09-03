@@ -89,8 +89,8 @@ def _asset_exists(comfy_root, category, directory, name):
 
 
 def resolve_v4_turbo_lora_name(comfy_root=None):
-    """Return the installed turbo-v4 adapter name, preferring the original."""
-    for name in V4_TURBO_LORA_CANDIDATES:
+    """Return the installed turbo-v4 adapter name, preferring the pruned conversion."""
+    for name in (V4_TURBO_LORA_PRUNED, V4_TURBO_LORA):
         if comfy_root is None:
             if resolve_registered_model_name("loras", name) is not None:
                 return name

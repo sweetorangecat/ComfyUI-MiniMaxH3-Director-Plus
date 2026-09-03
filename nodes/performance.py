@@ -177,14 +177,16 @@ def _lora_effect_count(model):
 
 
 def _lora_name_candidates(lora_name):
-    """Return acceptable file names for a requested adapter.
+    """Return acceptable file names for a requested adapter, in load order.
 
-    The turbo v4 adapter circulates under two names (the original and
-    drbaph's pruned ComfyUI conversion); either one loads identically
-    through the native LoRA path.
+    The turbo v4 adapter circulates under two names.  drbaph's pruned
+    ComfyUI conversion is tried first: it loads through ComfyUI's native
+    LoRA path with no runtime-injection hooks (the exact file the U22
+    recipe validates), while the original file falls back to the slower
+    H3-specific bypass loader.
     """
     if lora_name == V4_TURBO_LORA:
-        return (V4_TURBO_LORA, V4_TURBO_LORA_PRUNED)
+        return (V4_TURBO_LORA_PRUNED, V4_TURBO_LORA)
     return (lora_name,)
 
 
@@ -235,9 +237,12 @@ def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
                     f"H3 专用加载器也未产生补丁或运行时注入（delta={fallback_delta}）"
                 )
             LOGGER.warning(
-                "[H3 LoRA] 通用加载器未匹配 %s，已切换 H3 专用加载器 effect_delta=%s",
+                "[H3 LoRA] 通用加载器未匹配 %s，已切换 H3 专用加载器 effect_delta=%s；"
+                "剪枝版 H3 底座建议改用 %s（drbaph/MiniMax-H3-Turbo-Lora-ComfyUI），"
+                "原生 LoRA 路径速度更快、画质更稳",
                 resolved_name,
                 fallback_delta,
+                V4_TURBO_LORA_PRUNED,
             )
             return fallback_model
         except Exception as exc:

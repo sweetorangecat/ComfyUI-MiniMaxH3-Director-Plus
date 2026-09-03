@@ -191,6 +191,45 @@ def test_v4_lora_falls_back_to_pruned_comfyui_variant(monkeypatch):
     assert calls == [(model, "minimax/" + V4_TURBO_LORA_PRUNED, 1.0)]
 
 
+def test_v4_lora_prefers_pruned_variant_when_both_files_exist(monkeypatch):
+    class FolderPaths:
+        @staticmethod
+        def get_full_path(category, name):
+            assert category == "loras"
+            return f"/models/{name}"
+
+        @staticmethod
+        def get_filename_list(category):
+            assert category == "loras"
+            return ["minimax/" + V4_TURBO_LORA, "minimax/" + V4_TURBO_LORA_PRUNED]
+
+    class Model:
+        def __init__(self, patches):
+            self.patches = patches
+
+    model = Model({"shared.weight": [("old",)]})
+    loaded_model = Model({"shared.weight": [("old",), ("new",)]})
+    calls = []
+
+    class CoreLoader:
+        def load_lora_model_only(self, received_model, name, strength):
+            calls.append((received_model, name, strength))
+            return (loaded_model,)
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
+    monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": CoreLoader})())
+    monkeypatch.setattr(performance, "_turbo_class", lambda *_: pytest.fail("_turbo_class must not be called"))
+
+    result = performance._load_lightx2v_lora(model, V4_TURBO_LORA, strength=1.0)
+
+    # Native-path pruned conversion must win over the original file even
+    # though the original resolves too; the original would drag in the slow
+    # H3-specific runtime-injection loader.
+    assert result is loaded_model
+    assert calls == [(model, V4_TURBO_LORA_PRUNED, 1.0)]
+
+
 def test_v4_lora_missing_error_lists_both_file_names(monkeypatch):
     class FolderPaths:
         @staticmethod
@@ -206,7 +245,7 @@ def test_v4_lora_missing_error_lists_both_file_names(monkeypatch):
 
     with pytest.raises(
         performance.H3LoRAApplicationError,
-        match=rf"{re.escape(V4_TURBO_LORA)} 或 {re.escape(V4_TURBO_LORA_PRUNED)}",
+        match=rf"{re.escape(V4_TURBO_LORA_PRUNED)} 或 {re.escape(V4_TURBO_LORA)}",
     ):
         performance._load_lightx2v_lora(object(), V4_TURBO_LORA)
 

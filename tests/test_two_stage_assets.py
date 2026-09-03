@@ -94,11 +94,13 @@ def test_pruned_v4_lora_variant_satisfies_reference_dependency(tmp_path):
     assert resolve_v4_turbo_lora_name(tmp_path) == V4_TURBO_LORA_PRUNED
 
 
-def test_original_v4_lora_is_preferred_over_pruned_variant(tmp_path):
+def test_pruned_v4_lora_is_preferred_over_original_variant(tmp_path):
     _touch(tmp_path, f"models/loras/{V4_TURBO_LORA}")
     _touch(tmp_path, f"models/loras/{V4_TURBO_LORA_PRUNED}")
 
-    assert resolve_v4_turbo_lora_name(tmp_path) == V4_TURBO_LORA
+    # The pruned ComfyUI conversion loads through the native LoRA path
+    # (no runtime-injection hooks), so it wins whenever both files exist.
+    assert resolve_v4_turbo_lora_name(tmp_path) == V4_TURBO_LORA_PRUNED
 
 
 def test_installed_legacy_upscaler_id_is_accepted(tmp_path):
