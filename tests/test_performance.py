@@ -810,6 +810,7 @@ def test_ref_two_stage_applies_u22_detail_loras_when_registered(monkeypatch):
     monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
     monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
     monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
+    monkeypatch.delenv("MMH3_EXTRA_LORAS", raising=False)
     monkeypatch.setattr(
         performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
     )
@@ -839,15 +840,119 @@ def test_ref_two_stage_applies_u22_detail_loras_when_registered(monkeypatch):
         ("lora", "model", V4_TURBO_LORA, 1.0),
         ("lora", "lora-clone-1", "wushu_spatial_physics_v2_1000_pruned.safetensors", 0.3),
         ("lora", "lora-clone-2", "MysticXXX_MMH3-V1.safetensors", 0.5),
+        ("lora", "lora-clone-3", "动作i连续性修复LORA.safetensors", 0.4),
+        ("lora", "lora-clone-4", "MinimaxH3真实电影质感V1.0.safetensors", 0.5),
+        ("sage", "lora-clone-5"),
+    ]
+    assert result[0] == result[3] == "lora-clone-5:sage"
+    assert result[2] is True
+    assert guide["detail_loras_applied"] == [
+        "wushu_spatial_physics_v2_1000_pruned.safetensors@0.3",
+        "MysticXXX_MMH3-V1.safetensors@0.5",
+        "动作i连续性修复LORA.safetensors@0.4",
+        "MinimaxH3真实电影质感V1.0.safetensors@0.5",
+    ]
+    assert "4 个社区 LoRA" in result[1]
+
+
+def test_ref_two_stage_extra_loras_fall_back_to_alternate_file_names(monkeypatch):
+    calls = []
+    present = {
+        "wushu_spatial_physics_v2_1000_pruned.safetensors",
+        "MysticXXX_MMH3-V1.safetensors",
+        "动作连续性修复LORA.safetensors",
+        "MinimaxH3真实电影质感V0.1.safetensors",
+    }
+
+    class FakeSageNode:
+        def execute(self, model):
+            calls.append(("sage", model))
+            return (f"{model}:sage",)
+
+    monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
+    monkeypatch.delenv("MMH3_EXTRA_LORAS", raising=False)
+    monkeypatch.setattr(
+        performance,
+        "resolve_registered_model_name",
+        lambda category, name, comfy_root=None: name if name in present else None,
+    )
+
+    def fake_lora(model, name, strength=1.0, low_vram=False):
+        calls.append(("lora", model, name, strength))
+        return f"lora-clone-{len(calls)}"
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fake_lora)
+    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: FakeSageNode)
+
+    guide = {
+        "mode": "REF2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "ref2va_model",
+        "voice_mode": "h3_reference",
+    }
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert calls == [
+        ("lora", "model", V4_TURBO_LORA, 1.0),
+        ("lora", "lora-clone-1", "wushu_spatial_physics_v2_1000_pruned.safetensors", 0.3),
+        ("lora", "lora-clone-2", "MysticXXX_MMH3-V1.safetensors", 0.5),
+        ("lora", "lora-clone-3", "动作连续性修复LORA.safetensors", 0.4),
+        ("lora", "lora-clone-4", "MinimaxH3真实电影质感V0.1.safetensors", 0.5),
+        ("sage", "lora-clone-5"),
+    ]
+    assert result[2] is True
+    assert guide["detail_loras_applied"] == [
+        "wushu_spatial_physics_v2_1000_pruned.safetensors@0.3",
+        "MysticXXX_MMH3-V1.safetensors@0.5",
+        "动作连续性修复LORA.safetensors@0.4",
+        "MinimaxH3真实电影质感V0.1.safetensors@0.5",
+    ]
+
+
+def test_ref_two_stage_extra_loras_can_be_disabled_independently(monkeypatch):
+    calls = []
+
+    class FakeSageNode:
+        def execute(self, model):
+            calls.append(("sage", model))
+            return (f"{model}:sage",)
+
+    monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
+    monkeypatch.setenv("MMH3_EXTRA_LORAS", "0")
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
+    )
+
+    def fake_lora(model, name, strength=1.0, low_vram=False):
+        calls.append(("lora", model, name, strength))
+        return f"lora-clone-{len(calls)}"
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fake_lora)
+    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: FakeSageNode)
+
+    guide = {
+        "mode": "REF2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "ref2va_model",
+        "voice_mode": "h3_reference",
+    }
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert calls == [
+        ("lora", "model", V4_TURBO_LORA, 1.0),
+        ("lora", "lora-clone-1", "wushu_spatial_physics_v2_1000_pruned.safetensors", 0.3),
+        ("lora", "lora-clone-2", "MysticXXX_MMH3-V1.safetensors", 0.5),
         ("sage", "lora-clone-3"),
     ]
-    assert result[0] == result[3] == "lora-clone-3:sage"
     assert result[2] is True
     assert guide["detail_loras_applied"] == [
         "wushu_spatial_physics_v2_1000_pruned.safetensors@0.3",
         "MysticXXX_MMH3-V1.safetensors@0.5",
     ]
-    assert "2 个 U22 细节 LoRA" in result[1]
 
 
 def test_ref_two_stage_detail_loras_can_be_disabled(monkeypatch):
@@ -861,6 +966,7 @@ def test_ref_two_stage_detail_loras_can_be_disabled(monkeypatch):
     monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
     monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
     monkeypatch.setenv("MMH3_DETAIL_LORAS", "0")
+    monkeypatch.setenv("MMH3_EXTRA_LORAS", "0")
     monkeypatch.setattr(
         performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
     )

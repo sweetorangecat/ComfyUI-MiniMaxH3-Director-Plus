@@ -20,6 +20,7 @@ from .two_stage_assets import (
     FL_STAGE1_LORA,
     FL_STAGE2_LORA,
     REF_DETAIL_LORA_CHAIN,
+    REF_EXTRA_LORA_CHAIN,
     REF_STAGE_LORA,
     SIGMA_REFINER_NODE_ID,
     V4_TURBO_LORA,
@@ -839,25 +840,43 @@ def _env_flag(name, default=False):
     return raw.strip().lower() in {"1", "true", "on", "yes"}
 
 
-def _apply_ref_detail_loras(model, guide):
-    """Stack the optional U22 community detail LoRAs onto a REF model clone.
+def _resolve_first_registered(category, names):
+    """Return the first candidate file name registered with ComfyUI."""
+    for name in names:
+        if resolve_registered_model_name(category, name) is not None:
+            return name
+    return None
 
-    Each adapter is skipped (with an info log) when its file is not
-    registered, so minimal installs degrade gracefully.  Set
-    MMH3_DETAIL_LORAS=0 to bypass the chain entirely.
+
+def _apply_ref_detail_loras(model, guide):
+    """Stack the optional community LoRAs onto a REF model clone.
+
+    Two chains: the U22 recipe adapters (MMH3_DETAIL_LORAS=0 disables) and
+    the user-requested motion-continuity + cinematic add-ons
+    (MMH3_EXTRA_LORAS=0 disables).  Each adapter is skipped with an info
+    log when no candidate file is registered.
     """
     applied = []
+    chain = []
     if _env_flag("MMH3_DETAIL_LORAS", True):
-        for name, strength in REF_DETAIL_LORA_CHAIN:
-            if resolve_registered_model_name("loras", name) is None:
-                LOGGER.info("[H3 two-stage models] 可选细节 LoRA 未安装，跳过: %s", name)
-                continue
-            try:
-                model = _load_lightx2v_lora(model, name, strength=strength)
-            except H3LoRAApplicationError as exc:
-                LOGGER.info("[H3 two-stage models] 可选细节 LoRA 加载失败，跳过: %s", exc)
-                continue
-            applied.append(f"{name}@{strength}")
+        chain.extend(REF_DETAIL_LORA_CHAIN)
+    if _env_flag("MMH3_EXTRA_LORAS", True):
+        chain.extend(REF_EXTRA_LORA_CHAIN)
+    for names, strength in chain:
+        candidates = (names,) if isinstance(names, str) else tuple(names)
+        resolved = _resolve_first_registered("loras", candidates)
+        if resolved is None:
+            LOGGER.info(
+                "[H3 two-stage models] 可选社区 LoRA 未安装，跳过: %s",
+                " 或 ".join(candidates),
+            )
+            continue
+        try:
+            model = _load_lightx2v_lora(model, resolved, strength=strength)
+        except H3LoRAApplicationError as exc:
+            LOGGER.info("[H3 two-stage models] 可选社区 LoRA 加载失败，跳过: %s", exc)
+            continue
+        applied.append(f"{resolved}@{strength}")
     guide["detail_loras_applied"] = applied
     return model
 
@@ -1002,7 +1021,7 @@ def _apply_two_stage_models(model, guide, plan, values):
         attention_note = "精确分块注意力补丁（SageAttention 已禁用或不可用）"
     detail_note = ""
     if guide["detail_loras_applied"]:
-        detail_note = f"，叠加 {len(guide['detail_loras_applied'])} 个 U22 细节 LoRA"
+        detail_note = f"，叠加 {len(guide['detail_loras_applied'])} 个社区 LoRA"
     return first_model, f"匹配 LoRA 双模型与{attention_note}已启用{detail_note}", True, second_model
 
 

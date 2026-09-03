@@ -32,6 +32,16 @@ REF_DETAIL_LORA_CHAIN = (
     ("wushu_spatial_physics_v2_1000_pruned.safetensors", 0.3),
     ("MysticXXX_MMH3-V1.safetensors", 0.5),
 )
+# Community add-ons beyond the U22 recipe (user-requested): a general
+# motion-continuity fix (四只兔子) and a cinematic-look adapter that removes
+# the "plastic" AI look.  Each entry lists acceptable file names (the first
+# registered basename wins) plus a conservative starting strength.
+# MMH3_EXTRA_LORAS=0 disables this chain; strengths are starting points and
+# can be tuned after A/B runs.
+REF_EXTRA_LORA_CHAIN = (
+    (("动作i连续性修复LORA.safetensors", "动作连续性修复LORA.safetensors"), 0.4),
+    (("MinimaxH3真实电影质感V1.0.safetensors", "MinimaxH3真实电影质感V0.1.safetensors"), 0.5),
+)
 LATENT_UPSCALER_MODEL = "minimax_h3_latent_upscaler_3d_bf16.safetensors"
 UPSCALE_NODE_IDS = ("MinimaxH3LatentUpscaler3D", "MinimaxH3LatentUpscalerNode3D")
 SIGMA_REFINER_NODE_ID = "H3SigmaRefiner"
