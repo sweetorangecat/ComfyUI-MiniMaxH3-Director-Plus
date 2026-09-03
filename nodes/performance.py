@@ -813,12 +813,17 @@ def _reconcile_two_stage_fallback_geometry(guide):
 def _apply_two_stage_models(model, guide, plan, values):
     """Build independently patched first/second models for trained sampling."""
     original_model = model
-    guide["sage_requested"] = False
+    # The U22 reference workflow patches KJNodes' memory-efficient SageAttention
+    # onto both two-stage models; it is the difference between ~48 s/it and
+    # single-digit seconds per step at FHD.  Keep the exact head-reuse patch as
+    # the fallback when SageAttention is not installed.
+    guide["sage_requested"] = True
     guide["cache_requested"] = False
     guide["head_chunking_requested"] = True
     guide["sage_applied"] = False
     guide["easycache_applied"] = False
     guide["head_chunking_applied"] = False
+    guide.pop("sage_error", None)
     guide.pop("head_chunking_error", None)
     guide["minimax_head_chunks"] = int(values.get("minimax_head_chunks", 8))
     try:
@@ -839,11 +844,26 @@ def _apply_two_stage_models(model, guide, plan, values):
                 strength=plan["second_lora_strength"],
             )
         shared_second_model = second_model is first_model
-        first_model = _apply_minimax_reuse_attention(first_model, guide)
-        if shared_second_model:
-            second_model = first_model
-        else:
-            second_model = _apply_minimax_reuse_attention(second_model, guide)
+        try:
+            sage_node = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")()
+            first_model = _node_model(sage_node.execute(first_model))
+            if shared_second_model:
+                second_model = first_model
+            else:
+                second_model = _node_model(sage_node.execute(second_model))
+            guide["sage_applied"] = True
+        except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            guide["sage_error"] = str(exc)
+            LOGGER.warning(
+                "[H3 two-stage models] SageAttention patch unavailable, falling back to reuse attention: %s",
+                exc,
+            )
+            first_model = _apply_minimax_reuse_attention(first_model, guide)
+            if shared_second_model:
+                second_model = first_model
+            else:
+                second_model = _apply_minimax_reuse_attention(second_model, guide)
+            guide["head_chunking_applied"] = True
     except H3LoRAApplicationError as exc:
         _reset_h3_acceleration_state(guide, exc)
         guide["head_chunking_applied"] = False
@@ -861,24 +881,37 @@ def _apply_two_stage_models(model, guide, plan, values):
         return original_model, "训练型二采模型或精确分块补丁不可用，已在采样前安全旁路", False, original_model
 
     guide["turbo_lora_applied"] = True
-    guide["head_chunking_applied"] = True
     guide["two_stage_enabled"] = True
     guide["two_stage_status"] = "待执行"
     guide["two_stage_split_step"] = int(values.get("two_stage_split_step", 0))
-    guide["two_stage_scale"] = float(values.get("two_stage_scale", 1.0))
+    # The learned latent upscaler multiplier must match the VRAM budget plan's
+    # first->second ratio (U22 recipe: 0.5 MP first pass, exactly 2.0x).  The
+    # preset constant only remains as a fallback for guides without a plan.
+    first_stage_width = int(guide.get("first_stage_width") or 0)
+    second_stage_width = int(guide.get("second_stage_width") or 0)
+    if first_stage_width > 0 and second_stage_width > first_stage_width:
+        guide["two_stage_scale"] = float(second_stage_width) / float(first_stage_width)
+    else:
+        guide["two_stage_scale"] = float(values.get("two_stage_scale", 1.0))
     guide["first_lora_name"] = plan["first_lora_name"]
     guide["second_lora_name"] = plan["second_lora_name"]
     guide["resolved_two_stage_route"] = plan["route"]
     LOGGER.info(
-        "[H3 two-stage models] route=%s first=%s@%.2f second=%s@%.2f head_chunks=%s",
+        "[H3 two-stage models] route=%s first=%s@%.2f second=%s@%.2f sage=%s head_chunks=%s scale=%.2f",
         plan["route"],
         plan["first_lora_name"],
         plan["first_lora_strength"],
         plan["second_lora_name"],
         plan["second_lora_strength"],
+        guide["sage_applied"],
         guide["minimax_head_chunks"],
+        guide["two_stage_scale"],
     )
-    return first_model, "匹配 LoRA 双模型与精确分块补丁已启用", True, second_model
+    if guide["sage_applied"]:
+        attention_note = "SageAttention 加速补丁"
+    else:
+        attention_note = "精确分块注意力补丁（SageAttention 不可用，已回退）"
+    return first_model, f"匹配 LoRA 双模型与{attention_note}已启用", True, second_model
 
 
 def _apply_acceleration(model, guide):

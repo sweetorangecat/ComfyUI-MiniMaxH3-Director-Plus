@@ -111,9 +111,9 @@ def test_docs_describe_balanced_fhd_two_stage_route():
     troubleshooting = (DOCS / "故障排查.md").read_text(encoding="utf-8")
 
     for text in (
-        "1344×768 -> 2016×1152 -> 1920×1080",
+        "960×544 -> 1920×1088 -> 1920×1080",
         "1080p 平衡二采",
-        "约 14%",
+        "约 3%",
         "不执行 RTX VSR",
     ):
         assert text in usage

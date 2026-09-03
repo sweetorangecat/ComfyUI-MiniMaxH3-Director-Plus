@@ -10,7 +10,12 @@ LOW_VRAM_TWO_STAGE_SCALE = 1.5
 LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.45
 LOW_VRAM_TWO_STAGE_MAX_DURATION = 6
 BALANCED_FHD_LANDSCAPE = (1920, 1080)
-BALANCED_FHD_FIRST_LANDSCAPE = (1344, 768)
+# U22-verified recipe: 0.5 MP first pass (960x544 / 544x960), learned 2.0x
+# latent upscale to 1920x1088, then a near-1:1 Lanczos downscale to FHD.
+# The official H3 latent upscaler is trained at 2x; the previous 1.5x off-ratio
+# grid (1344x768 -> 2016x1152) was both slower and visibly softer.
+BALANCED_FHD_FIRST_LANDSCAPE = (960, 544)
+BALANCED_FHD_SECOND_SCALE = 2.0
 
 
 def _aligned_size(width, height, target_mp, alignment=32):
@@ -176,8 +181,8 @@ def plan_two_stage_dimensions(
             first_width, first_height = tuple(
                 reversed(BALANCED_FHD_FIRST_LANDSCAPE)
             )
-        second_width = int(first_width * 1.5)
-        second_height = int(first_height * 1.5)
+        second_width = int(first_width * BALANCED_FHD_SECOND_SCALE)
+        second_height = int(first_height * BALANCED_FHD_SECOND_SCALE)
     elif conservative_fhd_supersample:
         if final_width > final_height:
             first_width, first_height = (1280, 704)

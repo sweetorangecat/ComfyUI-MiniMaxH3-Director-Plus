@@ -21,7 +21,7 @@ def test_32gb_15s_2k_keeps_neural_basis_near_1080p():
     assert plan["second_stage_height"] % 32 == 0
 
 
-def test_32gb_15s_fhd_uses_balanced_768p_supersampling_grid():
+def test_32gb_15s_fhd_uses_balanced_half_mp_supersampling_grid():
     plan = plan_two_stage_dimensions(
         1920,
         1080,
@@ -31,11 +31,12 @@ def test_32gb_15s_fhd_uses_balanced_768p_supersampling_grid():
     )
 
     assert plan["allowed"] is True
-    assert (plan["first_stage_width"], plan["first_stage_height"]) == (1344, 768)
-    assert (plan["second_stage_width"], plan["second_stage_height"]) == (2016, 1152)
+    # U22-verified recipe: 0.5 MP first pass, learned 2.0x second stage.
+    assert (plan["first_stage_width"], plan["first_stage_height"]) == (960, 544)
+    assert (plan["second_stage_width"], plan["second_stage_height"]) == (1920, 1088)
     assert plan["balanced_fhd_supersample"] is True
-    assert plan["final_scale_x"] == pytest.approx(1920 / 2016)
-    assert plan["final_scale_y"] == pytest.approx(1080 / 1152)
+    assert plan["final_scale_x"] == pytest.approx(1920 / 1920)
+    assert plan["final_scale_y"] == pytest.approx(1080 / 1088)
 
 
 def test_24gb_15s_fhd_uses_conservative_fhd_grid_instead_of_2k_gate():
@@ -95,8 +96,8 @@ def test_32gb_15s_portrait_fhd_uses_rotated_balanced_supersampling_grid():
     )
 
     assert plan["allowed"] is True
-    assert (plan["first_stage_width"], plan["first_stage_height"]) == (768, 1344)
-    assert (plan["second_stage_width"], plan["second_stage_height"]) == (1152, 2016)
+    assert (plan["first_stage_width"], plan["first_stage_height"]) == (544, 960)
+    assert (plan["second_stage_width"], plan["second_stage_height"]) == (1088, 1920)
     assert plan["balanced_fhd_supersample"] is True
 
 
