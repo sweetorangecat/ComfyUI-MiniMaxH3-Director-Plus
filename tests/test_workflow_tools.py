@@ -568,6 +568,26 @@ def test_builder_removes_old_resolution_links_and_model_directory_prefixes():
     assert "MiniMaxH3/" not in serialized
 
 
+def test_builder_preserves_hybrid_base_model_directory_prefix():
+    source = {
+        "last_node_id": 10,
+        "last_link_id": 22,
+        "nodes": [
+            {"id": 1, "type": "Settings", "title": "Settings", "pos": [0, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": [
+                {"name": f"out{index}", "type": "INT" if index in {4, 5} else "ANY", "links": []}
+                for index in range(8)
+            ], "widgets_values": ["minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors"]},
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+        ],
+        "links": [[21, 1, 4, 2, 0, "INT"], [22, 1, 5, 2, 1, "INT"]],
+        "groups": [],
+        "definitions": {"subgraphs": []},
+    }
+    built = build_workflow(source)
+    assert "minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors" in str(built)
+
+
 def test_builder_connects_fish_bridge_through_settings_to_all_guides():
     subgraph = {
         "id": "settings-subgraph",

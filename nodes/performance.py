@@ -19,6 +19,7 @@ from .schema import (
 from .two_stage_assets import (
     FL_STAGE1_LORA,
     FL_STAGE2_LORA,
+    REF_DETAIL_LORA_CHAIN,
     REF_STAGE_LORA,
     SIGMA_REFINER_NODE_ID,
     V4_TURBO_LORA,
@@ -830,17 +831,48 @@ def _planned_two_stage_scale(guide, values):
     return float(values.get("two_stage_scale", 1.0))
 
 
+def _env_flag(name, default=False):
+    """Parse a boolean environment switch with an explicit default."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "on", "yes"}
+
+
+def _apply_ref_detail_loras(model, guide):
+    """Stack the optional U22 community detail LoRAs onto a REF model clone.
+
+    Each adapter is skipped (with an info log) when its file is not
+    registered, so minimal installs degrade gracefully.  Set
+    MMH3_DETAIL_LORAS=0 to bypass the chain entirely.
+    """
+    applied = []
+    if _env_flag("MMH3_DETAIL_LORAS", True):
+        for name, strength in REF_DETAIL_LORA_CHAIN:
+            if resolve_registered_model_name("loras", name) is None:
+                LOGGER.info("[H3 two-stage models] 可选细节 LoRA 未安装，跳过: %s", name)
+                continue
+            try:
+                model = _load_lightx2v_lora(model, name, strength=strength)
+            except H3LoRAApplicationError as exc:
+                LOGGER.info("[H3 two-stage models] 可选细节 LoRA 加载失败，跳过: %s", exc)
+                continue
+            applied.append(f"{name}@{strength}")
+    guide["detail_loras_applied"] = applied
+    return model
+
+
 def _apply_two_stage_models(model, guide, plan, values):
     """Build independently patched first/second models for trained sampling."""
     original_model = model
-    # The U22 reference workflow patches KJNodes' memory-efficient SageAttention
-    # onto the two-stage models; it is the difference between ~48 s/it and
-    # single-digit seconds per step at FHD.  Measured on user hardware the
-    # SageAttention INT8/FP8 kernels leave a visible woven cross-hatch texture
-    # when they also drive the low-sigma detail pass, so by default only the
-    # first (composition) stage uses SageAttention while the second (detail)
-    # stage keeps the exact head-reuse attention.  Set MMH3_SECOND_STAGE_SAGE=1
-    # to restore full-speed SageAttention on both stages.
+    # U22 recipe (validated on the user's RTX 4080): the INT8 hybrid base
+    # checkpoint runs KJNodes' memory-efficient SageAttention on BOTH stages
+    # cleanly — it is the difference between ~48 s/it and single-digit
+    # seconds per step at FHD.  The pruned convrot/nvfp4 checkpoints instead
+    # produce a woven cross-hatch texture under the INT8/FP8 Sage kernels, so
+    # two escape hatches remain: MMH3_SECOND_STAGE_SAGE=0 keeps Sage on the
+    # composition pass but runs the low-sigma redraw with exact head-reuse
+    # attention, and MMH3_TWO_STAGE_SAGE=0 disables Sage entirely.
     guide["sage_requested"] = True
     guide["cache_requested"] = False
     guide["head_chunking_requested"] = True
@@ -848,45 +880,41 @@ def _apply_two_stage_models(model, guide, plan, values):
     guide["second_stage_sage_applied"] = False
     guide["easycache_applied"] = False
     guide["head_chunking_applied"] = False
+    guide["detail_loras_applied"] = []
     guide.pop("sage_error", None)
     guide.pop("head_chunking_error", None)
     guide["minimax_head_chunks"] = int(values.get("minimax_head_chunks", 8))
-    second_stage_sage = os.environ.get("MMH3_SECOND_STAGE_SAGE", "").strip().lower() in {
-        "1",
-        "true",
-        "on",
-    }
+    two_stage_sage = _env_flag("MMH3_TWO_STAGE_SAGE", True)
+    second_stage_sage = two_stage_sage and _env_flag("MMH3_SECOND_STAGE_SAGE", True)
     try:
+        shared_lora = (
+            plan["second_lora_name"] == plan["first_lora_name"]
+            and plan["second_lora_strength"] == plan["first_lora_strength"]
+        )
+        ref_detail_chain = plan["route"] == "trained_latent_ref"
+        # Only the mixed attention mode (Sage composition pass + exact
+        # low-sigma redraw) needs two separate model clones; identical
+        # LoRA+attention chains share a single clone to save VRAM.
+        share_model = shared_lora and not (two_stage_sage and not second_stage_sage)
         first_model = _load_lightx2v_lora(
             original_model,
             plan["first_lora_name"],
             strength=plan["first_lora_strength"],
         )
-        shared_lora = (
-            plan["second_lora_name"] == plan["first_lora_name"]
-            and plan["second_lora_strength"] == plan["first_lora_strength"]
-        )
-        if shared_lora and second_stage_sage:
+        if ref_detail_chain:
+            first_model = _apply_ref_detail_loras(first_model, guide)
+        if share_model:
             second_model = first_model
         else:
-            # Load a separate clone so the two stages may carry different
-            # attention patches even when the LoRA itself is identical.
             second_model = _load_lightx2v_lora(
                 original_model,
                 plan["second_lora_name"],
                 strength=plan["second_lora_strength"],
             )
+            if ref_detail_chain:
+                second_model = _apply_ref_detail_loras(second_model, guide)
         shared_second_model = second_model is first_model
-        try:
-            sage_node = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")()
-            first_model = _node_model(sage_node.execute(first_model))
-            guide["sage_applied"] = True
-        except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-            guide["sage_error"] = str(exc)
-            LOGGER.warning(
-                "[H3 two-stage models] SageAttention patch unavailable, falling back to reuse attention: %s",
-                exc,
-            )
+        if not two_stage_sage:
             first_model = _apply_minimax_reuse_attention(first_model, guide)
             if shared_second_model:
                 second_model = first_model
@@ -894,24 +922,41 @@ def _apply_two_stage_models(model, guide, plan, values):
                 second_model = _apply_minimax_reuse_attention(second_model, guide)
             guide["head_chunking_applied"] = True
         else:
-            if second_stage_sage:
+            try:
+                sage_node = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")()
+                first_model = _node_model(sage_node.execute(first_model))
+                guide["sage_applied"] = True
+            except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                guide["sage_error"] = str(exc)
+                LOGGER.warning(
+                    "[H3 two-stage models] SageAttention patch unavailable, falling back to reuse attention: %s",
+                    exc,
+                )
+                first_model = _apply_minimax_reuse_attention(first_model, guide)
                 if shared_second_model:
                     second_model = first_model
                 else:
-                    second_model = _node_model(sage_node.execute(second_model))
-                guide["second_stage_sage_applied"] = True
-            else:
-                try:
                     second_model = _apply_minimax_reuse_attention(second_model, guide)
-                    guide["head_chunking_applied"] = True
-                except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-                    guide["head_chunking_error"] = str(exc)
-                    LOGGER.warning(
-                        "[H3 two-stage models] exact second-stage attention failed, using SageAttention for both stages: %s",
-                        exc,
-                    )
-                    second_model = _node_model(sage_node.execute(second_model))
+                guide["head_chunking_applied"] = True
+            else:
+                if second_stage_sage:
+                    if shared_second_model:
+                        second_model = first_model
+                    else:
+                        second_model = _node_model(sage_node.execute(second_model))
                     guide["second_stage_sage_applied"] = True
+                else:
+                    try:
+                        second_model = _apply_minimax_reuse_attention(second_model, guide)
+                        guide["head_chunking_applied"] = True
+                    except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                        guide["head_chunking_error"] = str(exc)
+                        LOGGER.warning(
+                            "[H3 two-stage models] exact second-stage attention failed, using SageAttention for both stages: %s",
+                            exc,
+                        )
+                        second_model = _node_model(sage_node.execute(second_model))
+                        guide["second_stage_sage_applied"] = True
     except H3LoRAApplicationError as exc:
         _reset_h3_acceleration_state(guide, exc)
         guide["head_chunking_applied"] = False
@@ -937,7 +982,7 @@ def _apply_two_stage_models(model, guide, plan, values):
     guide["second_lora_name"] = plan["second_lora_name"]
     guide["resolved_two_stage_route"] = plan["route"]
     LOGGER.info(
-        "[H3 two-stage models] route=%s first=%s@%.2f second=%s@%.2f sage=%s second_sage=%s head_chunks=%s scale=%.2f",
+        "[H3 two-stage models] route=%s first=%s@%.2f second=%s@%.2f sage=%s second_sage=%s detail_loras=%s head_chunks=%s scale=%.2f",
         plan["route"],
         plan["first_lora_name"],
         plan["first_lora_strength"],
@@ -945,6 +990,7 @@ def _apply_two_stage_models(model, guide, plan, values):
         plan["second_lora_strength"],
         guide["sage_applied"],
         guide["second_stage_sage_applied"],
+        ",".join(guide["detail_loras_applied"]) or "none",
         guide["minimax_head_chunks"],
         guide["two_stage_scale"],
     )
@@ -953,8 +999,11 @@ def _apply_two_stage_models(model, guide, plan, values):
     elif guide["sage_applied"]:
         attention_note = "一采 SageAttention 加速与二采全精度细节注意力"
     else:
-        attention_note = "精确分块注意力补丁（SageAttention 不可用，已回退）"
-    return first_model, f"匹配 LoRA 双模型与{attention_note}已启用", True, second_model
+        attention_note = "精确分块注意力补丁（SageAttention 已禁用或不可用）"
+    detail_note = ""
+    if guide["detail_loras_applied"]:
+        detail_note = f"，叠加 {len(guide['detail_loras_applied'])} 个 U22 细节 LoRA"
+    return first_model, f"匹配 LoRA 双模型与{attention_note}已启用{detail_note}", True, second_model
 
 
 def _apply_acceleration(model, guide):

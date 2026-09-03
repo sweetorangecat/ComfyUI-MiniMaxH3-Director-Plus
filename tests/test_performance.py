@@ -570,7 +570,58 @@ def test_quality_two_stage_patches_sage_attention_when_available(monkeypatch):
             calls.append(("sage", model))
             return (f"{model}:sage",)
 
+    monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
     monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.setattr(
+        performance,
+        "_load_lightx2v_lora",
+        lambda model, name, strength=1.0, low_vram=False: calls.append(
+            ("lora", model, name, strength)
+        ) or f"{model}:{name}:{strength}",
+    )
+    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: FakeSageNode)
+    monkeypatch.setattr(
+        performance,
+        "_apply_minimax_reuse_attention",
+        lambda *args: (_ for _ in ()).throw(AssertionError("Sage 可用时不得回退分块注意力")),
+        raising=False,
+    )
+
+    guide = {
+        "mode": "T2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "fl2va_model",
+        "first_stage_width": 544,
+        "second_stage_width": 1088,
+    }
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert len(result) == 4
+    assert result[0].endswith(":sage")
+    assert result[3].endswith(":sage")
+    assert result[2] is True
+    assert calls == [
+        ("lora", "model", FL_STAGE1_LORA, 0.75),
+        ("lora", "model", FL_STAGE2_LORA, 0.70),
+        ("sage", f"model:{FL_STAGE1_LORA}:0.75"),
+        ("sage", f"model:{FL_STAGE2_LORA}:0.7"),
+    ]
+    assert guide["sage_applied"] is True
+    assert guide["second_stage_sage_applied"] is True
+    assert guide["head_chunking_applied"] is False
+    assert guide["two_stage_scale"] == pytest.approx(2.0)
+    assert "SageAttention" in result[1]
+
+
+def test_quality_two_stage_second_stage_sage_can_be_disabled(monkeypatch):
+    calls = []
+
+    class FakeSageNode:
+        def execute(self, model):
+            calls.append(("sage", model))
+            return (f"{model}:sage",)
+
+    monkeypatch.setenv("MMH3_SECOND_STAGE_SAGE", "0")
     monkeypatch.setattr(
         performance,
         "_load_lightx2v_lora",
@@ -590,12 +641,9 @@ def test_quality_two_stage_patches_sage_attention_when_available(monkeypatch):
         "mode": "T2VA",
         "performance_preset": "quality_two_stage",
         "resolved_backend": "fl2va_model",
-        "first_stage_width": 544,
-        "second_stage_width": 1088,
     }
     result = MiniMaxH3AccelerationRouter().apply("model", guide)
 
-    assert len(result) == 4
     assert result[0].endswith(":sage")
     assert result[3].endswith(":head-chunks")
     assert result[2] is True
@@ -608,11 +656,9 @@ def test_quality_two_stage_patches_sage_attention_when_available(monkeypatch):
     assert guide["sage_applied"] is True
     assert guide["second_stage_sage_applied"] is False
     assert guide["head_chunking_applied"] is True
-    assert guide["two_stage_scale"] == pytest.approx(2.0)
-    assert "SageAttention" in result[1]
 
 
-def test_quality_two_stage_second_stage_sage_env_restores_full_speed(monkeypatch):
+def test_two_stage_sage_can_be_fully_disabled(monkeypatch):
     calls = []
 
     class FakeSageNode:
@@ -620,7 +666,7 @@ def test_quality_two_stage_second_stage_sage_env_restores_full_speed(monkeypatch
             calls.append(("sage", model))
             return (f"{model}:sage",)
 
-    monkeypatch.setenv("MMH3_SECOND_STAGE_SAGE", "1")
+    monkeypatch.setenv("MMH3_TWO_STAGE_SAGE", "0")
     monkeypatch.setattr(
         performance,
         "_load_lightx2v_lora",
@@ -632,7 +678,7 @@ def test_quality_two_stage_second_stage_sage_env_restores_full_speed(monkeypatch
     monkeypatch.setattr(
         performance,
         "_apply_minimax_reuse_attention",
-        lambda *args: (_ for _ in ()).throw(AssertionError("环境变量开启时二采不得回退分块注意力")),
+        lambda model, guide: calls.append(("chunks", model, guide["performance_preset"])) or f"{model}:head-chunks",
         raising=False,
     )
 
@@ -643,18 +689,18 @@ def test_quality_two_stage_second_stage_sage_env_restores_full_speed(monkeypatch
     }
     result = MiniMaxH3AccelerationRouter().apply("model", guide)
 
-    assert result[0].endswith(":sage")
-    assert result[3].endswith(":sage")
+    assert result[0].endswith(":head-chunks")
+    assert result[3].endswith(":head-chunks")
     assert result[2] is True
     assert calls == [
         ("lora", "model", FL_STAGE1_LORA, 0.75),
         ("lora", "model", FL_STAGE2_LORA, 0.70),
-        ("sage", f"model:{FL_STAGE1_LORA}:0.75"),
-        ("sage", f"model:{FL_STAGE2_LORA}:0.7"),
+        ("chunks", f"model:{FL_STAGE1_LORA}:0.75", "quality_two_stage"),
+        ("chunks", f"model:{FL_STAGE2_LORA}:0.7", "quality_two_stage"),
     ]
-    assert guide["sage_applied"] is True
-    assert guide["second_stage_sage_applied"] is True
-    assert guide["head_chunking_applied"] is False
+    assert guide["sage_applied"] is False
+    assert guide["second_stage_sage_applied"] is False
+    assert guide["head_chunking_applied"] is True
 
 
 def test_ref_two_stage_loads_separate_clone_for_exact_second_stage(monkeypatch):
@@ -665,7 +711,10 @@ def test_ref_two_stage_loads_separate_clone_for_exact_second_stage(monkeypatch):
             calls.append(("sage", model))
             return (f"{model}:sage",)
 
-    monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.setenv("MMH3_SECOND_STAGE_SAGE", "0")
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: None
+    )
 
     def fake_lora(model, name, strength=1.0, low_vram=False):
         calls.append(("lora", model, name, strength))
@@ -700,9 +749,10 @@ def test_ref_two_stage_loads_separate_clone_for_exact_second_stage(monkeypatch):
     assert guide["sage_applied"] is True
     assert guide["second_stage_sage_applied"] is False
     assert guide["head_chunking_applied"] is True
+    assert guide["detail_loras_applied"] == []
 
 
-def test_ref_two_stage_env_second_sage_reuses_shared_lora_model(monkeypatch):
+def test_ref_two_stage_shares_one_model_clone_by_default(monkeypatch):
     calls = []
 
     class FakeSageNode:
@@ -710,7 +760,11 @@ def test_ref_two_stage_env_second_sage_reuses_shared_lora_model(monkeypatch):
             calls.append(("sage", model))
             return (f"{model}:sage",)
 
-    monkeypatch.setenv("MMH3_SECOND_STAGE_SAGE", "1")
+    monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: None
+    )
 
     def fake_lora(model, name, strength=1.0, low_vram=False):
         calls.append(("lora", model, name, strength))
@@ -742,6 +796,96 @@ def test_ref_two_stage_env_second_sage_reuses_shared_lora_model(monkeypatch):
     assert guide["sage_applied"] is True
     assert guide["second_stage_sage_applied"] is True
     assert guide["head_chunking_applied"] is False
+    assert guide["detail_loras_applied"] == []
+
+
+def test_ref_two_stage_applies_u22_detail_loras_when_registered(monkeypatch):
+    calls = []
+
+    class FakeSageNode:
+        def execute(self, model):
+            calls.append(("sage", model))
+            return (f"{model}:sage",)
+
+    monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
+    )
+
+    def fake_lora(model, name, strength=1.0, low_vram=False):
+        calls.append(("lora", model, name, strength))
+        return f"lora-clone-{len(calls)}"
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fake_lora)
+    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: FakeSageNode)
+    monkeypatch.setattr(
+        performance,
+        "_apply_minimax_reuse_attention",
+        lambda *args: (_ for _ in ()).throw(AssertionError("默认全速模式不得回退分块注意力")),
+        raising=False,
+    )
+
+    guide = {
+        "mode": "REF2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "ref2va_model",
+        "voice_mode": "h3_reference",
+    }
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert calls == [
+        ("lora", "model", V4_TURBO_LORA, 1.0),
+        ("lora", "lora-clone-1", "wushu_spatial_physics_v2_1000_pruned.safetensors", 0.3),
+        ("lora", "lora-clone-2", "MysticXXX_MMH3-V1.safetensors", 0.5),
+        ("sage", "lora-clone-3"),
+    ]
+    assert result[0] == result[3] == "lora-clone-3:sage"
+    assert result[2] is True
+    assert guide["detail_loras_applied"] == [
+        "wushu_spatial_physics_v2_1000_pruned.safetensors@0.3",
+        "MysticXXX_MMH3-V1.safetensors@0.5",
+    ]
+    assert "2 个 U22 细节 LoRA" in result[1]
+
+
+def test_ref_two_stage_detail_loras_can_be_disabled(monkeypatch):
+    calls = []
+
+    class FakeSageNode:
+        def execute(self, model):
+            calls.append(("sage", model))
+            return (f"{model}:sage",)
+
+    monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.setenv("MMH3_DETAIL_LORAS", "0")
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
+    )
+
+    def fake_lora(model, name, strength=1.0, low_vram=False):
+        calls.append(("lora", model, name, strength))
+        return f"lora-clone-{len(calls)}"
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fake_lora)
+    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: FakeSageNode)
+
+    guide = {
+        "mode": "REF2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "ref2va_model",
+        "voice_mode": "h3_reference",
+    }
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert calls == [
+        ("lora", "model", V4_TURBO_LORA, 1.0),
+        ("sage", "lora-clone-1"),
+    ]
+    assert result[2] is True
+    assert guide["detail_loras_applied"] == []
 
 
 def test_quality_two_stage_second_stage_exact_failure_degrades_to_sage(monkeypatch):
@@ -749,7 +893,7 @@ def test_quality_two_stage_second_stage_exact_failure_degrades_to_sage(monkeypat
         def execute(self, model):
             return (f"{model}:sage",)
 
-    monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.setenv("MMH3_SECOND_STAGE_SAGE", "0")
     monkeypatch.setattr(
         performance,
         "_load_lightx2v_lora",

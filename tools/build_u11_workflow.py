@@ -436,6 +436,11 @@ def _replace_video_vae_decoders(workflow):
 
 def _strip_model_path_prefixes(value):
     if isinstance(value, str):
+        # The U22-validated hybrid base checkpoint only exists inside the
+        # "minimax/" models subfolder on the reference installs; stripping
+        # its prefix would leave an unresolvable bare file name.
+        if "hybrid_fl2va_ref2va" in value:
+            return value
         for prefix in ("MiniMaxH3/", "minimax/"):
             if value.startswith(prefix):
                 return value[len(prefix):]
@@ -1019,8 +1024,8 @@ def build_workflow(source):
 
 def build_api_template():
     return {
-        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "weight_dtype": "default"}, "_meta": {"title": "API FL2VA 模型"}},
-        "2": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors", "weight_dtype": "default"}, "_meta": {"title": "API REF2VA 模型"}},
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors", "weight_dtype": "default"}, "_meta": {"title": "API FL2VA 模型（U22 验证混合底模）"}},
+        "2": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors", "weight_dtype": "default"}, "_meta": {"title": "API REF2VA 模型（U22 验证混合底模）"}},
         "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": "qwen3vl_32b_minimax_h3_int8_convrot.safetensors", "type": "minimax", "device": "default"}, "_meta": {"title": "API H3 文本编码器"}},
         "4": {"class_type": "VAELoader", "inputs": {"vae_name": "minimax_h3_video_vae_fp16.safetensors"}, "_meta": {"title": "API 视频 VAE"}},
         "5": {"class_type": "VAELoader", "inputs": {"vae_name": "minimax_h3_audio_vae_fp32.safetensors"}, "_meta": {"title": "API 音频 VAE"}},

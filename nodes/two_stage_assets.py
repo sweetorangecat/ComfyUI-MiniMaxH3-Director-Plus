@@ -19,6 +19,19 @@ V4_TURBO_LORA = "minimax_h3_turbo_v4_step600_ema.safetensors"
 # dependency and both load through the native LoRA path.
 V4_TURBO_LORA_PRUNED = "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors"
 V4_TURBO_LORA_CANDIDATES = (V4_TURBO_LORA, V4_TURBO_LORA_PRUNED)
+# U22-validated base checkpoint: the INT8 hybrid FL2VA+REF2VA model.  The
+# pruned convrot/nvfp4 re-quantized checkpoints produce a woven cross-hatch
+# texture under the INT8/FP8 SageAttention kernels (measured on RTX 4080),
+# while this hybrid model stays clean with SageAttention on both stages.
+HYBRID_BASE_MODEL = "minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors"
+# Community detail LoRAs from the U22 recipe.  They are stacked onto the REF
+# two-stage chain (after the turbo adapter) whenever the files are registered,
+# and skipped silently otherwise.  Order matches U22: physics first, detail
+# enhancer second.
+REF_DETAIL_LORA_CHAIN = (
+    ("wushu_spatial_physics_v2_1000_pruned.safetensors", 0.3),
+    ("MysticXXX_MMH3-V1.safetensors", 0.5),
+)
 LATENT_UPSCALER_MODEL = "minimax_h3_latent_upscaler_3d_bf16.safetensors"
 UPSCALE_NODE_IDS = ("MinimaxH3LatentUpscaler3D", "MinimaxH3LatentUpscalerNode3D")
 SIGMA_REFINER_NODE_ID = "H3SigmaRefiner"

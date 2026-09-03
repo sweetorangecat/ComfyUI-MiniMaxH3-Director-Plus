@@ -2,21 +2,21 @@
   "1": {
     "class_type": "UNETLoader",
     "inputs": {
-      "unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "unet_name": "minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors",
       "weight_dtype": "default"
     },
     "_meta": {
-      "title": "API FL2VA 模型"
+      "title": "API FL2VA 模型（U22 验证混合底模）"
     }
   },
   "2": {
     "class_type": "UNETLoader",
     "inputs": {
-      "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "unet_name": "minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors",
       "weight_dtype": "default"
     },
     "_meta": {
-      "title": "API REF2VA 模型"
+      "title": "API REF2VA 模型（U22 验证混合底模）"
     }
   },
   "3": {
