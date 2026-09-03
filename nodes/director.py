@@ -484,6 +484,8 @@ class MiniMaxH3DirectorPlus:
             smart_plan = resolve_smart_1080p_plan(
                 request["resolved_backend"], request["duration"], total_vram_gb, free_vram_gb,
                 seedvr2_ready=seedvr2_ready, two_stage_ready=two_stage_ready,
+                target_width=requested_width, target_height=requested_height,
+                voice_mode=request["voice_mode"],
             )
             request["performance_preset"] = smart_plan["performance_preset"]
             request["postprocess_mode"] = smart_plan["postprocess_mode"]
@@ -505,11 +507,17 @@ class MiniMaxH3DirectorPlus:
                     "ComfyUI-SeedVR2_VideoUpscaler 节点并将 seedvr2_ema_7b/3b 与 "
                     "ema_vae_fp16.safetensors 放入 models/SEEDVR2。"
                 )
-            if aspect_ratio == "CUSTOM":
-                target_ratio = (int(custom_width), int(custom_height))
+            if min(int(requested_width), int(requested_height)) > 1080:
+                # 2K QHD / 4K UHD targets stay exact; resolve_smart_1080p_plan
+                # already enforced the trained two-stage + SeedVR2 chain (or
+                # raised with a clear reason before queueing).
+                pass
             else:
-                target_ratio = ASPECTS[aspect_ratio]
-            requested_width, requested_height = smart_1080p_target(*target_ratio)
+                if aspect_ratio == "CUSTOM":
+                    target_ratio = (int(custom_width), int(custom_height))
+                else:
+                    target_ratio = ASPECTS[aspect_ratio]
+                requested_width, requested_height = smart_1080p_target(*target_ratio)
 
         if request["performance_preset"] == "low_vram":
             limit_width, limit_height = low_vram_target_limit(request["duration"])

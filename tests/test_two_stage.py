@@ -106,6 +106,45 @@ def test_clone_guider_switches_only_model_contract():
     assert result.original_conds is guider.original_conds
 
 
+def test_positive_conditioning_rebuilds_converted_conds_for_split_upscale():
+    from nodes.two_stage import _positive_conditioning
+
+    cross_attn = torch.zeros(1)
+    converted = [
+        {
+            "cross_attn": cross_attn,
+            "prompt": "keep",
+            "minimax_refs": [{"kind": "audio"}],
+            "model_conds": {},
+            "uuid": "generated-uuid",
+        }
+    ]
+    guider = types.SimpleNamespace(original_conds={"positive": converted})
+
+    rebuilt = _positive_conditioning(guider)
+
+    assert len(rebuilt) == 1
+    tensor, payload = rebuilt[0]
+    assert tensor is cross_attn
+    assert payload == {
+        "prompt": "keep",
+        "minimax_refs": [{"kind": "audio"}],
+        "model_conds": {},
+    }
+
+
+def test_positive_conditioning_passes_raw_pairs_through():
+    from nodes.two_stage import _positive_conditioning
+
+    raw = [[torch.zeros(1), {"prompt": "keep"}]]
+    guider = types.SimpleNamespace(original_conds={"positive": raw})
+
+    result = _positive_conditioning(guider)
+
+    assert len(result) == 1
+    assert result[0] is raw[0]
+
+
 def test_second_stage_guider_resizes_fl_keyframes_without_mutating_first_stage_conditions():
     first_model = types.SimpleNamespace(model_options={"route": "first"})
     second_model = types.SimpleNamespace(model_options={"route": "second"})
@@ -416,7 +455,17 @@ def _run_two_stage_with_fakes(monkeypatch, *, split_callables, guide_extra=None)
 
     first_model = types.SimpleNamespace(model_options={"route": "first"})
     second_model = types.SimpleNamespace(model_options={"route": "second"})
-    positive = [[torch.zeros(1), {"prompt": "keep"}]]
+    cross_attn = torch.zeros(1)
+    # Real CFGGuider.original_conds entries are converted dicts (cross_attn
+    # tensor inside the dict), not raw [tensor, dict] pairs.
+    positive = [
+        {
+            "cross_attn": cross_attn,
+            "prompt": "keep",
+            "model_conds": {},
+            "uuid": "test-uuid",
+        }
+    ]
     guider = types.SimpleNamespace(
         model_patcher=first_model,
         model_options=first_model.model_options,
@@ -481,7 +530,12 @@ def test_tiled_second_stage_routes_through_split_upscale(monkeypatch):
     assert "call" in holder, "应路由到 MMH3SplitUpscale 分块二采"
     call = holder["call"]
     assert call["model"] is second_model
-    assert call["conditioning"] is positive
+    conditioning = call["conditioning"]
+    assert len(conditioning) == 1, "分块二采只接收重建后的 positive conditioning"
+    cond_tensor, cond_payload = conditioning[0]
+    assert cond_tensor is positive[0]["cross_attn"]
+    assert cond_payload == {"prompt": "keep", "model_conds": {}}
+    assert "cross_attn" not in cond_payload and "uuid" not in cond_payload
     assert call["negative"] is None
     assert call["noise"].__class__.__name__ == "EmptyNoise"
     assert torch.equal(call["sigmas"], sigmas[4:])

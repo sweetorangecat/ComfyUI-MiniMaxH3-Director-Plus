@@ -45,8 +45,25 @@ def _duration_seconds(duration):
     return seconds
 
 
-def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb, seedvr2_ready=False, two_stage_ready=False):
-    """Resolve Smart 1080p generation policy for a backend and VRAM state."""
+def resolve_smart_1080p_plan(
+    backend,
+    duration,
+    total_vram_gb,
+    free_vram_gb,
+    seedvr2_ready=False,
+    two_stage_ready=False,
+    target_width=None,
+    target_height=None,
+    voice_mode="none",
+):
+    """Resolve Smart generation policy for a backend, VRAM state and target.
+
+    ``target_width``/``target_height`` describe the requested final output.
+    Targets whose short edge exceeds 1080 (2K QHD / 4K UHD presets) take the
+    clarity-first chain: trained latent two-stage redraw for the detail base,
+    then one SeedVR2 diffusion upscale to the final size.  Any unmet
+    requirement raises before queueing instead of silently degrading.
+    """
     if free_vram_gb < LOW_VRAM_MIN_FREE_GB:
         raise RequestError(
             f"低于最低安全预算：当前空闲显存 {float(free_vram_gb):.1f}GB，"
@@ -57,7 +74,39 @@ def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb, see
         raise RequestError(f"不支持的 Smart 1080p backend：{backend}")
 
     seconds = _duration_seconds(duration)
+    high_res_target = (
+        target_width is not None
+        and target_height is not None
+        and min(int(target_width), int(target_height)) > 1080
+    )
+    target_label = (
+        f"{int(target_width)}×{int(target_height)}" if high_res_target else ""
+    )
     low_vram = total_vram_gb <= LOW_VRAM_TOTAL_GB
+
+    if high_res_target:
+        target_label = f"{int(target_width)}×{int(target_height)}"
+        if voice_mode == "fish_lock":
+            raise RequestError(
+                "Fish S2 声纹锁定与训练型 latent 二采互斥，智能预设最高输出 1080p；"
+                "需要 2K/4K 请改用 H3 原生音色参考或不使用音色。"
+            )
+        if low_vram:
+            raise RequestError(
+                f"智能预设的 {target_label} 输出需要 20GB 级以上显卡；当前总显存 "
+                f"{float(total_vram_gb):.1f}GB，低显存档位最高输出 1080p。"
+            )
+        if not two_stage_ready:
+            raise RequestError(
+                f"智能预设的 {target_label} 输出使用「训练型 latent 二采 + SeedVR2」链，"
+                "但训练型二采依赖未就绪（turbo v4 / FL 二采 LoRA、3D latent 放大节点或模型缺失）；"
+                "请按使用说明安装，或把最终目标降为 1080p。"
+            )
+        if not seedvr2_ready:
+            raise RequestError(
+                f"智能预设的 {target_label} 输出需要 SeedVR2 视频超分完成最后一级扩散重建，"
+                "但 SeedVR2 节点或 models/SEEDVR2 权重未就绪；请安装后重试，或把最终目标降为 1080p。"
+            )
     if low_vram:
         if not 4 <= seconds <= LOW_VRAM_MAX_SECONDS:
             raise RequestError(
@@ -74,10 +123,22 @@ def resolve_smart_1080p_plan(backend, duration, total_vram_gb, free_vram_gb, see
     else:
         if not 4 <= seconds <= 15:
             raise RequestError("视频时长必须在 4 到 15 秒之间")
+        if high_res_target:
+            # 2K/4K clarity chain: the trained two-stage redraw builds the
+            # detail base, then one SeedVR2 diffusion pass reaches the final
+            # size.  Readiness was enforced above; the VRAM/duration budget
+            # gate runs in plan_two_stage_dimensions before queueing.
+            preset = "quality_two_stage"
+            route = "trained_latent_ref" if backend == "ref2va_model" else "trained_latent_fl"
+            warning = (
+                f"已启用 {target_label} 智能高清链：训练型 latent 二采（U22 配方 8 步首采 + "
+                "训练型 3D latent 放大 + 4 步低 sigma 重绘）构建细节基准，再由 SeedVR2 "
+                "扩散超分到最终尺寸；显存与时长预算会在排队前检查。"
+            )
         # Clarity-first: when the trained two-stage assets and the FHD VRAM
         # budget are present, use the U22-validated 8+4 latent redraw and
         # output 1080p directly -- no separate SeedVR2/AI upscale pass at all.
-        if (
+        elif (
             two_stage_ready
             and float(total_vram_gb) >= 20.0
             and float(free_vram_gb) >= 18.0

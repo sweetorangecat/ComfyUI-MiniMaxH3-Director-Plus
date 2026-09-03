@@ -233,6 +233,104 @@ def test_smart_free_1080p_skips_two_stage_below_fhd_vram_budget(monkeypatch):
     assert any("SeedVR2 视频超分未就绪" in warning for warning in guide["warnings"])
 
 
+def _seedvr2_ready_report():
+    return {
+        "ready": True,
+        "missing": [],
+        "available_dit": ["seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors"],
+    }
+
+
+def test_smart_2k_target_routes_two_stage_plus_seedvr2(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (32.0, 29.0))
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
+    )
+    monkeypatch.setattr(
+        "nodes.director._seedvr2_dependency_report", _seedvr2_ready_report
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="稳定推进。", duration=5, width=2560, height=1440,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr", resolution_preset="2K QHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+    )
+    assert guide["performance_preset"] == "quality_two_stage"
+    assert guide["resolved_two_stage_route"] == "trained_latent_fl"
+    assert (guide["target_width"], guide["target_height"]) == (2560, 1440)
+    assert guide["postprocess_path"] == "video_sr"
+    assert any("智能高清链" in warning for warning in guide["warnings"])
+
+
+def test_smart_2k_reference_target_uses_trained_latent_ref(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (32.0, 29.0))
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
+    )
+    monkeypatch.setattr(
+        "nodes.director._seedvr2_dependency_report", _seedvr2_ready_report
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA", prompt="人物走动。", duration=5, width=2560, height=1440,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr", resolution_preset="2K QHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+    )
+    assert guide["performance_preset"] == "quality_two_stage"
+    assert guide["resolved_two_stage_route"] == "trained_latent_ref"
+    assert (guide["target_width"], guide["target_height"]) == (2560, 1440)
+
+
+def test_smart_2k_rejects_before_queue_when_seedvr2_missing(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (32.0, 29.0))
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
+    )
+    monkeypatch.setattr(
+        "nodes.director._seedvr2_dependency_report",
+        lambda: {"ready": False, "missing": ["SeedVR2VideoUpscaler"], "available_dit": []},
+    )
+    with pytest.raises(RequestError, match="SeedVR2"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA", prompt="稳定推进。", duration=5, width=2560, height=1440,
+            voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+            postprocess_mode="video_sr", resolution_preset="2K QHD", timeline_data="{}",
+            target_dialogue="", reference_transcript="",
+        )
+
+
+def test_smart_4k_rejects_24gb_card_before_queue(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
+    )
+    monkeypatch.setattr(
+        "nodes.director._seedvr2_dependency_report", _seedvr2_ready_report
+    )
+    with pytest.raises(RequestError, match="2K"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA", prompt="稳定推进。", duration=5, width=3840, height=2160,
+            voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+            postprocess_mode="video_sr", resolution_preset="4K UHD", timeline_data="{}",
+            target_dialogue="", reference_transcript="",
+        )
+
+
+def test_smart_2k_rejects_fish_lock_before_queue(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (32.0, 29.0))
+    monkeypatch.setattr(
+        "nodes.director._seedvr2_dependency_report", _seedvr2_ready_report
+    )
+    with pytest.raises(RequestError, match="Fish S2"):
+        MiniMaxH3DirectorPlus().build(
+            mode="REF2VA", prompt="人物说话。", duration=5, width=2560, height=1440,
+            voice_mode="fish_lock", ref_image_size="match", performance_preset="免费智能 1080p",
+            postprocess_mode="video_sr", resolution_preset="2K QHD", timeline_data="{}",
+            target_dialogue="我们回家。", reference_transcript="",
+            voice_reference_audio={"waveform": object(), "sample_rate": 32000},
+        )
+
+
 def test_director_warns_when_voice_sample_dropped_with_voice_mode_none(monkeypatch):
     """Uploading a voice sample while 音色模式=不使用音色 must never be silent:
     the audio never reaches H3 and the run would invent a voice."""

@@ -145,3 +145,76 @@ def test_public_constants_match_smart_free_contract():
     assert LOW_VRAM_MAX_SECONDS == 6
     assert LOW_VRAM_MIN_FREE_GB == 6.0
     assert LOW_VRAM_TOTAL_GB == 16.0
+
+
+def test_smart_2k_target_routes_two_stage_plus_seedvr2_chain():
+    plan = resolve_smart_1080p_plan(
+        "fl2va_model", 5, 32, 29,
+        seedvr2_ready=True, two_stage_ready=True,
+        target_width=2560, target_height=1440,
+    )
+
+    assert plan["performance_preset"] == "quality_two_stage"
+    assert plan["two_stage_route"] == "trained_latent_fl"
+    assert plan["postprocess_mode"] == "video_sr"
+    assert "2560×1440" in plan["warning"]
+    assert "SeedVR2" in plan["warning"]
+
+
+def test_smart_2k_reference_target_uses_trained_latent_ref():
+    plan = resolve_smart_1080p_plan(
+        "ref2va_model", 5, 32, 29,
+        seedvr2_ready=True, two_stage_ready=True,
+        target_width=2560, target_height=1440,
+    )
+
+    assert plan["performance_preset"] == "quality_two_stage"
+    assert plan["two_stage_route"] == "trained_latent_ref"
+
+
+def test_smart_2k_target_rejects_missing_two_stage_dependencies():
+    with pytest.raises(RequestError, match="训练型二采依赖未就绪"):
+        resolve_smart_1080p_plan(
+            "ref2va_model", 5, 32, 29,
+            seedvr2_ready=True, two_stage_ready=False,
+            target_width=2560, target_height=1440,
+        )
+
+
+def test_smart_4k_target_rejects_missing_seedvr2():
+    with pytest.raises(RequestError, match="SeedVR2"):
+        resolve_smart_1080p_plan(
+            "fl2va_model", 5, 32, 29,
+            seedvr2_ready=False, two_stage_ready=True,
+            target_width=3840, target_height=2160,
+        )
+
+
+def test_smart_2k_target_rejects_low_vram_card():
+    with pytest.raises(RequestError, match="低显存档位最高输出 1080p"):
+        resolve_smart_1080p_plan(
+            "fl2va_model", 5, 12, 10,
+            seedvr2_ready=True, two_stage_ready=True,
+            target_width=2560, target_height=1440,
+        )
+
+
+def test_smart_2k_target_rejects_fish_lock_voice():
+    with pytest.raises(RequestError, match="Fish S2"):
+        resolve_smart_1080p_plan(
+            "ref2va_model", 5, 32, 29,
+            seedvr2_ready=True, two_stage_ready=False,
+            target_width=2560, target_height=1440,
+            voice_mode="fish_lock",
+        )
+
+
+def test_exact_fhd_target_keeps_direct_two_stage_without_seedvr2():
+    plan = resolve_smart_1080p_plan(
+        "fl2va_model", 5, 24, 20,
+        seedvr2_ready=False, two_stage_ready=True,
+        target_width=1920, target_height=1080,
+    )
+
+    assert plan["performance_preset"] == "quality_two_stage"
+    assert plan["postprocess_mode"] == "ai_upscale"

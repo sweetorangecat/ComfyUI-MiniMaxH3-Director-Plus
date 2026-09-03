@@ -9,6 +9,8 @@ import { clearSlot, compactBoundSlots, compactSlots } from "./media_slot_state.m
 
 const NODE_CLASS = "MiniMaxH3DirectorPlus";
 const SMART_PRESET = "免费智能 1080p";
+const SMART_HIGH_RESOLUTIONS = ["2K QHD", "4K UHD"];
+const SMART_RESOLUTIONS = ["1080p FHD", ...SMART_HIGH_RESOLUTIONS];
 const SMART_UPSCALE_MODEL = "auto";
 // Keep node geometry independent from the browser sidebar width.
 const DIRECTOR_UI_WIDTH = 1350;
@@ -384,7 +386,7 @@ function calculatedResolution(node) {
     ? [Math.max(1, Number(widget(node, "custom_width")?.value) || 16), Math.max(1, Number(widget(node, "custom_height")?.value) || 9)]
     : (ASPECTS[aspect] || ASPECTS["16:9"]);
   const performancePreset = String(widget(node, "performance_preset")?.value || "");
-  if (performancePreset === SMART_PRESET) return smart1080pTarget(...ratio);
+  if (performancePreset === SMART_PRESET && !SMART_HIGH_RESOLUTIONS.includes(preset)) return smart1080pTarget(...ratio);
   const exact = EXACT_OUTPUT_TARGETS[`${preset}|${aspect}`];
   if (exact) return exact;
   const megapixels = (RESOLUTION_MEGAPIXELS[preset] ?? Number.parseFloat(preset)) || 0.83;
@@ -801,7 +803,7 @@ function install(node) {
     }
     const aspect = widget(node, "aspect_ratio")?.value || "16:9";
     let resolutionPreset = widget(node, "resolution_preset")?.value || "0.83 MP";
-    if (preset === SMART_PRESET && resolutionPreset !== "1080p FHD") {
+    if (preset === SMART_PRESET && !SMART_RESOLUTIONS.includes(resolutionPreset)) {
       resolutionPreset = "1080p FHD";
       setWidget(node, "resolution_preset", "1080p FHD", false);
     }
@@ -883,10 +885,11 @@ function install(node) {
     const resolutionControl = valueControl(
       "分辨率档位",
       "resolution_preset",
-      preset === SMART_PRESET ? [["1080p FHD", "1080p FHD（智能锁定）"]] : RESOLUTIONS,
+      preset === SMART_PRESET
+        ? [["1080p FHD", "1080p FHD（智能直出）"], ["2K QHD", "2K QHD（二采 + SeedVR2）"], ["4K UHD", "4K UHD（二采 + SeedVR2）"]]
+        : RESOLUTIONS,
       resolutionPreset,
     );
-    if (preset === SMART_PRESET) resolutionControl.querySelector("select")?.setAttribute("disabled", "disabled");
     specGrid.append(
       durationControl,
       valueControl("画面比例", "aspect_ratio", [...Object.keys(ASPECTS), "CUSTOM"], aspect),
@@ -968,7 +971,7 @@ function install(node) {
     } else if (preset === "低显存二采") {
       postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight), "AI X2")}；1080p 4 秒保留约 1MP 神经二采基准，5–6 秒会按时长降低首采网格以控制显存，再逐帧 RealESRGAN X2 重建到 FHD；最长 6 秒，开始前检查至少 6GB 空闲显存。`;
     } else if (preset === SMART_PRESET) {
-      postprocessNote.textContent = "免费智能 1080p：显存 ≥20GB 且空闲 ≥18GB、二采依赖就绪时，自动启用训练型 latent 二采直出 1080p（U22 验证配方：8 步首采 + 训练型 3D latent 放大 + 4 步低 sigma 重绘），不再多跑 SeedVR2/AI 超分；否则回退 20 步 SageAttention + SeedVR2/AI 超分，低显存设备自动切换安全策略，生成前会提示原因。";
+      postprocessNote.textContent = "免费智能 1080p：显存 ≥20GB 且空闲 ≥18GB、二采依赖就绪时，自动启用训练型 latent 二采直出 1080p（U22 验证配方：8 步首采 + 训练型 3D latent 放大 + 4 步低 sigma 重绘），不再多跑 SeedVR2/AI 超分；否则回退 20 步 SageAttention + SeedVR2/AI 超分，低显存设备自动切换安全策略，生成前会提示原因。选择 2K QHD / 4K UHD 时走训练型二采 + SeedVR2 扩散超分链，依赖或显存不满足会在排队前给出原因；20–24GB 显卡 2K 限 8 秒以内，4K 需 28GB 以上显存；Fish S2 声纹锁定最高 1080p。";
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {

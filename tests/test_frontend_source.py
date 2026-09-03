@@ -187,13 +187,17 @@ def test_ui_makes_smart_free_1080p_fully_automatic():
     assert "无需手动组合超分、模型和运动平滑" in text
 
 
-def test_ui_locks_smart_resolution_to_1080p_target():
+def test_ui_smart_resolution_allows_1080p_2k_4k_only():
     text = source()
 
-    assert 'preset === SMART_PRESET && resolutionPreset !== "1080p FHD"' in text
-    assert '"1080p FHD（智能锁定）"' in text
+    assert 'const SMART_HIGH_RESOLUTIONS = ["2K QHD", "4K UHD"]' in text
+    assert 'preset === SMART_PRESET && !SMART_RESOLUTIONS.includes(resolutionPreset)' in text
+    assert '"1080p FHD（智能直出）"' in text
+    assert '"2K QHD（二采 + SeedVR2）"' in text
+    assert '"4K UHD（二采 + SeedVR2）"' in text
+    assert "if (preset === SMART_PRESET) resolutionControl" not in text
+    assert '!SMART_HIGH_RESOLUTIONS.includes(preset)) return smart1080pTarget' in text
     assert 'performancePreset === SMART_PRESET' in text
-    assert 'smart1080pTarget' in text
 
 
 def test_named_resolution_presets_use_explicit_megapixels_for_nonstandard_aspects():

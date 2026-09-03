@@ -170,12 +170,31 @@ def _release_between_stages():
 
 
 def _positive_conditioning(guider):
-    """Return raw positive CONDITIONING for nodes that build their own guider."""
+    """Return raw positive CONDITIONING for nodes that build their own guider.
+
+    ``CFGGuider.original_conds`` stores *converted* entries: plain dicts with
+    the cross-attn tensor under ``"cross_attn"`` (see
+    ``comfy.sampler_helpers.convert_cond``).  ``MMH3SplitUpscale`` expects the
+    raw ``[tensor, dict]`` contract instead and crashes with ``too many values
+    to unpack`` when handed the converted form, so rebuild the pairs here.
+    Already-raw entries (older guider doubles in tests) pass through unchanged.
+    """
     original = getattr(guider, "original_conds", None)
     positive = original.get("positive") if isinstance(original, dict) else None
     if not isinstance(positive, list):
         raise ValueError("H3 分块二采缺少 positive conditioning，无法构建分块引导")
-    return positive
+    rebuilt = []
+    for entry in positive:
+        if isinstance(entry, dict):
+            payload = {
+                key: value
+                for key, value in entry.items()
+                if key not in ("cross_attn", "uuid")
+            }
+            rebuilt.append([entry.get("cross_attn"), payload])
+        else:
+            rebuilt.append(entry)
+    return rebuilt
 
 
 def run_tiled_second_stage(
