@@ -145,13 +145,13 @@ def test_ui_exposes_route_isolated_quality_presets():
     assert "v4 8步仅适用于 FL/T2V 后端" in text
 
 
-def test_ui_locks_quality_two_stage_to_rtx_vsr():
+def test_ui_locks_quality_two_stage_to_video_sr():
     text = source()
     assert "POSTPROCESS_MODES_BY_PERFORMANCE" in text
-    assert '"质量优先二采样": [["rtx_vsr"' in text
+    assert '"质量优先二采样": [["video_sr"' in text
+    assert '"免费智能 1080p": [["video_sr"' in text
     assert "allowedPostprocessModes(preset)" in text
-    assert "质量优先二采样已锁定 RTX VSR" in text
-    assert "单次 RTX VSR" in text
+    assert "质量优先二采样已锁定 SeedVR2 视频超分" in text
 
 
 def test_ui_locks_low_vram_two_stage_to_six_second_fhd_ai_x2_reconstruction():

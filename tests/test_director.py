@@ -51,7 +51,7 @@ def test_director_raw_combo_exposes_both_low_vram_presets():
 def test_director_defaults_to_smart_free_1080p_and_local_x2():
     required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
     assert required["performance_preset"][1]["default"] == "免费智能 1080p"
-    assert required["postprocess_mode"][1]["default"] == "ai_upscale"
+    assert required["postprocess_mode"][1]["default"] == "video_sr"
     assert required["ai_upscale_model"][1]["default"] == "auto"
 
 
@@ -69,6 +69,45 @@ def test_smart_free_1080p_resolves_base_backend_to_sage_and_x2(monkeypatch):
     assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
     assert guide["postprocess_path"] == "ai_upscale"
     assert guide["upscale_profile"] == "smart_conservative_blend_v1"
+
+
+def test_video_sr_falls_back_to_ai_upscale_when_seedvr2_missing(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
+    monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")
+    monkeypatch.setattr(
+        "nodes.director._seedvr2_dependency_report",
+        lambda: {"ready": False, "missing": ["SeedVR2VideoUpscaler"], "available_dit": []},
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="稳定推进。", duration=5, width=1920, height=1080,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr", resolution_preset="1080p FHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+    )
+    assert guide["postprocess_path"] == "ai_upscale"
+    assert any("SeedVR2 视频超分未就绪" in warning for warning in guide["warnings"])
+
+
+def test_video_sr_ready_records_tiered_seedvr2_plan(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
+    monkeypatch.setattr(
+        "nodes.director._seedvr2_dependency_report",
+        lambda: {
+            "ready": True,
+            "missing": [],
+            "available_dit": ["seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors"],
+        },
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="稳定推进。", duration=5, width=1920, height=1080,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr", resolution_preset="1080p FHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+    )
+    assert guide["postprocess_path"] == "video_sr"
+    assert guide["video_sr_plan"]["dit_model"] == "seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors"
+    assert guide["video_sr_plan"]["blocks_to_swap"] == 12
+    assert guide["video_sr_plan"]["batch_size"] == 9
 
 
 def test_smart_free_1080p_uses_high_quality_encoder_ceiling():
@@ -142,7 +181,7 @@ def test_director_exposes_postprocess_widgets():
     optional = MiniMaxH3DirectorPlus.INPUT_TYPES()["optional"]
 
     assert required["postprocess_mode"][0] == ["native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"]
-    assert "AI 细节重建（RTX VSR）" in required["postprocess_mode"][1]["tooltip"]
+    assert "SeedVR2" in required["postprocess_mode"][1]["tooltip"]
     assert required["rtx_quality"][0] == ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"]
     assert required["ai_upscale_model"][0][0] == "auto"
     assert optional["motion_smoothing"][0] == ["off", "rife_x2"]

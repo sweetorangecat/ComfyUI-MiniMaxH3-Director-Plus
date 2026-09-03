@@ -302,7 +302,7 @@ def test_built_workflow_keeps_duration_and_resolution_widgets():
     input_names = {item["name"] for item in director["inputs"]}
     assert {"width", "height"} <= input_names
     assert director["widgets_values"][:5] == ["FL2VA", "", 5, 1344, 768]
-    assert director["widgets_values"][14:17] == ["免费智能 1080p", "ai_upscale", "HIGH"]
+    assert director["widgets_values"][14:17] == ["免费智能 1080p", "video_sr", "HIGH"]
     assert director["widgets_values"][-3:] == ["off", "auto", "auto"]
 
 

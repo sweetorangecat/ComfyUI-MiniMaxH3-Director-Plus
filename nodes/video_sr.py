@@ -43,6 +43,20 @@ SEEDVR2_DIT_FULL = (
     "seedvr2_ema_3b-Q8_0.gguf",
     "seedvr2_ema_3b-Q4_K_M.gguf",
 )
+# 7B is the quality tier (ICLR 2026; beats 3B on AI-generated content). The
+# "sharp" variant maximizes perceived clarity and is preferred for short
+# drama/anime-style output; non-sharp 7B stays as the gentler fallback.
+SEEDVR2_DIT_7B_OFFLOAD = (
+    "seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors",
+    "seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors",
+    "seedvr2_ema_7b_sharp-Q4_K_M.gguf",
+    "seedvr2_ema_7b-Q4_K_M.gguf",
+)
+SEEDVR2_DIT_7B_FULL = (
+    "seedvr2_ema_7b_sharp_fp16.safetensors",
+    "seedvr2_ema_7b_fp16.safetensors",
+    *SEEDVR2_DIT_7B_OFFLOAD,
+)
 
 
 def _pick_dit_model(candidates, available_dit=None):
@@ -65,6 +79,51 @@ def resolve_seedvr2_plan(total_vram_gb, available_dit=None):
     with the still-resident DiT, which is exactly what OOMs 32GB cards.
     """
     total = float(total_vram_gb)
+    if total >= 36.0:
+        # 7B full tier: no offload, whole-clip-class batches.
+        dit = _pick_dit_model(SEEDVR2_DIT_7B_FULL, available_dit)
+        if dit is not None:
+            return {
+                "dit_model": dit,
+                "vae_model": SEEDVR2_VAE_MODEL,
+                "dit_offload_device": "none",
+                "blocks_to_swap": 0,
+                "swap_io_components": False,
+                "encode_tiled": False,
+                "decode_tiled": True,
+                "batch_size": 13,
+                "temporal_overlap": 0,
+                "color_correction": "lab",
+            }
+    if total > 20.0:
+        # 20-36GB: 7B fp8/GGUF with CPU offload + block swap. When only 3B is
+        # installed this degrades to the previous unswapped 3B tier.
+        dit = _pick_dit_model(SEEDVR2_DIT_7B_OFFLOAD, available_dit)
+        if dit is not None:
+            return {
+                "dit_model": dit,
+                "vae_model": SEEDVR2_VAE_MODEL,
+                "dit_offload_device": "cpu",
+                "blocks_to_swap": 12,
+                "swap_io_components": True,
+                "encode_tiled": True,
+                "decode_tiled": True,
+                "batch_size": 9,
+                "temporal_overlap": 0,
+                "color_correction": "lab",
+            }
+        return {
+            "dit_model": _pick_dit_model(SEEDVR2_DIT_FULL, available_dit),
+            "vae_model": SEEDVR2_VAE_MODEL,
+            "dit_offload_device": "none",
+            "blocks_to_swap": 0,
+            "swap_io_components": False,
+            "encode_tiled": False,
+            "decode_tiled": True,
+            "batch_size": 13,
+            "temporal_overlap": 0,
+            "color_correction": "lab",
+        }
     if total <= 12.0:
         dit = _pick_dit_model(SEEDVR2_DIT_LOW_VRAM, available_dit)
         blocks = 32 if total <= 9.0 else 12
@@ -93,18 +152,6 @@ def resolve_seedvr2_plan(total_vram_gb, available_dit=None):
             "temporal_overlap": 0,
             "color_correction": "lab",
         }
-    return {
-        "dit_model": _pick_dit_model(SEEDVR2_DIT_FULL, available_dit),
-        "vae_model": SEEDVR2_VAE_MODEL,
-        "dit_offload_device": "none",
-        "blocks_to_swap": 0,
-        "swap_io_components": False,
-        "encode_tiled": False,
-        "decode_tiled": True,
-        "batch_size": 13,
-        "temporal_overlap": 0,
-        "color_correction": "lab",
-    }
 
 
 def _available_seedvr2_models(comfy_root, name):
@@ -118,7 +165,11 @@ def seedvr2_dependency_report(comfy_root=None, node_mappings=None):
     mappings = dict(node_mappings) if node_mappings is not None else _comfy_node_mappings()
     missing = [node_id for node_id in SEEDVR2_NODE_IDS if node_id not in mappings]
 
-    dit_candidates = list(dict.fromkeys([*SEEDVR2_DIT_FULL, *SEEDVR2_DIT_LOW_VRAM]))
+    dit_candidates = list(
+        dict.fromkeys(
+            [*SEEDVR2_DIT_7B_FULL, *SEEDVR2_DIT_FULL, *SEEDVR2_DIT_LOW_VRAM]
+        )
+    )
     dit_model = None
     available = []
     if comfy_root is not None:
@@ -127,11 +178,13 @@ def seedvr2_dependency_report(comfy_root=None, node_mappings=None):
             for name in dit_candidates
             if _available_seedvr2_models(comfy_root, name)
         ]
-        dit_model = _pick_dit_model(SEEDVR2_DIT_FULL, available) or _pick_dit_model(
-            SEEDVR2_DIT_LOW_VRAM, available
+        dit_model = (
+            _pick_dit_model(SEEDVR2_DIT_7B_FULL, available)
+            or _pick_dit_model(SEEDVR2_DIT_FULL, available)
+            or _pick_dit_model(SEEDVR2_DIT_LOW_VRAM, available)
         )
         if dit_model is None:
-            missing.append("seedvr2_ema_3b (FP8/GGUF)")
+            missing.append("seedvr2_ema_7b 或 seedvr2_ema_3b（FP8/GGUF/FP16）")
         if not _available_seedvr2_models(comfy_root, SEEDVR2_VAE_MODEL):
             missing.append(SEEDVR2_VAE_MODEL)
     else:

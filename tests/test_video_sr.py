@@ -89,14 +89,60 @@ def test_seedvr2_plan_scales_with_hardware():
     assert mid["batch_size"] == 9
 
     high = resolve_seedvr2_plan(24.0)
-    assert high["dit_model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
-    assert high["blocks_to_swap"] == 0
-    assert high["dit_offload_device"] == "none"
-    assert high["encode_tiled"] is False
+    assert high["dit_model"] == "seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors"
+    assert high["blocks_to_swap"] == 12
+    assert high["dit_offload_device"] == "cpu"
+    assert high["swap_io_components"] is True
+    assert high["encode_tiled"] is True
     # VAE decode stays tiled even on 24GB+ cards: an untiled 1080p+ portrait
     # decode spikes past 2.5GB per chunk against the resident DiT and OOMs.
     assert high["decode_tiled"] is True
-    assert high["batch_size"] == 13
+    assert high["batch_size"] == 9
+
+    # 20-36GB with only 3B installed degrades to the unswapped 3B tier.
+    high_3b = resolve_seedvr2_plan(
+        24.0,
+        available_dit=["seedvr2_ema_3b_fp8_e4m3fn.safetensors"],
+    )
+    assert high_3b["dit_model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
+    assert high_3b["blocks_to_swap"] == 0
+    assert high_3b["dit_offload_device"] == "none"
+    assert high_3b["encode_tiled"] is False
+    assert high_3b["decode_tiled"] is True
+    assert high_3b["batch_size"] == 13
+
+    ultra = resolve_seedvr2_plan(48.0)
+    assert ultra["dit_model"] == "seedvr2_ema_7b_sharp_fp16.safetensors"
+    assert ultra["dit_offload_device"] == "none"
+    assert ultra["blocks_to_swap"] == 0
+    assert ultra["encode_tiled"] is False
+    assert ultra["decode_tiled"] is True
+    assert ultra["batch_size"] == 13
+
+
+def test_seedvr2_plan_prefers_7b_sharp_variants():
+    plan = resolve_seedvr2_plan(
+        24.0,
+        available_dit=[
+            "seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors",
+            "seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors",
+        ],
+    )
+    assert plan["dit_model"] == "seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors"
+
+    plan_gguf = resolve_seedvr2_plan(
+        24.0,
+        available_dit=["seedvr2_ema_7b_sharp-Q4_K_M.gguf"],
+    )
+    assert plan_gguf["dit_model"] == "seedvr2_ema_7b_sharp-Q4_K_M.gguf"
+    assert plan_gguf["dit_offload_device"] == "cpu"
+
+    plan_full = resolve_seedvr2_plan(
+        48.0,
+        available_dit=["seedvr2_ema_7b_sharp_fp16.safetensors"],
+    )
+    assert plan_full["dit_model"] == "seedvr2_ema_7b_sharp_fp16.safetensors"
+    assert plan_full["dit_offload_device"] == "none"
 
 
 def test_seedvr2_plan_prefers_fp8_when_gguf_missing_on_low_vram():
@@ -197,9 +243,9 @@ def test_stream_output_video_sr_routes_through_seedvr2(monkeypatch):
     assert output.shape == (6, 8, 12, 3)
     assert calls["upscale"]["resolution"] == 8
     assert calls["upscale"]["max_resolution"] == 12
-    assert calls["upscale"]["batch_size"] == 13
+    assert calls["upscale"]["batch_size"] == 9
     assert calls["upscale"]["color_correction"] == "lab"
-    assert calls["dit"]["model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
+    assert calls["dit"]["model"] == "seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors"
     assert calls["vae"]["model"] == SEEDVR2_VAE_MODEL
     assert released == [True]
 

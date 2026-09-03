@@ -203,7 +203,7 @@ class MiniMaxH3DirectorPlus:
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
                 "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "免费智能 1080p", "tooltip": "性能预设；默认本地免费智能 1080p"}),
-                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "原生直出 / Lanczos / 通用 AI 超分 / SeedVR2 扩散视频超分 / AI 细节重建（RTX VSR）"}),
+                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"], {"default": "video_sr", "tooltip": "推荐 SeedVR2 扩散视频超分（7B sharp 优先，未装自动回退通用 AI 超分）；其余为兼容旧工作流保留"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
                 "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "auto", "tooltip": "通用 AI 超分模型；默认 auto 按实际倍率自动选择 X2/X4"}),
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
@@ -266,7 +266,7 @@ class MiniMaxH3DirectorPlus:
         timeline_data,
         target_dialogue,
         reference_transcript,
-        postprocess_mode="ai_upscale",
+        postprocess_mode="video_sr",
         rtx_quality="HIGH",
         ai_upscale_model="auto",
         motion_smoothing="off",
@@ -469,7 +469,8 @@ class MiniMaxH3DirectorPlus:
         if smart_mode:
             smart_vram = _cuda_memory_gb()
             total_vram_gb, free_vram_gb = smart_vram
-            seedvr2_ready = _seedvr2_dependency_report().get("ready", False)
+            seedvr2_report = _seedvr2_dependency_report()
+            seedvr2_ready = seedvr2_report.get("ready", False)
             smart_plan = resolve_smart_1080p_plan(
                 request["resolved_backend"], request["duration"], total_vram_gb, free_vram_gb,
                 seedvr2_ready=seedvr2_ready,
@@ -480,6 +481,16 @@ class MiniMaxH3DirectorPlus:
             request["motion_smoothing"] = smart_plan["motion_smoothing"]
             if smart_plan["warning"]:
                 request["warnings"].append(smart_plan["warning"])
+            if not seedvr2_ready and not smart_plan["low_vram"]:
+                # The curated default final-output route is SeedVR2; make the
+                # silent smart-mode downgrade loud so users know what to install.
+                request["warnings"].append(
+                    "SeedVR2 视频超分未就绪（缺失："
+                    + "、".join(seedvr2_report["missing"])
+                    + "），本次已自动回退为通用 AI 超分；要达到最佳清晰度请安装 "
+                    "ComfyUI-SeedVR2_VideoUpscaler 节点并将 seedvr2_ema_7b/3b 与 "
+                    "ema_vae_fp16.safetensors 放入 models/SEEDVR2。"
+                )
             if aspect_ratio == "CUSTOM":
                 target_ratio = (int(custom_width), int(custom_height))
             else:
@@ -647,22 +658,28 @@ class MiniMaxH3DirectorPlus:
         if postprocess_path == "video_sr":
             seedvr2_report = _seedvr2_dependency_report()
             if not seedvr2_report["ready"]:
-                raise RequestError(
-                    "SeedVR2 视频超分依赖缺失，尚未开始 H3 视频生成："
+                # The curated UI only exposes SeedVR2 as the final-output route;
+                # when its nodes/weights are missing, degrade to the per-frame
+                # AI upscale with a loud warning instead of killing the run.
+                postprocess_path = "ai_upscale"
+                request["postprocess_mode"] = "ai_upscale"
+                request["warnings"].append(
+                    "SeedVR2 视频超分未就绪（缺失："
                     + "、".join(seedvr2_report["missing"])
-                    + "。请安装 ComfyUI-SeedVR2_VideoUpscaler 节点并将 "
-                    "seedvr2_ema_3b 与 ema_vae_fp16.safetensors 放入 models/SEEDVR2，"
-                    "或改用通用 AI 超分。"
+                    + "），本次已自动回退为通用 AI 超分；要达到最佳清晰度请安装 "
+                    "ComfyUI-SeedVR2_VideoUpscaler 节点并将 seedvr2_ema_7b/3b 与 "
+                    "ema_vae_fp16.safetensors 放入 models/SEEDVR2。"
                 )
-            total_for_sr = _cuda_memory_gb()[0]
-            request["video_sr_plan"] = resolve_seedvr2_plan(
-                total_for_sr, available_dit=seedvr2_report.get("available_dit")
-            )
-            request["warnings"].append(
-                "最终输出使用 SeedVR2 扩散视频超分（逐帧时间一致性优于通用 AI 超分）："
-                f"模型 {request['video_sr_plan']['dit_model']}，"
-                f"批大小 {request['video_sr_plan']['batch_size']}。"
-            )
+            else:
+                total_for_sr = _cuda_memory_gb()[0]
+                request["video_sr_plan"] = resolve_seedvr2_plan(
+                    total_for_sr, available_dit=seedvr2_report.get("available_dit")
+                )
+                request["warnings"].append(
+                    "最终输出使用 SeedVR2 扩散视频超分（逐帧时间一致性优于通用 AI 超分）："
+                    f"模型 {request['video_sr_plan']['dit_model']}，"
+                    f"批大小 {request['video_sr_plan']['batch_size']}。"
+                )
 
         if postprocess_path == "ai_upscale":
             try:

@@ -92,8 +92,8 @@ const VOICE_GENDERS = [
   ["neutral", "中性音域"],
 ];
 const POSTPROCESS_MODES_BY_PERFORMANCE = {
-  "免费智能 1080p": [["video_sr", "SeedVR2 视频超分（推荐）"], ["ai_upscale", "AI 超分（无 SeedVR2 时）"]],
-  "质量优先二采样": [["rtx_vsr", "AI 细节重建（RTX VSR）"]],
+  "免费智能 1080p": [["video_sr", "SeedVR2 视频超分（最清晰，未装自动回退 AI 超分）"]],
+  "质量优先二采样": [["video_sr", "SeedVR2 视频超分（最清晰，未装自动回退 AI 超分）"]],
   "低显存二采": [["ai_upscale", "AI X2 细节重建（低显存）"]],
 };
 const RTX_QUALITIES = [
@@ -956,12 +956,12 @@ function install(node) {
       native: "原生尺寸直出：保留 H3 实际生成尺寸，不进行放大。选择 2K/4K 时不会自动变成 2K/4K。",
       lanczos: "Lanczos 快速放大：使用 CPU 分块缩放，兼容性最好、速度快，但只重采样不重建 AI 细节。",
       ai_upscale: "AI 自动超分：使用已安装的通用超分模型逐帧重建细节；默认 auto 按实际倍率自动选择 X2/X4（≤2 倍优先 X2，避免 X4 放大再缩回的浪费），模型不存在会在生成前提示。",
-      video_sr: "SeedVR2 视频超分：ByteDance 单步扩散视频超分，帧间一致性显著优于逐帧超分；需要已安装 SeedVR2 节点与 models/SEEDVR2 权重，缺失会在生成前提示。",
+      video_sr: "SeedVR2 视频超分（唯一推荐路线）：ByteDance 单步扩散视频超分，7B sharp 权重优先（AI 生成内容基准第一），帧间一致性显著优于逐帧超分；需要已安装 SeedVR2 节点与 models/SEEDVR2 权重，未安装时会自动回退通用 AI 超分并提示。",
       rtx_vsr: "RTX VSR：目标尺寸大于 H3 原生尺寸时逐帧使用 NVIDIA RTX VSR；首次使用前请安装 nvidia-vfx、NVIDIA Broadcast SDK 与匹配驱动，导演节点会在生成前检查；同尺寸自动旁路。",
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = `质量优先二采样已锁定 RTX VSR：单次 RTX VSR 使用 HIGHBITRATE_ULTRA 高码率档（同尺寸自动旁路）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；不启用不稳定的 DEBLUR_LOW 双效果链，RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
+      postprocessNote.textContent = `质量优先二采样已锁定 SeedVR2 视频超分（7B sharp 权重优先）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；未安装 SeedVR2 时自动回退通用 AI 超分并提示，RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
       postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight), "AI X2")}；1080p 4 秒保留约 1MP 神经二采基准，5–6 秒会按时长降低首采网格以控制显存，再逐帧 RealESRGAN X2 重建到 FHD；最长 6 秒，开始前检查至少 6GB 空闲显存。`;
     } else if (preset === SMART_PRESET) {

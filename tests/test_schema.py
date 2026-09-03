@@ -33,7 +33,7 @@ def test_schema_exposes_final_postprocess_controls():
         "其他性能预设": ["HIGH", "ULTRA"],
     }
     assert schema["ai_upscale_model"]["default"] == "auto"
-    assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["rtx_vsr"]
+    assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["video_sr"]
     assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == ["ai_upscale"]
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
     assert schema["motion_smoothing"]["default"] == "off"
@@ -45,7 +45,7 @@ def test_normalize_request_defaults_to_smart_free_1080p():
     request = normalize_request({"mode": "T2VA", "duration": 4})
 
     assert request["performance_preset"] == "smart_free_1080p"
-    assert request["postprocess_mode"] == "ai_upscale"
+    assert request["postprocess_mode"] == "video_sr"
     assert request["rtx_quality"] == "HIGH"
     assert request["ai_upscale_model"] == "auto"
     assert request["motion_smoothing"] == "off"
@@ -177,8 +177,11 @@ def test_smart_free_1080p_aliases_and_output_controls_are_locked():
         })
 
 
-def test_quality_two_stage_only_allows_rtx_vsr_postprocess():
-    assert allowed_postprocess_modes("quality_two_stage") == ("rtx_vsr",)
+def test_quality_two_stage_prefers_video_sr_and_keeps_rtx_vsr_for_legacy():
+    assert allowed_postprocess_modes("quality_two_stage") == ("video_sr", "rtx_vsr")
+    assert schema_module.visible_postprocess_modes("quality_two_stage") == ("video_sr",)
+    assert schema_module.visible_postprocess_modes("smart_free_1080p") == ("video_sr",)
+    assert schema_module.visible_postprocess_modes("low_vram_two_stage") == ("ai_upscale",)
     allowed_rtx_qualities = getattr(schema_module, "allowed_rtx_qualities", None)
     assert callable(allowed_rtx_qualities), "缺少 RTX VSR 质量兼容矩阵"
     assert allowed_rtx_qualities("quality_two_stage") == ("HIGHBITRATE_ULTRA",)

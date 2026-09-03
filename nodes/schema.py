@@ -105,7 +105,7 @@ TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_st
 # selectable final-output method at a time.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
     "smart_free_1080p": ("ai_upscale", "video_sr"),
-    "quality_two_stage": ("rtx_vsr",),
+    "quality_two_stage": ("video_sr", "rtx_vsr"),
     "low_vram_two_stage": ("ai_upscale",),
     "quality": POSTPROCESS_MODES,
     "quality_sage": POSTPROCESS_MODES,
@@ -113,6 +113,17 @@ POSTPROCESS_MODES_BY_PERFORMANCE = {
     "reference_fast": POSTPROCESS_MODES,
     "low_vram": POSTPROCESS_MODES,
     "custom": POSTPROCESS_MODES,
+}
+
+# The user-facing selector shows exactly one final-output route per preset:
+# SeedVR2 diffusion video SR, the measured quality leader for AI-generated
+# content. Everything above stays accepted for old workflows and API payloads;
+# when SeedVR2 is not installed the director degrades video_sr to ai_upscale
+# with a warning instead of failing.
+VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE = {
+    "smart_free_1080p": ("video_sr",),
+    "quality_two_stage": ("video_sr",),
+    "low_vram_two_stage": ("ai_upscale",),
 }
 
 RTX_QUALITIES_BY_PERFORMANCE = {
@@ -124,6 +135,12 @@ def allowed_postprocess_modes(performance_preset):
     """Return final-output methods compatible with a normalized preset."""
     preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
     return POSTPROCESS_MODES_BY_PERFORMANCE.get(preset, POSTPROCESS_MODES)
+
+
+def visible_postprocess_modes(performance_preset):
+    """Return the single curated final-output route shown in the selector."""
+    preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
+    return VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE.get(preset, ("video_sr",))
 
 
 def allowed_rtx_qualities(performance_preset):
@@ -208,7 +225,7 @@ DEFAULT_REQUEST = {
     "fish_model_path": "s2-pro-w4a16 (auto download)",
     "ref_image_size": "match",
     "performance_preset": "smart_free_1080p",
-    "postprocess_mode": "ai_upscale",
+    "postprocess_mode": "video_sr",
     "rtx_quality": "HIGH",
     "ai_upscale_model": "auto",
     "motion_smoothing": "off",
@@ -380,8 +397,8 @@ def normalize_request(raw=None):
     if request["postprocess_mode"] not in allowed_postprocess:
         if resolved_preset == "quality_two_stage":
             raise RequestError(
-                "质量优先二采样已包含 H3 latent 放大重绘，只能搭配 RTX VSR；"
-                "请将最终输出切换为 RTX VSR（HIGH 或 ULTRA）"
+                "质量优先二采样已包含 H3 latent 放大重绘，只能搭配 SeedVR2 视频超分或 RTX VSR；"
+                "请将最终输出切换为 SeedVR2 视频超分（推荐）或 RTX VSR"
             )
         if resolved_preset == "low_vram_two_stage":
             raise RequestError(
@@ -394,13 +411,15 @@ def normalize_request(raw=None):
         )
 
     allowed_rtx = allowed_rtx_qualities(resolved_preset)
-    if resolved_preset == "quality_two_stage":
+    if resolved_preset == "quality_two_stage" and request["postprocess_mode"] == "rtx_vsr":
         if request["rtx_quality"] != "HIGHBITRATE_ULTRA":
             request["warnings"].append(
                 "质量优先二采样使用干净的 H3 VAE 输出，RTX VSR 已自动切换为 "
                 "HIGHBITRATE_ULTRA。"
             )
         request["rtx_quality"] = "HIGHBITRATE_ULTRA"
+    elif resolved_preset == "quality_two_stage":
+        pass  # SeedVR2 路线不经过 RTX VSR，无需校验 RTX 质量档位
     elif request["rtx_quality"] not in allowed_rtx:
         raise RequestError(
             "HIGHBITRATE_ULTRA 仅用于质量优先二采样；"
@@ -470,13 +489,13 @@ def public_schema():
             "postprocess_mode": {
                 "中文名称": "最终输出后处理模式",
                 "enum": list(POSTPROCESS_MODES),
-                "default": "ai_upscale",
-                "description": "五种最终输出路线：原生尺寸直出、Lanczos 快速放大、通用 AI 自动超分、SeedVR2 扩散视频超分（时间一致性最好）、NVIDIA RTX VSR AI 细节重建。",
+                "default": "video_sr",
+                "description": "导演台只展示一条最清晰路线：SeedVR2 扩散视频超分（7B sharp 优先，时间一致性最好）；未安装 SeedVR2 时自动回退通用 AI 超分并给出警告。原生直出、Lanczos、RTX VSR 等历史值仅为旧工作流兼容保留。",
                 "allowed_by_performance": {
-                    "免费智能 1080p": ["ai_upscale", "video_sr"],
-                    "质量优先二采样": ["rtx_vsr"],
+                    "免费智能 1080p": ["video_sr"],
+                    "质量优先二采样": ["video_sr"],
                     "低显存二采": ["ai_upscale"],
-                    "其他性能预设": list(POSTPROCESS_MODES),
+                    "其他性能预设": ["video_sr"],
                 },
             },
             "rtx_quality": {

@@ -140,7 +140,7 @@ def _replace_director(node):
         "properties": _properties("MiniMaxH3DirectorPlus"),
         "widgets_values": [
             "FL2VA", "", 5, 1344, 768, "16:9", "0.83 MP", 16, 9, 0, "randomize",
-            "none", "s2-pro-w4a16 (auto download)", "match", "免费智能 1080p", "ai_upscale", "HIGH", "auto",
+            "none", "s2-pro-w4a16 (auto download)", "match", "免费智能 1080p", "video_sr", "HIGH", "auto",
             "{\"version\":1,\"items\":[]}", "", "", "", "", "",
             "", "", "", "", "", "", "", "", "", "", "", "", "", "",
             "off", "auto", "auto",
@@ -1015,7 +1015,7 @@ def build_api_template():
                 "seed": 0,
                 "voice_mode": "none", "ref_image_size": "match", "performance_preset": "免费智能 1080p",
                 "fish_model_path": "s2-pro-w4a16 (auto download)", "timeline_data": "{\"version\":1,\"items\":[]}", "target_dialogue": "", "reference_transcript": "",
-                "postprocess_mode": "ai_upscale", "rtx_quality": "HIGH", "ai_upscale_model": "auto",
+                "postprocess_mode": "video_sr", "rtx_quality": "HIGH", "ai_upscale_model": "auto",
                 "motion_smoothing": "off", "audio_loudness": "auto", "voice_gender": "auto",
                 "voice_reference_name_1": "", "voice_reference_name_2": "", "voice_reference_name_3": "",
                 "first_image": ["11", 0], "last_image": ["12", 0],
