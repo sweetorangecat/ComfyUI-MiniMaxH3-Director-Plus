@@ -984,6 +984,23 @@ def build_workflow(source):
         elif node.get("type") == "MarkdownNote" and node.get("title") == "输出说明":
             node["pos"] = [1510, 1780]
 
+    # Interactively edited U10 nodes in the left information lane (Settings,
+    # the optional LoRA loader) can grow past their lane and overlap the
+    # director console (which starts at x=86, y=470). Clamp any such node
+    # back to a right edge of x=60; nodes outside the director band — and
+    # small fixture-sized nodes — are left untouched.
+    for node in nodes:
+        pos = node.get("pos")
+        size = node.get("size")
+        if not isinstance(pos, list) or not isinstance(size, list):
+            continue
+        x, y = float(pos[0]), float(pos[1])
+        width, height = float(size[0]), float(size[1])
+        reaches_director_column = x < 60 and x + width > 60
+        overlaps_director_rows = y < 2230 and y + height > 470
+        if reaches_director_column and overlaps_director_rows:
+            node["size"] = [60 - x, height]
+
     workflow["groups"] = [
         {"id": "u11-header", "title": "MiniMax H3 Director Plus", "bounding": [-430, 180, 2830, 180], "color": "#3f789e", "font_size": 26, "flags": {}},
         {"id": "u11-info", "title": "使用说明与能力", "bounding": [-1080, 400, 560, 1590], "color": "#3f789e", "font_size": 24, "flags": {}},

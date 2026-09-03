@@ -91,12 +91,16 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
     "endpoint": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
     "reference": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom"),
 }
-# Keep the public selector intentionally small. The broader route map above is
-# retained for loading older API payloads and saved workflows.
+# The public selector now shows exactly one preset per route: 免费智能 1080p.
+# It auto-resolves to the best verified path for the device — trained latent
+# two-stage direct 1080p (U22 8+4 recipe) when VRAM and dependencies allow,
+# otherwise 20-step SageAttention + SeedVR2/AI upscale, with a safe low-VRAM
+# policy on small cards. The broader route map above is retained for loading
+# older API payloads and saved workflows.
 VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE = {
-    "t2va": ("smart_free_1080p", "quality_sage", "quality_two_stage", "fast_4step"),
-    "endpoint": ("smart_free_1080p", "quality_sage", "quality_two_stage", "fast_4step"),
-    "reference": ("smart_free_1080p", "ref_quality_native", "ref_fast_4step"),
+    "t2va": ("smart_free_1080p",),
+    "endpoint": ("smart_free_1080p",),
+    "reference": ("smart_free_1080p",),
 }
 
 TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})

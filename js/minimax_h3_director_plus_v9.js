@@ -25,9 +25,12 @@ const PERFORMANCE_PRESET_KEYS = {
   "参考极速（官方4步）": "ref_fast_4step",
 };
 const PERFORMANCE_PRESETS_BY_ROUTE = {
-  t2va: ["免费智能 1080p", "质量优先加速", "质量优先二采样", "极速4步"],
-  endpoint: ["免费智能 1080p", "质量优先加速", "质量优先二采样", "极速4步"],
-  reference: ["免费智能 1080p", "参考高清（原生20步）", "参考极速（官方4步）"],
+  // 每条路由只展示最可用的一个预设：免费智能 1080p 会按显存与依赖自动
+  // 解析为最优路线（二采直出 / 20 步 Sage + SeedVR2 / 低显存安全策略）。
+  // 其余预设仅用于兼容旧工作流与 API 载荷，不再出现在下拉框中。
+  t2va: ["免费智能 1080p"],
+  endpoint: ["免费智能 1080p"],
+  reference: ["免费智能 1080p"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
@@ -192,7 +195,7 @@ function allowedPerformancePresets(mode, voiceMode) {
 
 function performancePresetHint(preset) {
   if (preset === SMART_PRESET) return "按后端、显存和时长自动选择路线；无需手动组合超分、模型和运动平滑";
-  if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 4 步 + 神经 latent 放大 + 匹配低 sigma 二采";
+  if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 8 步（共 12 步）+ 神经 latent 放大 + 4 步低 sigma 重绘";
   if (preset === "低显存二采") return "8GB 专用真二采：4–6 秒，最高 1080p FHD；时长越长首采网格越小，阶段间自动释放显存";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
   if (preset === "高清快速（v4 8步）") return "v4 8步仅适用于 FL/T2V 后端：社区 v4 LoRA + simple/Euler，单采不做 latent 二采";
