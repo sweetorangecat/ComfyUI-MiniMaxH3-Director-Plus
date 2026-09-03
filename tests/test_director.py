@@ -212,6 +212,50 @@ def test_smart_free_1080p_reference_routes_to_u22_v4_two_stage_when_ready(monkey
     assert guide["postprocess_path"] == "balanced_fhd_downscale"
 
 
+def test_two_stage_prefers_full_frame_when_vram_allows(monkeypatch):
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="稳定推进。", duration=5, width=1920, height=1080,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr", resolution_preset="1080p FHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+    )
+    # Default fixture VRAM is 32GB total / 29GB free: the U22 full-frame
+    # redraw is both faster and sharper than 15 pinned tiles.
+    assert guide["two_stage_tiled"] is False
+    assert any("整帧直采" in warning for warning in guide["warnings"])
+
+
+def test_two_stage_tiles_when_free_vram_below_full_frame_budget(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 21.0))
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="稳定推进。", duration=5, width=1920, height=1080,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr", resolution_preset="1080p FHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+    )
+    assert guide["two_stage_tiled"] is True
+    assert any("时空分块" in warning for warning in guide["warnings"])
+
+
+def test_two_stage_tiles_for_long_duration(monkeypatch):
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="稳定推进。", duration=12, width=1920, height=1080,
+        voice_mode="none", ref_image_size="match", performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr", resolution_preset="1080p FHD", timeline_data="{}",
+        target_dialogue="", reference_transcript="",
+    )
+    assert guide["two_stage_tiled"] is True
+
+
 def test_smart_free_1080p_skips_two_stage_below_fhd_vram_budget(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 16.0))
     monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")

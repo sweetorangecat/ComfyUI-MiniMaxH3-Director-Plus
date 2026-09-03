@@ -34,6 +34,14 @@ from .vram_budget import plan_two_stage_dimensions
 BASE_MODES = {"T2VA", "I2VA", "FL2VA", "L2VA"}
 
 TWO_STAGE_IMAGE_SCALE = 1.5
+# The U22-validated recipe runs the 4-step low-sigma redraw on the whole
+# upscaled latent in one pass.  Tiling (MMH3SplitUpscale) costs one DiT pass
+# per tile per step (~15 tiles at FHD = 60 passes) and pins each tile to the
+# soft upscaled input, which is both slow and blurry.  Only tile when free
+# VRAM genuinely cannot hold the full second-pass grid or the clip is long.
+FULL_FRAME_SECOND_STAGE_MIN_FREE_GB = 24.0
+FULL_FRAME_SECOND_STAGE_MAX_MP = 2.4
+FULL_FRAME_SECOND_STAGE_MAX_DURATION = 10
 LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus")
 
 
@@ -544,6 +552,7 @@ class MiniMaxH3DirectorPlus:
             )
 
         two_stage_plan = None
+        two_stage_tiled = True
         resolved_two_stage_route = "bypass"
         required_assets = []
         if request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS:
@@ -579,6 +588,23 @@ class MiniMaxH3DirectorPlus:
                 int(requested_height),
             )
             required_assets = list(dependencies.get("required_assets", []))
+            second_stage_mp = float(two_stage_plan["second_stage_megapixels"])
+            two_stage_tiled = not (
+                free_vram_gb >= FULL_FRAME_SECOND_STAGE_MIN_FREE_GB
+                and second_stage_mp <= FULL_FRAME_SECOND_STAGE_MAX_MP
+                and int(duration) <= FULL_FRAME_SECOND_STAGE_MAX_DURATION
+            )
+            if two_stage_tiled:
+                request["warnings"].append(
+                    "第二阶段使用时空分块重绘以控制显存峰值（空闲 "
+                    f"{free_vram_gb:.1f}GB / 二采网格 {second_stage_mp:.2f}MP / {int(duration)} 秒）；"
+                    "分块重绘比整帧慢数倍。"
+                )
+            else:
+                request["warnings"].append(
+                    "第二阶段整帧直采（U22 验证配方：4 步低 sigma 整帧重绘），"
+                    "跳过时空分块，速度更快且细节重建更充分。"
+                )
         else:
             native_width, native_height, native_capped = native_resolution_for_request(
                 requested_width,
@@ -840,6 +866,7 @@ class MiniMaxH3DirectorPlus:
             "postprocess_source_height": int(postprocess_source_height),
             "native_cap_applied": bool(native_capped),
             "two_stage_image_scale": TWO_STAGE_IMAGE_SCALE,
+            "two_stage_tiled": bool(two_stage_tiled),
             "resolved_two_stage_route": resolved_two_stage_route,
             "first_stage_width": int(native_width),
             "first_stage_height": int(native_height),
