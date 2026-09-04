@@ -850,7 +850,7 @@ def _resolve_first_registered(category, names):
 
 
 def _apply_ref_detail_loras(model, guide):
-    """Stack the optional community LoRAs onto a REF model clone.
+    """Stack the optional community LoRAs onto a trained two-stage model clone.
 
     Two chains: the U22 recipe adapters (MMH3_DETAIL_LORAS=0 disables) and
     the user-requested motion-continuity + cinematic add-ons
@@ -973,7 +973,10 @@ def _apply_two_stage_models(model, guide, plan, values):
             plan["second_lora_name"] == plan["first_lora_name"]
             and plan["second_lora_strength"] == plan["first_lora_strength"]
         )
-        ref_detail_chain = plan["route"] == "trained_latent_ref"
+        # 社区细节链对两条训练型路线都生效：REF 路线（U22 原配方）与 FL 路线
+        # （T2VA/I2VA/FL2VA/L2VA）。fl2v turbo 只负责少步加速、不带细节增强，
+        # 不挂链时 FL 系成片肉眼可见地比 REF2VA 软。
+        detail_chain_route = plan["route"] in ("trained_latent_ref", "trained_latent_fl")
         # Only the mixed attention mode (Sage composition pass + exact
         # low-sigma redraw) needs two separate model clones; identical
         # LoRA+attention chains share a single clone to save VRAM.
@@ -983,7 +986,7 @@ def _apply_two_stage_models(model, guide, plan, values):
             plan["first_lora_name"],
             strength=plan["first_lora_strength"],
         )
-        if ref_detail_chain:
+        if detail_chain_route:
             first_model = _apply_ref_detail_loras(first_model, guide)
         if share_model:
             second_model = first_model
@@ -993,7 +996,7 @@ def _apply_two_stage_models(model, guide, plan, values):
                 plan["second_lora_name"],
                 strength=plan["second_lora_strength"],
             )
-            if ref_detail_chain:
+            if detail_chain_route:
                 second_model = _apply_ref_detail_loras(second_model, guide)
         shared_second_model = second_model is first_model
         if not two_stage_sage:

@@ -521,6 +521,11 @@ def test_low_vram_two_stage_fails_instead_of_silently_generating_blurry_single_p
 def test_quality_two_stage_applies_only_exact_low_vram_attention(monkeypatch):
     calls = []
 
+    # 宿主机若真实注册了社区细节 LoRA，FL 路线现在也会命中它们；这些用例只对
+    # 注意力补丁行为断言，屏蔽细节链解析以保持宿主无关的确定性。
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: None
+    )
     monkeypatch.setattr(
         performance,
         "_load_lightx2v_lora",
@@ -572,6 +577,11 @@ def test_quality_two_stage_patches_sage_attention_when_available(monkeypatch):
 
     monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
     monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    # 宿主机若真实注册了社区细节 LoRA，FL 路线现在也会命中它们；这些用例只对
+    # 注意力补丁行为断言，屏蔽细节链解析以保持宿主无关的确定性。
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: None
+    )
     monkeypatch.setattr(
         performance,
         "_load_lightx2v_lora",
@@ -622,6 +632,11 @@ def test_quality_two_stage_second_stage_sage_can_be_disabled(monkeypatch):
             return (f"{model}:sage",)
 
     monkeypatch.setenv("MMH3_SECOND_STAGE_SAGE", "0")
+    # 宿主机若真实注册了社区细节 LoRA，FL 路线现在也会命中它们；这些用例只对
+    # 注意力补丁行为断言，屏蔽细节链解析以保持宿主无关的确定性。
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: None
+    )
     monkeypatch.setattr(
         performance,
         "_load_lightx2v_lora",
@@ -667,6 +682,11 @@ def test_two_stage_sage_can_be_fully_disabled(monkeypatch):
             return (f"{model}:sage",)
 
     monkeypatch.setenv("MMH3_TWO_STAGE_SAGE", "0")
+    # 宿主机若真实注册了社区细节 LoRA，FL 路线现在也会命中它们；这些用例只对
+    # 注意力补丁行为断言，屏蔽细节链解析以保持宿主无关的确定性。
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: None
+    )
     monkeypatch.setattr(
         performance,
         "_load_lightx2v_lora",
@@ -1946,3 +1966,65 @@ def test_acceleration_router_records_second_stage_noise_mode(monkeypatch):
         "model", guide_legacy, second_stage_noise="不注入（旧行为）"
     )
     assert guide_legacy["second_stage_noise_mode"] == "不注入（旧行为）"
+
+
+def test_fl_two_stage_applies_detail_loras_when_registered(monkeypatch):
+    calls = []
+
+    class FakeSageNode:
+        def execute(self, model):
+            calls.append(("sage", model))
+            return (f"{model}:sage",)
+
+    monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
+    monkeypatch.delenv("MMH3_EXTRA_LORAS", raising=False)
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
+    )
+
+    def fake_lora(model, name, strength=1.0, low_vram=False):
+        calls.append(("lora", model, name, strength))
+        return f"lora-clone-{len(calls)}"
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fake_lora)
+    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: FakeSageNode)
+    monkeypatch.setattr(
+        performance,
+        "_apply_minimax_reuse_attention",
+        lambda *args: (_ for _ in ()).throw(AssertionError("默认全速模式不得回退分块注意力")),
+        raising=False,
+    )
+
+    guide = {
+        "mode": "I2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "fl2va_model",
+        "voice_mode": "none",
+    }
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert calls == [
+        ("lora", "model", FL_STAGE1_LORA, 0.75),
+        ("lora", "lora-clone-1", "wushu_spatial_physics_v2_1000_pruned.safetensors", 0.3),
+        ("lora", "lora-clone-2", "MysticXXX_MMH3-V1.safetensors", 0.5),
+        ("lora", "lora-clone-3", "动作i连续性修复LORA.safetensors", 0.4),
+        ("lora", "lora-clone-4", "MinimaxH3真实电影质感V1.0.safetensors", 0.5),
+        ("lora", "model", FL_STAGE2_LORA, 0.7),
+        ("lora", "lora-clone-6", "wushu_spatial_physics_v2_1000_pruned.safetensors", 0.3),
+        ("lora", "lora-clone-7", "MysticXXX_MMH3-V1.safetensors", 0.5),
+        ("lora", "lora-clone-8", "动作i连续性修复LORA.safetensors", 0.4),
+        ("lora", "lora-clone-9", "MinimaxH3真实电影质感V1.0.safetensors", 0.5),
+        ("sage", "lora-clone-5"),
+        ("sage", "lora-clone-10"),
+    ]
+    assert result[0] == "lora-clone-5:sage"
+    assert result[3] == "lora-clone-10:sage"
+    assert result[2] is True
+    assert guide["detail_loras_applied"] == [
+        "wushu_spatial_physics_v2_1000_pruned.safetensors@0.3",
+        "MysticXXX_MMH3-V1.safetensors@0.5",
+        "动作i连续性修复LORA.safetensors@0.4",
+        "MinimaxH3真实电影质感V1.0.safetensors@0.5",
+    ]

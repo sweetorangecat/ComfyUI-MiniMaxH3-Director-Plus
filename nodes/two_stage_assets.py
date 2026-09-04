@@ -28,10 +28,10 @@ V4_TURBO_LORA_CANDIDATES = (V4_TURBO_LORA, V4_TURBO_LORA_PRUNED)
 # texture under the INT8/FP8 SageAttention kernels (measured on RTX 4080),
 # while this hybrid model stays clean with SageAttention on both stages.
 HYBRID_BASE_MODEL = "minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors"
-# Community detail LoRAs from the U22 recipe.  They are stacked onto the REF
-# two-stage chain (after the turbo adapter) whenever the files are registered,
-# and skipped silently otherwise.  Order matches U22: physics first, detail
-# enhancer second.
+# Community detail LoRAs from the U22 recipe.  They are stacked onto both
+# trained two-stage chains (REF and FL, after the turbo adapter) whenever the
+# files are registered, and skipped silently otherwise.  Order matches U22:
+# physics first, detail enhancer second.
 REF_DETAIL_LORA_CHAIN = (
     ("wushu_spatial_physics_v2_1000_pruned.safetensors", 0.3),
     ("MysticXXX_MMH3-V1.safetensors", 0.5),
