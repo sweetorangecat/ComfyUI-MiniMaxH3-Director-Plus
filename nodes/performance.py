@@ -859,9 +859,14 @@ def _apply_ref_detail_loras(model, guide):
     """
     applied = []
     chain = []
-    if _env_flag("MMH3_DETAIL_LORAS", True):
+    mode = str(guide.get("community_lora_mode") or "全部自动叠加")
+    detail_on = _env_flag("MMH3_DETAIL_LORAS", True) and mode != "全部关闭"
+    extra_on = _env_flag("MMH3_EXTRA_LORAS", True) and mode == "全部自动叠加"
+    if mode != "全部自动叠加":
+        LOGGER.info("[H3 two-stage models] 社区 LoRA 开关=%s（节点控件设置）", mode)
+    if detail_on:
         chain.extend(REF_DETAIL_LORA_CHAIN)
-    if _env_flag("MMH3_EXTRA_LORAS", True):
+    if extra_on:
         chain.extend(REF_EXTRA_LORA_CHAIN)
     for names, strength in chain:
         candidates = (names,) if isinstance(names, str) else tuple(names)
@@ -1256,17 +1261,31 @@ class MiniMaxH3MemoryAwareSampler:
 class MiniMaxH3AccelerationRouter:
     """Apply only acceleration assets compatible with the resolved backend."""
 
+    COMMUNITY_LORA_MODES = ("全部自动叠加", "仅 U22 细节链", "全部关闭")
+
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {
-            "model": ("MODEL",),
-            "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
-        }}
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
+            },
+            "optional": {
+                "community_loras": (
+                    list(cls.COMMUNITY_LORA_MODES),
+                    {
+                        "default": "全部自动叠加",
+                        "tooltip": "REF 二采链的社区 LoRA 叠加开关；仅 U22 细节链=关闭动作连续性/电影质感，全部关闭=只保留官方 turbo LoRA",
+                    },
+                ),
+            },
+        }
 
     RETURN_TYPES = ("MODEL", "STRING", "BOOLEAN", "MODEL")
     RETURN_NAMES = ("第一阶段模型", "加速说明", "加速成功", "第二阶段模型")
     FUNCTION = "apply"
     CATEGORY = "MiniMax H3 导演台 Plus"
 
-    def apply(self, model, guide):
+    def apply(self, model, guide, community_loras="全部自动叠加"):
+        guide["community_lora_mode"] = community_loras
         return _apply_acceleration(model, guide)

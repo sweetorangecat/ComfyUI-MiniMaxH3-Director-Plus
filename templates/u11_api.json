@@ -282,7 +282,8 @@
       "guide": [
         "10",
         0
-      ]
+      ],
+      "community_loras": "全部自动叠加"
     },
     "_meta": {
       "title": "API 兼容加速"

@@ -1864,3 +1864,52 @@ def test_fl2va_fast_sampler_router_also_forces_official_euler(monkeypatch):
     monkeypatch.setitem(sys.modules, "comfy", type("Comfy", (), {"samplers": samplers})())
     monkeypatch.setitem(sys.modules, "comfy.samplers", samplers)
     assert MiniMaxH3SamplerRouter().route("res_multistep", guide) == ("euler",)
+
+
+def test_ref_two_stage_community_lora_widget_switch(monkeypatch):
+    calls = []
+
+    class FakeSageNode:
+        def execute(self, model):
+            calls.append(("sage", model))
+            return (f"{model}:sage",)
+
+    monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
+    monkeypatch.delenv("MMH3_EXTRA_LORAS", raising=False)
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
+    )
+
+    def fake_lora(model, name, strength=1.0, low_vram=False):
+        calls.append(("lora", name, strength))
+        return f"clone-{len(calls)}"
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", fake_lora)
+    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: FakeSageNode)
+
+    def run(mode):
+        calls.clear()
+        guide = {
+            "mode": "REF2VA",
+            "performance_preset": "quality_two_stage",
+            "resolved_backend": "ref2va_model",
+            "voice_mode": "h3_reference",
+        }
+        MiniMaxH3AccelerationRouter().apply("model", guide, community_loras=mode)
+        return [entry[1] for entry in calls if entry[0] == "lora"]
+
+    assert run("仅 U22 细节链") == [
+        V4_TURBO_LORA,
+        "wushu_spatial_physics_v2_1000_pruned.safetensors",
+        "MysticXXX_MMH3-V1.safetensors",
+    ]
+    assert run("全部关闭") == [V4_TURBO_LORA]
+    assert run("全部自动叠加") == [
+        V4_TURBO_LORA,
+        "wushu_spatial_physics_v2_1000_pruned.safetensors",
+        "MysticXXX_MMH3-V1.safetensors",
+        "动作i连续性修复LORA.safetensors",
+        "MinimaxH3真实电影质感V1.0.safetensors",
+    ]
