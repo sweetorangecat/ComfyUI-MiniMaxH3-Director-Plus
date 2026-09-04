@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+import logging
 import sys
 import types
 
@@ -16,6 +17,7 @@ from nodes.two_stage import (
     split_sigmas_at_step,
 )
 from nodes.two_stage_assets import resolve_two_stage_route
+from nodes import two_stage as two_stage_module
 
 
 def test_quality_two_stage_is_high_vram_only_route():
@@ -570,7 +572,39 @@ def test_tiled_second_stage_routes_through_split_upscale(monkeypatch):
     assert "分块" in guide["two_stage_status"]
 
 
+def test_two_stage_emits_permanent_stage_timing_and_orientation_logs(monkeypatch, caplog):
+    monkeypatch.setattr(two_stage_module, "_free_vram_bytes", lambda: 31 * 1024**3)
+
+    with caplog.at_level(logging.INFO, logger="MiniMaxH3.DirectorPlus.TwoStage"):
+        events, result, guide, sigmas, positive, second_model, original_audio = (
+            _run_two_stage_with_fakes(
+                monkeypatch,
+                split_callables=(lambda **kwargs: types.SimpleNamespace(
+                    result=(kwargs["latent"],)
+                ), None, None),
+            )
+        )
+
+    messages = [record.message for record in caplog.records]
+    assert any(message.startswith("[H3 perf] stage=first ") for message in messages)
+    assert any(message.startswith("[H3 perf] stage=upscale ") for message in messages)
+    assert any(
+        message.startswith(
+            "[H3 perf] stage=second path=mmh3_split_upscale "
+        )
+        for message in messages
+    )
+    assert any(
+        "[H3 two-stage] second_grid=" in message
+        and "est_tokens=" in message
+        and "orientation=landscape" in message
+        for message in messages
+    )
+
+
 def test_full_frame_second_stage_when_split_upscale_missing(monkeypatch):
+    monkeypatch.setattr(two_stage_module, "_free_vram_bytes", lambda: 31 * 1024**3)
+
     events, result, guide, sigmas, positive, second_model, original_audio = (
         _run_two_stage_with_fakes(monkeypatch, split_callables=None)
     )

@@ -1,4 +1,5 @@
 import re
+import types
 
 import pytest
 
@@ -1205,10 +1206,13 @@ def test_quality_priority_uses_h3_memory_efficient_sage_patch(monkeypatch):
 
 def test_exact_low_vram_attention_uses_internal_reuse_patch(monkeypatch):
     calls = []
+    monkeypatch.setattr(performance, "_free_vram_bytes", lambda: 8 * 1024**3)
     monkeypatch.setattr(
         performance,
         "apply_h3_reuse_attention",
-        lambda model, head_chunks: calls.append((model, head_chunks)) or f"{model}:reuse",
+        lambda model, head_chunks, projection_chunks, mlp_chunks, source: calls.append(
+            (model, head_chunks, projection_chunks, mlp_chunks, source)
+        ) or f"{model}:reuse",
         raising=False,
     )
 
@@ -1218,7 +1222,94 @@ def test_exact_low_vram_attention_uses_internal_reuse_patch(monkeypatch):
     )
 
     assert result == "model:reuse"
-    assert calls == [("model", 8)]
+    assert calls == [("model", 8, 16, 16, "auto")]
+
+
+class _ReusePatcher:
+    def __init__(self):
+        block = types.SimpleNamespace(
+            attn=types.SimpleNamespace(qkv_proj=object()),
+            mlp=types.SimpleNamespace(fc1=object(), fc2=object()),
+        )
+        self.diffusion_model = types.SimpleNamespace(blocks=[block])
+        self.model_options = {"transformer_options": {}}
+        self.object_patches = {}
+
+    def clone(self):
+        return _ReusePatcher()
+
+    def get_model_object(self, name):
+        return self.diffusion_model
+
+    def add_object_patch(self, name, value):
+        self.object_patches[name] = value
+
+
+def test_attention_chunks_use_ui_before_auto_vram_tier(monkeypatch):
+    monkeypatch.setattr(performance, "_free_vram_bytes", lambda: 31 * 1024**3)
+
+    result = performance._apply_minimax_reuse_attention(
+        _ReusePatcher(),
+        {"minimax_head_chunks_ui": 8},
+    )
+
+    options = result.model_options["transformer_options"]
+    assert options["minimax_head_chunks"] == 8
+    assert options["minimax_projection_chunks"] == 16
+    assert options["minimax_mlp_chunks"] == 16
+
+
+def test_attention_chunks_allow_independent_env_overrides_and_reject_invalid(monkeypatch):
+    monkeypatch.setattr(performance, "_free_vram_bytes", lambda: 31 * 1024**3)
+    monkeypatch.setenv("MMH3_HEAD_CHUNKS", "4")
+    monkeypatch.setenv("MMH3_PROJ_CHUNKS", "not-a-number")
+    monkeypatch.setenv("MMH3_MLP_CHUNKS", "2")
+
+    tiers, source = performance._resolve_attention_chunks(
+        {"performance_preset": "quality_two_stage"}
+    )
+
+    assert tiers == (4, 4, 2)
+    assert source == "env"
+
+
+def test_low_vram_two_stage_keeps_forced_saving_tier(monkeypatch):
+    monkeypatch.setattr(performance, "_free_vram_bytes", lambda: 31 * 1024**3)
+    monkeypatch.delenv("MMH3_HEAD_CHUNKS", raising=False)
+    monkeypatch.delenv("MMH3_PROJ_CHUNKS", raising=False)
+    monkeypatch.delenv("MMH3_MLP_CHUNKS", raising=False)
+
+    tiers, source = performance._resolve_attention_chunks(
+        {"performance_preset": "low_vram_two_stage"}
+    )
+
+    assert tiers == (16, 32, 32)
+    assert source == "preset"
+
+
+def test_acceleration_router_exposes_and_parses_attention_chunk_widget(monkeypatch):
+    monkeypatch.setattr(
+        performance,
+        "_apply_acceleration",
+        lambda model, guide: (model, "ok", True, model),
+    )
+
+    inputs = MiniMaxH3AccelerationRouter.INPUT_TYPES()["optional"]
+    assert inputs["attention_chunks"][0] == [
+        "自动（按显存）",
+        "2（最快）",
+        "4",
+        "8（均衡）",
+        "16（最省显存）",
+    ]
+
+    guide = {}
+    MiniMaxH3AccelerationRouter().apply(
+        "model",
+        guide,
+        attention_chunks="8（均衡）",
+    )
+    assert guide["minimax_head_chunks_ui"] == 8
 
 
 def test_quality_two_stage_without_verified_patch_fails_closed():

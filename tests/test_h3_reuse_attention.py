@@ -110,6 +110,15 @@ class _FakePatcher:
         self.object_patches[name] = value
 
 
+def test_auto_chunk_tiers_selects_vram_boundaries():
+    gb = 1024**3
+
+    assert h3_reuse_attention.auto_chunk_tiers(24 * gb) == (2, 4, 4)
+    assert h3_reuse_attention.auto_chunk_tiers(24 * gb - 1) == (8, 16, 16)
+    assert h3_reuse_attention.auto_chunk_tiers(8 * gb) == (8, 16, 16)
+    assert h3_reuse_attention.auto_chunk_tiers(8 * gb - 1) == (16, 32, 32)
+
+
 def _fake_h3_model():
     attention = types.SimpleNamespace(qkv_proj=object())
     mlp = types.SimpleNamespace(fc1=object(), fc2=object())
@@ -135,3 +144,59 @@ def test_apply_patch_rejects_non_h3_model_instead_of_silent_success():
 
     with pytest.raises(RuntimeError, match="MiniMax H3"):
         h3_reuse_attention.apply_h3_reuse_attention(model, head_chunks=8)
+
+
+def test_apply_patch_accepts_independent_projection_and_mlp_chunks(monkeypatch):
+    monkeypatch.setattr(h3_reuse_attention, "free_vram_bytes", lambda: 31 * 1024**3)
+
+    result = h3_reuse_attention.apply_h3_reuse_attention(
+        _FakePatcher(_fake_h3_model()),
+        head_chunks=2,
+        projection_chunks=4,
+        mlp_chunks=4,
+        source="ui",
+    )
+
+    options = result.model_options["transformer_options"]
+    assert options["minimax_head_chunks"] == 2
+    assert options["minimax_projection_chunks"] == 4
+    assert options["minimax_mlp_chunks"] == 4
+
+
+def test_block_forward_passes_runtime_mlp_chunk_option(monkeypatch):
+    observed = {}
+    fake_x = torch.zeros(3, 4)
+
+    def fake_scale_shift(value, shift, scale, segments):
+        return value
+
+    def fake_gate(value, gate, mapped, segments):
+        return mapped
+
+    def fake_attention(value, rope_freqs=None, transformer_options=None):
+        return fake_x
+
+    def fake_mlp(value, token_chunks):
+        observed["chunks"] = token_chunks
+        return value
+
+    block = types.SimpleNamespace(
+        adaln_proj=lambda value: tuple(range(6)),
+        norm1=lambda value: value,
+        norm2=lambda value: value,
+        attn=fake_attention,
+        mlp=fake_mlp,
+    )
+    monkeypatch.setattr(h3_reuse_attention, "_mod_scale_shift", fake_scale_shift)
+    monkeypatch.setattr(h3_reuse_attention, "_mod_gate", fake_gate)
+
+    h3_reuse_attention.minimax_block_reuse_forward(
+        block,
+        fake_x,
+        object(),
+        object(),
+        None,
+        transformer_options={"minimax_mlp_chunks": 3},
+    )
+
+    assert observed["chunks"] == 3

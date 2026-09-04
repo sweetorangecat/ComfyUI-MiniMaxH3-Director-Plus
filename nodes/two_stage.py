@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import time
 
 import torch
 import torch.nn.functional as F
@@ -45,6 +46,49 @@ def _latent_shape(latent):
     if isinstance(samples, torch.Tensor):
         return tuple(samples.shape)
     return None
+
+
+def _free_vram_bytes():
+    try:
+        import comfy.model_management as mm
+
+        value = mm.get_free_memory()
+        if value is not None:
+            return int(value)
+    except (ImportError, AttributeError, RuntimeError, TypeError, ValueError):
+        pass
+    if torch.cuda.is_available():
+        try:
+            return int(torch.cuda.mem_get_info()[0])
+        except (RuntimeError, ValueError):
+            pass
+    return None
+
+
+def _log_stage_perf(stage, seconds, shape, path=None):
+    free = _free_vram_bytes()
+    prefix = f"[H3 perf] stage={stage}"
+    if path is not None:
+        prefix += f" path={path}"
+    LOGGER.info(
+        "%s seconds=%.1f shape=%s free_vram_mb=%d",
+        prefix,
+        seconds,
+        shape if shape is not None else "unknown",
+        0 if free is None else int(free / 1024**2),
+    )
+
+
+def _second_stage_grid_metadata(latent):
+    shape = _latent_shape(latent)
+    if isinstance(shape, list):
+        shape = shape[0] if shape else None
+    if isinstance(shape, tuple) and len(shape) >= 3:
+        frames, height, width = shape[-3:]
+        return shape, int(frames) * int(height) * int(width), (
+            "landscape" if width >= height else "portrait"
+        )
+    return shape, 0, "landscape"
 
 
 class AnchoredKeyframeNoise:
@@ -426,6 +470,7 @@ class MiniMaxH3TwoStageSampler:
         from comfy_extras.nodes_lt import LTXVConcatAVLatent, LTXVSeparateAVLatent
 
         with memory_policy(guide):
+            first_started = time.perf_counter()
             first = SamplerCustomAdvanced.execute(
                 noise,
                 guider,
@@ -434,13 +479,20 @@ class MiniMaxH3TwoStageSampler:
                 latent_image,
             )
             first_denoised = _node_output(first, 1)
+            _log_stage_perf("first", time.perf_counter() - first_started, _latent_shape(first_denoised))
             separated = LTXVSeparateAVLatent.execute(first_denoised)
             video_latent = _node_output(separated, 0)
             audio_latent = _node_output(separated, 1)
             source_video_shape = _latent_shape(video_latent)
             source_audio_shape = _latent_shape(audio_latent)
             _release_between_stages()
+            upscale_started = time.perf_counter()
             upscaled_video = run_trained_latent_upscaler(video_latent, scale)
+            _log_stage_perf(
+                "upscale",
+                time.perf_counter() - upscale_started,
+                _latent_shape(upscaled_video),
+            )
             LOGGER.info(
                 "[H3 two-stage] trained_upscaler video=%s->%s audio_preserved=%s scale=%.2f",
                 source_video_shape,
@@ -450,6 +502,13 @@ class MiniMaxH3TwoStageSampler:
             )
             merged = _node_output(LTXVConcatAVLatent.execute(upscaled_video, audio_latent))
             merged_video_shape = _latent_shape(upscaled_video)
+            second_grid, est_tokens, orientation = _second_stage_grid_metadata(merged)
+            LOGGER.info(
+                "[H3 two-stage] second_grid=%s est_tokens=%d orientation=%s",
+                second_grid,
+                est_tokens,
+                orientation,
+            )
             # U22 验证配方：第二阶段按 split sigma 注入新的高斯噪声场
             # （U22 中同一个 RandomNoise 节点同时喂两个采样器），对放大后的
             # x0 做 SDEdit 式再采样。空噪声会让二采轨迹在高 sigma 处偏离
@@ -483,6 +542,7 @@ class MiniMaxH3TwoStageSampler:
                 LOGGER.info(
                     "[H3 two-stage] 第二阶段使用 MMH3SplitUpscale 时空分块采样，显存峰值按瓦片计"
                 )
+                second_started = time.perf_counter()
                 final_denoised = run_tiled_second_stage(
                     split_callables,
                     model=second_model,
@@ -493,6 +553,12 @@ class MiniMaxH3TwoStageSampler:
                     latent=merged,
                     guide=guide,
                 )
+                _log_stage_perf(
+                    "second",
+                    time.perf_counter() - second_started,
+                    merged_video_shape,
+                    path="mmh3_split_upscale",
+                )
                 guide["two_stage_second_stage_path"] = "mmh3_split_upscale"
                 guide["two_stage_status"] = "训练型 3D latent 二采完成（分块）"
             else:
@@ -500,12 +566,19 @@ class MiniMaxH3TwoStageSampler:
                     guider, second_model, merged_video_shape
                 )
                 validate_second_stage_condition_shapes(second_guider, merged_video_shape)
+                second_started = time.perf_counter()
                 second = SamplerCustomAdvanced.execute(
                     second_noise,
                     second_guider,
                     sampler,
                     second_sigmas,
                     merged,
+                )
+                _log_stage_perf(
+                    "second",
+                    time.perf_counter() - second_started,
+                    merged_video_shape,
+                    path="full_frame",
                 )
                 final_denoised = _node_output(second, 1)
                 guide["two_stage_second_stage_path"] = "full_frame"

@@ -11,7 +11,11 @@ import os
 import sys
 from pathlib import Path
 
-from .h3_reuse_attention import apply_h3_reuse_attention
+from .h3_reuse_attention import (
+    apply_h3_reuse_attention,
+    auto_chunk_tiers,
+    free_vram_bytes,
+)
 from .schema import (
     REFERENCE_UNSAFE_FALLBACKS,
     TWO_STAGE_PERFORMANCE_PRESETS,
@@ -32,6 +36,13 @@ from .two_stage_assets import (
 
 
 LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus")
+
+_UI_ATTENTION_CHUNK_TIERS = {
+    2: (2, 4, 4),
+    4: (4, 8, 8),
+    8: (8, 16, 16),
+    16: (16, 32, 32),
+}
 
 PRESETS = {
     "quality": {"steps": 20, "use_sage": False, "use_cache": False, "interpolate": False},
@@ -358,6 +369,67 @@ def _node_model(result):
     return result[0] if isinstance(result, (tuple, list)) else result
 
 
+def _free_vram_bytes():
+    return free_vram_bytes()
+
+
+def _positive_int(value):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _resolve_attention_chunks(guide, forced_tier=None):
+    """Resolve UI/env/auto/preset chunk values without mutating the guide."""
+    preset = PRESET_LABELS.get(
+        guide.get("performance_preset", "quality"),
+        guide.get("performance_preset", "quality"),
+    )
+    if preset == "low_vram_two_stage" and forced_tier is None:
+        forced_tier = (16, 32, 32)
+    if forced_tier is not None:
+        auto = tuple(int(value) for value in forced_tier)
+    else:
+        free = _free_vram_bytes()
+        if free is not None:
+            auto = auto_chunk_tiers(int(free))
+        else:
+            auto = (
+                max(1, int(guide.get("minimax_head_chunks", 8))),
+                16,
+                16,
+            )
+
+    head_env = _positive_int(os.environ.get("MMH3_HEAD_CHUNKS"))
+    projection_env = _positive_int(os.environ.get("MMH3_PROJ_CHUNKS"))
+    mlp_env = _positive_int(os.environ.get("MMH3_MLP_CHUNKS"))
+    ui_value = _positive_int(guide.get("minimax_head_chunks_ui"))
+    if ui_value not in _UI_ATTENTION_CHUNK_TIERS:
+        ui_value = None
+
+    head, projection, mlp = auto
+    if ui_value is not None:
+        head, projection, mlp = _UI_ATTENTION_CHUNK_TIERS[ui_value]
+    if head_env is not None:
+        head = head_env
+    if projection_env is not None:
+        projection = projection_env
+    if mlp_env is not None:
+        mlp = mlp_env
+
+    if any(value is not None for value in (head_env, projection_env, mlp_env)):
+        source = "env"
+    elif ui_value is not None:
+        source = "ui"
+    elif forced_tier is not None or _free_vram_bytes() is None:
+        source = "preset"
+    else:
+        source = "auto"
+    return (head, projection, mlp), source
+
+
 def _apply_sage_attention(model, guide):
     """Apply SageAttention with an RTX 30xx-safe kernel."""
     preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
@@ -369,8 +441,9 @@ def _apply_sage_attention(model, guide):
         try:
             sage_node = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")()
             model = _node_model(sage_node.execute(model))
-            default_chunks = 16 if preset == "low_vram" else 8
-            chunks = max(1, int(guide.get("minimax_head_chunks", default_chunks)))
+            forced_tier = (16, 32, 32) if preset == "low_vram" else None
+            chunks, _source = _resolve_attention_chunks(guide, forced_tier=forced_tier)
+            chunks = chunks[0]
             chunk_node = _kj_minimax_class("MiniMaxLowVRAMAttention")()
             return _node_model(chunk_node.execute(model, chunks))
         except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
@@ -385,8 +458,19 @@ def _apply_sage_attention(model, guide):
 
 def _apply_minimax_reuse_attention(model, guide):
     """Reduce H3 attention peak by reusing consumed fused-QKV storage."""
-    chunks = max(1, int(guide.get("minimax_head_chunks", 8)))
-    return apply_h3_reuse_attention(model, chunks)
+    chunks, source = _resolve_attention_chunks(guide)
+    head_chunks, projection_chunks, mlp_chunks = chunks
+    guide["minimax_head_chunks"] = head_chunks
+    guide["minimax_projection_chunks"] = projection_chunks
+    guide["minimax_mlp_chunks"] = mlp_chunks
+    guide["attention_chunks_source"] = source
+    return apply_h3_reuse_attention(
+        model,
+        head_chunks=head_chunks,
+        projection_chunks=projection_chunks,
+        mlp_chunks=mlp_chunks,
+        source=source,
+    )
 
 
 def _apply_easy_cache(model, guide):
@@ -1266,6 +1350,13 @@ class MiniMaxH3AccelerationRouter:
 
     COMMUNITY_LORA_MODES = ("全部自动叠加", "仅 U22 细节链", "全部关闭")
     SECOND_STAGE_NOISE_MODES = ("注入新噪声（U22 同配方）", "不注入（旧行为）")
+    ATTENTION_CHUNK_MODES = (
+        "自动（按显存）",
+        "2（最快）",
+        "4",
+        "8（均衡）",
+        "16（最省显存）",
+    )
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -1289,6 +1380,13 @@ class MiniMaxH3AccelerationRouter:
                         "tooltip": "二采噪声：U22 在第二阶段按 split sigma 注入新噪声（默认，干净无编织纹）；不注入=旧行为，可能出编织纹/人脸漂移",
                     },
                 ),
+                "attention_chunks": (
+                    list(cls.ATTENTION_CHUNK_MODES),
+                    {
+                        "default": "自动（按显存）",
+                        "tooltip": "二采注意力/MLP 分块档位：数字越小越快但占显存越多；自动=按空闲显存选档",
+                    },
+                ),
             },
         }
 
@@ -1297,7 +1395,16 @@ class MiniMaxH3AccelerationRouter:
     FUNCTION = "apply"
     CATEGORY = "MiniMax H3 导演台 Plus"
 
-    def apply(self, model, guide, community_loras="全部自动叠加", second_stage_noise="注入新噪声（U22 同配方）"):
+    def apply(
+        self,
+        model,
+        guide,
+        community_loras="全部自动叠加",
+        second_stage_noise="注入新噪声（U22 同配方）",
+        attention_chunks="自动（按显存）",
+    ):
         guide["community_lora_mode"] = community_loras
         guide["second_stage_noise_mode"] = second_stage_noise
+        selected_chunks = next((char for char in attention_chunks if char.isdigit()), None)
+        guide["minimax_head_chunks_ui"] = int(selected_chunks) if selected_chunks else None
         return _apply_acceleration(model, guide)

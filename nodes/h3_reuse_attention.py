@@ -10,6 +10,7 @@ bounded token groups instead of materializing its full 11+ GiB intermediate.
 
 from __future__ import annotations
 
+import logging
 import types
 
 import comfy.model_management as mm
@@ -17,6 +18,36 @@ import comfy.ops
 import comfy.quant_ops
 from comfy.ldm.minimax.model import _mod_gate, _mod_scale_shift
 from comfy.ldm.modules.attention import optimized_attention
+
+
+LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus.H3ReuseAttention")
+
+
+def free_vram_bytes():
+    """Return ComfyUI's free-GPU estimate, with a CUDA-only fallback."""
+    try:
+        value = mm.get_free_memory()
+        if value is not None:
+            return int(value)
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        pass
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return int(torch.cuda.mem_get_info()[0])
+    except (ImportError, RuntimeError, ValueError):
+        pass
+    return None
+
+
+def auto_chunk_tiers(free_vram_bytes: int) -> tuple[int, int, int]:
+    """Return ``(head, projection, mlp)`` chunks for the current free VRAM."""
+    if free_vram_bytes >= 24 * 1024**3:
+        return (2, 4, 4)
+    if free_vram_bytes >= 8 * 1024**3:
+        return (8, 16, 16)
+    return (16, 32, 32)
 
 
 def minimax_attn_reuse_forward(self, x, rope_freqs=None, transformer_options=None):
@@ -157,10 +188,24 @@ def minimax_block_reuse_forward(
     x = _mod_gate(x, gate_msa, attention, mod_segments)
     del attention
     normalized = _mod_scale_shift(self.norm2(x), shift_mlp, scale_mlp, mod_segments)
-    return _mod_gate(x, gate_mlp, self.mlp(normalized), mod_segments)
+    return _mod_gate(
+        x,
+        gate_mlp,
+        self.mlp(
+            normalized,
+            token_chunks=int(transformer_options.get("minimax_mlp_chunks", 16)),
+        ),
+        mod_segments,
+    )
 
 
-def apply_h3_reuse_attention(model, head_chunks=8):
+def apply_h3_reuse_attention(
+    model,
+    head_chunks=8,
+    projection_chunks=16,
+    mlp_chunks=16,
+    source="preset",
+):
     """Clone and patch a verified MiniMax H3 model; never report a silent no-op."""
     if int(head_chunks) < 2:
         raise ValueError("MiniMax H3 复用注意力至少需要 2 个 head 分组")
@@ -177,7 +222,17 @@ def apply_h3_reuse_attention(model, head_chunks=8):
 
     transformer_options = patched.model_options.setdefault("transformer_options", {})
     transformer_options["minimax_head_chunks"] = int(head_chunks)
-    transformer_options["minimax_projection_chunks"] = 16
+    transformer_options["minimax_projection_chunks"] = max(1, int(projection_chunks))
+    transformer_options["minimax_mlp_chunks"] = max(1, int(mlp_chunks))
+    free = free_vram_bytes()
+    LOGGER.info(
+        "[H3 reuse attention] free_vram=%.1fGB head_chunks=%d projection_chunks=%d mlp_chunks=%d source=%s",
+        (free or 0) / 1024**3,
+        int(head_chunks),
+        max(1, int(projection_chunks)),
+        max(1, int(mlp_chunks)),
+        source,
+    )
     transformer_options["sol_take_forward"] = minimax_attn_reuse_forward
 
     for index, block in enumerate(blocks):
