@@ -636,7 +636,7 @@ def test_anchored_keyframe_noise_masks_first_slice_for_i2va():
     )
     assert which == "首帧"
     out = wrapped.generate_noise(latent)
-    assert out.layout == torch.jagged
+    assert getattr(out, "is_nested", False)
     video, audio = out.unbind()
     assert torch.equal(video[:, :, 0], torch.zeros_like(video[:, :, 0]))
     assert torch.equal(video[:, :, 1:], torch.ones_like(video[:, :, 1:]))
@@ -672,3 +672,39 @@ def test_anchored_keyframe_noise_passthrough_for_ref2va():
     )
     assert wrapped is base
     assert which == ""
+
+
+def test_anchored_keyframe_noise_uses_comfy_nested_tensor(monkeypatch):
+    class FakeComfyNested:
+        def __init__(self, tensors):
+            self.tensors = list(tensors)
+            self.is_nested = True
+
+        def unbind(self):
+            return self.tensors
+
+    nested_module = types.SimpleNamespace(NestedTensor=FakeComfyNested)
+    monkeypatch.setitem(sys.modules, "comfy.nested_tensor", nested_module)
+    monkeypatch.setitem(
+        sys.modules, "comfy", types.SimpleNamespace(nested_tensor=nested_module)
+    )
+
+    class BaseNoise:
+        def generate_noise(self, input_latent):
+            return FakeComfyNested(
+                [torch.ones(1, 4, 3, 2, 2), torch.ones(1, 4, 2, 2, 2)]
+            )
+
+    latent = {
+        "samples": FakeComfyNested(
+            [torch.zeros(1, 4, 3, 2, 2), torch.zeros(1, 4, 2, 2, 2)]
+        )
+    }
+    wrapped, which = anchored_keyframe_noise(BaseNoise(), {"mode": "I2VA"})
+    assert which == "首帧"
+    out = wrapped.generate_noise(latent)
+    assert isinstance(out, FakeComfyNested)
+    video, audio = out.unbind()
+    assert torch.equal(video[:, :, 0], torch.zeros_like(video[:, :, 0]))
+    assert torch.equal(video[:, :, 1:], torch.ones_like(video[:, :, 1:]))
+    assert torch.equal(audio, torch.ones_like(audio))

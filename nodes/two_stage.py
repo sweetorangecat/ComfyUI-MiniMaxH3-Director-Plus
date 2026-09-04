@@ -75,7 +75,7 @@ class AnchoredKeyframeNoise:
             return noise
         try:
             members = list(noise.unbind())
-        except (AttributeError, RuntimeError, ValueError):
+        except (AttributeError, TypeError, RuntimeError, ValueError):
             return noise
         if len(members) < 2:
             return noise
@@ -85,7 +85,14 @@ class AnchoredKeyframeNoise:
         if self.mask_last:
             video[:, :, -1] = 0.0
         members[0] = video
-        return torch.nested.as_nested_tensor(members, layout=noise.layout)
+        try:
+            # ComfyUI 的 AV latent 噪声是它自家的 comfy.nested_tensor.NestedTensor
+            # （普通 Python 类），不是 torch 的 jagged 嵌套张量。
+            from comfy.nested_tensor import NestedTensor
+
+            return NestedTensor(members)
+        except ImportError:
+            return torch.nested.as_nested_tensor(members, layout=noise.layout)
 
 
 def anchored_keyframe_noise(base_noise, guide):
