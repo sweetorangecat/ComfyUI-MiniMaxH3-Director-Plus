@@ -92,7 +92,7 @@ def resolve_seedvr2_plan(total_vram_gb, available_dit=None):
                 "encode_tiled": False,
                 "decode_tiled": True,
                 "batch_size": 13,
-                "temporal_overlap": 0,
+                "temporal_overlap": 3,
                 "color_correction": "lab",
             }
     if total > 20.0:
@@ -109,7 +109,7 @@ def resolve_seedvr2_plan(total_vram_gb, available_dit=None):
                 "encode_tiled": True,
                 "decode_tiled": True,
                 "batch_size": 9,
-                "temporal_overlap": 0,
+                "temporal_overlap": 3,
                 "color_correction": "lab",
             }
         return {
@@ -121,7 +121,7 @@ def resolve_seedvr2_plan(total_vram_gb, available_dit=None):
             "encode_tiled": False,
             "decode_tiled": True,
             "batch_size": 13,
-            "temporal_overlap": 0,
+            "temporal_overlap": 3,
             "color_correction": "lab",
         }
     if total <= 12.0:
@@ -136,7 +136,7 @@ def resolve_seedvr2_plan(total_vram_gb, available_dit=None):
             "encode_tiled": True,
             "decode_tiled": True,
             "batch_size": 5,
-            "temporal_overlap": 0,
+            "temporal_overlap": 1,
             "color_correction": "lab",
         }
     if total <= 20.0:
@@ -149,7 +149,7 @@ def resolve_seedvr2_plan(total_vram_gb, available_dit=None):
             "encode_tiled": True,
             "decode_tiled": True,
             "batch_size": 9,
-            "temporal_overlap": 0,
+            "temporal_overlap": 3,
             "color_correction": "lab",
         }
 

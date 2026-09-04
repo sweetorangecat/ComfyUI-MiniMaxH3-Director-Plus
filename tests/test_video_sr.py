@@ -82,11 +82,13 @@ def test_seedvr2_plan_scales_with_hardware():
     assert low["encode_tiled"] is True
     assert low["decode_tiled"] is True
     assert low["batch_size"] == 5
+    assert low["temporal_overlap"] == 1
 
     mid = resolve_seedvr2_plan(16.0)
     assert mid["dit_model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
     assert mid["blocks_to_swap"] == 6
     assert mid["batch_size"] == 9
+    assert mid["temporal_overlap"] == 3
 
     high = resolve_seedvr2_plan(24.0)
     assert high["dit_model"] == "seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors"
@@ -98,6 +100,7 @@ def test_seedvr2_plan_scales_with_hardware():
     # decode spikes past 2.5GB per chunk against the resident DiT and OOMs.
     assert high["decode_tiled"] is True
     assert high["batch_size"] == 9
+    assert high["temporal_overlap"] == 3
 
     # 20-36GB with only 3B installed degrades to the unswapped 3B tier.
     high_3b = resolve_seedvr2_plan(
@@ -110,6 +113,7 @@ def test_seedvr2_plan_scales_with_hardware():
     assert high_3b["encode_tiled"] is False
     assert high_3b["decode_tiled"] is True
     assert high_3b["batch_size"] == 13
+    assert high_3b["temporal_overlap"] == 3
 
     ultra = resolve_seedvr2_plan(48.0)
     assert ultra["dit_model"] == "seedvr2_ema_7b_sharp_fp16.safetensors"
@@ -118,6 +122,7 @@ def test_seedvr2_plan_scales_with_hardware():
     assert ultra["encode_tiled"] is False
     assert ultra["decode_tiled"] is True
     assert ultra["batch_size"] == 13
+    assert ultra["temporal_overlap"] == 3
 
 
 def test_seedvr2_plan_prefers_7b_sharp_variants():
