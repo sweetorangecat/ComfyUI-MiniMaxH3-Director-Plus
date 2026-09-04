@@ -10,6 +10,7 @@ from nodes.schema import allowed_performance_presets
 from nodes.two_stage import (
     MiniMaxH3TwoStageSampler,
     _node_output,
+    anchored_keyframe_noise,
     clone_guider_with_model,
     prepare_second_stage_guider,
     split_sigmas_at_step,
@@ -613,3 +614,61 @@ def test_legacy_empty_noise_mode_still_available(monkeypatch):
 
     assert holder["call"]["noise"].__class__.__name__ == "EmptyNoise"
     assert guide["two_stage_second_stage_path"] == "mmh3_split_upscale"
+
+
+def test_anchored_keyframe_noise_masks_first_slice_for_i2va():
+    class BaseNoise:
+        seed = 7
+
+        def generate_noise(self, input_latent):
+            video = torch.ones(1, 4, 3, 2, 2)
+            audio = torch.ones(1, 4, 2, 2, 2)
+            return torch.nested.as_nested_tensor([video, audio], layout=torch.jagged)
+
+    latent = {
+        "samples": torch.nested.as_nested_tensor(
+            [torch.zeros(1, 4, 3, 2, 2), torch.zeros(1, 4, 2, 2, 2)],
+            layout=torch.jagged,
+        )
+    }
+    wrapped, which = anchored_keyframe_noise(
+        BaseNoise(), {"mode": "I2VA", "first_frame": object()}
+    )
+    assert which == "首帧"
+    out = wrapped.generate_noise(latent)
+    assert out.layout == torch.jagged
+    video, audio = out.unbind()
+    assert torch.equal(video[:, :, 0], torch.zeros_like(video[:, :, 0]))
+    assert torch.equal(video[:, :, 1:], torch.ones_like(video[:, :, 1:]))
+    assert torch.equal(audio, torch.ones_like(audio))
+
+
+def test_anchored_keyframe_noise_masks_both_ends_for_fl2va():
+    class BaseNoise:
+        def generate_noise(self, input_latent):
+            return torch.nested.as_nested_tensor(
+                [torch.ones(1, 4, 3, 2, 2), torch.ones(1, 4, 2, 2, 2)],
+                layout=torch.jagged,
+            )
+
+    latent = {
+        "samples": torch.nested.as_nested_tensor(
+            [torch.zeros(1, 4, 3, 2, 2), torch.zeros(1, 4, 2, 2, 2)],
+            layout=torch.jagged,
+        )
+    }
+    wrapped, which = anchored_keyframe_noise(BaseNoise(), {"mode": "FL2VA"})
+    assert which == "首帧+尾帧"
+    video, _ = wrapped.generate_noise(latent).unbind()
+    assert torch.equal(video[:, :, 0], torch.zeros_like(video[:, :, 0]))
+    assert torch.equal(video[:, :, -1], torch.zeros_like(video[:, :, -1]))
+    assert torch.equal(video[:, :, 1:-1], torch.ones_like(video[:, :, 1:-1]))
+
+
+def test_anchored_keyframe_noise_passthrough_for_ref2va():
+    base = object()
+    wrapped, which = anchored_keyframe_noise(
+        base, {"mode": "REF2VA", "first_frame": None, "last_frame": None}
+    )
+    assert wrapped is base
+    assert which == ""

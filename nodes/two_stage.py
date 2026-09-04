@@ -47,6 +47,61 @@ def _latent_shape(latent):
     return None
 
 
+class AnchoredKeyframeNoise:
+    """Fresh Gaussian noise with anchored keyframe latent slices silenced.
+
+    U22's verified recipe re-noises the upscaled latent at the split sigma so
+    the second pass re-synthesizes detail (SDEdit style).  For anchored modes
+    (I2VA/FL2VA/L2VA) the keyframe frames must stay pinned to the user image:
+    blasting them with fresh sigma-level noise fights the keyframe condition
+    and the four turbo steps cannot reconcile the two, leaving a ghosted
+    grid-like artifact on the first frames that heals only after ~10 frames.
+    Silencing the anchored temporal slices keeps the U22 behavior everywhere
+    else while the anchor stays clean.
+    """
+
+    def __init__(self, base_noise, mask_first=False, mask_last=False):
+        self._base = base_noise
+        self.seed = getattr(base_noise, "seed", None)
+        self.mask_first = bool(mask_first)
+        self.mask_last = bool(mask_last)
+
+    def generate_noise(self, input_latent):
+        noise = self._base.generate_noise(input_latent)
+        samples = input_latent.get("samples") if isinstance(input_latent, dict) else None
+        if samples is None or not getattr(samples, "is_nested", False):
+            return noise
+        if not getattr(noise, "is_nested", False):
+            return noise
+        try:
+            members = list(noise.unbind())
+        except (AttributeError, RuntimeError, ValueError):
+            return noise
+        if len(members) < 2:
+            return noise
+        video = members[0].clone()
+        if self.mask_first:
+            video[:, :, 0] = 0.0
+        if self.mask_last:
+            video[:, :, -1] = 0.0
+        members[0] = video
+        return torch.nested.as_nested_tensor(members, layout=noise.layout)
+
+
+def anchored_keyframe_noise(base_noise, guide):
+    """Wrap the stage-2 noise so anchored I2VA/FL2VA/L2VA keyframes stay put."""
+    mode = str(guide.get("mode") or "")
+    mask_first = guide.get("first_frame") is not None or mode in ("I2VA", "FL2VA")
+    mask_last = guide.get("last_frame") is not None or mode in ("L2VA", "FL2VA")
+    if not (mask_first or mask_last):
+        return base_noise, ""
+    wrapped = AnchoredKeyframeNoise(base_noise, mask_first=mask_first, mask_last=mask_last)
+    which = "+".join(
+        name for name, flag in (("首帧", mask_first), ("尾帧", mask_last)) if flag
+    )
+    return wrapped, which
+
+
 def clone_guider_with_model(guider, second_model):
     """Keep conditioning intact while switching to the matched tail model."""
     result = copy.copy(guider)
@@ -369,9 +424,20 @@ class MiniMaxH3TwoStageSampler:
             noise_mode = guide.get("second_stage_noise_mode") or "注入新噪声（U22 同配方）"
             if noise_mode == "不注入（旧行为）":
                 second_noise = Noise_EmptyNoise()
+                anchor_note = ""
             else:
-                second_noise = noise
-            LOGGER.info("[H3 two-stage] 第二阶段噪声模式=%s", noise_mode)
+                # I2VA/FL2VA/L2VA 的首尾帧被用户图锚定：注入噪声时必须屏蔽
+                # 锚定帧的时间片，否则锚定条件与新噪声互相拉扯，首帧出现
+                # 重影网格并在约 10 帧内缓慢自愈。
+                second_noise, anchor_note = anchored_keyframe_noise(noise, guide)
+            if anchor_note:
+                LOGGER.info(
+                    "[H3 two-stage] 第二阶段噪声模式=%s（已屏蔽锚定%s的噪声）",
+                    noise_mode,
+                    anchor_note,
+                )
+            else:
+                LOGGER.info("[H3 two-stage] 第二阶段噪声模式=%s", noise_mode)
             split_callables = None
             if guide.get("two_stage_tiled", True):
                 try:
