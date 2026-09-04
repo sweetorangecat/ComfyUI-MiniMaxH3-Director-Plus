@@ -9,6 +9,8 @@ from nodes.two_stage_assets import (
     FL_STAGE1_LORA,
     FL_STAGE2_LORA,
     LATENT_UPSCALER_MODEL,
+    LATENT_UPSCALER_MODEL_CANDIDATES,
+    LATENT_UPSCALER_MODEL_FP16,
     REF_STAGE_LORA,
     V4_TURBO_LORA,
     V4_TURBO_LORA_PRUNED,
@@ -47,7 +49,7 @@ def test_fl_dependency_report_requires_only_fl_assets(tmp_path):
     assert report["ready"] is False
     assert report["missing"] == [
         "MinimaxH3LatentUpscaler3D",
-        LATENT_UPSCALER_MODEL,
+        " 或 ".join(LATENT_UPSCALER_MODEL_CANDIDATES),
         FL_STAGE1_LORA,
         FL_STAGE2_LORA,
     ]
@@ -65,7 +67,7 @@ def test_reference_dependency_report_requires_v4_lora_without_refiner(tmp_path):
     assert report["ready"] is False
     assert report["missing"] == [
         "MinimaxH3LatentUpscaler3D",
-        LATENT_UPSCALER_MODEL,
+        " 或 ".join(LATENT_UPSCALER_MODEL_CANDIDATES),
         f"{V4_TURBO_LORA} 或 {V4_TURBO_LORA_PRUNED}",
     ]
     assert FL_STAGE1_LORA not in report["missing"]
@@ -73,7 +75,7 @@ def test_reference_dependency_report_requires_v4_lora_without_refiner(tmp_path):
     assert REF_STAGE_LORA not in report["missing"]
     assert "H3SigmaRefiner" not in report["missing"]
     assert report["required_assets"] == [
-        LATENT_UPSCALER_MODEL,
+        *LATENT_UPSCALER_MODEL_CANDIDATES,
         V4_TURBO_LORA,
         V4_TURBO_LORA_PRUNED,
     ]
@@ -198,6 +200,7 @@ def test_trained_upscaler_adapter_supports_current_temporal_api(monkeypatch):
     import types
     import torch
     import nodes.two_stage_assets as assets
+    monkeypatch.setattr(assets, "_latent_upscaler_variant", lambda: (LATENT_UPSCALER_MODEL, "bf16"), raising=False)
 
     calls = []
 
@@ -257,6 +260,7 @@ def test_trained_upscaler_adapter_prefers_real_execute_over_comfy_v3_wrapper(mon
     import types
     import torch
     import nodes.two_stage_assets as assets
+    monkeypatch.setattr(assets, "_latent_upscaler_variant", lambda: (LATENT_UPSCALER_MODEL, "bf16"), raising=False)
 
     calls = []
 
@@ -368,6 +372,7 @@ def test_trained_upscaler_adapter_uses_model_scale_cuda_bf16_and_chunking(monkey
     import types
     import torch
     import nodes.two_stage_assets as assets
+    monkeypatch.setattr(assets, "_latent_upscaler_variant", lambda: (LATENT_UPSCALER_MODEL, "bf16"), raising=False)
 
     calls = []
 
@@ -403,6 +408,7 @@ def test_trained_upscaler_adapter_reads_execute_signature_behind_comfy_v3_wrappe
     import types
     import torch
     import nodes.two_stage_assets as assets
+    monkeypatch.setattr(assets, "_latent_upscaler_variant", lambda: (LATENT_UPSCALER_MODEL, "bf16"), raising=False)
 
     calls = []
 
@@ -444,6 +450,7 @@ def test_trained_upscaler_adapter_supports_pre_chunking_keep_proportion_interfac
     import types
     import torch
     import nodes.two_stage_assets as assets
+    monkeypatch.setattr(assets, "_latent_upscaler_variant", lambda: (LATENT_UPSCALER_MODEL, "bf16"), raising=False)
 
     calls = []
 
@@ -485,6 +492,7 @@ def test_trained_upscaler_adapter_supports_legacy_flat_scale_interface(monkeypat
     import types
     import torch
     import nodes.two_stage_assets as assets
+    monkeypatch.setattr(assets, "_latent_upscaler_variant", lambda: (LATENT_UPSCALER_MODEL, "bf16"), raising=False)
 
     calls = []
 
@@ -729,3 +737,59 @@ def test_trained_upscaler_rejects_non_growing_spatial_output(monkeypatch):
         run_trained_latent_upscaler(
             {"samples": torch.zeros(1, 24, 2, 4, 4)}, 1.5
         )
+
+
+def test_fp16_upscaler_variant_satisfies_dependency(tmp_path):
+    _touch(tmp_path, f"models/latent_upscale_models/{LATENT_UPSCALER_MODEL_FP16}")
+    _touch(tmp_path, f"models/loras/{V4_TURBO_LORA_PRUNED}")
+
+    report = dependency_report(
+        tmp_path,
+        "trained_latent_ref",
+        node_mappings={"MinimaxH3LatentUpscaler3D": object()},
+    )
+
+    assert report["ready"] is True
+    assert report["missing"] == []
+
+
+def test_trained_upscaler_prefers_fp16_variant_when_registered(monkeypatch):
+    import types
+    import torch
+    import nodes.two_stage_assets as assets
+
+    calls = []
+
+    class CurrentUpscaler:
+        @classmethod
+        def execute(
+            cls,
+            latent,
+            model_name,
+            mode,
+            align,
+            enable_temporal_chunking,
+            force_unload,
+            device,
+            precision,
+        ):
+            calls.append((model_name, precision))
+            return types.SimpleNamespace(result=({"samples": torch.ones(1, 24, 2, 6, 6)},))
+
+    monkeypatch.setattr(
+        assets,
+        "_comfy_node_mappings",
+        lambda: {"MinimaxH3LatentUpscaler3D": CurrentUpscaler},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        assets,
+        "resolve_registered_model_name",
+        lambda category, name, comfy_root=None: name if "fp16" in name else None,
+    )
+    latent = {"samples": torch.zeros(1, 24, 2, 4, 4)}
+
+    result = run_trained_latent_upscaler(latent, 1.5)
+
+    assert result["samples"].shape == (1, 24, 2, 6, 6)
+    assert calls == [(LATENT_UPSCALER_MODEL_FP16, "fp16")]

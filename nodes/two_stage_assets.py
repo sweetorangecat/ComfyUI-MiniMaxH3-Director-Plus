@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from pathlib import Path
+
+
+LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus")
 
 
 FL_STAGE1_LORA = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
@@ -42,7 +46,13 @@ REF_EXTRA_LORA_CHAIN = (
     (("动作i连续性修复LORA.safetensors", "动作连续性修复LORA.safetensors"), 0.4),
     (("MinimaxH3真实电影质感V1.0.safetensors", "MinimaxH3真实电影质感V0.1.safetensors"), 0.5),
 )
+LATENT_UPSCALER_MODEL_FP16 = "minimax_h3_latent_upscaler_3d_fp16.safetensors"
 LATENT_UPSCALER_MODEL = "minimax_h3_latent_upscaler_3d_bf16.safetensors"
+# U22 runs the fp16 build of the trained 3D upscaler; its finer mantissa keeps
+# flat regions clean where the bf16 build leaves a fine latent-grid weave that
+# survives the low-sigma redraw.  Prefer fp16 whenever it is registered and
+# keep bf16 as the fallback.
+LATENT_UPSCALER_MODEL_CANDIDATES = (LATENT_UPSCALER_MODEL_FP16, LATENT_UPSCALER_MODEL)
 UPSCALE_NODE_IDS = ("MinimaxH3LatentUpscaler3D", "MinimaxH3LatentUpscalerNode3D")
 SIGMA_REFINER_NODE_ID = "H3SigmaRefiner"
 SPLIT_UPSCALE_NODE_ID = "MMH3SplitUpscale"
@@ -100,6 +110,22 @@ def resolve_registered_model_name(category, name, comfy_root=None):
     return None
 
 
+def resolve_latent_upscaler_model(comfy_root=None):
+    """Return ``(registered_name, precision)`` for the best installed upscaler."""
+    for name in LATENT_UPSCALER_MODEL_CANDIDATES:
+        resolved = resolve_registered_model_name("latent_upscale_models", name, comfy_root)
+        if resolved is not None:
+            return resolved, ("fp16" if "fp16" in name else "bf16")
+    return None
+
+
+def _latent_upscaler_variant():
+    resolved = resolve_latent_upscaler_model()
+    if resolved is not None:
+        return resolved
+    return LATENT_UPSCALER_MODEL, "bf16"
+
+
 def _registered_asset_exists(comfy_root, category, name):
     """Check the same model paths registered with the active ComfyUI runtime."""
     return resolve_registered_model_name(category, name, comfy_root) is not None
@@ -146,13 +172,11 @@ def dependency_report(comfy_root, route, node_mappings=None):
     # H3SigmaRefiner belonged to the banned 4-step ref recipe and is no longer
     # a dependency.
 
-    if not _asset_exists(
-        root,
-        "latent_upscale_models",
-        "latent_upscale_models",
-        LATENT_UPSCALER_MODEL,
+    if not any(
+        _asset_exists(root, "latent_upscale_models", "latent_upscale_models", candidate)
+        for candidate in LATENT_UPSCALER_MODEL_CANDIDATES
     ):
-        missing.append(LATENT_UPSCALER_MODEL)
+        missing.append(" 或 ".join(LATENT_UPSCALER_MODEL_CANDIDATES))
 
     loras = _required_assets(route)
     if route == "trained_latent_ref":
@@ -172,7 +196,7 @@ def dependency_report(comfy_root, route, node_mappings=None):
         "ready": not missing,
         "missing": missing,
         "upscaler_node_id": upscaler_node_id,
-        "required_assets": [LATENT_UPSCALER_MODEL, *required_loras],
+        "required_assets": [*LATENT_UPSCALER_MODEL_CANDIDATES, *required_loras],
     }
 
 
@@ -223,7 +247,9 @@ def _resolve_upscaler_callable(node_class):
     return function
 
 
-def _upscaler_kwargs(function, video_latent, scale):
+def _upscaler_kwargs(function, video_latent, scale, model_name=None, precision=None):
+    model_name = model_name or LATENT_UPSCALER_MODEL
+    precision = precision or "bf16"
     parameters = inspect.signature(function).parameters
     positional_only_required = [
         name
@@ -249,9 +275,9 @@ def _upscaler_kwargs(function, video_latent, scale):
 
     kwargs = {
         "latent": video_latent,
-        "model_name": LATENT_UPSCALER_MODEL,
+        "model_name": model_name,
         "device": "cuda",
-        "precision": "bf16",
+        "precision": precision,
     }
     if "mode" in declared:
         kwargs["mode"] = {"mode": "scale by multiplier", "scale": float(scale)}
@@ -323,7 +349,19 @@ def run_trained_latent_upscaler(video_latent, scale):
         raise RuntimeError("缺少 MinimaxH3LatentUpscaler3D，请先安装训练型 H3 latent 放大节点")
     node_class = mappings[node_id]
     function = _resolve_upscaler_callable(node_class)
-    kwargs = _upscaler_kwargs(function, video_latent, scale)
+    upscaler_model, upscaler_precision = _latent_upscaler_variant()
+    LOGGER.info(
+        "[H3 two-stage] 训练型 latent 放大器：%s（精度 %s）",
+        upscaler_model,
+        upscaler_precision,
+    )
+    kwargs = _upscaler_kwargs(
+        function,
+        video_latent,
+        scale,
+        model_name=upscaler_model,
+        precision=upscaler_precision,
+    )
     result = _unwrap_node_output(function(**kwargs))
     samples = result.get("samples") if isinstance(result, dict) else None
     if not isinstance(samples, torch.Tensor) or samples.ndim not in (4, 5):

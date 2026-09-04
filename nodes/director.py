@@ -95,6 +95,12 @@ def _probe_vram_after_prefree():
             before_free,
             free,
         )
+    else:
+        LOGGER.info(
+            "[H3 director] 采样前显存检查：空闲 %.1fGB / 总计 %.1fGB（无缓存模型需要释放）",
+            free,
+            total,
+        )
     return total, free
 
 
