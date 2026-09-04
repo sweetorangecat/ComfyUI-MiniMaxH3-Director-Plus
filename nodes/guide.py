@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from .performance import memory_policy, preset_values
 
+import logging
+
+LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus.Guide")
+
 
 def normalize_h3_reference_audio(audio):
     """Normalize reference waveforms to the stereo contract used by H3's audio VAE."""
@@ -38,6 +42,64 @@ def _route_low_vram_inputs(clip, video_vae, audio_vae, guide):
     return clip, video_vae, audio_vae
 
 
+def attach_stage2_keyframe_latents(cond, video_vae, state):
+    """Re-encode anchored keyframe images on the exact second-stage pixel grid.
+
+    官方 ImageToVideo 节点把首尾帧按第一阶段原生分辨率 VAE 编码。二采在放大后的
+    网格上重采样，此前对条件 latent 做 trilinear 插值会把首尾帧条件推离 VAE
+    流形——实测锚定帧（首帧）出现砖块状重影伪影，其余帧完全正常。这里用源图在
+    第二阶段精确像素网格上重新 VAE 编码，保持与官方单阶段一致的流形语义；
+    二采侧优先使用 ``latent_stage2``，缺失时回退插值并告警。
+    """
+    if not state.get("two_stage_enabled"):
+        return cond
+    first_frame = state.get("first_frame")
+    last_frame = state.get("last_frame")
+    if first_frame is None and last_frame is None:
+        return cond
+    width = int(state.get("second_stage_width") or 0)
+    height = int(state.get("second_stage_height") or 0)
+    if width < 32 or height < 32:
+        return cond
+    if (width, height) == (int(state.get("width") or 0), int(state.get("height") or 0)):
+        return cond
+
+    import comfy.utils
+
+    reencoded = []
+    for entry in cond or []:
+        payload = entry[1] if isinstance(entry, (list, tuple)) and len(entry) > 1 else None
+        if not isinstance(payload, dict):
+            continue
+        keyframes = payload.get("minimax_keyframes")
+        if not isinstance(keyframes, list):
+            continue
+        for keyframe in keyframes:
+            if not isinstance(keyframe, dict) or keyframe.get("latent") is None:
+                continue
+            if "latent_stage2" in keyframe:
+                continue
+            index = int(keyframe.get("resolved_frame_index") or 0)
+            image = first_frame if index == 0 else last_frame
+            if image is None:
+                continue
+            # 官方语义：首帧几何锚点直接拉伸，尾帧跟随者等比覆盖裁剪
+            crop = "disabled" if index == 0 else "center"
+            resized = comfy.utils.common_upscale(
+                image[:1][..., :3].movedim(-1, 1), width, height, "lanczos", crop
+            ).movedim(1, -1)
+            keyframe["latent_stage2"] = video_vae.encode(resized)
+            reencoded.append("首帧" if index == 0 else "尾帧")
+    if reencoded:
+        LOGGER.info(
+            "[H3 guide] 已按第二阶段网格 %sx%s 重编码锚定%s条件（官方网格语义）",
+            width,
+            height,
+            "+".join(reencoded),
+        )
+    return cond
+
+
 class MiniMaxH3DirectorPlusGuide:
     @classmethod
     def INPUT_TYPES(cls):
@@ -70,7 +132,7 @@ class MiniMaxH3DirectorPlusGuide:
         )
         with memory_policy(state):
             if state["resolved_backend"] == "fl2va_model":
-                return native_node("MiniMaxH3ImageToVideo").execute(
+                result = native_node("MiniMaxH3ImageToVideo").execute(
                     clip,
                     video_vae,
                     state["prompt"],
@@ -80,6 +142,10 @@ class MiniMaxH3DirectorPlusGuide:
                     state.get("first_frame"),
                     state.get("last_frame"),
                 )
+                unpacked = getattr(result, "result", result)
+                if isinstance(unpacked, (tuple, list)) and unpacked:
+                    attach_stage2_keyframe_latents(unpacked[0], video_vae, state)
+                return result
 
             state["ref_audios"] = {
                 name: normalize_h3_reference_audio(audio)

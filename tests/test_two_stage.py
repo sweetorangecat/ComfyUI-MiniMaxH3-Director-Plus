@@ -708,3 +708,63 @@ def test_anchored_keyframe_noise_uses_comfy_nested_tensor(monkeypatch):
     assert torch.equal(video[:, :, 0], torch.zeros_like(video[:, :, 0]))
     assert torch.equal(video[:, :, 1:], torch.ones_like(video[:, :, 1:]))
     assert torch.equal(audio, torch.ones_like(audio))
+
+
+def test_second_stage_guider_prefers_reencoded_stage2_keyframe_latent():
+    first_model = types.SimpleNamespace(model_options={"route": "first"})
+    second_model = types.SimpleNamespace(model_options={"route": "second"})
+    low_latent = torch.zeros(1, 24, 1, 44, 80)
+    hi_latent = torch.full((1, 24, 1, 66, 120), 7.0)
+    guider = types.SimpleNamespace(
+        model_patcher=first_model,
+        model_options=first_model.model_options,
+        original_conds={
+            "positive": [{
+                "minimax_keyframes": [
+                    {"resolved_frame_index": 0, "latent": low_latent, "latent_stage2": hi_latent},
+                ],
+            }],
+        },
+    )
+
+    result = prepare_second_stage_guider(
+        guider,
+        second_model,
+        target_video_shape=(1, 24, 107, 66, 120),
+    )
+
+    keyframe = result.original_conds["positive"][0]["minimax_keyframes"][0]
+    assert keyframe["latent"] is hi_latent
+    assert "latent_stage2" not in keyframe
+    original = guider.original_conds["positive"][0]["minimax_keyframes"][0]
+    assert original["latent"] is low_latent
+    assert original["latent_stage2"] is hi_latent
+
+
+def test_second_stage_guider_falls_back_to_interpolation_when_reencode_grid_mismatches():
+    first_model = types.SimpleNamespace(model_options={"route": "first"})
+    second_model = types.SimpleNamespace(model_options={"route": "second"})
+    low_latent = torch.zeros(1, 24, 1, 44, 80)
+    wrong_grid = torch.zeros(1, 24, 1, 30, 30)
+    guider = types.SimpleNamespace(
+        model_patcher=first_model,
+        model_options=first_model.model_options,
+        original_conds={
+            "positive": [{
+                "minimax_keyframes": [
+                    {"resolved_frame_index": 0, "latent": low_latent, "latent_stage2": wrong_grid},
+                ],
+            }],
+        },
+    )
+
+    result = prepare_second_stage_guider(
+        guider,
+        second_model,
+        target_video_shape=(1, 24, 107, 66, 120),
+    )
+
+    keyframe = result.original_conds["positive"][0]["minimax_keyframes"][0]
+    assert keyframe["latent"].shape == (1, 24, 1, 66, 120)
+    assert keyframe["latent"] is not wrong_grid
+    assert "latent_stage2" not in keyframe

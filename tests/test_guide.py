@@ -230,3 +230,57 @@ def test_fish_bridge_uses_cpu_device_in_low_vram_mode(monkeypatch):
 
     assert result == ("generated-audio",)
     assert calls[0]["device"] == "cpu"
+
+
+def test_attach_stage2_keyframe_latents_reencodes_on_second_stage_grid():
+    class FakeVae:
+        def __init__(self):
+            self.calls = []
+
+        def encode(self, image):
+            self.calls.append(image)
+            return torch.zeros(1, 24, 1, image.shape[1] // 16, image.shape[2] // 16)
+
+    vae = FakeVae()
+    keyframes = [
+        {"resolved_frame_index": 0, "latent": torch.zeros(1, 24, 1, 60, 34)},
+        {"resolved_frame_index": 123, "latent": torch.zeros(1, 24, 1, 60, 34)},
+    ]
+    cond = [[torch.zeros(1), {"minimax_keyframes": keyframes}]]
+    state = {
+        "two_stage_enabled": True,
+        "width": 544,
+        "height": 960,
+        "second_stage_width": 1088,
+        "second_stage_height": 1920,
+        "first_frame": torch.rand(1, 100, 80, 3),
+        "last_frame": torch.rand(1, 120, 90, 3),
+    }
+
+    guide.attach_stage2_keyframe_latents(cond, vae, state)
+
+    assert [tuple(call.shape) for call in vae.calls] == [(1, 1920, 1088, 3), (1, 1920, 1088, 3)]
+    assert keyframes[0]["latent_stage2"].shape == (1, 24, 1, 120, 68)
+    assert keyframes[1]["latent_stage2"].shape == (1, 24, 1, 120, 68)
+    assert keyframes[0]["latent"].shape == (1, 24, 1, 60, 34)
+
+
+def test_attach_stage2_keyframe_latents_skips_when_two_stage_disabled():
+    class ForbiddenVae:
+        def encode(self, image):
+            raise AssertionError("二采关闭时不得重编码")
+
+    keyframes = [{"resolved_frame_index": 0, "latent": torch.zeros(1, 24, 1, 60, 34)}]
+    cond = [[torch.zeros(1), {"minimax_keyframes": keyframes}]]
+    state = {
+        "two_stage_enabled": False,
+        "width": 544,
+        "height": 960,
+        "second_stage_width": 1088,
+        "second_stage_height": 1920,
+        "first_frame": torch.rand(1, 100, 80, 3),
+    }
+
+    guide.attach_stage2_keyframe_latents(cond, ForbiddenVae(), state)
+
+    assert "latent_stage2" not in keyframes[0]

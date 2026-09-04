@@ -169,6 +169,8 @@ def prepare_second_stage_guider(guider, second_model, target_video_shape):
         raise ValueError("H3 二采 guider 缺少原始 conditioning，无法校验视觉条件尺寸")
 
     copied = {}
+    keyframe_total = 0
+    keyframe_reencoded = 0
     for cond_name, conditions in original.items():
         if not isinstance(conditions, list):
             copied[cond_name] = conditions
@@ -184,20 +186,44 @@ def prepare_second_stage_guider(guider, second_model, target_video_shape):
             for keyframe in keyframes:
                 if not isinstance(keyframe, dict) or "latent" not in keyframe:
                     raise ValueError("H3 首尾帧条件格式无效：缺少 latent")
+                keyframe_total += 1
                 updated_keyframe = keyframe.copy()
-                updated_keyframe["latent"] = _resize_condition_latent(
-                    keyframe["latent"], target_h, target_w
-                )
+                # 优先使用 guide 节点在第二阶段精确网格上重新 VAE 编码的条件；
+                # 缺失时回退 latent 空间 trilinear 插值（会把条件推离 VAE 流形，
+                # 实测锚定帧出现砖块状重影伪影）。
+                reencoded = keyframe.get("latent_stage2")
+                if (
+                    isinstance(reencoded, torch.Tensor)
+                    and reencoded.ndim in (4, 5)
+                    and tuple(reencoded.shape[-2:]) == (target_h, target_w)
+                ):
+                    updated_keyframe["latent"] = reencoded
+                    keyframe_reencoded += 1
+                else:
+                    updated_keyframe["latent"] = _resize_condition_latent(
+                        keyframe["latent"], target_h, target_w
+                    )
+                updated_keyframe.pop("latent_stage2", None)
                 resized_keyframes.append(updated_keyframe)
             updated["minimax_keyframes"] = resized_keyframes
             copied_conditions.append(updated)
         copied[cond_name] = copied_conditions
     result.original_conds = copied
-    LOGGER.info(
-        "[H3 two-stage] FL 首尾帧条件已对齐到第二阶段 latent 网格 %sx%s；REF2VA 参考图保持原网格",
-        target_w,
-        target_h,
-    )
+    if keyframe_total:
+        LOGGER.info(
+            "[H3 two-stage] FL 首尾帧条件已对齐到第二阶段 latent 网格 %sx%s（VAE 重编码 %s/%s）",
+            target_w,
+            target_h,
+            keyframe_reencoded,
+            keyframe_total,
+        )
+        if keyframe_reencoded < keyframe_total:
+            LOGGER.warning(
+                "[H3 two-stage] 部分首尾帧条件缺少第二阶段重编码，退回 latent 插值，"
+                "锚定帧可能出现伪影；请更新插件后重试"
+            )
+    else:
+        LOGGER.info("[H3 two-stage] REF2VA 参考图保持原网格")
     return result
 
 
