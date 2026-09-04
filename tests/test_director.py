@@ -1634,3 +1634,29 @@ def test_max_ref_image_size_skips_upscale_dilution_warning():
     )
 
     assert not any("参考图尺寸策略为 match" in warning for warning in guide["warnings"])
+
+
+def test_probe_vram_after_prefree_frees_cache_and_returns_fresh_reading(monkeypatch):
+    from nodes import director
+
+    calls = []
+    readings = iter([(32.0, 12.0), (32.0, 30.0)])
+    monkeypatch.setattr(director, "_cuda_memory_gb", lambda: next(readings))
+    monkeypatch.setattr(director, "_free_cached_models", lambda: calls.append("free"))
+    monkeypatch.delenv("MMH3_SMART_PREFREE", raising=False)
+
+    assert director._probe_vram_after_prefree() == (32.0, 30.0)
+    assert calls == ["free"]
+
+
+def test_probe_vram_after_prefree_can_be_disabled(monkeypatch):
+    from nodes import director
+
+    def forbidden():
+        raise AssertionError("MMH3_SMART_PREFREE=0 时不得释放显存")
+
+    monkeypatch.setenv("MMH3_SMART_PREFREE", "0")
+    monkeypatch.setattr(director, "_cuda_memory_gb", lambda: (32.0, 12.0))
+    monkeypatch.setattr(director, "_free_cached_models", forbidden)
+
+    assert director._probe_vram_after_prefree() == (32.0, 12.0)

@@ -56,6 +56,48 @@ def _cuda_memory_gb():
         return 0.0, 0.0
 
 
+def _free_cached_models():
+    """Best-effort unload of ComfyUI's cached models and CUDA blocks."""
+    try:
+        from comfy import model_management as comfy_mm
+
+        comfy_mm.unload_all_models()
+        comfy_mm.soft_empty_cache()
+        return
+    except Exception:
+        pass
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def _probe_vram_after_prefree():
+    """Read VRAM after evicting leftovers from earlier prompts.
+
+    torch.cuda.mem_get_info counts resident cached models as occupied, so a
+    long session can silently degrade the smart preset onto the slow
+    20-step + SeedVR2 route even though the card is physically big enough.
+    Freeing first makes the reading reflect real capacity; this run's models
+    reload on demand during sampling anyway.  MMH3_SMART_PREFREE=0 opts out.
+    """
+    if os.environ.get("MMH3_SMART_PREFREE", "1").strip().lower() in {"0", "false", "off", "no"}:
+        return _cuda_memory_gb()
+    _, before_free = _cuda_memory_gb()
+    _free_cached_models()
+    total, free = _cuda_memory_gb()
+    if free > before_free + 0.5:
+        LOGGER.info(
+            "[H3 director] 采样前已自动释放缓存模型：空闲显存 %.1fGB -> %.1fGB（MMH3_SMART_PREFREE=0 可关闭）",
+            before_free,
+            free,
+        )
+    return total, free
+
+
 def _trained_two_stage_dependency_report(route):
     try:
         import nodes as comfy_nodes
@@ -475,7 +517,7 @@ class MiniMaxH3DirectorPlus:
         smart_plan = None
         smart_vram = None
         if smart_mode:
-            smart_vram = _cuda_memory_gb()
+            smart_vram = _probe_vram_after_prefree()
             total_vram_gb, free_vram_gb = smart_vram
             seedvr2_report = _seedvr2_dependency_report()
             seedvr2_ready = seedvr2_report.get("ready", False)
@@ -558,7 +600,7 @@ class MiniMaxH3DirectorPlus:
         if request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS:
             resolved_two_stage_route = resolve_two_stage_route(request)
             if smart_vram is None:
-                total_vram_gb, free_vram_gb = _cuda_memory_gb()
+                total_vram_gb, free_vram_gb = _probe_vram_after_prefree()
             else:
                 total_vram_gb, free_vram_gb = smart_vram
             if total_vram_gb <= 0:
