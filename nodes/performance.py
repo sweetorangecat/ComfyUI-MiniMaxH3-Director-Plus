@@ -1262,6 +1262,7 @@ class MiniMaxH3AccelerationRouter:
     """Apply only acceleration assets compatible with the resolved backend."""
 
     COMMUNITY_LORA_MODES = ("全部自动叠加", "仅 U22 细节链", "全部关闭")
+    SECOND_STAGE_NOISE_MODES = ("注入新噪声（U22 同配方）", "不注入（旧行为）")
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -1278,6 +1279,13 @@ class MiniMaxH3AccelerationRouter:
                         "tooltip": "REF 二采链的社区 LoRA 叠加开关；仅 U22 细节链=关闭动作连续性/电影质感，全部关闭=只保留官方 turbo LoRA",
                     },
                 ),
+                "second_stage_noise": (
+                    list(cls.SECOND_STAGE_NOISE_MODES),
+                    {
+                        "default": "注入新噪声（U22 同配方）",
+                        "tooltip": "二采噪声：U22 在第二阶段按 split sigma 注入新噪声（默认，干净无编织纹）；不注入=旧行为，可能出编织纹/人脸漂移",
+                    },
+                ),
             },
         }
 
@@ -1286,6 +1294,7 @@ class MiniMaxH3AccelerationRouter:
     FUNCTION = "apply"
     CATEGORY = "MiniMax H3 导演台 Plus"
 
-    def apply(self, model, guide, community_loras="全部自动叠加"):
+    def apply(self, model, guide, community_loras="全部自动叠加", second_stage_noise="注入新噪声（U22 同配方）"):
         guide["community_lora_mode"] = community_loras
+        guide["second_stage_noise_mode"] = second_stage_noise
         return _apply_acceleration(model, guide)

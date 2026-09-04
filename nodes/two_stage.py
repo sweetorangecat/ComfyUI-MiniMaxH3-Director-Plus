@@ -362,10 +362,16 @@ class MiniMaxH3TwoStageSampler:
             )
             merged = _node_output(LTXVConcatAVLatent.execute(upscaled_video, audio_latent))
             merged_video_shape = _latent_shape(upscaled_video)
-            # Continue from the clean first-pass x0 latent.  Injecting a new
-            # random field here repaints the enlarged latent and was the
-            # source of the soft, grainy 1080p output reported in production.
-            second_noise = Noise_EmptyNoise()
+            # U22 验证配方：第二阶段按 split sigma 注入新的高斯噪声场
+            # （U22 中同一个 RandomNoise 节点同时喂两个采样器），对放大后的
+            # x0 做 SDEdit 式再采样。空噪声会让二采轨迹在高 sigma 处偏离
+            # 数据流形，实测表现为全画面编织纹和参考身份漂移。
+            noise_mode = guide.get("second_stage_noise_mode") or "注入新噪声（U22 同配方）"
+            if noise_mode == "不注入（旧行为）":
+                second_noise = Noise_EmptyNoise()
+            else:
+                second_noise = noise
+            LOGGER.info("[H3 two-stage] 第二阶段噪声模式=%s", noise_mode)
             split_callables = None
             if guide.get("two_stage_tiled", True):
                 try:

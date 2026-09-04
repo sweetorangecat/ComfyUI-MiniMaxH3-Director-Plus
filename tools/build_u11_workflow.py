@@ -1055,7 +1055,7 @@ def build_api_template():
             for index in range(1, 10)
         },
         "14": {"class_type": "MiniMaxH3ModelRouter", "inputs": {"guide": ["10", 0], "fl2va_model": ["1", 0], "ref2va_model": ["2", 0]}, "_meta": {"title": "API 模型路由"}},
-        "15": {"class_type": "MiniMaxH3AccelerationRouter", "inputs": {"model": ["14", 0], "guide": ["10", 0], "community_loras": "全部自动叠加"}, "_meta": {"title": "API 兼容加速"}},
+        "15": {"class_type": "MiniMaxH3AccelerationRouter", "inputs": {"model": ["14", 0], "guide": ["10", 0], "community_loras": "全部自动叠加", "second_stage_noise": "注入新噪声（U22 同配方）"}, "_meta": {"title": "API 兼容加速"}},
         "28": {"class_type": "MiniMaxH3PerformancePreset", "inputs": {"guide": ["10", 0], "acceleration_ready": ["15", 2]}, "_meta": {"title": "API 性能预设应用"}},
         "27": {"class_type": "MiniMaxH3FishVoiceBridge", "inputs": {"guide": ["10", 0], "reference_audio": ["13", 0]}, "_meta": {"title": "API Fish S2 音色桥接"}},
         "16": {"class_type": "MiniMaxH3DirectorPlusGuide", "inputs": {"clip": ["3", 0], "video_vae": ["4", 0], "audio_vae": ["5", 0], "guide": ["10", 0], "generated_voice_audio": ["27", 0]}, "_meta": {"title": "API H3 原生指南"}},

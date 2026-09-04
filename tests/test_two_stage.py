@@ -337,7 +337,8 @@ def test_trained_two_stage_preserves_audio_and_uses_fl_four_plus_four(monkeypatc
     assert stage_events == ["release", "upscale"]
     assert torch.equal(calls[0][2], sigmas[:5])
     assert torch.equal(calls[1][2], sigmas[4:])
-    assert isinstance(calls[1][0], EmptyNoise)
+    assert isinstance(calls[1][0], FakeNoise)
+    assert calls[1][0].seed == 9, "默认应对齐 U22 配方：第二阶段注入真实随机噪声"
     assert calls[1][1].model_patcher is second_model
     second_video, second_audio = calls[1][3]["samples"].unbind()
     assert second_video.shape == (1, 24, 5, 6, 6)
@@ -555,7 +556,7 @@ def test_tiled_second_stage_routes_through_split_upscale(monkeypatch):
     assert cond_payload == {"prompt": "keep", "model_conds": {}}
     assert "cross_attn" not in cond_payload and "uuid" not in cond_payload
     assert call["negative"] is None
-    assert call["noise"].__class__.__name__ == "EmptyNoise"
+    assert call["noise"].__class__.__name__ == "FakeNoise"
     assert torch.equal(call["sigmas"], sigmas[4:])
     assert call["cfg"] == 1.0
     assert call["temporal_split_param"] == {"p": (141, 39, 0.999, 39, 24)}
@@ -593,3 +594,22 @@ def test_full_frame_second_stage_when_tiled_disabled_in_guide(monkeypatch):
 
     assert len(events["sampler"]) == 2
     assert guide["two_stage_second_stage_path"] == "full_frame"
+
+
+def test_legacy_empty_noise_mode_still_available(monkeypatch):
+    holder = {}
+
+    def fake_split_upscale(**kwargs):
+        holder["call"] = kwargs
+        return types.SimpleNamespace(result=(kwargs["latent"],))
+
+    events, result, guide, sigmas, positive, second_model, original_audio = (
+        _run_two_stage_with_fakes(
+            monkeypatch,
+            split_callables=(fake_split_upscale, None, None),
+            guide_extra={"second_stage_noise_mode": "不注入（旧行为）"},
+        )
+    )
+
+    assert holder["call"]["noise"].__class__.__name__ == "EmptyNoise"
+    assert guide["two_stage_second_stage_path"] == "mmh3_split_upscale"

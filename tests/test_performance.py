@@ -1913,3 +1913,36 @@ def test_ref_two_stage_community_lora_widget_switch(monkeypatch):
         "动作i连续性修复LORA.safetensors",
         "MinimaxH3真实电影质感V1.0.safetensors",
     ]
+
+
+def test_acceleration_router_records_second_stage_noise_mode(monkeypatch):
+    class FakeSageNode:
+        def execute(self, model):
+            return (f"{model}:sage",)
+
+    monkeypatch.delenv("MMH3_TWO_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_SECOND_STAGE_SAGE", raising=False)
+    monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
+    monkeypatch.delenv("MMH3_EXTRA_LORAS", raising=False)
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
+    )
+    monkeypatch.setattr(
+        performance, "_load_lightx2v_lora", lambda model, name, strength=1.0, low_vram=False: model
+    )
+    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: FakeSageNode)
+
+    guide = {
+        "mode": "REF2VA",
+        "performance_preset": "quality_two_stage",
+        "resolved_backend": "ref2va_model",
+        "voice_mode": "h3_reference",
+    }
+    MiniMaxH3AccelerationRouter().apply("model", guide)
+    assert guide["second_stage_noise_mode"] == "注入新噪声（U22 同配方）"
+
+    guide_legacy = dict(guide)
+    MiniMaxH3AccelerationRouter().apply(
+        "model", guide_legacy, second_stage_noise="不注入（旧行为）"
+    )
+    assert guide_legacy["second_stage_noise_mode"] == "不注入（旧行为）"

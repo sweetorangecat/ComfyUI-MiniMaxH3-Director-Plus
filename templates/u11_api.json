@@ -283,7 +283,8 @@
         "10",
         0
       ],
-      "community_loras": "全部自动叠加"
+      "community_loras": "全部自动叠加",
+      "second_stage_noise": "注入新噪声（U22 同配方）"
     },
     "_meta": {
       "title": "API 兼容加速"
