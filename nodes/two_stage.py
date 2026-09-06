@@ -394,6 +394,37 @@ def run_tiled_second_stage(
     return _node_output(result, 0)
 
 
+def run_tiled_second_stage_with_retry(split_callables, *, guide, **kwargs):
+    """Retry CUDA allocation failures with smaller tiles, retaining all samples."""
+    current = dict(guide)
+    retries = 0
+    while True:
+        try:
+            result = run_tiled_second_stage(split_callables, guide=current, **kwargs)
+            guide.update({key: value for key, value in current.items() if key.startswith("split_")})
+            guide["split_oom_retries"] = retries
+            return result
+        except torch.cuda.OutOfMemoryError as exc:
+            tile = max(int(current.get("split_tile_width", 512)), int(current.get("split_tile_height", 512)))
+            chunk = int(current.get("split_chunk_frames", 141))
+            if tile <= 256 and chunk <= 39:
+                raise torch.cuda.OutOfMemoryError(
+                    "二采已缩小至最小分块仍显存不足；已停止，不降低分辨率或截短视频。"
+                ) from None
+            # Drop the failed call's frame before releasing its CUDA tensors.
+            exc.__traceback__ = None
+            next_tile, next_chunk, overlap = (512, 73, 22) if tile > 512 else (256, 39, 5)
+            current.update(
+                split_tile_width=min(tile, next_tile), split_tile_height=min(tile, next_tile),
+                split_chunk_frames=min(chunk, next_chunk), split_temporal_overlap_frames=overlap,
+                split_motion_anchor_frames=str(overlap),
+            )
+            retries += 1
+        _release_between_stages()
+        LOGGER.warning("[H3 two-stage] CUDA OOM，保留网格、时长、seed 重试分块 %sx%s / %s 帧",
+                       current["split_tile_width"], current["split_tile_height"], current["split_chunk_frames"])
+
+
 class MiniMaxH3TwoStageSampler:
     """Run FL 4+4 or Reference 4+5 while preserving pass-one audio."""
 
@@ -444,6 +475,10 @@ class MiniMaxH3TwoStageSampler:
 
         if second_model is None:
             raise ValueError("训练型二采缺少第二阶段模型，请更新并重新载入 U11 工作流")
+        if guide.get("two_stage_tiling_required"):
+            split_nodes = resolve_split_upscale_callables()
+            if not guide.get("two_stage_tiled", True) or not split_nodes or not all(callable(fn) for fn in split_nodes):
+                raise RuntimeError("当前路线必须分块二采，需要完整的 MMH3SplitUpscale 时空参数节点。")
         from comfy_extras.nodes_custom_sampler import Noise_EmptyNoise
         split_step = int(guide.get("two_stage_split_step", 4))
         scale = float(guide.get("two_stage_scale", 1.5))
@@ -535,15 +570,24 @@ class MiniMaxH3TwoStageSampler:
                 try:
                     split_callables = resolve_split_upscale_callables()
                 except RuntimeError as exc:
+                    if guide.get("two_stage_tiling_required"):
+                        raise RuntimeError(
+                            "当前路线需要完整的 MMH3SplitUpscale 时空参数节点，缺失时不会退回整帧二采。"
+                        ) from exc
                     LOGGER.warning(
                         "[H3 two-stage] MMH3SplitUpscale 不可用，回退整帧二采: %s", exc
+                    )
+                if split_callables is None and guide.get("two_stage_tiling_required"):
+                    raise RuntimeError(
+                        "当前路线需要 MMH3SplitUpscale、TemporalSplitParam、SpatialSplitParam，"
+                        "请安装或更新 Comfyui_Minimax_h3_latent_Upscaler。"
                     )
             if split_callables is not None:
                 LOGGER.info(
                     "[H3 two-stage] 第二阶段使用 MMH3SplitUpscale 时空分块采样，显存峰值按瓦片计"
                 )
                 second_started = time.perf_counter()
-                final_denoised = run_tiled_second_stage(
+                final_denoised = run_tiled_second_stage_with_retry(
                     split_callables,
                     model=second_model,
                     guider=guider,

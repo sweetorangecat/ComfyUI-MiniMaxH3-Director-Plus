@@ -1,5 +1,7 @@
 # API 说明
 
+2026-09-06：默认 `performance_preset` 显示值为 `智能画质（自动适配）`，`免费智能 1080p` / `smart_free_1080p` 继续兼容，无新增必填入参。标准 QHD 自动规划 4–15 秒路线，实际 `postprocess_path` 可为 `balanced_fhd_downscale`（复用等比裁切导出，`qhd_direct=true`）或 `video_sr`。`two_stage_tiling_required` 表示必须完整分块，`split_oom_retries` 记录二采 OOM 重试次数。预算和硬件验证边界见 [交付说明](U11清晰度增强版交付说明.md)。
+
 ## 简化接口
 
 接口前缀为 `/h3-director-plus`，返回 JSON，错误统一为 `{ "ok": false, "error": { "code": "...", "message": "中文说明" } }`。

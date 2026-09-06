@@ -483,6 +483,7 @@ def _iter_video_sr_frame_chunks(
     _release_comfy_models_before_video_sr()
     upscale_fn, dit_loader_fn, vae_loader_fn = callables
     plan = dict(plan or {})
+    images = _center_crop_batch_to_target_aspect(images, target_width, target_height)
     dit_config = _unwrap_node_result(
         dit_loader_fn(
             model=plan.get("dit_model"),
@@ -521,7 +522,8 @@ def _iter_video_sr_frame_chunks(
     step = max(1, int(max_chunk_frames))
     for start in range(0, int(result.shape[0]), step):
         yield _resize_cpu_chunk(
-            result[start:start + step], int(target_width), int(target_height),
+            _center_crop_batch_to_target_aspect(result[start:start + step], target_width, target_height),
+            int(target_width), int(target_height),
             method="lanczos",
         ).clamp(0.0, 1.0)
 

@@ -308,10 +308,8 @@ def _upscaler_kwargs(function, video_latent, scale, model_name=None, precision=N
 def resolve_split_upscale_callables(node_mappings=None):
     """Resolve the MMH3 tiled second-stage chain when the plugin is installed.
 
-    Returns ``(upscale, temporal, spatial)`` callables, with the two
-    parameter-node callables set to ``None`` when only the main node is
-    registered. Returns ``None`` when ``MMH3SplitUpscale`` is absent so the
-    caller can fall back to the single-pass full-frame second sampler.
+    Returns all three callables required for a bounded tiled pass. Missing
+    parameter nodes are treated as unavailable.
     """
     mappings = dict(node_mappings) if node_mappings is not None else _comfy_node_mappings()
     node_class = mappings.get(SPLIT_UPSCALE_NODE_ID)
@@ -330,6 +328,8 @@ def resolve_split_upscale_callables(node_mappings=None):
         if spatial_class is not None
         else None
     )
+    if temporal is None or spatial is None:
+        return None
     return upscale, temporal, spatial
 
 

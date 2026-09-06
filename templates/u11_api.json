@@ -63,7 +63,7 @@
       "seed": 0,
       "voice_mode": "none",
       "ref_image_size": "match",
-      "performance_preset": "免费智能 1080p",
+      "performance_preset": "智能画质（自动适配）",
       "fish_model_path": "s2-pro-w4a16 (auto download)",
       "timeline_data": "{\"version\":1,\"items\":[]}",
       "target_dialogue": "",

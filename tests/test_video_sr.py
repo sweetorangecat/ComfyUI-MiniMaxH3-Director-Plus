@@ -300,3 +300,23 @@ def test_prepare_postprocess_releases_h3_before_video_sr(monkeypatch):
         {"performance_preset": "low_vram_two_stage"}, "video_sr"
     )
     assert released == [True]
+
+
+def test_seedvr2_crops_source_and_aligned_output_without_stretching(monkeypatch):
+    import nodes.stream_output as output
+    images = torch.arange(3 * 22 * 40 * 3, dtype=torch.float32).reshape(3, 22, 40, 3)
+    captured = {}
+    aligned = torch.zeros(3, 44, 80, 3)
+    def upscale(**kwargs):
+        captured["source"] = kwargs["image"]
+        return (aligned,)
+    def resize(batch, width, height, method):
+        captured["resize"] = batch
+        return torch.zeros(len(batch), height, width, 3)
+    monkeypatch.setattr(output, "resolve_seedvr2_callables", lambda: (upscale, lambda **kw: ({},), lambda **kw: ({},)))
+    monkeypatch.setattr(output, "_release_comfy_models_before_video_sr", lambda: None)
+    monkeypatch.setattr(output, "_resize_cpu_chunk", resize)
+    result = torch.cat(list(output._iter_video_sr_frame_chunks(images, 64, 36)))
+    assert result.shape == (3, 36, 64, 3)
+    assert torch.equal(captured["source"], images[:, :, 1:39, :])
+    assert captured["resize"].shape == (3, 44, 78, 3)

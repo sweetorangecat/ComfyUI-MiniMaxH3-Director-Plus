@@ -19,7 +19,8 @@ PUBLIC_API_KEYS = (
     "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness",
 )
 PERFORMANCE_PRESETS = {
-    "免费智能 1080p": "smart_free_1080p",
+    "智能画质（自动适配）": "smart_free_1080p",
+    "免费智能 1080p": "smart_free_1080p",  # legacy alias
     "稳定质量": "quality",
     "质量优先加速": "quality_sage",
     "质量优先二采样": "quality_two_stage",
@@ -46,7 +47,7 @@ PERFORMANCE_PRESETS = {
 }
 
 USER_PERFORMANCE_PRESET_LABELS = (
-    "免费智能 1080p",
+    "智能画质（自动适配）",
     "稳定质量",
     "质量优先加速",
     "质量优先二采样",
@@ -58,10 +59,11 @@ USER_PERFORMANCE_PRESET_LABELS = (
     "低显存",
     "低显存二采",
     "自定义",
+    "免费智能 1080p",  # Accept saved raw ComfyUI combo values.
 )
 
 PERFORMANCE_PRESET_LABELS_BY_KEY = {
-    "smart_free_1080p": "免费智能 1080p",
+    "smart_free_1080p": "智能画质（自动适配）",
     "quality": "稳定质量",
     "quality_sage": "质量优先加速",
     "quality_two_stage": "质量优先二采样",
@@ -91,7 +93,7 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
     "endpoint": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
     "reference": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom"),
 }
-# The public selector now shows exactly one preset per route: 免费智能 1080p.
+# The public selector now shows exactly one preset per route: 智能画质（自动适配）.
 # It auto-resolves to the best verified path for the device — trained latent
 # two-stage direct 1080p (U22 8+4 recipe) when VRAM and dependencies allow,
 # otherwise 20-step SageAttention + SeedVR2/AI upscale, with a safe low-VRAM
@@ -488,7 +490,7 @@ def public_schema():
             "performance_preset": {
                 "中文名称": "性能预设",
                 "enum": list(USER_PERFORMANCE_PRESET_LABELS),
-                "default": "免费智能 1080p",
+                "default": "智能画质（自动适配）",
                 "allowed_by_route": {
                     "T2VA": labels_for("T2VA"),
                     "I2VA / FL2VA / L2VA": labels_for("I2VA"),
@@ -503,8 +505,9 @@ def public_schema():
                 "中文名称": "最终输出后处理模式",
                 "enum": list(POSTPROCESS_MODES),
                 "default": "video_sr",
-                "description": "导演台只展示一条最清晰路线：SeedVR2 扩散视频超分（7B sharp 优先，时间一致性最好）；未安装 SeedVR2 时自动回退通用 AI 超分并给出警告。原生直出、Lanczos、RTX VSR 等历史值仅为旧工作流兼容保留。",
+                "description": "智能画质按当前显存与目标尺寸自动选择二采直出或 SeedVR2。2K 小网格及 4K 路线缺少 SeedVR2 时提前报错；1080p 兼容路线保留通用 AI 超分。原生直出、Lanczos、RTX VSR 等历史值继续兼容。",
                 "allowed_by_performance": {
+                    "智能画质（自动适配）": ["video_sr"],
                     "免费智能 1080p": ["video_sr"],
                     "质量优先二采样": ["video_sr"],
                     "低显存二采": ["ai_upscale"],

@@ -12,8 +12,7 @@ LOW_VRAM_TWO_STAGE_MAX_DURATION = 6
 BALANCED_FHD_LANDSCAPE = (1920, 1080)
 # U22-verified recipe: 0.5 MP first pass (960x544 / 544x960), learned 2.0x
 # latent upscale to 1920x1088, then a near-1:1 Lanczos downscale to FHD.
-# The official H3 latent upscaler is trained at 2x; the previous 1.5x off-ratio
-# grid (1344x768 -> 2016x1152) was both slower and visibly softer.
+# The upstream model supports several trained scales, including 1.5x and 2x.
 BALANCED_FHD_FIRST_LANDSCAPE = (960, 544)
 BALANCED_FHD_SECOND_SCALE = 2.0
 
@@ -48,6 +47,7 @@ def plan_two_stage_dimensions(
     total_vram_gb,
     free_vram_gb,
     profile="quality",
+    adaptive=False,
 ):
     """Plan one safe first/second grid without pretending it is native 2K/4K."""
     final_width = int(final_width)
@@ -62,6 +62,38 @@ def plan_two_stage_dimensions(
         raise ValueError("视频时长必须在 4 到 15 秒之间")
     if profile not in {"quality", "low_vram"}:
         raise ValueError(f"未知二采显存预算档位：{profile}")
+    if adaptive:
+        if not (math.isfinite(total) and math.isfinite(free)):
+            return _rejected("显存信息不可用，无法安全规划自适应二采", 0, 0, "unknown")
+        adaptive_target = profile == "quality" and (final_width, final_height) in {
+            (2560, 1440), (1440, 2560),
+        }
+        if adaptive_target:
+            if total >= 28.0 and free >= 24.0:
+                first_width, first_height = ((1280, 736) if final_width >= final_height else (736, 1280))
+                second_width, second_height = first_width * 2, first_height * 2
+                tier, direct = "28gb_plus_qhd", True
+            elif total >= 20.0 and free >= 18.0:
+                first_width, first_height = ((960, 544) if final_width >= final_height else (544, 960))
+                second_width, second_height = first_width * 2, first_height * 2
+                tier, direct = "16_24gb_qhd_tiled", False
+            else:
+                return _rejected("当前空闲显存不足以安全执行自适应 2K 二采", 2560, 1440, "qhd_rejected")
+            return {
+                "allowed": True, "reason": "自适应 2K 训练型 latent 二采预算通过",
+                "vram_safety_tier": tier, "first_stage_width": first_width,
+                "first_stage_height": first_height, "second_stage_width": second_width,
+                "second_stage_height": second_height,
+                "first_stage_megapixels": first_width * first_height / 1_000_000.0,
+                "second_stage_megapixels": second_width * second_height / 1_000_000.0,
+                "final_scale_x": final_width / second_width, "final_scale_y": final_height / second_height,
+                "final_scale": max(final_width / second_width, final_height / second_height),
+                "max_final_width": 2560, "max_final_height": 1440,
+                "quality_basis": "H3 神经 latent 二采", "budget_profile": profile,
+                "qhd_direct": direct, "two_stage_tiling_required": True,
+                "balanced_fhd_supersample": False, "conservative_fhd_supersample": False,
+                "max_final_vsr_scale": None,
+            }
 
     if profile == "low_vram":
         max_width, max_height = 1920, 1080
@@ -141,18 +173,19 @@ def plan_two_stage_dimensions(
         tier = "16_24gb_fhd"
         max_width, max_height = 1920, 1080
     elif total < 28.0:
-        if duration > 8 or final_width > 2560 or final_height > 1440:
+        if duration > 8:
+            return _rejected("短视频2K传统二采最多支持 8 秒；15 秒请使用智能自适应分块链路", 2560, 1440, "16_24gb")
+        if final_width > 2560 or final_height > 1440:
             return _rejected(
-                "当前显存档位只开放8秒以内的短视频2K训练型二采",
+                "当前显存档位最高开放 2K 训练型二采",
                 2560,
                 1440,
                 "16_24gb",
             )
-        else:
-            required_free = 18.0
-            first_mp = 0.50
-            tier = "16_24gb"
-            max_width, max_height = 2560, 1440
+        required_free = 18.0
+        first_mp = 0.50
+        tier = "16_24gb"
+        max_width, max_height = 2560, 1440
     else:
         required_free = 24.0 if duration >= 12 else 21.0 if duration >= 8 else 18.0
         first_mp = 0.90

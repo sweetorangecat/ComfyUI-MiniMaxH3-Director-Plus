@@ -382,7 +382,7 @@ def test_resolve_split_upscale_callables_returns_none_without_node():
     assert resolve_split_upscale_callables({"UnrelatedNode": object()}) is None
 
 
-def test_resolve_split_upscale_callables_resolves_main_node_with_optional_params():
+def test_resolve_split_upscale_callables_rejects_missing_param_nodes():
     from nodes.two_stage_assets import resolve_split_upscale_callables
 
     class FakeSplitUpscale:
@@ -390,13 +390,11 @@ def test_resolve_split_upscale_callables_resolves_main_node_with_optional_params
         def execute(cls, **kwargs):
             return kwargs
 
-    upscale, temporal, spatial = resolve_split_upscale_callables(
+    result = resolve_split_upscale_callables(
         {"MMH3SplitUpscale": FakeSplitUpscale}
     )
 
-    assert callable(upscale)
-    assert temporal is None
-    assert spatial is None
+    assert result is None
 
 
 def test_resolve_split_upscale_callables_resolves_param_nodes_when_present():
@@ -629,6 +627,50 @@ def test_full_frame_second_stage_when_tiled_disabled_in_guide(monkeypatch):
 
     assert len(events["sampler"]) == 2
     assert guide["two_stage_second_stage_path"] == "full_frame"
+
+
+@pytest.mark.parametrize("callables", [None, (lambda **kw: None, None, None)])
+def test_required_tiling_fails_before_first_pass(monkeypatch, callables):
+    monkeypatch.setattr(two_stage_module, "split_sigmas_at_step", lambda *args: (torch.ones(3), torch.ones(2)))
+    def unexpected_upscale(*args):
+        pytest.fail("Missing split nodes must fail before any model work")
+    monkeypatch.setattr(two_stage_module, "_log_stage_perf", unexpected_upscale)
+    with pytest.raises(RuntimeError, match="分块"):
+        _run_two_stage_with_fakes(monkeypatch, split_callables=callables,
+                                 guide_extra={"two_stage_tiling_required": True})
+
+
+def test_tiled_oom_retries_only_tiles_preserving_sampling_inputs(monkeypatch):
+    calls = []
+    def tiled(split, **kwargs):
+        calls.append((dict(kwargs["guide"]), kwargs["latent"], kwargs["noise"], kwargs["sigmas"]))
+        if len(calls) < 3:
+            raise torch.cuda.OutOfMemoryError("test allocation")
+        return kwargs["latent"]
+    monkeypatch.setattr(two_stage_module, "run_tiled_second_stage", tiled)
+    monkeypatch.setattr(two_stage_module, "_release_between_stages", lambda: None)
+    guide = {"split_tile_width": 768, "split_tile_height": 768, "split_chunk_frames": 141}
+    latent, noise, sigmas = object(), object(), object()
+    result = two_stage_module.run_tiled_second_stage_with_retry(
+        (object(), object(), object()), guide=guide, latent=latent, noise=noise, sigmas=sigmas)
+    assert result is latent
+    assert [call[0]["split_tile_width"] for call in calls] == [768, 512, 256]
+    assert [call[0]["split_chunk_frames"] for call in calls] == [141, 73, 39]
+    assert all(call[1:] == (latent, noise, sigmas) for call in calls)
+    assert guide["split_oom_retries"] == 2
+
+
+@pytest.mark.parametrize("error", [ValueError("bad input"), torch.cuda.OutOfMemoryError("full")])
+def test_tiled_retry_is_bounded_and_does_not_swallow_other_errors(monkeypatch, error):
+    calls = []
+    def tiled(*args, **kwargs):
+        calls.append(1)
+        raise error
+    monkeypatch.setattr(two_stage_module, "run_tiled_second_stage", tiled)
+    monkeypatch.setattr(two_stage_module, "_release_between_stages", lambda: None)
+    with pytest.raises(type(error)):
+        two_stage_module.run_tiled_second_stage_with_retry(None, guide={})
+    assert len(calls) == (2 if isinstance(error, torch.cuda.OutOfMemoryError) else 1)
 
 
 def test_legacy_empty_noise_mode_still_available(monkeypatch):

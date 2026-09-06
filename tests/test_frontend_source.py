@@ -134,8 +134,8 @@ def test_ui_exposes_separate_low_vram_two_stage_without_changing_layout():
 def test_ui_exposes_route_isolated_quality_presets():
     text = source()
     assert '"免费智能 1080p"' in text
-    assert 't2va: ["免费智能 1080p"' in text
-    assert 'reference: ["免费智能 1080p"' in text
+    assert 't2va: ["智能画质（自动适配）"' in text
+    assert 'reference: ["智能画质（自动适配）"' in text
     assert "高清快速（v4 8步）" in text
     assert "参考高清（原生20步）" in text
     assert "参考极速（官方4步）" in text
@@ -149,7 +149,7 @@ def test_ui_locks_quality_two_stage_to_video_sr():
     text = source()
     assert "POSTPROCESS_MODES_BY_PERFORMANCE" in text
     assert '"质量优先二采样": [["video_sr"' in text
-    assert '"免费智能 1080p": [["video_sr"' in text
+    assert '"智能画质（自动适配）": [["video_sr"' in text
     assert "allowedPostprocessModes(preset)" in text
     assert "质量优先二采样已锁定 SeedVR2 视频超分" in text
 
@@ -178,7 +178,7 @@ def test_ui_locks_low_vram_two_stage_to_six_second_fhd_ai_x2_reconstruction():
 def test_ui_makes_smart_free_1080p_fully_automatic():
     text = source()
 
-    assert '"免费智能 1080p": [["video_sr"' in text
+    assert '"智能画质（自动适配）": [["video_sr"' in text
     assert 'preset === SMART_PRESET' in text
     assert 'setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false)' in text
     assert 'const SMART_UPSCALE_MODEL = "auto"' in text
@@ -191,10 +191,8 @@ def test_ui_smart_resolution_allows_1080p_2k_4k_only():
     text = source()
 
     assert 'const SMART_HIGH_RESOLUTIONS = ["2K QHD", "4K UHD"]' in text
-    assert 'preset === SMART_PRESET && !SMART_RESOLUTIONS.includes(resolutionPreset)' in text
-    assert '"1080p FHD（智能直出）"' in text
-    assert '"2K QHD（二采 + SeedVR2）"' in text
-    assert '"4K UHD（二采 + SeedVR2）"' in text
+    assert '(preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) && !SMART_RESOLUTIONS.includes(resolutionPreset)' in text
+    assert '[["1080p FHD", "1080p FHD"], ["2K QHD", "2K QHD"], ["4K UHD", "4K UHD"]]' in text
     assert "if (preset === SMART_PRESET) resolutionControl" not in text
     assert '!SMART_HIGH_RESOLUTIONS.includes(preset)) return smart1080pTarget' in text
     assert 'performancePreset === SMART_PRESET' in text
@@ -262,9 +260,9 @@ def test_frontend_filters_performance_presets_by_mode_and_voice():
 
 def test_frontend_exposes_curated_performance_presets_per_route():
     text = source()
-    assert 't2va: ["免费智能 1080p"]' in text
-    assert 'endpoint: ["免费智能 1080p"]' in text
-    assert 'reference: ["免费智能 1080p"]' in text
+    assert 't2va: ["智能画质（自动适配）"]' in text
+    assert 'endpoint: ["智能画质（自动适配）"]' in text
+    assert 'reference: ["智能画质（自动适配）"]' in text
 
 
 def test_ui_keeps_audio_lane_for_all_reference_compatible_modes():

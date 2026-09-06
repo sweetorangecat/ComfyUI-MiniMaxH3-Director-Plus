@@ -19,7 +19,7 @@ from .schema import (
     normalize_request,
 )
 from .smart_1080p import SMART_PRESET, resolve_smart_1080p_plan, smart_1080p_target
-from .two_stage_assets import dependency_report, resolve_two_stage_route
+from .two_stage_assets import dependency_report, resolve_two_stage_route, resolve_split_upscale_callables
 from .video_sr import resolve_seedvr2_plan, seedvr2_dependency_report
 from .voice_guard import analyze_voice_reference
 from .upscale import (
@@ -258,7 +258,7 @@ class MiniMaxH3DirectorPlus:
                 "voice_mode": (["none", "h3_reference", "fish_lock"], {"default": "none", "tooltip": "无音色 / H3原生参考 / Fish高级锁定"}),
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
-                "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "免费智能 1080p", "tooltip": "性能预设；默认本地免费智能 1080p"}),
+                "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "智能画质（自动适配）", "tooltip": "性能预设；按显存、分辨率与时长自动选择后台链路"}),
                 "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"], {"default": "video_sr", "tooltip": "推荐 SeedVR2 扩散视频超分（7B sharp 优先，未装自动回退通用 AI 超分）；其余为兼容旧工作流保留"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
                 "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "auto", "tooltip": "通用 AI 超分模型；默认 auto 按实际倍率自动选择 X2/X4"}),
@@ -611,7 +611,7 @@ class MiniMaxH3DirectorPlus:
                 total_vram_gb, free_vram_gb = smart_vram
             if total_vram_gb <= 0:
                 raise RequestError("无法读取当前 GPU 显存，已阻止训练型二采启动")
-            two_stage_plan = plan_two_stage_dimensions(
+            two_stage_plan = (smart_plan or {}).get("dimension_plan") or plan_two_stage_dimensions(
                 requested_width,
                 requested_height,
                 duration,
@@ -637,12 +637,15 @@ class MiniMaxH3DirectorPlus:
             )
             required_assets = list(dependencies.get("required_assets", []))
             second_stage_mp = float(two_stage_plan["second_stage_megapixels"])
-            two_stage_tiled = not (
+            two_stage_tiled = bool(two_stage_plan.get("two_stage_tiling_required", False)) or not (
                 free_vram_gb >= FULL_FRAME_SECOND_STAGE_MIN_FREE_GB
                 and second_stage_mp <= FULL_FRAME_SECOND_STAGE_MAX_MP
                 and int(duration) <= FULL_FRAME_SECOND_STAGE_MAX_DURATION
             )
             if two_stage_tiled:
+                split_nodes = resolve_split_upscale_callables()
+                if not split_nodes or not all(callable(fn) for fn in split_nodes):
+                    raise RequestError("分块二采需要完整的 MMH3SplitUpscale 及时间、空间参数节点，请更新 latent 放大插件。")
                 request["warnings"].append(
                     "第二阶段使用时空分块重绘以控制显存峰值（空闲 "
                     f"{free_vram_gb:.1f}GB / 二采网格 {second_stage_mp:.2f}MP / {int(duration)} 秒）；"
@@ -672,6 +675,7 @@ class MiniMaxH3DirectorPlus:
         if two_stage_plan is not None and (
             two_stage_plan.get("balanced_fhd_supersample")
             or two_stage_plan.get("conservative_fhd_supersample")
+            or two_stage_plan.get("qhd_direct")
         ):
             postprocess_path = "balanced_fhd_downscale"
         elif requested_width == postprocess_source_width and requested_height == postprocess_source_height:
@@ -689,7 +693,9 @@ class MiniMaxH3DirectorPlus:
         request["rtx_deblur_mode"] = "off"
 
         if two_stage_plan is not None and postprocess_path == "balanced_fhd_downscale":
-            if two_stage_plan.get("conservative_fhd_supersample"):
+            if two_stage_plan.get("qhd_direct"):
+                fhd_warning_prefix = "2K 分块二采直出已启用："
+            elif two_stage_plan.get("conservative_fhd_supersample"):
                 fhd_warning_prefix = "1080p 保守 FHD 二采已启用："
             else:
                 # Keep the original label stable for existing UI/API consumers.
@@ -699,7 +705,7 @@ class MiniMaxH3DirectorPlus:
                 f"首采 {native_width}×{native_height}，神经二采 "
                 f"{two_stage_plan['second_stage_width']}×{two_stage_plan['second_stage_height']}，"
                 f"最终中心等比裁切并 Lanczos 缩小到 {requested_width}×{requested_height}；"
-                "保留 4+4/4+5 加速和原始时长，不执行 RTX VSR。"
+                "保留请求时长，不执行额外的视频超分。"
             )
         elif two_stage_plan is not None and postprocess_path == "rtx_vsr":
             request["warnings"].append(
@@ -827,7 +833,7 @@ class MiniMaxH3DirectorPlus:
                     "realesrgan_x2plus.pth",
                 }:
                     raise ValueError(
-                        "免费智能 1080p 只允许 4x-UltraSharpV2.safetensors 或旧版 RealESRGAN_x2plus.pth，"
+                        "智能画质只允许 4x-UltraSharpV2.safetensors 或旧版 RealESRGAN_x2plus.pth，"
                         f"当前解析为 {request['ai_upscale_model']}"
                     )
                 required_assets.append(request["ai_upscale_model"])
@@ -915,6 +921,13 @@ class MiniMaxH3DirectorPlus:
             "native_cap_applied": bool(native_capped),
             "two_stage_image_scale": TWO_STAGE_IMAGE_SCALE,
             "two_stage_tiled": bool(two_stage_tiled),
+            "two_stage_tiling_required": bool(two_stage_plan and two_stage_tiled),
+            "split_tile_width": 768 if smart_vram and smart_vram[1] >= 24 else 512,
+            "split_tile_height": 768 if smart_vram and smart_vram[1] >= 24 else 512,
+            "split_chunk_frames": 141 if smart_vram and smart_vram[1] >= 24 else 73,
+            "split_temporal_overlap_frames": 39 if smart_vram and smart_vram[1] >= 24 else 22,
+            "split_motion_anchor_frames": "39" if smart_vram and smart_vram[1] >= 24 else "22",
+            "qhd_direct": bool(two_stage_plan and two_stage_plan.get("qhd_direct")),
             "resolved_two_stage_route": resolved_two_stage_route,
             "first_stage_width": int(native_width),
             "first_stage_height": int(native_height),

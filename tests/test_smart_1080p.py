@@ -147,7 +147,7 @@ def test_public_constants_match_smart_free_contract():
     assert LOW_VRAM_TOTAL_GB == 16.0
 
 
-def test_smart_2k_target_routes_two_stage_plus_seedvr2_chain():
+def test_smart_2k_target_routes_direct_at_high_free_vram():
     plan = resolve_smart_1080p_plan(
         "fl2va_model", 5, 32, 29,
         seedvr2_ready=True, two_stage_ready=True,
@@ -158,7 +158,7 @@ def test_smart_2k_target_routes_two_stage_plus_seedvr2_chain():
     assert plan["two_stage_route"] == "trained_latent_fl"
     assert plan["postprocess_mode"] == "video_sr"
     assert "2560×1440" in plan["warning"]
-    assert "SeedVR2" in plan["warning"]
+    assert plan["dimension_plan"]["qhd_direct"] is True
 
 
 def test_smart_2k_reference_target_uses_trained_latent_ref():
@@ -218,3 +218,33 @@ def test_exact_fhd_target_keeps_direct_two_stage_without_seedvr2():
 
     assert plan["performance_preset"] == "quality_two_stage"
     assert plan["postprocess_mode"] == "ai_upscale"
+
+
+def test_smart_2k_15s_mid_vram_allows_slow_tiled_quality_route():
+    plan = resolve_smart_1080p_plan(
+        "fl2va_model", 15, 24, 21,
+        seedvr2_ready=True, two_stage_ready=True,
+        target_width=2560, target_height=1440,
+    )
+    assert plan["performance_preset"] == "quality_two_stage"
+    assert plan["two_stage_route"] == "trained_latent_fl"
+    assert plan["max_duration"] == 15
+    assert plan["dimension_plan"]["two_stage_tiling_required"] is True
+    assert plan["dimension_plan"]["qhd_direct"] is False
+
+
+def test_smart_direct_qhd_does_not_require_seedvr2():
+    plan = resolve_smart_1080p_plan(
+        "ref2va_model", 15, 32, 29, two_stage_ready=True,
+        seedvr2_ready=False, target_width=2560, target_height=1440,
+    )
+    assert plan["dimension_plan"]["qhd_direct"] is True
+    assert plan["performance_preset"] == "quality_two_stage"
+
+
+def test_smart_fallback_qhd_still_requires_seedvr2():
+    with pytest.raises(RequestError, match="SeedVR2"):
+        resolve_smart_1080p_plan(
+            "ref2va_model", 15, 24, 21, two_stage_ready=True,
+            seedvr2_ready=False, target_width=2560, target_height=1440,
+        )

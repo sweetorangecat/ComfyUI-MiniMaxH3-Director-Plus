@@ -319,3 +319,46 @@ def test_small_final_target_caps_neural_second_stage_instead_of_downscaling():
     assert (plan["first_stage_width"], plan["first_stage_height"]) == (896, 512)
     assert (plan["second_stage_width"], plan["second_stage_height"]) == (1344, 768)
     assert plan["final_scale"] == pytest.approx(1.0)
+
+
+def test_24gb_15s_2k_uses_slow_tiled_quality_budget():
+    plan = plan_two_stage_dimensions(
+        2560, 1440, 15,
+        total_vram_gb=24, free_vram_gb=21,
+        adaptive=True,
+    )
+    assert plan["allowed"] is True
+    assert (plan["first_stage_width"], plan["first_stage_height"]) == (960, 544)
+    assert (plan["second_stage_width"], plan["second_stage_height"]) == (1920, 1088)
+    assert plan["qhd_direct"] is False
+    assert plan["two_stage_tiling_required"] is True
+
+
+@pytest.mark.parametrize("duration", [4, 8, 15])
+@pytest.mark.parametrize("portrait", [False, True])
+def test_adaptive_qhd_reaches_target_with_two_times_latent(duration, portrait):
+    target = (1440, 2560) if portrait else (2560, 1440)
+    plan = plan_two_stage_dimensions(*target, duration, 32, 29, adaptive=True)
+    first = (736, 1280) if portrait else (1280, 736)
+    assert plan["allowed"] is True
+    assert (plan["first_stage_width"], plan["first_stage_height"]) == first
+    assert plan["second_stage_width"] == first[0] * 2
+    assert plan["second_stage_height"] == first[1] * 2
+    assert plan["qhd_direct"] is True
+    assert plan["final_scale"] <= 1
+    assert plan["two_stage_tiling_required"] is True
+
+
+@pytest.mark.parametrize("total,free", [(24, 18), (32, 23.9)])
+def test_adaptive_qhd_uses_smaller_grid_without_shortening_clip(total, free):
+    plan = plan_two_stage_dimensions(1440, 2560, 15, total, free, adaptive=True)
+    assert plan["allowed"] is True
+    assert plan["qhd_direct"] is False
+    assert (plan["first_stage_width"], plan["first_stage_height"]) == (544, 960)
+    assert plan["two_stage_tiling_required"] is True
+
+
+@pytest.mark.parametrize("total,free", [(32, 17.9), (16, 15), (32, float("nan"))])
+def test_adaptive_qhd_rejects_unknown_or_insufficient_budget(total, free):
+    plan = plan_two_stage_dimensions(2560, 1440, 15, total, free, adaptive=True)
+    assert plan["allowed"] is False

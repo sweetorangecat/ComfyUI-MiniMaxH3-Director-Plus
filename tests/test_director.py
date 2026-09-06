@@ -9,6 +9,7 @@ from nodes.schema import RequestError
 
 @pytest.fixture(autouse=True)
 def trained_two_stage_test_environment(monkeypatch):
+    monkeypatch.setattr("nodes.director.resolve_split_upscale_callables", lambda: (lambda: None,) * 3)
     monkeypatch.setattr(
         "nodes.director._cuda_memory_gb",
         lambda: (32.0, 29.0),
@@ -50,7 +51,7 @@ def test_director_raw_combo_exposes_both_low_vram_presets():
 
 def test_director_defaults_to_smart_free_1080p_and_local_x2():
     required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
-    assert required["performance_preset"][1]["default"] == "免费智能 1080p"
+    assert required["performance_preset"][1]["default"] == "智能画质（自动适配）"
     assert required["postprocess_mode"][1]["default"] == "video_sr"
     assert required["ai_upscale_model"][1]["default"] == "auto"
 
@@ -285,7 +286,7 @@ def _seedvr2_ready_report():
     }
 
 
-def test_smart_2k_target_routes_two_stage_plus_seedvr2(monkeypatch):
+def test_smart_2k_target_routes_direct_without_extra_sr(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (32.0, 29.0))
     monkeypatch.setattr(
         "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
@@ -302,8 +303,9 @@ def test_smart_2k_target_routes_two_stage_plus_seedvr2(monkeypatch):
     assert guide["performance_preset"] == "quality_two_stage"
     assert guide["resolved_two_stage_route"] == "trained_latent_fl"
     assert (guide["target_width"], guide["target_height"]) == (2560, 1440)
-    assert guide["postprocess_path"] == "video_sr"
-    assert any("智能高清链" in warning for warning in guide["warnings"])
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
+    assert guide["qhd_direct"] is True
+    assert any("智能画质" in warning for warning in guide["warnings"])
 
 
 def test_smart_2k_reference_target_uses_trained_latent_ref(monkeypatch):
@@ -325,8 +327,49 @@ def test_smart_2k_reference_target_uses_trained_latent_ref(monkeypatch):
     assert (guide["target_width"], guide["target_height"]) == (2560, 1440)
 
 
+@pytest.mark.parametrize("total,free,direct", [(32, 29, True), (24, 18, False), (32, 23, False)])
+@pytest.mark.parametrize("portrait", [False, True])
+def test_smart_qhd_15_seconds_keeps_target_and_selects_backend(monkeypatch, total, free, direct, portrait):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (total, free))
+    monkeypatch.setattr("nodes.director._seedvr2_dependency_report", _seedvr2_ready_report)
+    width, height = (1440, 2560) if portrait else (2560, 1440)
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="test", duration=15, width=width, height=height,
+        aspect_ratio="9:16" if portrait else "16:9", resolution_preset="2K QHD",
+        voice_mode="none", ref_image_size="match", performance_preset="智能画质（自动适配）",
+        timeline_data="{}", target_dialogue="", reference_transcript="",
+    )
+    assert guide["length"] == align_frame_count(15 * 24)
+    assert (guide["target_width"], guide["target_height"]) == (width, height)
+    assert guide["qhd_direct"] is direct
+    assert guide["two_stage_tiling_required"] is True
+    assert guide["second_stage_width"] == 2 * guide["first_stage_width"]
+    assert guide["postprocess_path"] == ("balanced_fhd_downscale" if direct else "video_sr")
+
+
+def test_smart_qhd_direct_works_without_seedvr2(monkeypatch):
+    monkeypatch.setattr("nodes.director._seedvr2_dependency_report", lambda: {"ready": False, "missing": ["SeedVR2"]})
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="test", duration=15, width=2560, height=1440,
+        resolution_preset="2K QHD", voice_mode="none", ref_image_size="match",
+        performance_preset="智能画质（自动适配）", timeline_data="{}", target_dialogue="", reference_transcript="",
+    )
+    assert guide["qhd_direct"] is True
+    assert guide["video_sr_plan"] is None
+
+
+def test_smart_qhd_requires_complete_split_nodes_before_generation(monkeypatch):
+    monkeypatch.setattr("nodes.director.resolve_split_upscale_callables", lambda: None)
+    with pytest.raises(RequestError, match="分块二采"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA", prompt="test", duration=15, width=2560, height=1440,
+            resolution_preset="2K QHD", voice_mode="none", ref_image_size="match",
+            performance_preset="智能画质（自动适配）", timeline_data="{}", target_dialogue="", reference_transcript="",
+        )
+
+
 def test_smart_2k_rejects_before_queue_when_seedvr2_missing(monkeypatch):
-    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (32.0, 29.0))
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 21.0))
     monkeypatch.setattr(
         "nodes.director._trained_two_stage_dependency_report", _two_stage_ready_report
     )
@@ -1327,7 +1370,8 @@ def test_low_vram_rejects_target_above_duration_limit():
         )
 
 
-def test_duration_seven_accepts_portrait_target_within_rotated_limit():
+def test_duration_seven_accepts_portrait_target_within_rotated_limit(monkeypatch):
+    monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args: "RealESRGAN_x2plus.pth")
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="T2VA",
         prompt="镜头缓慢推进。",

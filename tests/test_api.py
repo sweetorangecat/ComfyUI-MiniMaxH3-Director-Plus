@@ -115,7 +115,7 @@ def test_api_template_and_patcher_expose_final_postprocess_controls():
     from tools.build_u11_workflow import build_api_template
 
     template = build_api_template()
-    assert template["10"]["inputs"]["performance_preset"] == "免费智能 1080p"
+    assert template["10"]["inputs"]["performance_preset"] == "智能画质（自动适配）"
     assert template["10"]["inputs"]["postprocess_mode"] == "video_sr"
     assert template["10"]["inputs"]["rtx_quality"] == "HIGH"
     assert template["10"]["inputs"]["ai_upscale_model"] == "auto"

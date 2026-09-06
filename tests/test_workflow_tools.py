@@ -253,10 +253,9 @@ def test_built_workflow_describes_only_the_trained_two_stage_route():
         for node in built["nodes"]
         if node.get("type") == "MarkdownNote"
     )
-    assert "训练型 3D latent 二采" in notes
-    assert "DEBLUR_LOW" in notes
-    assert "HIGHBITRATE_ULTRA" in notes
-    assert "低显存不开放 4K" in notes
+    assert "智能画质（自动适配）" in notes
+    assert "1080p FHD / 2K QHD / 4K UHD" in notes
+    assert "docs/U11清晰度增强版交付说明.md" in notes
     assert "LTX 二段超分" not in notes
 
 
@@ -302,7 +301,7 @@ def test_built_workflow_keeps_duration_and_resolution_widgets():
     input_names = {item["name"] for item in director["inputs"]}
     assert {"width", "height"} <= input_names
     assert director["widgets_values"][:5] == ["FL2VA", "", 5, 1344, 768]
-    assert director["widgets_values"][14:17] == ["免费智能 1080p", "video_sr", "HIGH"]
+    assert director["widgets_values"][14:17] == ["智能画质（自动适配）", "video_sr", "HIGH"]
     assert director["widgets_values"][-3:] == ["off", "auto", "auto"]
 
 
@@ -671,8 +670,7 @@ def test_workflow_removes_manual_postprocessing_switches_and_keeps_automatic_acc
     assert {"enabled", "enabled_1", "enabled_2"}.isdisjoint(input_names)
     assert any(link[1:5] == [acceleration["id"], 2, performance["id"], 1] for link in built["links"])
     acceleration_note = next(node for node in built["nodes"] if node.get("title") == "加速与后处理说明")
-    assert "低显存二采" in acceleration_note["widgets_values"][0]
-    assert "最长 6 秒" in acceleration_note["widgets_values"][0]
+    assert "智能画质（自动适配）" in acceleration_note["widgets_values"][0]
 
 
 def test_built_settings_uses_h3_sampler_router_for_fast_mode():

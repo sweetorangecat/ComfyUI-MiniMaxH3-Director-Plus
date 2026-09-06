@@ -1,10 +1,12 @@
-"""Pure policy helpers for the Smart free 1080p preset."""
+"""Pure policy helpers for adaptive video quality; legacy API key is retained."""
 
 from __future__ import annotations
 
 from numbers import Real
+import math
 
 from .schema import RequestError
+from .vram_budget import plan_two_stage_dimensions
 
 
 SMART_PRESET = "smart_free_1080p"
@@ -59,11 +61,12 @@ def resolve_smart_1080p_plan(
     """Resolve Smart generation policy for a backend, VRAM state and target.
 
     ``target_width``/``target_height`` describe the requested final output.
-    Targets whose short edge exceeds 1080 (2K QHD / 4K UHD presets) take the
-    clarity-first chain: trained latent two-stage redraw for the detail base,
-    then one SeedVR2 diffusion upscale to the final size.  Any unmet
-    requirement raises before queueing instead of silently degrading.
+    Exact QHD uses a trained 2x latent redraw with tiled sampling when VRAM
+    permits; smaller grids and UHD finish with SeedVR2. Unmet dependencies
+    raise before sampling instead of silently degrading high-resolution output.
     """
+    if not (math.isfinite(float(total_vram_gb)) and math.isfinite(float(free_vram_gb))):
+        raise RequestError("显存信息不可用，无法规划智能画质链路")
     if free_vram_gb < LOW_VRAM_MIN_FREE_GB:
         raise RequestError(
             f"低于最低安全预算：当前空闲显存 {float(free_vram_gb):.1f}GB，"
@@ -83,6 +86,7 @@ def resolve_smart_1080p_plan(
         f"{int(target_width)}×{int(target_height)}" if high_res_target else ""
     )
     low_vram = total_vram_gb <= LOW_VRAM_TOTAL_GB
+    dimension_plan = None
 
     if high_res_target:
         target_label = f"{int(target_width)}×{int(target_height)}"
@@ -102,7 +106,13 @@ def resolve_smart_1080p_plan(
                 "但训练型二采依赖未就绪（turbo v4 / FL 二采 LoRA、3D latent 放大节点或模型缺失）；"
                 "请按使用说明安装，或把最终目标降为 1080p。"
             )
-        if not seedvr2_ready:
+        dimension_plan = plan_two_stage_dimensions(
+            target_width, target_height, seconds, total_vram_gb, free_vram_gb,
+            adaptive=True,
+        )
+        if not dimension_plan["allowed"]:
+            raise RequestError(dimension_plan["reason"])
+        if not seedvr2_ready and not dimension_plan.get("qhd_direct"):
             raise RequestError(
                 f"智能预设的 {target_label} 输出需要 SeedVR2 视频超分完成最后一级扩散重建，"
                 "但 SeedVR2 节点或 models/SEEDVR2 权重未就绪；请安装后重试，或把最终目标降为 1080p。"
@@ -131,9 +141,10 @@ def resolve_smart_1080p_plan(
             preset = "quality_two_stage"
             route = "trained_latent_ref" if backend == "ref2va_model" else "trained_latent_fl"
             warning = (
-                f"已启用 {target_label} 智能高清链：训练型 latent 二采（U22 配方 8 步首采 + "
-                "训练型 3D latent 放大 + 4 步低 sigma 重绘）构建细节基准，再由 SeedVR2 "
-                "扩散超分到最终尺寸；显存与时长预算会在排队前检查。"
+                f"已启用 {target_label} 智能画质：训练型 latent 二采；"
+                + ("2K 网格分块重绘后裁切到目标尺寸。" if dimension_plan.get("qhd_direct")
+                   else "分块重绘后由 SeedVR2 完成最终超分。")
+                + "保留请求时长；显存不足时缩小二采分块，无法运行则明确报错。"
             )
         # Clarity-first: when the trained two-stage assets and the FHD VRAM
         # budget are present, use the U22-validated 8+4 latent redraw and
@@ -173,4 +184,5 @@ def resolve_smart_1080p_plan(
         "max_duration": max_duration,
         "two_stage_route": route,
         "warning": warning,
+        "dimension_plan": dimension_plan,
     }

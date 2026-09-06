@@ -362,15 +362,15 @@ def test_public_schema_exposes_fish_model_choice():
 
 def test_public_schema_documents_route_performance_options():
     property_schema = public_schema()["properties"]["performance_preset"]
-    assert property_schema["enum"][0] == "免费智能 1080p"
-    assert property_schema["default"] == "免费智能 1080p"
+    assert property_schema["enum"][0] == "智能画质（自动适配）"
+    assert property_schema["default"] == "智能画质（自动适配）"
     assert "质量优先二采样" in property_schema["enum"]
     assert "自定义" in property_schema["enum"]
     assert property_schema["allowed_by_route"]["T2VA"] == [
-        "免费智能 1080p"
+        "智能画质（自动适配）"
     ]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
-        "免费智能 1080p"
+        "智能画质（自动适配）"
     ]
 
 
@@ -637,3 +637,10 @@ def test_reference_limits_match_h3_native_caps():
         normalize_request({"mode": "REF2VA", "references": list(range(10))})
     with pytest.raises(RequestError, match="最多支持 3 路"):
         normalize_request({"mode": "REF2VA", "voice_reference_audios": list(range(4))})
+
+
+def test_smart_quality_display_name_keeps_legacy_alias():
+    from nodes.schema import PERFORMANCE_PRESETS, USER_PERFORMANCE_PRESET_LABELS
+    assert "智能画质（自动适配）" in USER_PERFORMANCE_PRESET_LABELS
+    assert PERFORMANCE_PRESETS["智能画质（自动适配）"] == "smart_free_1080p"
+    assert PERFORMANCE_PRESETS["免费智能 1080p"] == "smart_free_1080p"
