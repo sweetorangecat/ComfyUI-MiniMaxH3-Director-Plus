@@ -72,7 +72,10 @@ def plan_two_stage_dimensions(
             if total >= 28.0 and free >= 24.0:
                 first_width, first_height = ((1280, 736) if final_width >= final_height else (736, 1280))
                 second_width, second_height = first_width * 2, first_height * 2
-                tier, direct = "28gb_plus_qhd", True
+                # Keep the learned 2x grid for detail, then let SeedVR2 do the
+                # final diffusion refinement. Direct tiled export was visibly
+                # softer even when the canvas fit in VRAM.
+                tier, direct = "28gb_plus_qhd", False
             elif total >= 20.0 and free >= 18.0:
                 first_width, first_height = ((960, 544) if final_width >= final_height else (544, 960))
                 second_width, second_height = first_width * 2, first_height * 2
@@ -90,7 +93,7 @@ def plan_two_stage_dimensions(
                 "final_scale": max(final_width / second_width, final_height / second_height),
                 "max_final_width": 2560, "max_final_height": 1440,
                 "quality_basis": "H3 神经 latent 二采", "budget_profile": profile,
-                "qhd_direct": direct, "two_stage_tiling_required": True,
+                "qhd_direct": direct, "adaptive_qhd": True, "two_stage_tiling_required": True,
                 "balanced_fhd_supersample": False, "conservative_fhd_supersample": False,
                 "max_final_vsr_scale": None,
             }

@@ -685,6 +685,8 @@ def _resolve_postprocess_path(guide, source_width, source_height):
         "video_sr",
         "rtx_vsr",
     }:
+        if path == "video_sr" and guide.get("video_sr_required"):
+            return "video_sr"
         # Equal native/target dimensions are always a bypass, even if an old
         # guide requested RTX VSR as a mode rather than a resolved path.
         target_width = int(guide.get("target_width") or source_width)

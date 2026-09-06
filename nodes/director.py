@@ -678,6 +678,8 @@ class MiniMaxH3DirectorPlus:
             or two_stage_plan.get("qhd_direct")
         ):
             postprocess_path = "balanced_fhd_downscale"
+        elif two_stage_plan is not None and two_stage_plan.get("adaptive_qhd"):
+            postprocess_path = "video_sr"
         elif requested_width == postprocess_source_width and requested_height == postprocess_source_height:
             postprocess_path = "native_bypass"
         elif requested_width < postprocess_source_width or requested_height < postprocess_source_height:
@@ -928,6 +930,7 @@ class MiniMaxH3DirectorPlus:
             "split_temporal_overlap_frames": 39 if smart_vram and smart_vram[1] >= 24 else 22,
             "split_motion_anchor_frames": "39" if smart_vram and smart_vram[1] >= 24 else "22",
             "qhd_direct": bool(two_stage_plan and two_stage_plan.get("qhd_direct")),
+            "video_sr_required": bool(two_stage_plan and two_stage_plan.get("adaptive_qhd")),
             "resolved_two_stage_route": resolved_two_stage_route,
             "first_stage_width": int(native_width),
             "first_stage_height": int(native_height),

@@ -344,7 +344,7 @@ def test_adaptive_qhd_reaches_target_with_two_times_latent(duration, portrait):
     assert (plan["first_stage_width"], plan["first_stage_height"]) == first
     assert plan["second_stage_width"] == first[0] * 2
     assert plan["second_stage_height"] == first[1] * 2
-    assert plan["qhd_direct"] is True
+    assert plan["qhd_direct"] is False
     assert plan["final_scale"] <= 1
     assert plan["two_stage_tiling_required"] is True
 

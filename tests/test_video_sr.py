@@ -289,6 +289,15 @@ def test_resolve_postprocess_path_accepts_video_sr():
     assert stream_output._resolve_postprocess_path(same, 6, 4) == "native_bypass"
 
 
+@pytest.mark.parametrize("source", [(2560, 1472), (2560, 1440), (1472, 2560)])
+def test_qhd_detail_reconstruction_survives_equal_or_larger_source(source):
+    import nodes.stream_output as output
+    target = (1440, 2560) if source[0] < source[1] else (2560, 1440)
+    guide = {"postprocess_path": "video_sr", "video_sr_required": True,
+             "target_width": target[0], "target_height": target[1]}
+    assert output._resolve_postprocess_path(guide, *source) == "video_sr"
+
+
 def test_prepare_postprocess_releases_h3_before_video_sr(monkeypatch):
     import nodes.stream_output as stream_output
 

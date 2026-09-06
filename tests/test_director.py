@@ -303,8 +303,8 @@ def test_smart_2k_target_routes_direct_without_extra_sr(monkeypatch):
     assert guide["performance_preset"] == "quality_two_stage"
     assert guide["resolved_two_stage_route"] == "trained_latent_fl"
     assert (guide["target_width"], guide["target_height"]) == (2560, 1440)
-    assert guide["postprocess_path"] == "balanced_fhd_downscale"
-    assert guide["qhd_direct"] is True
+    assert guide["postprocess_path"] == "video_sr"
+    assert guide["qhd_direct"] is False
     assert any("智能画质" in warning for warning in guide["warnings"])
 
 
@@ -327,7 +327,7 @@ def test_smart_2k_reference_target_uses_trained_latent_ref(monkeypatch):
     assert (guide["target_width"], guide["target_height"]) == (2560, 1440)
 
 
-@pytest.mark.parametrize("total,free,direct", [(32, 29, True), (24, 18, False), (32, 23, False)])
+@pytest.mark.parametrize("total,free,direct", [(32, 29, False), (24, 18, False), (32, 23, False)])
 @pytest.mark.parametrize("portrait", [False, True])
 def test_smart_qhd_15_seconds_keeps_target_and_selects_backend(monkeypatch, total, free, direct, portrait):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (total, free))
@@ -344,22 +344,22 @@ def test_smart_qhd_15_seconds_keeps_target_and_selects_backend(monkeypatch, tota
     assert guide["qhd_direct"] is direct
     assert guide["two_stage_tiling_required"] is True
     assert guide["second_stage_width"] == 2 * guide["first_stage_width"]
-    assert guide["postprocess_path"] == ("balanced_fhd_downscale" if direct else "video_sr")
+    assert guide["postprocess_path"] == "video_sr"
 
 
-def test_smart_qhd_direct_works_without_seedvr2(monkeypatch):
+def test_smart_qhd_requires_seedvr2_for_final_detail(monkeypatch):
     monkeypatch.setattr("nodes.director._seedvr2_dependency_report", lambda: {"ready": False, "missing": ["SeedVR2"]})
-    guide, *_ = MiniMaxH3DirectorPlus().build(
-        mode="T2VA", prompt="test", duration=15, width=2560, height=1440,
-        resolution_preset="2K QHD", voice_mode="none", ref_image_size="match",
-        performance_preset="智能画质（自动适配）", timeline_data="{}", target_dialogue="", reference_transcript="",
-    )
-    assert guide["qhd_direct"] is True
-    assert guide["video_sr_plan"] is None
+    with pytest.raises(RequestError, match="SeedVR2"):
+        MiniMaxH3DirectorPlus().build(
+            mode="T2VA", prompt="test", duration=15, width=2560, height=1440,
+            resolution_preset="2K QHD", voice_mode="none", ref_image_size="match",
+            performance_preset="智能画质（自动适配）", timeline_data="{}", target_dialogue="", reference_transcript="",
+        )
 
 
 def test_smart_qhd_requires_complete_split_nodes_before_generation(monkeypatch):
     monkeypatch.setattr("nodes.director.resolve_split_upscale_callables", lambda: None)
+    monkeypatch.setattr("nodes.director._seedvr2_dependency_report", _seedvr2_ready_report)
     with pytest.raises(RequestError, match="分块二采"):
         MiniMaxH3DirectorPlus().build(
             mode="T2VA", prompt="test", duration=15, width=2560, height=1440,

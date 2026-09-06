@@ -158,7 +158,7 @@ def test_smart_2k_target_routes_direct_at_high_free_vram():
     assert plan["two_stage_route"] == "trained_latent_fl"
     assert plan["postprocess_mode"] == "video_sr"
     assert "2560×1440" in plan["warning"]
-    assert plan["dimension_plan"]["qhd_direct"] is True
+    assert plan["dimension_plan"]["qhd_direct"] is False
 
 
 def test_smart_2k_reference_target_uses_trained_latent_ref():
@@ -233,13 +233,12 @@ def test_smart_2k_15s_mid_vram_allows_slow_tiled_quality_route():
     assert plan["dimension_plan"]["qhd_direct"] is False
 
 
-def test_smart_direct_qhd_does_not_require_seedvr2():
-    plan = resolve_smart_1080p_plan(
-        "ref2va_model", 15, 32, 29, two_stage_ready=True,
-        seedvr2_ready=False, target_width=2560, target_height=1440,
-    )
-    assert plan["dimension_plan"]["qhd_direct"] is True
-    assert plan["performance_preset"] == "quality_two_stage"
+def test_smart_qhd_requires_seedvr2_for_final_detail():
+    with pytest.raises(RequestError, match="SeedVR2"):
+        resolve_smart_1080p_plan(
+            "ref2va_model", 15, 32, 29, two_stage_ready=True,
+            seedvr2_ready=False, target_width=2560, target_height=1440,
+        )
 
 
 def test_smart_fallback_qhd_still_requires_seedvr2():
