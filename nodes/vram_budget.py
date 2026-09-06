@@ -10,11 +10,10 @@ LOW_VRAM_TWO_STAGE_SCALE = 1.5
 LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.45
 LOW_VRAM_TWO_STAGE_MAX_DURATION = 6
 BALANCED_FHD_LANDSCAPE = (1920, 1080)
-# U22-verified recipe: 0.5 MP first pass (960x544 / 544x960), learned 2.0x
-# latent upscale to 1920x1088, then a near-1:1 Lanczos downscale to FHD.
-# The upstream model supports several trained scales, including 1.5x and 2x.
-BALANCED_FHD_FIRST_LANDSCAPE = (960, 544)
-BALANCED_FHD_SECOND_SCALE = 2.0
+# Restore U11's previous high-VRAM FHD grid after the 0.5 MP quality report.
+# The upstream latent upscaler supports this 1.5x refinement scale.
+BALANCED_FHD_FIRST_LANDSCAPE = (1344, 768)
+BALANCED_FHD_SECOND_SCALE = 1.5
 
 
 def _aligned_size(width, height, target_mp, alignment=32):
