@@ -1709,7 +1709,8 @@ def test_probe_vram_after_prefree_can_be_disabled(monkeypatch):
 @pytest.mark.parametrize("vram", [24.0, 32.0])
 @pytest.mark.parametrize("aspect,width,height", [("16:9",1920,1080), ("9:16",1080,1920)])
 @pytest.mark.parametrize("availability", ["3b", "missing", "7b_only"])
-def test_fhd_two_stage_refinement_routes(monkeypatch, vram, aspect, width, height, availability):
+@pytest.mark.parametrize("preset", ["质量优先二采样", "智能画质（自动适配）"])
+def test_fhd_two_stage_preserves_direct_export(monkeypatch, vram, aspect, width, height, availability, preset):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (vram, vram - 2))
     monkeypatch.setattr("nodes.director._seedvr2_dependency_report", lambda: {
         "ready": availability != "missing",
@@ -1719,17 +1720,12 @@ def test_fhd_two_stage_refinement_routes(monkeypatch, vram, aspect, width, heigh
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="T2VA", prompt="镜头缓慢推进。", duration=5, width=width, height=height,
         aspect_ratio=aspect, resolution_preset="1080p FHD", voice_mode="none",
-        ref_image_size="match", performance_preset="质量优先二采样",
+        ref_image_size="match", performance_preset=preset,
         postprocess_mode="video_sr", timeline_data="{}", target_dialogue="", reference_transcript="",
     )
     assert (guide["target_width"], guide["target_height"]) == (width, height)
-    if availability == "3b":
-        assert guide["postprocess_path"] == "video_sr"
-        assert guide["video_sr_required"] is True
-        assert guide["video_sr_plan"]["fhd_refinement"] is True
-        assert guide["video_sr_plan"]["dit_model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
-    else:
-        assert guide["postprocess_path"] == "balanced_fhd_downscale"
-        assert guide["video_sr_required"] is False
-        assert not guide.get("video_sr_plan")
-        assert any("回退" in warning for warning in guide["warnings"])
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
+    assert guide["video_sr_required"] is False
+    assert not guide.get("video_sr_plan")
+    assert any("不执行额外的视频超分" in warning for warning in guide["warnings"])
+    assert not any("追加轻量精修" in warning for warning in guide["warnings"])

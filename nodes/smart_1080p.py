@@ -147,7 +147,7 @@ def resolve_smart_1080p_plan(
                 + "保留请求时长；显存不足时缩小二采分块，无法运行则明确报错。"
             )
         # Use trained 8+4 latent redraw when the FHD budget permits.
-        # The director resolves optional 3B refinement and dependency fallback.
+        # The director exports FHD directly after this redraw.
         elif (
             two_stage_ready
             and float(total_vram_gb) >= 20.0
@@ -157,8 +157,8 @@ def resolve_smart_1080p_plan(
             route = "trained_latent_ref" if backend == "ref2va_model" else "trained_latent_fl"
             warning = (
                 "已启用训练型 latent 二采 1080p：8 步首采 + 训练型 3D latent 放大 + "
-                "4 步低 sigma 重绘；SeedVR2 3B 依赖齐全时追加轻量精修，"
-                "否则按原有路线等比导出到目标尺寸。"
+                "4 步低 sigma 重绘；二采后按原有路线等比导出到目标尺寸，"
+                "不再自动追加 SeedVR2 3B 重建。"
             )
         else:
             # Keep the full 20-step denoising path and accelerate attention only.
