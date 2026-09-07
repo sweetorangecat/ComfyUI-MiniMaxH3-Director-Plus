@@ -108,6 +108,13 @@ def run_project(project, story, backend, target, seed):
     project.mkdir(parents=True, exist_ok=True)
     state_path = project / 'state.json'
     cancel_path = project / 'cancel.request'
+    lock_path = project / 'run.lock'
+    try:
+        fd = lock_path.open('x', encoding='utf-8')
+        fd.write('active')
+        fd.close()
+    except FileExistsError as exc:
+        raise RuntimeError('61 秒长片项目 already running') from exc
     story = validate_story(story)
     chunks = plan_chunks(story, backend.total_vram_gb)
     generation = content_fingerprint({'story': story, 'chunks': chunks, 'seed': seed,
@@ -186,3 +193,5 @@ def run_project(project, story, backend, target, seed):
         state['error'] = str(exc)
         media.atomic_write_json(state_path, state)
         raise
+    finally:
+        lock_path.unlink(missing_ok=True)
