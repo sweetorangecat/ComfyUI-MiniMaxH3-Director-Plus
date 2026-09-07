@@ -22,7 +22,7 @@ def test_32gb_15s_2k_keeps_neural_basis_near_1080p():
 
 
 @pytest.mark.parametrize("adaptive", [False, True])
-def test_32gb_15s_fhd_uses_point_nine_mp_first_stage_grid(adaptive):
+def test_32gb_15s_fhd_restores_high_detail_first_stage_grid(adaptive):
     plan = plan_two_stage_dimensions(
         1920,
         1080,
@@ -33,13 +33,14 @@ def test_32gb_15s_fhd_uses_point_nine_mp_first_stage_grid(adaptive):
     )
 
     assert plan["allowed"] is True
-    # Both stages stay aligned at 1.5x, with only a small final resize.
-    assert (plan["first_stage_width"], plan["first_stage_height"]) == (1280, 704)
-    assert (plan["second_stage_width"], plan["second_stage_height"]) == (1920, 1056)
+    # High-VRAM FHD uses the former detail-preserving grid; 24GB cards keep
+    # the conservative 1280x704 route below.
+    assert (plan["first_stage_width"], plan["first_stage_height"]) == (1344, 768)
+    assert (plan["second_stage_width"], plan["second_stage_height"]) == (2016, 1152)
     assert plan["balanced_fhd_supersample"] is True
-    assert plan["final_scale_x"] == pytest.approx(1.0)
-    assert plan["final_scale_y"] == pytest.approx(1080 / 1056)
-    assert 0.89 <= plan["first_stage_megapixels"] <= 0.91
+    assert plan["final_scale_x"] == pytest.approx(1920 / 2016)
+    assert plan["final_scale_y"] == pytest.approx(1080 / 1152)
+    assert 1.02 <= plan["first_stage_megapixels"] <= 1.04
     for axis in ("width", "height"):
         assert plan[f"first_stage_{axis}"] % 32 == 0
         assert plan[f"second_stage_{axis}"] % 32 == 0
@@ -103,8 +104,8 @@ def test_32gb_15s_portrait_fhd_uses_rotated_balanced_supersampling_grid():
     )
 
     assert plan["allowed"] is True
-    assert (plan["first_stage_width"], plan["first_stage_height"]) == (704, 1280)
-    assert (plan["second_stage_width"], plan["second_stage_height"]) == (1056, 1920)
+    assert (plan["first_stage_width"], plan["first_stage_height"]) == (768, 1344)
+    assert (plan["second_stage_width"], plan["second_stage_height"]) == (1152, 2016)
     assert plan["balanced_fhd_supersample"] is True
 
 
