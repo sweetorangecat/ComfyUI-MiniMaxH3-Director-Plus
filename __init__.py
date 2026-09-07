@@ -19,6 +19,7 @@ if __package__:
     from .nodes.upscale import MiniMaxH3VideoUpscale
     from .nodes.stream_output import MiniMaxH3StreamingVideoCombine
     from .nodes.vae_decode import MiniMaxH3SafeVAEDecode
+    from .nodes.longfilm import MiniMaxH3LongFilm61
 
     NODE_CLASS_MAPPINGS = {
         "MiniMaxH3DirectorPlus": MiniMaxH3DirectorPlus,
@@ -37,6 +38,7 @@ if __package__:
         "MiniMaxH3VideoUpscale": MiniMaxH3VideoUpscale,
         "MiniMaxH3StreamingVideoCombine": MiniMaxH3StreamingVideoCombine,
         "MiniMaxH3SafeVAEDecode": MiniMaxH3SafeVAEDecode,
+        "MiniMaxH3LongFilm61": MiniMaxH3LongFilm61,
     }
 
     NODE_DISPLAY_NAME_MAPPINGS = {
