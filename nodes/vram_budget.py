@@ -10,9 +10,9 @@ LOW_VRAM_TWO_STAGE_SCALE = 1.5
 LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.45
 LOW_VRAM_TWO_STAGE_MAX_DURATION = 6
 BALANCED_FHD_LANDSCAPE = (1920, 1080)
-# Restore U11's previous high-VRAM FHD grid after the 0.5 MP quality report.
-# The upstream latent upscaler supports this 1.5x refinement scale.
-BALANCED_FHD_FIRST_LANDSCAPE = (1344, 768)
+# Both grids stay 32-pixel aligned at exactly 1.5x; the final aspect crop and
+# resize cover the small 1056-to-1080 gap without a larger neural canvas.
+BALANCED_FHD_FIRST_LANDSCAPE = (1280, 704)
 BALANCED_FHD_SECOND_SCALE = 1.5
 
 

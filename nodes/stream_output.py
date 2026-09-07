@@ -316,7 +316,7 @@ def _iter_balanced_fhd_downscale_frame_chunks(
     bytes_per_channel=1,
     pingpong=False,
 ):
-    """Aspect-crop and Lanczos-downscale FHD supersampled frames in small batches."""
+    """Aspect-crop and Lanczos-resize FHD frames in small batches."""
     target_frame_bytes = max(
         1,
         int(target_width) * int(target_height) * 3 * int(bytes_per_channel),

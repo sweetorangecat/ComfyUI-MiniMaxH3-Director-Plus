@@ -706,7 +706,7 @@ class MiniMaxH3DirectorPlus:
                 fhd_warning_prefix +
                 f"首采 {native_width}×{native_height}，神经二采 "
                 f"{two_stage_plan['second_stage_width']}×{two_stage_plan['second_stage_height']}，"
-                f"最终中心等比裁切并 Lanczos 缩小到 {requested_width}×{requested_height}；"
+                f"最终中心等比裁切并 Lanczos 对齐到 {requested_width}×{requested_height}；"
                 "保留请求时长，不执行额外的视频超分。"
             )
         elif two_stage_plan is not None and postprocess_path == "rtx_vsr":

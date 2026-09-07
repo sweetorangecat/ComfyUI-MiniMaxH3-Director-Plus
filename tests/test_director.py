@@ -976,8 +976,8 @@ def test_quality_two_stage_fhd_uses_balanced_downscale_without_vsr_probe(monkeyp
         reference_transcript="",
     )
 
-    assert (guide["first_stage_width"], guide["first_stage_height"]) == (1344, 768)
-    assert (guide["second_stage_width"], guide["second_stage_height"]) == (2016, 1152)
+    assert (guide["first_stage_width"], guide["first_stage_height"]) == (1280, 704)
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (1920, 1056)
     assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
     assert guide["postprocess_path"] == "balanced_fhd_downscale"
     assert guide["upscale_method"] == "aspect_lanczos_downscale"
@@ -1009,8 +1009,8 @@ def test_quality_two_stage_portrait_fhd_uses_balanced_downscale(monkeypatch):
         reference_transcript="",
     )
 
-    assert (guide["first_stage_width"], guide["first_stage_height"]) == (768, 1344)
-    assert (guide["second_stage_width"], guide["second_stage_height"]) == (1152, 2016)
+    assert (guide["first_stage_width"], guide["first_stage_height"]) == (704, 1280)
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (1056, 1920)
     assert guide["postprocess_path"] == "balanced_fhd_downscale"
 
 
