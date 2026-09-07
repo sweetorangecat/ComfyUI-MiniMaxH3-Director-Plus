@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "fps": 24,
+  "total_frames": 1464,
+  "mode": "T2VA",
+  "voice_mode": "none",
+  "global_setting": "One adult woman in a mustard coat and dark trousers walks steadily along a quiet canal promenade at dawn. Keep her face, clothing, walking direction, canal layout and soft natural cinematic light consistent.",
+  "overall_soundscape": "Continuous quiet footsteps, gentle canal water and distant birds. No speech.",
+  "non_diegetic_music": "None.",
+  "cards": [
+    {
+      "id": "card-1",
+      "start_frame": 0,
+      "end_frame": 216,
+      "opening_state": "The woman is already walking steadily forward.",
+      "ending_state": "The woman remains in motion at the same steady pace.",
+      "camera": "Continuous smooth side tracking at waist height, maintaining screen direction and distance.",
+      "beats": [
+        {
+          "start_frame": 0,
+          "end_frame": 216,
+          "action": "The woman keeps walking forward at a steady natural pace beside the canal; her coat moves gently with each step.",
+          "indivisible": false
+        }
+      ]
+    },
+    {
+      "id": "card-2",
+      "start_frame": 216,
+      "end_frame": 432,
+      "opening_state": "The woman is already walking steadily forward.",
+      "ending_state": "The woman remains in motion at the same steady pace.",
+      "camera": "Continuous smooth side tracking at waist height, maintaining screen direction and distance.",
+      "beats": [
+        {
+          "start_frame": 216,
+          "end_frame": 432,
+          "action": "The woman keeps walking forward at a steady natural pace beside the canal; her coat moves gently with each step.",
+          "indivisible": false
+        }
+      ]
+    },
+    {
+      "id": "card-3",
+      "start_frame": 432,
+      "end_frame": 648,
+      "opening_state": "The woman is already walking steadily forward.",
+      "ending_state": "The woman remains in motion at the same steady pace.",
+      "camera": "Continuous smooth side tracking at waist height, maintaining screen direction and distance.",
+      "beats": [
+        {
+          "start_frame": 432,
+          "end_frame": 648,
+          "action": "The woman keeps walking forward at a steady natural pace beside the canal; her coat moves gently with each step.",
+          "indivisible": false
+        }
+      ]
+    },
+    {
+      "id": "card-4",
+      "start_frame": 648,
+      "end_frame": 864,
+      "opening_state": "The woman is already walking steadily forward.",
+      "ending_state": "The woman remains in motion at the same steady pace.",
+      "camera": "Continuous smooth side tracking at waist height, maintaining screen direction and distance.",
+      "beats": [
+        {
+          "start_frame": 648,
+          "end_frame": 864,
+          "action": "The woman keeps walking forward at a steady natural pace beside the canal; her coat moves gently with each step.",
+          "indivisible": false
+        }
+      ]
+    },
+    {
+      "id": "card-5",
+      "start_frame": 864,
+      "end_frame": 1080,
+      "opening_state": "The woman is already walking steadily forward.",
+      "ending_state": "The woman remains in motion at the same steady pace.",
+      "camera": "Continuous smooth side tracking at waist height, maintaining screen direction and distance.",
+      "beats": [
+        {
+          "start_frame": 864,
+          "end_frame": 1080,
+          "action": "The woman keeps walking forward at a steady natural pace beside the canal; her coat moves gently with each step.",
+          "indivisible": false
+        }
+      ]
+    },
+    {
+      "id": "card-6",
+      "start_frame": 1080,
+      "end_frame": 1296,
+      "opening_state": "The woman is already walking steadily forward.",
+      "ending_state": "The woman remains in motion at the same steady pace.",
+      "camera": "Continuous smooth side tracking at waist height, maintaining screen direction and distance.",
+      "beats": [
+        {
+          "start_frame": 1080,
+          "end_frame": 1296,
+          "action": "The woman keeps walking forward at a steady natural pace beside the canal; her coat moves gently with each step.",
+          "indivisible": false
+        }
+      ]
+    },
+    {
+      "id": "card-7",
+      "start_frame": 1296,
+      "end_frame": 1464,
+      "opening_state": "The woman is already walking steadily forward.",
+      "ending_state": "The woman remains in motion at the same steady pace.",
+      "camera": "Continuous smooth side tracking at waist height, maintaining screen direction and distance.",
+      "beats": [
+        {
+          "start_frame": 1296,
+          "end_frame": 1464,
+          "action": "The woman keeps walking forward at a steady natural pace beside the canal; her coat moves gently with each step.",
+          "indivisible": false
+        }
+      ]
+    }
+  ]
+}
