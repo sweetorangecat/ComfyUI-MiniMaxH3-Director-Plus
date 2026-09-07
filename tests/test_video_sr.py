@@ -12,6 +12,7 @@ from nodes.video_sr import (
     SEEDVR2_VAE_LOADER_NODE_ID,
     SEEDVR2_VAE_MODEL,
     resolve_seedvr2_callables,
+    resolve_seedvr2_fhd_plan,
     resolve_seedvr2_plan,
     seedvr2_dependency_report,
 )
@@ -156,6 +157,77 @@ def test_seedvr2_plan_prefers_fp8_when_gguf_missing_on_low_vram():
         available_dit=["seedvr2_ema_3b_fp8_e4m3fn.safetensors"],
     )
     assert plan["dit_model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
+
+
+def test_seedvr2_fhd_plan_prefers_3b_even_when_7b_available():
+    available = [
+        "seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors",
+        "seedvr2_ema_3b_fp16.safetensors",
+        "seedvr2_ema_3b_fp8_e4m3fn.safetensors",
+    ]
+    plan = resolve_seedvr2_fhd_plan(32.0, available_dit=available)
+    # FHD refinement is a finishing pass after the H3 latent second sample;
+    # it must stay on the light 3B family even on cards that could run 7B.
+    assert plan["dit_model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
+    assert plan["blocks_to_swap"] == 0
+    assert plan["dit_offload_device"] == "none"
+    assert plan["encode_tiled"] is False
+    assert plan["decode_tiled"] is True
+    assert plan["batch_size"] == 9
+    assert plan["temporal_overlap"] == 2
+    assert plan["color_correction"] == "lab"
+    assert plan["fhd_refinement"] is True
+
+    plan_24 = resolve_seedvr2_fhd_plan(24.0, available_dit=available)
+    assert plan_24["dit_model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
+    assert plan_24["batch_size"] == 9
+
+
+def test_seedvr2_fhd_plan_stays_bounded_on_mid_and_low_vram():
+    mid = resolve_seedvr2_fhd_plan(16.0)
+    assert mid["dit_model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
+    assert mid["blocks_to_swap"] == 6
+    assert mid["dit_offload_device"] == "cpu"
+    assert mid["swap_io_components"] is True
+    assert mid["encode_tiled"] is True
+    assert mid["decode_tiled"] is True
+    assert mid["batch_size"] == 5
+    assert mid["temporal_overlap"] == 2
+
+    low = resolve_seedvr2_fhd_plan(12.0)
+    assert low["dit_model"] == "seedvr2_ema_3b-Q4_K_M.gguf"
+    assert low["blocks_to_swap"] == 12
+    assert low["batch_size"] == 5
+    assert low["temporal_overlap"] == 1
+    assert low["dit_offload_device"] == "cpu"
+
+    tiny = resolve_seedvr2_fhd_plan(8.0)
+    assert tiny["dit_model"] == "seedvr2_ema_3b-Q4_K_M.gguf"
+    assert tiny["blocks_to_swap"] == 32
+    assert tiny["batch_size"] == 5
+    assert tiny["temporal_overlap"] == 1
+    assert tiny["encode_tiled"] is True
+
+
+def test_seedvr2_fhd_refinement_dit_requires_3b_weights():
+    from nodes.video_sr import seedvr2_fhd_refinement_dit
+    # Only 7B on disk must not silently turn the bounded FHD pass into a
+    # heavyweight 7B diffusion job; callers keep the classic export instead.
+    assert seedvr2_fhd_refinement_dit(
+        ["seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors"]
+    ) is None
+    assert seedvr2_fhd_refinement_dit([]) is None
+    assert (
+        seedvr2_fhd_refinement_dit(
+            [
+                "seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors",
+                "seedvr2_ema_3b-Q8_0.gguf",
+            ]
+        )
+        == "seedvr2_ema_3b-Q8_0.gguf"
+    )
+    # Unknown environment (weights not enumerable) keeps the default 3B pick.
+    assert seedvr2_fhd_refinement_dit(None) == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
 
 
 def test_seedvr2_dependency_report_ready(tmp_path):

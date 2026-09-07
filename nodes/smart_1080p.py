@@ -146,9 +146,8 @@ def resolve_smart_1080p_plan(
                    else "分块重绘后由 SeedVR2 完成最终超分。")
                 + "保留请求时长；显存不足时缩小二采分块，无法运行则明确报错。"
             )
-        # Clarity-first: when the trained two-stage assets and the FHD VRAM
-        # budget are present, use the U22-validated 8+4 latent redraw and
-        # output 1080p directly -- no separate SeedVR2/AI upscale pass at all.
+        # Use trained 8+4 latent redraw when the FHD budget permits.
+        # The director resolves optional 3B refinement and dependency fallback.
         elif (
             two_stage_ready
             and float(total_vram_gb) >= 20.0
@@ -157,9 +156,9 @@ def resolve_smart_1080p_plan(
             preset = "quality_two_stage"
             route = "trained_latent_ref" if backend == "ref2va_model" else "trained_latent_fl"
             warning = (
-                "已启用训练型 latent 二采直出 1080p：8 步首采 + 训练型 3D latent 放大 + "
-                "4 步低 sigma 重绘（U22 验证配方），最终只裁切对齐到 1920×1080，"
-                "不再执行额外的 SeedVR2/AI 超分。"
+                "已启用训练型 latent 二采 1080p：8 步首采 + 训练型 3D latent 放大 + "
+                "4 步低 sigma 重绘；SeedVR2 3B 依赖齐全时追加轻量精修，"
+                "否则按原有路线等比导出到目标尺寸。"
             )
         else:
             # Keep the full 20-step denoising path and accelerate attention only.

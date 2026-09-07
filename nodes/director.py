@@ -20,7 +20,7 @@ from .schema import (
 )
 from .smart_1080p import SMART_PRESET, resolve_smart_1080p_plan, smart_1080p_target
 from .two_stage_assets import dependency_report, resolve_two_stage_route, resolve_split_upscale_callables
-from .video_sr import resolve_seedvr2_plan, seedvr2_dependency_report
+from .video_sr import resolve_seedvr2_fhd_plan, resolve_seedvr2_plan, seedvr2_dependency_report, seedvr2_fhd_refinement_dit
 from .voice_guard import analyze_voice_reference
 from .upscale import (
     _available_upscale_models,
@@ -672,13 +672,21 @@ class MiniMaxH3DirectorPlus:
         postprocess_source_height = int(
             two_stage_plan["second_stage_height"] if two_stage_plan else native_height
         )
+        fhd_refinement_requested = bool(
+            two_stage_plan
+            and (
+                two_stage_plan.get("balanced_fhd_supersample")
+                or two_stage_plan.get("conservative_fhd_supersample")
+            )
+            and request["postprocess_mode"] == "video_sr"
+        )
         if two_stage_plan is not None and (
             two_stage_plan.get("balanced_fhd_supersample")
             or two_stage_plan.get("conservative_fhd_supersample")
             or two_stage_plan.get("qhd_direct")
-        ):
+        ) and not fhd_refinement_requested:
             postprocess_path = "balanced_fhd_downscale"
-        elif two_stage_plan is not None and two_stage_plan.get("adaptive_qhd"):
+        elif fhd_refinement_requested or (two_stage_plan is not None and two_stage_plan.get("adaptive_qhd")):
             postprocess_path = "video_sr"
         elif requested_width == postprocess_source_width and requested_height == postprocess_source_height:
             postprocess_path = "native_bypass"
@@ -694,7 +702,14 @@ class MiniMaxH3DirectorPlus:
         # path so a stale value cannot re-enable the broken chain.
         request["rtx_deblur_mode"] = "off"
 
-        if two_stage_plan is not None and postprocess_path == "balanced_fhd_downscale":
+        if two_stage_plan is not None and postprocess_path == "video_sr" and fhd_refinement_requested:
+            request["warnings"].append(
+                "1080p H3 二采后启用 SeedVR2 3B 轻量精修："
+                f"输入 {postprocess_source_width}×{postprocess_source_height}，最终输出 "
+                f"{requested_width}×{requested_height}；按显存自动使用分块 VAE、限批和时序重叠，"
+                "缺少 SeedVR2 时自动回退为原有等比导出。"
+            )
+        elif two_stage_plan is not None and postprocess_path == "balanced_fhd_downscale":
             if two_stage_plan.get("qhd_direct"):
                 fhd_warning_prefix = "2K 分块二采直出已启用："
             elif two_stage_plan.get("conservative_fhd_supersample"):
@@ -761,7 +776,16 @@ class MiniMaxH3DirectorPlus:
                     ) from exc
         if postprocess_path == "video_sr":
             seedvr2_report = _seedvr2_dependency_report()
-            if not seedvr2_report["ready"]:
+            if fhd_refinement_requested and (
+                not seedvr2_report["ready"]
+                or seedvr2_fhd_refinement_dit(seedvr2_report.get("available_dit")) is None
+            ):
+                postprocess_path = "balanced_fhd_downscale"
+                request["warnings"].append(
+                    "SeedVR2 3B 轻量精修未就绪，本次回退为 H3 二采后的原有等比导出；"
+                    "需要 SeedVR2 节点、3B 权重和 VAE 权重。"
+                )
+            elif not seedvr2_report["ready"]:
                 # The curated UI only exposes SeedVR2 as the final-output route;
                 # when its nodes/weights are missing, degrade to the per-frame
                 # AI upscale with a loud warning instead of killing the run.
@@ -776,8 +800,12 @@ class MiniMaxH3DirectorPlus:
                 )
             else:
                 total_for_sr = _cuda_memory_gb()[0]
-                request["video_sr_plan"] = resolve_seedvr2_plan(
+                request["video_sr_plan"] = (
+                    resolve_seedvr2_fhd_plan(
+                        total_for_sr, available_dit=seedvr2_report.get("available_dit")
+                    ) if fhd_refinement_requested else resolve_seedvr2_plan(
                     total_for_sr, available_dit=seedvr2_report.get("available_dit")
+                    )
                 )
                 request["warnings"].append(
                     "最终输出使用 SeedVR2 扩散视频超分（逐帧时间一致性优于通用 AI 超分）："
@@ -930,7 +958,15 @@ class MiniMaxH3DirectorPlus:
             "split_temporal_overlap_frames": 39 if smart_vram and smart_vram[1] >= 24 else 22,
             "split_motion_anchor_frames": "39" if smart_vram and smart_vram[1] >= 24 else "22",
             "qhd_direct": bool(two_stage_plan and two_stage_plan.get("qhd_direct")),
-            "video_sr_required": bool(two_stage_plan and two_stage_plan.get("adaptive_qhd")),
+            "video_sr_required": bool(
+                two_stage_plan
+                and (
+                    two_stage_plan.get("adaptive_qhd")
+                    or two_stage_plan.get("balanced_fhd_supersample")
+                    or two_stage_plan.get("conservative_fhd_supersample")
+                )
+                and postprocess_path == "video_sr"
+            ),
             "resolved_two_stage_route": resolved_two_stage_route,
             "first_stage_width": int(native_width),
             "first_stage_height": int(native_height),

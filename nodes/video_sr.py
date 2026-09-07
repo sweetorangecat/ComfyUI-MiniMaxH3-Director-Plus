@@ -154,6 +154,44 @@ def resolve_seedvr2_plan(total_vram_gb, available_dit=None):
         }
 
 
+def seedvr2_fhd_refinement_dit(available_dit=None):
+    """Select only a 3B weight for the bounded FHD finishing pass."""
+    return _pick_dit_model(SEEDVR2_DIT_FULL, available_dit)
+
+
+def resolve_seedvr2_fhd_plan(total_vram_gb, available_dit=None):
+    """Bounded 3B plan for the final 1080p refinement pass.
+
+    FHD refinement is intentionally kept on the 3B family even on cards where
+    the general QHD route may select 7B: it is a finishing pass after H3's
+    latent second sample, so 3B gives the useful detail recovery without
+    turning every 1080p export into a second heavyweight diffusion job.
+    """
+    total = float(total_vram_gb)
+    dit = _pick_dit_model(SEEDVR2_DIT_FULL if total > 12.0 else SEEDVR2_DIT_LOW_VRAM, available_dit)
+    if total <= 9.0:
+        blocks, batch, overlap = 32, 5, 1
+    elif total <= 12.0:
+        blocks, batch, overlap = 12, 5, 1
+    elif total <= 20.0:
+        blocks, batch, overlap = 6, 5, 2
+    else:
+        blocks, batch, overlap = 0, 9, 2
+    return {
+        "dit_model": dit,
+        "vae_model": SEEDVR2_VAE_MODEL,
+        "dit_offload_device": "cpu" if total <= 20.0 else "none",
+        "blocks_to_swap": blocks,
+        "swap_io_components": blocks > 0,
+        "encode_tiled": total <= 20.0,
+        "decode_tiled": True,
+        "batch_size": batch,
+        "temporal_overlap": overlap,
+        "color_correction": "lab",
+        "fhd_refinement": True,
+    }
+
+
 def _available_seedvr2_models(comfy_root, name):
     return _asset_exists(
         comfy_root, SEEDVR2_MODEL_CATEGORY, SEEDVR2_MODEL_DIRECTORY, name

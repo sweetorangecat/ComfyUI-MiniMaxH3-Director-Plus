@@ -194,7 +194,7 @@ def test_smart_free_1080p_routes_to_u22_two_stage_when_ready(monkeypatch):
     assert guide["postprocess_path"] == "balanced_fhd_downscale"
     assert (guide["first_stage_width"], guide["first_stage_height"]) == (1280, 704)
     assert (guide["second_stage_width"], guide["second_stage_height"]) == (1920, 1056)
-    assert any("二采直出 1080p" in warning for warning in guide["warnings"])
+    assert any("二采 1080p" in warning for warning in guide["warnings"])
 
 
 def test_smart_free_1080p_reference_routes_to_u22_v4_two_stage_when_ready(monkeypatch):
@@ -1704,3 +1704,32 @@ def test_probe_vram_after_prefree_can_be_disabled(monkeypatch):
     monkeypatch.setattr(director, "_free_cached_models", forbidden)
 
     assert director._probe_vram_after_prefree() == (32.0, 12.0)
+
+
+@pytest.mark.parametrize("vram", [24.0, 32.0])
+@pytest.mark.parametrize("aspect,width,height", [("16:9",1920,1080), ("9:16",1080,1920)])
+@pytest.mark.parametrize("availability", ["3b", "missing", "7b_only"])
+def test_fhd_two_stage_refinement_routes(monkeypatch, vram, aspect, width, height, availability):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (vram, vram - 2))
+    monkeypatch.setattr("nodes.director._seedvr2_dependency_report", lambda: {
+        "ready": availability != "missing",
+        "missing": ["SeedVR2VideoUpscaler"] if availability == "missing" else [],
+        "available_dit": ["seedvr2_ema_3b_fp8_e4m3fn.safetensors"] if availability == "3b" else ["seedvr2_ema_7b_fp16.safetensors"],
+    })
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="镜头缓慢推进。", duration=5, width=width, height=height,
+        aspect_ratio=aspect, resolution_preset="1080p FHD", voice_mode="none",
+        ref_image_size="match", performance_preset="质量优先二采样",
+        postprocess_mode="video_sr", timeline_data="{}", target_dialogue="", reference_transcript="",
+    )
+    assert (guide["target_width"], guide["target_height"]) == (width, height)
+    if availability == "3b":
+        assert guide["postprocess_path"] == "video_sr"
+        assert guide["video_sr_required"] is True
+        assert guide["video_sr_plan"]["fhd_refinement"] is True
+        assert guide["video_sr_plan"]["dit_model"] == "seedvr2_ema_3b_fp8_e4m3fn.safetensors"
+    else:
+        assert guide["postprocess_path"] == "balanced_fhd_downscale"
+        assert guide["video_sr_required"] is False
+        assert not guide.get("video_sr_plan")
+        assert any("回退" in warning for warning in guide["warnings"])
