@@ -195,3 +195,4 @@ def run_project(project, story, backend, target, seed):
         raise
     finally:
         lock_path.unlink(missing_ok=True)
+
