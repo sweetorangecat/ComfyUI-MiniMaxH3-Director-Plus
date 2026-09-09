@@ -27,8 +27,8 @@ def test_fl_backend_calls_native_image_to_video(monkeypatch):
 
     class NativeImageToVideo:
         @staticmethod
-        def execute(*args):
-            calls.append(args)
+        def execute(**kwargs):
+            calls.append(kwargs)
             return "conditioning", "latent"
 
     monkeypatch.setattr(guide, "native_node", lambda name: NativeImageToVideo)
@@ -50,7 +50,16 @@ def test_fl_backend_calls_native_image_to_video(monkeypatch):
     )
 
     assert result == ("conditioning", "latent")
-    assert calls == [("clip", "video_vae", "prompt", 1344, 768, 124, "first", "last")]
+    assert calls == [{
+        "clip": "clip",
+        "vae": "video_vae",
+        "prompt": "prompt",
+        "width": 1344,
+        "height": 768,
+        "length": 124,
+        "first_frame": "first",
+        "last_frame": "last",
+    }]
 
 
 def test_ref_backend_calls_native_reference_to_video(monkeypatch):
@@ -58,8 +67,8 @@ def test_ref_backend_calls_native_reference_to_video(monkeypatch):
 
     class NativeReferenceToVideo:
         @staticmethod
-        def execute(*args):
-            calls.append(args)
+        def execute(**kwargs):
+            calls.append(kwargs)
             return "conditioning", "latent"
 
     monkeypatch.setattr(guide, "native_node", lambda name: NativeReferenceToVideo)
@@ -84,10 +93,20 @@ def test_ref_backend_calls_native_reference_to_video(monkeypatch):
     )
 
     assert result == ("conditioning", "latent")
-    assert calls == [(
-        "clip", "video_vae", "audio_vae", "prompt", 1344, 768, 124, "match",
-        {"ref_image_1": "image"}, {}, {}, {"ref_audio_1": "audio"},
-    )]
+    assert calls == [{
+        "clip": "clip",
+        "vae": "video_vae",
+        "audio_vae": "audio_vae",
+        "prompt": "prompt",
+        "width": 1344,
+        "height": 768,
+        "length": 124,
+        "ref_image_size": "match",
+        "ref_images": {"ref_image_1": "image"},
+        "ref_videos": {},
+        "ref_video_audios": {},
+        "ref_audios": {"ref_audio_1": "audio"},
+    }]
 
 
 def test_ref_backend_passes_stereo_reference_audio_to_native_node(monkeypatch):
@@ -95,8 +114,8 @@ def test_ref_backend_passes_stereo_reference_audio_to_native_node(monkeypatch):
 
     class NativeReferenceToVideo:
         @staticmethod
-        def execute(*args):
-            calls.append(args)
+        def execute(**kwargs):
+            calls.append(kwargs)
             return "conditioning", "latent"
 
     monkeypatch.setattr(guide, "native_node", lambda name: NativeReferenceToVideo)
@@ -121,7 +140,7 @@ def test_ref_backend_passes_stereo_reference_audio_to_native_node(monkeypatch):
         guide=state,
     )
 
-    forwarded_audio = calls[0][-1]["ref_audio_1"]
+    forwarded_audio = calls[0]["ref_audios"]["ref_audio_1"]
     assert forwarded_audio["waveform"].shape == (1, 2, 8)
     assert audio["waveform"].shape == (1, 1, 8)
 

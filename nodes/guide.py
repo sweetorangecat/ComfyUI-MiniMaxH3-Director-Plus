@@ -133,14 +133,14 @@ class MiniMaxH3DirectorPlusGuide:
         with memory_policy(state):
             if state["resolved_backend"] == "fl2va_model":
                 result = native_node("MiniMaxH3ImageToVideo").execute(
-                    clip,
-                    video_vae,
-                    state["prompt"],
-                    state["width"],
-                    state["height"],
-                    state["length"],
-                    state.get("first_frame"),
-                    state.get("last_frame"),
+                    clip=clip,
+                    vae=video_vae,
+                    prompt=state["prompt"],
+                    width=state["width"],
+                    height=state["height"],
+                    length=state["length"],
+                    first_frame=state.get("first_frame"),
+                    last_frame=state.get("last_frame"),
                 )
                 unpacked = getattr(result, "result", result)
                 if isinstance(unpacked, (tuple, list)) and unpacked:
@@ -152,18 +152,18 @@ class MiniMaxH3DirectorPlusGuide:
                 for name, audio in (state.get("ref_audios") or {}).items()
             }
             return native_node("MiniMaxH3ReferenceToVideo").execute(
-                clip,
-                video_vae,
-                audio_vae,
-                state["prompt"],
-                state["width"],
-                state["height"],
-                state["length"],
-                state.get("ref_image_size", "match"),
-                state.get("ref_images", {}),
-                state.get("ref_videos", {}),
-                state.get("ref_video_audios", {}),
-                state.get("ref_audios", {}),
+                clip=clip,
+                vae=video_vae,
+                audio_vae=audio_vae,
+                prompt=state["prompt"],
+                width=state["width"],
+                height=state["height"],
+                length=state["length"],
+                ref_image_size=state.get("ref_image_size", "match"),
+                ref_images=state.get("ref_images", {}),
+                ref_videos=state.get("ref_videos", {}),
+                ref_video_audios=state.get("ref_video_audios", {}),
+                ref_audios=state.get("ref_audios", {}),
             )
 
 
