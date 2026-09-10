@@ -113,6 +113,7 @@ def test_low_vram_smart_fhd_stays_on_ai_upscale_when_seedvr2_is_available(monkey
 
     assert guide["postprocess_path"] == "ai_upscale"
     assert guide["upscale_method"] == "comfy_upscale_model"
+    assert guide["upscale_profile"] == "standard"
 
 
 def test_video_sr_falls_back_to_ai_upscale_when_seedvr2_missing(monkeypatch):

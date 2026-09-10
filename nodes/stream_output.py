@@ -727,6 +727,8 @@ def _resolve_upscale_profile(guide, postprocess_path):
     """Resolve the conservative profile for smart AI reconstruction only."""
     if postprocess_path != "ai_upscale":
         return "standard"
+    if str((guide or {}).get("performance_preset") or "") == "low_vram":
+        return "standard"
     requested = str((guide or {}).get("requested_performance_preset") or "")
     explicit = str((guide or {}).get("upscale_profile") or "")
     if explicit == _SMART_UPSCALE_PROFILE or requested == "smart_free_1080p":

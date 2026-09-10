@@ -995,7 +995,11 @@ class MiniMaxH3DirectorPlus:
             "postprocess_path": postprocess_path,
             "upscale_profile": (
                 "smart_conservative_blend_v1"
-                if smart_mode and postprocess_path == "ai_upscale"
+                if (
+                    smart_mode
+                    and request["performance_preset"] != "low_vram"
+                    and postprocess_path == "ai_upscale"
+                )
                 else "standard"
             ),
             "upscale_method": {

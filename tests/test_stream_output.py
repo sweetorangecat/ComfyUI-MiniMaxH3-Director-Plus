@@ -305,6 +305,16 @@ def test_smart_upscale_profile_blends_ai_with_lanczos_baseline(monkeypatch):
     assert chunks[0].mean().item() == pytest.approx(0.68, abs=1e-4)
 
 
+def test_low_vram_smart_guide_ignores_conservative_blend_profile():
+    guide = {
+        "performance_preset": "low_vram",
+        "requested_performance_preset": "smart_free_1080p",
+        "upscale_profile": "smart_conservative_blend_v1",
+    }
+
+    assert stream_output._resolve_upscale_profile(guide, "ai_upscale") == "standard"
+
+
 def test_non_smart_upscale_profile_keeps_ai_output(monkeypatch):
     images = torch.full((1, 2, 2, 3), 0.2)
     monkeypatch.setattr(stream_output, "resolve_upscale_model_name", lambda *args, **kwargs: "fake.pth")
