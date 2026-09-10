@@ -169,7 +169,14 @@ def resolve_smart_1080p_plan(
             warning = ""
         max_duration = 15
 
-    postprocess_mode = "video_sr" if seedvr2_ready else "ai_upscale"
+    # Low-VRAM FHD runs must stay on the conservative per-frame X2 path.
+    # SeedVR2 diffusion reconstruction is the source of unstable artifacts on
+    # 8GB-class cards, even when its node and weights happen to be installed.
+    postprocess_mode = (
+        "ai_upscale"
+        if low_vram
+        else ("video_sr" if seedvr2_ready else "ai_upscale")
+    )
     return {
         "performance_preset": preset,
         "postprocess_mode": postprocess_mode,

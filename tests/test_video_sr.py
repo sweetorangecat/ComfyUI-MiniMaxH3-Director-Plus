@@ -69,9 +69,10 @@ def test_smart_plan_keeps_ai_upscale_when_seedvr2_missing():
     assert plan["ai_upscale_model"] == SMART_UPSCALE_MODEL
 
 
-def test_smart_low_vram_uses_gguf_video_sr_when_ready():
+def test_smart_low_vram_keeps_conservative_ai_upscale_when_seedvr2_ready():
     plan = resolve_smart_1080p_plan("ref2va_model", 4, 8, 7, seedvr2_ready=True)
-    assert plan["postprocess_mode"] == "video_sr"
+    assert plan["postprocess_mode"] == "ai_upscale"
+    assert plan["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
 
 
 def test_seedvr2_plan_scales_with_hardware():

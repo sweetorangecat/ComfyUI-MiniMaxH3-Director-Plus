@@ -76,6 +76,45 @@ def test_smart_free_1080p_resolves_base_backend_to_sage_and_x2(monkeypatch):
     assert guide["upscale_profile"] == "smart_conservative_blend_v1"
 
 
+def test_low_vram_smart_fhd_stays_on_ai_upscale_when_seedvr2_is_available(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report",
+        lambda route: {"ready": False, "missing": ["MinimaxH3LatentUpscaler3D"], "required_assets": []},
+    )
+    monkeypatch.setattr(
+        "nodes.director._seedvr2_dependency_report",
+        lambda: {
+            "ready": True,
+            "missing": [],
+            "available_dit": ["seedvr2_ema_3b_fp8_e4m3fn.safetensors"],
+        },
+    )
+    monkeypatch.setattr(
+        "nodes.director.resolve_upscale_model_name",
+        lambda *args, **kwargs: "RealESRGAN_x2plus.pth",
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="人物缓慢转身。",
+        duration=5,
+        width=1920,
+        height=1080,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="免费智能 1080p",
+        postprocess_mode="video_sr",
+        resolution_preset="1080p FHD",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert guide["postprocess_path"] == "ai_upscale"
+    assert guide["upscale_method"] == "comfy_upscale_model"
+
+
 def test_video_sr_falls_back_to_ai_upscale_when_seedvr2_missing(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
     monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")

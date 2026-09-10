@@ -247,3 +247,14 @@ def test_smart_fallback_qhd_still_requires_seedvr2():
             "ref2va_model", 15, 24, 21, two_stage_ready=True,
             seedvr2_ready=False, target_width=2560, target_height=1440,
         )
+
+
+def test_low_vram_never_routes_fhd_to_seedvr2_even_when_available():
+    plan = resolve_smart_1080p_plan(
+        "ref2va_model", 5, 8, 7, seedvr2_ready=True,
+        target_width=1920, target_height=1080,
+    )
+
+    assert plan["low_vram"] is True
+    assert plan["postprocess_mode"] == "ai_upscale"
+    assert plan["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
