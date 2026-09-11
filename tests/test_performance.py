@@ -298,6 +298,16 @@ def test_performance_node_reads_guide_preset():
     assert result[1] is True
 
 
+def test_low_vram_preset_uses_quality_first_twenty_step_sampling():
+    values = preset_values("low_vram", backend="ref2va_model")
+    result = MiniMaxH3PerformancePreset().apply({"performance_preset": "low_vram", "resolved_backend": "ref2va_model"})
+
+    assert values["steps"] == 20
+    assert values["use_sage"] is True
+    assert values["use_cache"] is False
+    assert result[0] == 20
+
+
 def test_performance_node_safely_downgrades_invalid_t2va_reference_preset():
     result = MiniMaxH3PerformancePreset().apply({
         "mode": "T2VA",

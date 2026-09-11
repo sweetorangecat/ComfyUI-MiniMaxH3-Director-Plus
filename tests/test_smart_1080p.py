@@ -72,7 +72,8 @@ def test_low_vram_common_free_upscale_contract(backend):
     assert plan["use_easycache"] is False
     assert plan["max_duration"] == 6
     assert plan["warning"] == (
-        "已启用低显存 1080p 模式。当前显存档位最多支持 6 秒；系统会降低生成阶段分辨率，"
+        "已启用低显存质量优先 1080p 模式：采样 20 步，速度较慢。当前显存档位最多支持 6 秒；"
+        "系统会降低生成阶段分辨率，"
         "并在生成后免费超分到目标 1080p 尺寸。"
     )
 

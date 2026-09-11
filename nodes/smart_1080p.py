@@ -126,7 +126,8 @@ def resolve_smart_1080p_plan(
         preset = "low_vram_two_stage" if backend == "fl2va_model" else "low_vram"
         route = "trained_latent_fl" if backend == "fl2va_model" else "bypass"
         warning = (
-            "已启用低显存 1080p 模式。当前显存档位最多支持 6 秒；系统会降低生成阶段分辨率，"
+            "已启用低显存质量优先 1080p 模式：采样 20 步，速度较慢。当前显存档位最多支持 6 秒；"
+            "系统会降低生成阶段分辨率，"
             "并在生成后免费超分到目标 1080p 尺寸。"
         )
         max_duration = LOW_VRAM_MAX_SECONDS

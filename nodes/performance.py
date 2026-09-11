@@ -120,11 +120,12 @@ PRESETS = {
         "use_turbo_sampler": False,
         "lora_strength": 1.0,
     },
-    # Keep ComfyUI's native dynamic patcher route.  It stages large H3
-    # components in host RAM and moves only the active weights to the GPU.
-    # Forcing the wrappers themselves to CPU makes text encoding unusably slow.
+    # Quality-first low-VRAM route. Keep ComfyUI's native dynamic patcher so
+    # large H3 components stay staged in host RAM, then spend extra denoising
+    # steps on detail instead of using a fast shortcut. The attention patch
+    # still bounds the active GPU working set for 8GB-class cards.
     "low_vram": {
-        "steps": 8,
+        "steps": 20,
         "use_sage": True,
         "use_cache": False,
         "interpolate": False,
@@ -582,7 +583,7 @@ class MiniMaxH3PerformancePreset:
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "ref_quality_native": "参考高清（原生 20 步）：REF2VA/H3 音色参考原生 20 步 + SageAttention，不使用 Turbo/二采",
             "ref_fast_4step": "参考极速（官方 4 步）：REF2VA/H3 音色参考使用官方 Ref2VA Turbo，4 步原生 Euler",
-            "low_vram": "低显存：8 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存",
+            "low_vram": "低显存质量优先：20 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存；速度较慢但细节更好",
             "low_vram_two_stage": "低显存二采：4–6 秒 FHD，按时长缩小首采网格 + RealESRGAN X2 细节重建",
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
