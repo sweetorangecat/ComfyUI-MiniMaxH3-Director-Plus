@@ -75,7 +75,8 @@ def make_example(template, side="right", preview=False):
         "先用 tracking-only 示例检查跟踪。身份识别默认关闭，可另装依赖后启用。\n"
         "合成保持输入分辨率、帧数和原音轨；1080p 原片输出仍为 1080p。\n"
         "高清角色参考图可替换 ImageFromBatch 到参考图输入的连线。\n"
-        "生成效果和耗时尚未经过 GPU 实测；脸型变化时可降低 denoise 至 0.3。"
+        "RTX 5090 已跑通；这段双人物近景实测变软，不能保证更清晰。\n"
+        "主工作流默认禁用本分支，需按原片对照后决定是否启用。"
     ]
     if preview:
         keep = {1, 2, 115, 116}
@@ -120,6 +121,7 @@ def integrate(main, face):
     link_mapping = {edge[0]: first_link + index for index, edge in enumerate(branch["links"])}
     for node in branch["nodes"]:
         node["id"] = mapping[node["id"]]
+        node["mode"] = 2
         node.setdefault("properties", {})[MARKER] = True
         for input_ in node.get("inputs", []):
             if input_.get("link") is not None:
@@ -145,7 +147,7 @@ def integrate(main, face):
     workflow["last_node_id"] = max(node["id"] for node in workflow["nodes"] if isinstance(node["id"], int))
     workflow["last_link_id"] = link_id
     workflow.setdefault("extra", {})[MARKER] = {"subject": "right", "gpu_inference_verified": False,
-                                               "input": "saved_output_filename"}
+                                               "input": "saved_output_filename", "enabled_by_default": False}
     return workflow
 
 

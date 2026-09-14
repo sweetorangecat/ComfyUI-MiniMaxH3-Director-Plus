@@ -27,7 +27,8 @@ python custom_nodes/ComfyUI-MiniMaxH3-Director-Plus/tools/install_face_refine.py
 3. 跟踪右侧人物，768×768 脸部重绘，8 步，固定种子 42，`denoise=0.4`。
 4. 修复脸部合成回原分辨率，输出到 `output/video/FaceRefine/right…mp4`。
 
-默认分支处于启用状态，会增加一次脸部采样。可将整个人脸修复分组设为 Never/禁用，只生成原版。
+默认分支处于 Never/禁用状态，只生成原版。需要修复时，将整个人脸修复分组内的节点设为 Always/启用。
+启用会增加一次脸部采样；当前双人物近景实测变软，所以不能把这个分支当作默认清晰度提升。
 原版输出请使用视频容器（MP4/MKV/WebM），不要改成 Animated WebP/AVIF。
 右侧是首个有效画面中的位置，之后按连续性跟踪；左侧人物在跟踪节点的 `select` 改为 `left_most`。
 两个人依次修复时，用右侧修复结果作为左侧流程的输入，不能只把两份都指向原片。
@@ -48,7 +49,8 @@ python custom_nodes/ComfyUI-MiniMaxH3-Director-Plus/tools/install_face_refine.py
 裁剪重绘会额外占用内存与显存；这条分支加载整段原分辨率视频，不属于流式低内存处理。
 长视频建议先截短验证，不能将原输出节点的低显存承诺直接套用到此分支。
 
-目前已做代码单元测试与 JSON 静态校验，尚未在远程 GPU 实测画质和耗时。
+已完成 RTX 5090 实测：158 帧、1080p、24fps 跟踪全部成功；首次修复约 207 秒，含模型加载。
+当前配方在该近景原片上更软，未验证到画质提升，详见 `docs/FaceRefine验证.md`。
 脸型变化或接缝明显时，可固定其他参数把 denoise 从 0.4 降到 0.3 比较。
 
 重新生成项目示例与主流程接线：

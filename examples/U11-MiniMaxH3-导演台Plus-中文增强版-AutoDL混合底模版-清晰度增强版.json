@@ -2328,7 +2328,7 @@
       ],
       "flags": {},
       "order": 26,
-      "mode": 0,
+      "mode": 2,
       "inputs": [],
       "outputs": [
         {
@@ -2361,7 +2361,7 @@
       ],
       "flags": {},
       "order": 27,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "model",
@@ -2404,7 +2404,7 @@
       ],
       "flags": {},
       "order": 28,
-      "mode": 0,
+      "mode": 2,
       "inputs": [],
       "outputs": [
         {
@@ -2438,7 +2438,7 @@
       ],
       "flags": {},
       "order": 29,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "noise",
@@ -2500,7 +2500,7 @@
       ],
       "flags": {},
       "order": 30,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "base_images",
@@ -2564,7 +2564,7 @@
       ],
       "flags": {},
       "order": 31,
-      "mode": 0,
+      "mode": 2,
       "inputs": [],
       "outputs": [
         {
@@ -2601,7 +2601,7 @@
       ],
       "flags": {},
       "order": 32,
-      "mode": 0,
+      "mode": 2,
       "inputs": [],
       "outputs": [
         {
@@ -2637,7 +2637,7 @@
       ],
       "flags": {},
       "order": 33,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "clip",
@@ -2770,7 +2770,7 @@
       ],
       "flags": {},
       "order": 34,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "av_latent",
@@ -2824,7 +2824,7 @@
       ],
       "flags": {},
       "order": 35,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "model",
@@ -2891,7 +2891,7 @@
       ],
       "flags": {},
       "order": 36,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "model",
@@ -2961,7 +2961,7 @@
       ],
       "flags": {},
       "order": 37,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "model",
@@ -3003,7 +3003,7 @@
       ],
       "flags": {},
       "order": 38,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "samples",
@@ -3047,7 +3047,7 @@
       ],
       "flags": {},
       "order": 39,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "images",
@@ -3122,7 +3122,7 @@
       ],
       "flags": {},
       "order": 40,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "model",
@@ -3164,7 +3164,7 @@
       ],
       "flags": {},
       "order": 41,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "meta_batch",
@@ -3249,7 +3249,7 @@
       ],
       "flags": {},
       "order": 42,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "images",
@@ -3361,7 +3361,7 @@
       ],
       "flags": {},
       "order": 43,
-      "mode": 0,
+      "mode": 2,
       "inputs": [],
       "outputs": [
         {
@@ -3397,7 +3397,7 @@
       ],
       "flags": {},
       "order": 44,
-      "mode": 0,
+      "mode": 2,
       "inputs": [],
       "outputs": [
         {
@@ -3435,7 +3435,7 @@
       ],
       "flags": {},
       "order": 45,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "image",
@@ -3475,7 +3475,7 @@
       ],
       "flags": {},
       "order": 46,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "model",
@@ -3512,7 +3512,7 @@
       ],
       "flags": {},
       "order": 47,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "video_info",
@@ -3569,7 +3569,7 @@
       ],
       "flags": {},
       "order": 48,
-      "mode": 0,
+      "mode": 2,
       "inputs": [
         {
           "name": "images",
@@ -3598,7 +3598,7 @@
       ],
       "flags": {},
       "order": 49,
-      "mode": 0,
+      "mode": 2,
       "inputs": [],
       "outputs": [],
       "properties": {
@@ -3606,7 +3606,7 @@
         "director_plus_face_refine": true
       },
       "widgets_values": [
-        "人脸修复由当前 Director Plus 项目提供，无需安装独立 FaceRefine 插件。\n768×768，8 步，denoise=0.4；select 选择左/右人物，连续跟踪。\n先用 tracking-only 示例检查跟踪。身份识别默认关闭，可另装依赖后启用。\n合成保持输入分辨率、帧数和原音轨；1080p 原片输出仍为 1080p。\n高清角色参考图可替换 ImageFromBatch 到参考图输入的连线。\n生成效果和耗时尚未经过 GPU 实测；脸型变化时可降低 denoise 至 0.3。"
+        "人脸修复由当前 Director Plus 项目提供，无需安装独立 FaceRefine 插件。\n768×768，8 步，denoise=0.4；select 选择左/右人物，连续跟踪。\n先用 tracking-only 示例检查跟踪。身份识别默认关闭，可另装依赖后启用。\n合成保持输入分辨率、帧数和原音轨；1080p 原片输出仍为 1080p。\n高清角色参考图可替换 ImageFromBatch 到参考图输入的连线。\nRTX 5090 已跑通；这段双人物近景实测变软，不能保证更清晰。\n主工作流默认禁用本分支，需按原片对照后决定是否启用。"
       ]
     }
   ],
@@ -7134,7 +7134,8 @@
     "director_plus_face_refine": {
       "subject": "right",
       "gpu_inference_verified": false,
-      "input": "saved_output_filename"
+      "input": "saved_output_filename",
+      "enabled_by_default": false
     }
   },
   "version": 0.4

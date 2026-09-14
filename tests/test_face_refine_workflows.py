@@ -16,6 +16,8 @@ def test_main_workflow_reads_its_own_saved_video_for_face_refinement():
     saver = next(node for node in workflow["nodes"] if node["id"] == link[1])
     assert saver["type"] == "MiniMaxH3StreamingVideoCombine" and link[2] == 1
     assert "MiniMaxH3FaceStitch" in {node["type"] for node in workflow["nodes"]}
+    branch = [node for node in workflow["nodes"] if node.get("properties", {}).get("director_plus_face_refine")]
+    assert branch and all(node["mode"] == 2 for node in branch)
 
 
 def assert_edges(workflow):
