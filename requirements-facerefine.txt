@@ -1,0 +1,5 @@
+# Optional FaceRefine dependencies. Install using ComfyUI's Python environment.
+ultralytics
+scipy
+scenedetect>=0.7
+# identity_track + insightface additionally requires insightface and onnxruntime.

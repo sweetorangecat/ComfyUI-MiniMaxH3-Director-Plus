@@ -20,6 +20,10 @@ if __package__:
     from .nodes.stream_output import MiniMaxH3StreamingVideoCombine
     from .nodes.vae_decode import MiniMaxH3SafeVAEDecode
     from .nodes.longfilm import MiniMaxH3LongFilm61
+    from .nodes.face_refine import (
+        NODE_CLASS_MAPPINGS as FACE_NODE_CLASS_MAPPINGS,
+        NODE_DISPLAY_NAME_MAPPINGS as FACE_NODE_DISPLAY_NAME_MAPPINGS,
+    )
 
     NODE_CLASS_MAPPINGS = {
         "MiniMaxH3DirectorPlus": MiniMaxH3DirectorPlus,
@@ -58,6 +62,9 @@ if __package__:
         "MiniMaxH3StreamingVideoCombine": "H3 低显存流式放大与 MP4 输出",
         "MiniMaxH3SafeVAEDecode": "H3 安全视频 VAE 解码（GPU计算 / CPU帧缓存 FP16）",
     }
+
+    NODE_CLASS_MAPPINGS.update(FACE_NODE_CLASS_MAPPINGS)
+    NODE_DISPLAY_NAME_MAPPINGS.update(FACE_NODE_DISPLAY_NAME_MAPPINGS)
 
     register_routes()
 else:

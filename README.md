@@ -6,6 +6,11 @@
 
 安装后导入：
 
-- `ComfyUI\user\default\workflows\minimaxH3\U11-MiniMaxH3-导演台Plus-中文增强版.json`
+- 本项目 `examples/U11-MiniMaxH3-导演台Plus-中文增强版-AutoDL混合底模版-清晰度增强版.json`。
+
+2026-09-14：内置 FaceRefine 人脸跟踪、裁剪重绘、原音轨锁定与合成节点。
+上方示例已接入右侧人物修复分支，原版输出自动作为修复输入；另附左右人物和仅跟踪示例。
+首次使用需安装可选依赖与模型，见 [人脸修复说明](examples/face_refine/README.md)。
+当前通过代码和静态接线检查，画质提升与耗时仍待 GPU 实测。
 
 只需导入这一个中文增强版工作流。API 模板由插件内部的 `templates/u11_api.json` 管理，不需要另行导入。完整用法见 `docs/使用说明.md`，接口字段见 `docs/API说明.md`，异常处理见 `docs/故障排查.md`。原 U10 与 `ComfyUI-DaSiWa-Nodes` 不会被修改。

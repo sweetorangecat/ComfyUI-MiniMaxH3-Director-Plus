@@ -1,0 +1,264 @@
+{
+  "id": "h3-face-refine-example",
+  "revision": 0,
+  "last_node_id": 116,
+  "last_link_id": 39,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "VHS_LoadVideoPath",
+      "pos": [
+        0,
+        0
+      ],
+      "size": [
+        440,
+        330
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "meta_batch",
+          "shape": 7,
+          "type": "VHS_BatchManager",
+          "link": null
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            1
+          ]
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": []
+        },
+        {
+          "name": "video_info",
+          "type": "VHS_VIDEOINFO",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VHS_LoadVideoPath"
+      },
+      "widgets_values": {
+        "video": "input/source.mp4",
+        "force_rate": 0,
+        "custom_width": 0,
+        "custom_height": 0,
+        "frame_load_cap": 0,
+        "skip_first_frames": 0,
+        "select_every_nth": 1,
+        "format": "None",
+        "videopreview": ""
+      },
+      "color": "#233",
+      "bgcolor": "#355",
+      "title": "01 读取待修复视频"
+    },
+    {
+      "id": 2,
+      "type": "MiniMaxH3FaceTrackCrop",
+      "pos": [
+        0,
+        430
+      ],
+      "size": [
+        440,
+        960
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "name": "identity_reference",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "crops",
+          "type": "IMAGE",
+          "links": []
+        },
+        {
+          "name": "transform",
+          "type": "H3FACEXFORM",
+          "links": []
+        },
+        {
+          "name": "preview",
+          "type": "IMAGE",
+          "links": [
+            39
+          ]
+        },
+        {
+          "name": "report",
+          "type": "STRING",
+          "links": []
+        },
+        {
+          "name": "canvas_w",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "canvas_h",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "MiniMaxH3FaceTrackCrop",
+        "cnr_id": "ComfyUI-MiniMaxH3-Director-Plus"
+      },
+      "widgets_values": [
+        "bbox/face_yolov8m.pt",
+        0.35,
+        2.5,
+        768,
+        768,
+        "manual",
+        21,
+        51,
+        "gaussian",
+        "per_frame",
+        false,
+        0.28,
+        "right_most",
+        "none",
+        0.5,
+        0,
+        "insightface",
+        "none",
+        3,
+        "off",
+        0,
+        0,
+        0
+      ],
+      "color": "#322",
+      "bgcolor": "#533",
+      "title": "02 跟踪右侧人物"
+    },
+    {
+      "id": 115,
+      "type": "PreviewImage",
+      "title": "先检查跟踪预览：脸框应一直跟随同一个人",
+      "pos": [
+        0,
+        1490
+      ],
+      "size": [
+        440,
+        350
+      ],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 39
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 116,
+      "type": "Note",
+      "title": "试验说明",
+      "pos": [
+        0,
+        1940
+      ],
+      "size": [
+        440,
+        440
+      ],
+      "flags": {},
+      "order": 23,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "Note"
+      },
+      "widgets_values": [
+        "人脸修复由当前 Director Plus 项目提供，无需安装独立 FaceRefine 插件。\n768×768，8 步，denoise=0.4；select 选择左/右人物，连续跟踪。\n先用 tracking-only 示例检查跟踪。身份识别默认关闭，可另装依赖后启用。\n合成保持输入分辨率、帧数和原音轨；1080p 原片输出仍为 1080p。\n高清角色参考图可替换 ImageFromBatch 到参考图输入的连线。\n生成效果和耗时尚未经过 GPU 实测；脸型变化时可降低 denoise 至 0.3。"
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "IMAGE"
+    ],
+    [
+      39,
+      2,
+      2,
+      115,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.5,
+      "offset": [
+        40,
+        60
+      ]
+    },
+    "director_plus_face_refine": {
+      "subject": "right",
+      "gpu_inference_verified": false,
+      "backend_commit": "d8521d14fe0d721d80cd9417fff5a559cbc21aba"
+    }
+  },
+  "version": 0.4
+}

@@ -1186,6 +1186,7 @@ def test_quality_priority_acceleration_applies_sage_without_cache_or_lora(monkey
 
 def test_quality_priority_uses_h3_memory_efficient_sage_patch(monkeypatch):
     calls = []
+    monkeypatch.setattr(performance, "_free_vram_bytes", lambda: None)
 
     class MemoryEfficientSage:
         @staticmethod
