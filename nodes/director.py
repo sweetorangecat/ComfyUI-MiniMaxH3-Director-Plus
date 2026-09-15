@@ -491,6 +491,11 @@ class MiniMaxH3DirectorPlus:
             "voice_gender": voice_gender,
             "voice_reference_audio": voice_reference_audio,
             "voice_reference_audios": voice_references,
+            "voice_reference_names": [
+                voice_reference_name_1,
+                voice_reference_name_2,
+                voice_reference_name_3,
+            ],
             "target_dialogue": str(target_dialogue or "").strip(),
             "reference_transcript": str(reference_transcript or "").strip(),
             "fish_model_path": str(fish_model_path or "s2-pro-w4a16 (auto download)"),
@@ -1019,6 +1024,15 @@ class MiniMaxH3DirectorPlus:
             "ref_videos": {},
             "ref_video_audios": {},
             "ref_audios": ref_audios,
+            "voice_reference_names": request["voice_reference_names"],
+            "voice_reference_bindings": [
+                {
+                    "audio": f"<Audio {index}>",
+                    "role": name,
+                }
+                for index, name in enumerate(request["voice_reference_names"], 1)
+                if name and index <= len(voice_references)
+            ],
             "performance_preset": request["performance_preset"],
             "requested_performance_preset": requested_performance_preset,
             "timeline": timeline,

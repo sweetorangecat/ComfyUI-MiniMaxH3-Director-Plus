@@ -1025,7 +1025,7 @@
         "自动（按显存）"
       ],
       "widgets_values_named": {
-        "community_loras": "全部自动叠加",
+        "community_loras": "全部关闭",
         "second_stage_noise": "注入新噪声（U22 同配方）",
         "attention_chunks": "自动（按显存）"
       },

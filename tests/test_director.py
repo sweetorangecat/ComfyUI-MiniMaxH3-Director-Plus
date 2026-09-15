@@ -820,6 +820,36 @@ def test_numbered_voice_references_reject_gaps_instead_of_silently_renumbering()
         )
 
 
+def test_voice_reference_names_are_preserved_in_guide_bindings():
+    audios = [
+        {"waveform": object(), "sample_rate": 32000},
+        {"waveform": object(), "sample_rate": 32000},
+    ]
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="橘总使用 <Audio 1> 的音色说话，苏小满使用 <Audio 2> 的音色说话。",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="h3_reference",
+        ref_image_size="match",
+        performance_preset="参考图加速",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        voice_reference_name_1="橘总",
+        voice_reference_name_2="苏小满",
+        voice_reference_audio=audios[0],
+        voice_reference_audio_2=audios[1],
+    )
+
+    assert guide["voice_reference_names"][:2] == ["橘总", "苏小满"]
+    assert guide["voice_reference_bindings"] == [
+        {"audio": "<Audio 1>", "role": "橘总"},
+        {"audio": "<Audio 2>", "role": "苏小满"},
+    ]
+
+
 def test_numbered_reference_images_reject_gaps_instead_of_silently_renumbering():
     with pytest.raises(RequestError, match="参考图必须从 1 开始连续上传"):
         MiniMaxH3DirectorPlus().build(
