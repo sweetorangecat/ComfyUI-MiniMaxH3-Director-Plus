@@ -1022,12 +1022,12 @@
       "widgets_values": [
         "全部关闭",
         "注入新噪声（U22 同配方）",
-        "自动（按显存）"
+        "2（最快）"
       ],
       "widgets_values_named": {
         "community_loras": "全部关闭",
         "second_stage_noise": "注入新噪声（U22 同配方）",
-        "attention_chunks": "自动（按显存）"
+        "attention_chunks": "2（最快）"
       },
       "color": "#24353d",
       "bgcolor": "#344b55"
@@ -1626,7 +1626,7 @@
         false,
         false,
         "Auto",
-        "192k",
+        "320k",
         false,
         true
       ],
@@ -2264,7 +2264,7 @@
         "",
         "",
         "off",
-        "auto",
+        "original",
         "auto",
         ""
       ],

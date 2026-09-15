@@ -1042,7 +1042,7 @@ class MiniMaxH3DirectorPlus:
         }
         LOGGER.info(
             "[H3 director] mode=%s backend=%s preset=%s first_frame=%s last_frame=%s "
-            "ref_images=%d ref_audios=%d ignored_media=%s native=%sx%s target=%sx%s postprocess=%s",
+            "ref_images=%d ref_audios=%d voice_bindings=%s ignored_media=%s native=%sx%s target=%sx%s postprocess=%s",
             mode,
             request["resolved_backend"],
             request["performance_preset"],
@@ -1050,6 +1050,11 @@ class MiniMaxH3DirectorPlus:
             bool(last_frame is not None),
             len(ref_images),
             len(ref_audios),
+            ",".join(
+                f"Audio {index}={name or '?'}"
+                for index, name in enumerate(request["voice_reference_names"], 1)
+                if index <= len(voice_references)
+            ) or "none",
             ",".join(request.get("ignored_media", [])) or "none",
             native_width,
             native_height,
