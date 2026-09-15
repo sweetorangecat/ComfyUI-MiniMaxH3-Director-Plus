@@ -365,6 +365,11 @@ def normalize_request(raw=None):
         request["warnings"].append(
             "H3 原生音色参考仅提供性别/音域约束，不保证严格声纹一致；要尽量保持本人声线请使用 Fish S2。"
         )
+    if request["voice_mode"] == "h3_reference" and len(audio_references) > 1:
+        request["warnings"].append(
+            "当前绑定了多路 H3 原生音色参考；模型可能在跨镜头或多人同框时发生音色串扰。"
+            "追求单个角色的声纹稳定时，请按说话角色拆分镜头/任务，或改用 Fish S2 单路锁定。"
+        )
     if ignored_media:
         request["warnings"].append(
             f"已忽略与 {request['mode']} / 当前音色设置不兼容的素材输入：{'、'.join(ignored_media)}。"
