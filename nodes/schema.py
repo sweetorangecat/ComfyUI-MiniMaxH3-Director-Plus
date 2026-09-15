@@ -6,7 +6,7 @@ import re
 from copy import deepcopy
 
 
-MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA")
+MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA", "ACTION_REPLACE")
 VOICE_MODES = ("none", "h3_reference", "fish_lock")
 POSTPROCESS_MODES = ("native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr")
 RTX_QUALITIES = ("HIGH", "ULTRA", "HIGHBITRATE_ULTRA")
@@ -167,6 +167,8 @@ def allowed_motion_smoothing(performance_preset, postprocess_mode):
 
 def allowed_performance_presets(mode, voice_mode="none"):
     """Return the safe, user-facing presets for the active H3 route."""
+    if mode == "ACTION_REPLACE":
+        return ("smart_free_1080p",)
     if voice_mode != "none" or mode == "REF2VA":
         presets = PERFORMANCE_PRESETS_BY_ROUTE["reference"]
         if voice_mode == "fish_lock":
@@ -281,6 +283,19 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的后处理模式：{request['postprocess_mode']}")
     if request["rtx_quality"] not in RTX_QUALITIES:
         raise RequestError(f"不支持的 RTX VSR 质量：{request['rtx_quality']}")
+
+    # Viggle H3 action replacement is a separate conditioning contract. It
+    # must not be routed through the regular H3 image/reference endpoints.
+    if request["mode"] == "ACTION_REPLACE":
+        request["resolved_backend"] = "viggle_action_replace"
+        request["performance_preset"] = PERFORMANCE_PRESETS.get(
+            request["performance_preset"], "smart_free_1080p"
+        )
+        request["warnings"] = [
+            "动作替换使用 ComfyUI-Viggle-Animate-H3 独立条件与采样链；原视频音轨默认保留。",
+            "目标人物音色替换属于可选后期步骤，不会自动占用 H3 音色参考槽位。",
+        ]
+        return request
 
     # A saved Director node keeps hidden upload widgets when the user switches
     # modes.  Enforce the native H3 media contract here so stale endpoints can

@@ -20,7 +20,8 @@ const DIRECTOR_UI_HEIGHT = 1760;
 const DIRECTOR_DOM_HEIGHT = 1280;
 const DIRECTOR_CONTENT_INSET = 48;
 const DIRECTOR_VIEWPORT_HEIGHT = DIRECTOR_DOM_HEIGHT;
-const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
+const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA", "ACTION_REPLACE"];
+const MODE_LABELS = { ACTION_REPLACE: "动作替换（Viggle H3）" };
 const PRESETS = ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "低显存", "低显存二采", "自定义"];
 const PERFORMANCE_PRESET_KEYS = {
   "高清快速（v4 8步）": "fl_quality_fast_v4",
@@ -189,7 +190,8 @@ function setWidget(node, name, value, notify = true) {
 
 function allowedPerformancePresets(mode, voiceMode) {
   let presets;
-  if (voiceMode !== "none" || mode === "REF2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.reference;
+  if (mode === "ACTION_REPLACE") presets = ["智能画质（自动适配）"];
+  else if (voiceMode !== "none" || mode === "REF2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.reference;
   else if (mode === "T2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.t2va;
   else presets = PERFORMANCE_PRESETS_BY_ROUTE.endpoint;
   if (voiceMode === "fish_lock") return presets.filter((item) => !["质量优先二采样", "低显存二采"].includes(item));
@@ -817,9 +819,11 @@ function install(node) {
       setWidget(node, "resolution_preset", "1080p FHD", false);
       [resolvedWidth, resolvedHeight] = syncResolution(node);
     }
-    const resolvedBackend = mode === "REF2VA" || voiceMode !== "none"
-      ? "ref2va_model"
-      : "fl2va_model";
+    const resolvedBackend = mode === "ACTION_REPLACE"
+      ? "viggle_action_replace"
+      : mode === "REF2VA" || voiceMode !== "none"
+        ? "ref2va_model"
+        : "fl2va_model";
 
     root.replaceChildren();
 
@@ -858,7 +862,7 @@ function install(node) {
     statusStrip.append(
       statusItem("模式 / 后端", `${mode} / ${resolvedBackend}`),
       statusItem("规格 / 时长", `${resolvedWidth} × ${resolvedHeight} · ${widget(node, "duration")?.value || 5} 秒`),
-      statusItem("素材 / 音色", `${mode === "T2VA" ? "纯提示词" : mode === "REF2VA" ? "最多 9 张参考图" : "首尾帧入口"} · ${VOICE_MODE_LABELS[voiceMode]}`),
+      statusItem("素材 / 音色", `${mode === "ACTION_REPLACE" ? "动作视频 + 目标人物图" : mode === "T2VA" ? "纯提示词" : mode === "REF2VA" ? "最多 9 张参考图" : "首尾帧入口"} · ${VOICE_MODE_LABELS[voiceMode]}`),
     );
     workbench.append(workbenchCopy, workbenchBadge, statusStrip);
     root.append(workbench);
@@ -869,7 +873,7 @@ function install(node) {
     const quickGrid = document.createElement("div");
     quickGrid.className = "h3p-grid";
     quickGrid.append(
-      valueControl("生成模式", "mode", MODES, mode),
+      valueControl("生成模式", "mode", MODES.map((value) => [value, MODE_LABELS[value] || value]), mode),
       valueControl("性能预设", "performance_preset", performanceOptions, preset),
     );
     quick.append(quickGrid);
@@ -989,18 +993,35 @@ function install(node) {
 
     const director = document.createElement("section");
     director.className = "h3p-section";
-    director.innerHTML = '<div class="h3p-section-title"><span>导演与素材</span><span class="h3p-hint">选择模式后直接上传</span></div>';
+    director.innerHTML = `<div class="h3p-section-title"><span>导演与素材</span><span class="h3p-hint">${mode === "ACTION_REPLACE" ? "连接原视频帧、目标人物图和音轨" : "选择模式后直接上传"}</span></div>`;
     const materials = document.createElement("div");
     materials.className = "h3p-materials";
     materials.append(
+      ...(mode === "ACTION_REPLACE" ? [
+        material("动作视频", "连接 VHS_LoadVideo 的 IMAGE 帧序列"),
+        material("目标人物", "连接目标人物参考图"),
+        material("原视频音轨", "可选；默认原样保留"),
+      ] : [
       material("首帧图片", mode === "REF2VA" ? "作为普通参考图 1（非首帧）" : mode === "T2VA" ? "当前模式不需要" : "I2VA / FL2VA 可用"),
       material("尾帧图片", mode === "REF2VA" ? "作为普通参考图 2（非尾帧）" : ["FL2VA", "L2VA"].includes(mode) ? "FL2VA / L2VA 可用" : "当前模式不需要"),
       material("音色参考", VOICE_REFERENCE_MODES.includes(mode) ? "启用音色后上传样本" : "当前模式不需要"),
+      ]),
     );
+    if (mode === "ACTION_REPLACE") {
+      const actionNote = document.createElement("div");
+      actionNote.className = "h3p-spec-note";
+      actionNote.textContent = "动作替换不是抠图贴图：原视频提供动作、节奏和镜头运动，目标人物图提供身份外观。需要安装 ComfyUI-Viggle-Animate-H3；合成时原视频音轨默认直通。";
+      director.append(actionNote);
+    }
     director.append(materials);
     const uploadGrid = document.createElement("div");
     uploadGrid.className = "h3p-upload-grid";
-    if (mode === "REF2VA") {
+    if (mode === "ACTION_REPLACE") {
+      const actionSlots = document.createElement("div");
+      actionSlots.className = "h3p-spec-note";
+      actionSlots.textContent = "请在节点端连接 action_video、action_reference_image、action_audio；Viggle 条件适配节点会出现在下游。";
+      uploadGrid.append(actionSlots);
+    } else if (mode === "REF2VA") {
       // REF2VA slots are all generic references; timing/keyframe roles belong in the prompt.
       const genericPictureLabels = ["参考图 1", "参考图 2", "参考图 3", "参考图 4", "参考图 5", "参考图 6", "参考图 7", "参考图 8", "参考图 9"];
       REF2VA_IMAGE_SLOTS.forEach(([label, field], index) => uploadGrid.append(uploadControl(node, genericPictureLabels[index] || label, field, "image/*")));
