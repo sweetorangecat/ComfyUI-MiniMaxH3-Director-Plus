@@ -161,9 +161,44 @@ def load_uploaded_audio(filename):
         from comfy_extras.nodes_audio import LoadAudio
 
         result = LoadAudio.execute(filename)
-        return result[0]
+        audio = result[0]
+        return _canonicalize_voice_audio(audio)
     except (AttributeError, ImportError, OSError, ValueError) as exc:
         raise RequestError(f"无法加载导演台音频“{filename}”：{exc}") from exc
+
+
+def _canonicalize_voice_audio(audio, target_rate=32000):
+    """Normalize voice references to the H3 audio-VAE contract.
+
+    H3 reference clips are more stable when all slots use the same mono
+    sample rate. This is especially important for a stereo 44.1 kHz WAV in
+    one slot next to mono 24 kHz references in the other slots.
+    """
+    if not isinstance(audio, dict):
+        return audio
+    waveform = audio.get("waveform")
+    sample_rate = int(audio.get("sample_rate") or 0)
+    if not hasattr(waveform, "ndim") or waveform.ndim != 3 or sample_rate <= 0:
+        return audio
+    import torch
+
+    normalized = dict(audio)
+    if waveform.shape[1] > 1:
+        waveform = waveform.mean(dim=1, keepdim=True)
+    if sample_rate != target_rate:
+        try:
+            import torchaudio.functional as ta_functional
+
+            waveform = ta_functional.resample(waveform, sample_rate, target_rate)
+        except (ImportError, RuntimeError, TypeError, ValueError):
+            target_length = max(1, round(waveform.shape[-1] * target_rate / sample_rate))
+            waveform = torch.nn.functional.interpolate(
+                waveform, size=target_length, mode="linear", align_corners=False
+            )
+        sample_rate = target_rate
+    normalized["waveform"] = waveform.contiguous()
+    normalized["sample_rate"] = sample_rate
+    return normalized
 
 
 def align_frame_count(frame_count):
