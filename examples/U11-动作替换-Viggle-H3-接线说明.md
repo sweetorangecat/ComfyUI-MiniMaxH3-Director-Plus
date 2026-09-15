@@ -1,6 +1,8 @@
 # H3 动作替换（Viggle）
 
-这是导演台的 `ACTION_REPLACE` 模式接线说明。
+主工作流文件是 `U11-导演台Plus-全功能-动作替换模式-高显存.json`。它以原有高显存导演台为主，保留原有 H3 模式、性能路由、音色、二采、超分和输出节点，并额外合并 U31 的 Viggle 动作替换分支。
+
+`U11-动作替换-Viggle-H3.json` 仅作为原始 U31 节点基线保留；日常使用请打开全功能合并版。
 
 1. 用 `VHS_LoadVideo` 读取原视频，连接 `IMAGE` 到 `MiniMaxH3DirectorPlus.action_video` 和 `MiniMaxH3ActionReplacementConditioning.cond_video`。
 2. 用 `LoadImage` 读取目标人物图，连接到 `action_reference_image` 和适配节点的 `ref_image`。
