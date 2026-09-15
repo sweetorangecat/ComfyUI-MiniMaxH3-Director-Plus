@@ -122,6 +122,11 @@ class MiniMaxH3DirectorPlusGuide:
 
     def apply(self, clip, video_vae, audio_vae, guide, generated_voice_audio=None):
         state = guide.copy()
+        if state.get("resolved_backend") == "viggle_action_replace":
+            raise ValueError(
+                "ACTION_REPLACE 导演指南必须连接“H3 动作替换条件适配（Viggle）”节点，"
+                "不能连接普通 H3 导演指南应用节点。"
+            )
         if state.get("voice_mode") == "fish_lock":
             if generated_voice_audio is None:
                 raise ValueError("Fish 高级音色锁定尚未生成目标对白音频")
