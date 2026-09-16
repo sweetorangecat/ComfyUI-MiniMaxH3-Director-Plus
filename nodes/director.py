@@ -280,7 +280,7 @@ class MiniMaxH3DirectorPlus:
         audio_files = _uploaded_files(["audio", "video"])
         return {
             "required": {
-                "mode": (["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA", "ACTION_REPLACE"], {"default": "FL2VA", "tooltip": "生成模式；ACTION_REPLACE 使用 Viggle H3 动作替换分支"}),
+                "mode": (["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"], {"default": "FL2VA", "tooltip": "生成模式"}),
                 "prompt": ("STRING", {"default": "", "multiline": True, "tooltip": "视频提示词"}),
                 "duration": ("INT", {"default": 5, "min": 4, "max": 15, "tooltip": "H3 原生视频时长（4-15 秒）"}),
                 "width": ("INT", {"default": 1344, "min": 32, "max": 8192, "step": 32, "tooltip": "输出宽度"}),
@@ -336,9 +336,6 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_7": ("IMAGE",),
                 "reference_image_8": ("IMAGE",),
                 "reference_image_9": ("IMAGE",),
-                "action_video": ("IMAGE", {"tooltip": "动作替换：原视频解码后的帧序列"}),
-                "action_reference_image": ("IMAGE", {"tooltip": "动作替换：目标人物参考图"}),
-                "action_audio": ("AUDIO", {"tooltip": "动作替换：原视频音轨，默认原样保留"}),
             },
         }
 
@@ -389,9 +386,6 @@ class MiniMaxH3DirectorPlus:
         reference_image_7=None,
         reference_image_8=None,
         reference_image_9=None,
-        action_video=None,
-        action_reference_image=None,
-        action_audio=None,
         first_image_file="",
         last_image_file="",
         voice_reference_audio_file="",
@@ -419,44 +413,6 @@ class MiniMaxH3DirectorPlus:
             raise RequestError(f"素材时间线 JSON 无效：{exc}") from exc
         if not isinstance(timeline, dict):
             raise RequestError("素材时间线必须是 JSON 对象")
-
-        if mode == "ACTION_REPLACE":
-            requested_width, requested_height = calculate_resolution(
-                resolution_preset, aspect_ratio, int(custom_width), int(custom_height)
-            )
-            if action_video is None:
-                raise RequestError("动作替换模式需要连接原视频解码后的 IMAGE 帧序列")
-            if action_reference_image is None:
-                raise RequestError("动作替换模式需要连接目标人物参考图")
-            length = int(getattr(action_video, "shape", [1])[0])
-            length = align_frame_count(length)
-            warnings = [
-                "动作替换使用 ComfyUI-Viggle-Animate-H3 独立条件与采样链；原视频音轨默认保留。",
-                "目标人物音色替换属于可选后期步骤，不会自动占用 H3 音色参考槽位。",
-            ]
-            guide = {
-                "version": 1,
-                "mode": mode,
-                "resolved_backend": "viggle_action_replace",
-                "prompt": str(prompt or "").strip(),
-                "width": int(requested_width),
-                "height": int(requested_height),
-                "native_width": int(requested_width),
-                "native_height": int(requested_height),
-                "length": length,
-                "seed": int(seed),
-                "action_video": action_video,
-                "action_reference_image": action_reference_image,
-                "action_audio": action_audio,
-                "preserve_source_audio": True,
-                "timeline": timeline,
-                "warnings": warnings,
-                "performance_preset": "viggle_action",
-            }
-            return (
-                guide, length, str(prompt or "").strip(), "viggle_action_replace",
-                "\n".join(warnings), None, "", False, int(seed)
-            )
 
         # Do not even load hidden stale widgets that the selected mode cannot
         # consume.  This prevents a mode switch from turning an old FL2VA

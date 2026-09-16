@@ -114,6 +114,36 @@ def test_official_lora_rejects_zero_patch_delta(monkeypatch):
         performance._load_lightx2v_lora(Model(), "adapter.safetensors")
 
 
+def test_official_lora_accepts_runtime_injection_delta_without_patch_delta(monkeypatch):
+    class FolderPaths:
+        @staticmethod
+        def get_full_path(category, name):
+            return "/models/minimax/adapter.safetensors" if category == "loras" else None
+
+        @staticmethod
+        def get_filename_list(category):
+            return ["minimax/adapter.safetensors"]
+
+    class Model:
+        def __init__(self, injections=None):
+            self.patches = {"adapter": [object()]}
+            self.injections = injections or {}
+
+    source = Model()
+    loaded = Model({"h3_lora": [object()]})
+
+    class CoreLoader:
+        def load_lora_model_only(self, model, name, strength):
+            return (loaded,)
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", FolderPaths)
+    monkeypatch.setitem(sys.modules, "nodes", type("Nodes", (), {"LoraLoaderModelOnly": CoreLoader})())
+    monkeypatch.setattr(performance, "_turbo_class", lambda *_: pytest.fail("fallback loader must not run"))
+
+    assert performance._load_lightx2v_lora(source, "adapter.safetensors") is loaded
+
+
 def test_official_lora_uses_h3_loader_when_core_loader_matches_zero(monkeypatch):
     class FolderPaths:
         @staticmethod

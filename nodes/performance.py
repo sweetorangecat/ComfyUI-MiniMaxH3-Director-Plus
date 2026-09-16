@@ -219,6 +219,7 @@ def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
             "缺少 H3 Turbo LoRA: " + " 或 ".join(_lora_name_candidates(requested_lora_name))
         )
     before_count = _patch_entry_count(model)
+    before_effect_count = _lora_effect_count(model)
     try:
         import nodes as comfy_nodes
 
@@ -232,9 +233,10 @@ def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
     except Exception as exc:
         raise H3LoRAApplicationError(f"官方 H3 Turbo LoRA 加载失败: {resolved_name}: {exc}") from exc
     patch_delta = _patch_entry_count(loaded_model) - before_count
-    if patch_delta <= 0:
+    effect_delta = _lora_effect_count(loaded_model) - before_effect_count
+    if effect_delta <= 0:
         core_error = H3LoRAApplicationError(
-            f"官方 H3 Turbo LoRA 未应用任何模型补丁: {resolved_name}"
+            f"官方 H3 Turbo LoRA 未应用任何模型补丁或运行时注入: {resolved_name}"
         )
         try:
             # H3 adapters use module names that are not covered by ComfyUI's
@@ -266,10 +268,11 @@ def _load_lightx2v_lora(model, lora_name=None, strength=1.0, low_vram=False):
                 f"{core_error}；H3 专用加载器失败: {exc}"
             ) from exc
     LOGGER.info(
-        "[H3 LoRA] 官方加载成功 name=%s strength=%s patch_delta=%s",
+        "[H3 LoRA] 官方加载成功 name=%s strength=%s patch_delta=%s effect_delta=%s",
         resolved_name,
         float(strength),
         patch_delta,
+        effect_delta,
     )
     return loaded_model
 
