@@ -8,6 +8,11 @@ import torch
 import nodes.stream_output as stream_output
 
 
+def test_stream_output_defaults_to_high_quality_aac_bitrate():
+    audio_bitrate = stream_output.MiniMaxH3StreamingVideoCombine.INPUT_TYPES()["required"]["audio_bitrate"]
+    assert audio_bitrate[1]["default"] == "320k"
+
+
 class _Folders:
     def get_output_directory(self):
         return "."

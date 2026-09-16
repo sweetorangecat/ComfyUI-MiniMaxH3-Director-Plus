@@ -938,7 +938,7 @@ class MiniMaxH3StreamingVideoCombine:
                 "pass_frames": ("BOOLEAN", {"default": False}),
                 "crop_to_audio": ("BOOLEAN", {"default": False}),
                 "audio_codec": (["Auto", "AAC", "Opus", "MP3"], {"default": "Auto"}),
-                "audio_bitrate": (["64k", "96k", "128k", "160k", "192k", "256k", "320k"], {"default": "192k"}),
+                "audio_bitrate": (["64k", "96k", "128k", "160k", "192k", "256k", "320k"], {"default": "320k"}),
                 "save_first_frame": ("BOOLEAN", {"default": False}),
                 "save_last_frame": ("BOOLEAN", {"default": False}),
             },

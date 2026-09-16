@@ -1626,7 +1626,7 @@
         false,
         false,
         "Auto",
-        "192k",
+        "320k",
         false,
         true
       ],
@@ -1644,7 +1644,7 @@
         "pass_frames": false,
         "crop_to_audio": false,
         "audio_codec": "Auto",
-        "audio_bitrate": "192k",
+        "audio_bitrate": "320k",
         "save_first_frame": false,
         "save_last_frame": true
       }

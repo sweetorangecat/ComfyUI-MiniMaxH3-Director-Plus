@@ -161,6 +161,25 @@ def clone_guider_with_model(guider, second_model):
     return result
 
 
+def _reinsert_stage1_audio(final_denoised, stage1_audio):
+    """Keep the first-stage audio latent after the video-only latent redraw.
+
+    The U22 path enlarges only the video latent, but the second sampler still
+    receives a packed AV latent. Without this final reinsert, the second
+    sampler is free to rewrite the audio branch with the video redraw model
+    and its community LoRAs. Repacking the denoised video with the untouched
+    stage-one audio makes the advertised audio-preservation contract real.
+    """
+    from comfy_extras.nodes_lt import LTXVConcatAVLatent, LTXVSeparateAVLatent
+
+    separated = LTXVSeparateAVLatent.execute(final_denoised)
+    separated = getattr(separated, "result", separated)
+    if not isinstance(separated, (tuple, list)) or len(separated) < 2:
+        raise RuntimeError("H3 二采最终 AV latent 分离失败，无法锁定音频分支")
+    final_video = separated[0]
+    return _node_output(LTXVConcatAVLatent.execute(final_video, stage1_audio))
+
+
 def _resize_condition_latent(latent, target_h, target_w):
     """Resize one FL keyframe latent to the second-stage spatial grid."""
     container = None
@@ -630,5 +649,10 @@ class MiniMaxH3TwoStageSampler:
 
         guide["two_stage_first_sigma_count"] = len(first_sigmas)
         guide["two_stage_second_sigma_count"] = len(second_sigmas)
+        final_denoised = _reinsert_stage1_audio(final_denoised, audio_latent)
+        guide["two_stage_audio_lock"] = "stage1_reinsert"
+        LOGGER.info(
+            "[H3 two-stage] audio locked to stage-1 latent after second-stage video redraw"
+        )
         LOGGER.info("[H3 two-stage] completed output=%s", _latent_shape(final_denoised))
         return final_denoised, final_denoised

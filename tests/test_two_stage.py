@@ -285,7 +285,11 @@ def test_trained_two_stage_preserves_audio_and_uses_fl_four_plus_four(monkeypatc
             calls.append((noise, guider, sigmas.clone(), latent))
             if len(calls) == 1:
                 return types.SimpleNamespace(result=(first_denoised, first_denoised))
-            return types.SimpleNamespace(result=(latent, latent))
+            altered = _node_output(LTXVConcatAVLatent.execute(
+                {"samples": torch.zeros(1, 24, 5, 6, 6)},
+                {"samples": torch.full((1, 32, 2, 20), 99.0)},
+            ))
+            return types.SimpleNamespace(result=(altered, altered))
 
     def fake_upscale(video_latent, scale):
         stage_events.append("upscale")
@@ -346,6 +350,10 @@ def test_trained_two_stage_preserves_audio_and_uses_fl_four_plus_four(monkeypatc
     second_video, second_audio = calls[1][3]["samples"].unbind()
     assert second_video.shape == (1, 24, 5, 6, 6)
     assert torch.equal(second_audio, original_audio["samples"])
+    final_video, final_audio = result[0]["samples"].unbind()
+    assert final_video.shape == (1, 24, 5, 6, 6)
+    assert torch.equal(final_audio, original_audio["samples"])
+    assert guide["two_stage_audio_lock"] == "stage1_reinsert"
     assert guide["two_stage_status"] == "训练型 3D latent 二采完成"
 
 
