@@ -64,6 +64,12 @@ def _validate_first_vocal_event_order(prompt, audio_reference_count):
         )
 
 
+def _prompt_shot_count(prompt):
+    """Count explicit numbered shots without treating ordinary prose as cuts."""
+    text = str(prompt or "")
+    return len(re.findall(r"\[\s*shot\s+\d+\s*\]", text, flags=re.IGNORECASE))
+
+
 PERFORMANCE_PRESETS = {
     "智能画质（自动适配）": "smart_free_1080p",
     "免费智能 1080p": "smart_free_1080p",  # legacy alias
@@ -407,6 +413,14 @@ def normalize_request(raw=None):
     request["performance_preset"] = preset
 
     request["warnings"] = []
+    shot_count = _prompt_shot_count(request.get("prompt"))
+    if request["mode"] == "REF2VA" and shot_count >= 2:
+        request["warnings"].append(
+            f"检测到 {shot_count} 个编号镜头。REF2VA 的普通 <Picture N> 只是软参考，"
+            "不能锁定切镜后的脸部身份、人物比例、屏幕位置或上一镜尾态；即使有首尾图片，"
+            "它们也不能替代每个镜头的连续性锚点。要保持跨镜头一致，请拆成独立镜头生成，"
+            "用上一镜合格尾帧作为下一镜首帧，再后期剪辑。"
+        )
     if request["voice_mode"] == "h3_reference" and request["voice_gender"] in {"male", "female"}:
         request["warnings"].append(
             "H3 原生音色参考仅提供性别/音域约束，不保证严格声纹一致；要尽量保持本人声线请使用 Fish S2。"

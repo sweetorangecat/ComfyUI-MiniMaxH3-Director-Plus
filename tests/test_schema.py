@@ -184,6 +184,55 @@ N/A
     assert any("模型端" in warning and "串色" in warning for warning in request["warnings"])
 
 
+def test_ref2va_warns_that_multi_shot_soft_references_do_not_lock_continuity():
+    prompt = """summary:
+两个镜头的短片，在 00:09.000 切镜一次。
+
+detailed_description:
+[Shot 1] 00:00.000至00:09.000：三人同框，保持人物位置。
+[Shot 2] 00:09.000至00:15.000：切到阿哈与苏小满双人中景，保持同一空间。
+
+overall_soundscape:
+Quiet room tone.
+non_diegetic_music:
+N/A
+"""
+
+    request = normalize_request({
+        "mode": "REF2VA",
+        "duration": 15,
+        "prompt": prompt,
+        "references": [object(), object(), object()],
+    })
+
+    assert any("<Picture N>" in warning and "REF2VA" in warning for warning in request["warnings"])
+
+
+def test_ref2va_does_not_warn_multi_shot_when_using_hard_endpoints_only_for_single_shot():
+    prompt = """summary:
+单镜头动作片段。
+
+detailed_description:
+[Shot 1] 00:00.000至00:05.000：人物走向门口。
+
+overall_soundscape:
+Quiet room tone.
+non_diegetic_music:
+N/A
+"""
+
+    request = normalize_request({
+        "mode": "REF2VA",
+        "duration": 5,
+        "prompt": prompt,
+        "first_image": object(),
+        "last_image": object(),
+        "references": [object()],
+    })
+
+    assert not any("<Picture N>" in warning and "REF2VA" in warning for warning in request["warnings"])
+
+
 def test_normalize_request_normalizes_unknown_voice_gender_to_auto():
     """Unknown voice_gender values (from widget misalignment) normalize to auto."""
     request = normalize_request({"mode": "T2VA", "duration": 4, "voice_gender": "baritone"})
