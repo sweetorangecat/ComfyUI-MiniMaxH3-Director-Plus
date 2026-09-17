@@ -162,6 +162,20 @@ def test_smart_2k_target_routes_direct_at_high_free_vram():
     assert plan["dimension_plan"]["qhd_direct"] is False
 
 
+def test_smart_h3_reference_uses_native_quality_without_two_stage():
+    plan = resolve_smart_1080p_plan(
+        "ref2va_model", 15, 32, 29,
+        seedvr2_ready=True, two_stage_ready=True,
+        target_width=1920, target_height=1080,
+        voice_mode="h3_reference",
+    )
+
+    assert plan["performance_preset"] == "ref_quality_native"
+    assert plan["two_stage_route"] == "bypass"
+    assert plan["postprocess_mode"] == "video_sr"
+    assert "原生 20 步" in plan["warning"]
+
+
 def test_smart_2k_reference_target_uses_trained_latent_ref():
     plan = resolve_smart_1080p_plan(
         "ref2va_model", 5, 32, 29,

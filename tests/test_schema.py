@@ -566,15 +566,18 @@ def test_ref2va_unsafe_legacy_preset_falls_back_after_backend_resolution(
         },
     ],
 )
-def test_legacy_reference_two_stage_state_now_runs_u22_v4_route(payload):
+def test_h3_reference_two_stage_state_migrates_to_native_quality(payload):
     request = normalize_request(payload)
 
     assert request["resolved_backend"] == "ref2va_model"
-    # REF2VA two-stage is no longer migrated away: the U22-validated turbo v4
-    # 8+4 recipe runs the trained latent redraw on the reference backend.
-    assert request["performance_preset"] == "quality_two_stage"
-    assert request["postprocess_mode"] == "rtx_vsr"
-    assert request["rtx_quality"] == "HIGHBITRATE_ULTRA"
+    if request["voice_mode"] == "h3_reference":
+        assert request["performance_preset"] == "ref_quality_native"
+        assert request["postprocess_mode"] == "rtx_vsr"
+        assert request["rtx_quality"] == "HIGH"
+    else:
+        assert request["performance_preset"] == "quality_two_stage"
+        assert request["postprocess_mode"] == "rtx_vsr"
+        assert request["rtx_quality"] == "HIGHBITRATE_ULTRA"
 
     reloaded = normalize_request(request)
     assert {
@@ -586,7 +589,7 @@ def test_legacy_reference_two_stage_state_now_runs_u22_v4_route(payload):
     }
 
 
-def test_h3_reference_backend_keeps_two_stage_preset():
+def test_h3_reference_backend_migrates_two_stage_preset_to_native_quality():
     request = normalize_request({
         "mode": "I2VA",
         "first_image": "opening.png",
@@ -596,7 +599,21 @@ def test_h3_reference_backend_keeps_two_stage_preset():
         "postprocess_mode": "rtx_vsr",
     })
     assert request["resolved_backend"] == "ref2va_model"
-    assert request["performance_preset"] == "quality_two_stage"
+    assert request["performance_preset"] == "ref_quality_native"
+    assert request["rtx_quality"] == "HIGH"
+    assert any("原生 20 步" in warning for warning in request["warnings"])
+
+
+def test_h3_reference_low_vram_two_stage_migrates_to_low_vram_single_pass():
+    request = normalize_request({
+        "mode": "REF2VA",
+        "voice_mode": "h3_reference",
+        "voice_reference_audio": "voice.wav",
+        "performance_preset": "low_vram_two_stage",
+        "postprocess_mode": "ai_upscale",
+    })
+    assert request["performance_preset"] == "low_vram"
+    assert any("低显存" in warning and "不拆分" in warning for warning in request["warnings"])
 
 
 def test_fish_backend_falls_back_low_vram_two_stage_after_compatibility_resolution():

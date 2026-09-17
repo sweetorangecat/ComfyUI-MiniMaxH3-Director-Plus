@@ -77,6 +77,7 @@ def resolve_smart_1080p_plan(
         raise RequestError(f"不支持的 Smart 1080p backend：{backend}")
 
     seconds = _duration_seconds(duration)
+    low_vram = total_vram_gb <= LOW_VRAM_TOTAL_GB
     high_res_target = (
         target_width is not None
         and target_height is not None
@@ -85,8 +86,31 @@ def resolve_smart_1080p_plan(
     target_label = (
         f"{int(target_width)}×{int(target_height)}" if high_res_target else ""
     )
-    low_vram = total_vram_gb <= LOW_VRAM_TOTAL_GB
     dimension_plan = None
+
+    # H3 reference audio is a soft conditioning signal that must survive the
+    # entire native denoising path.  The trained U22 redraw changes the AV
+    # latent after the reference binding and is therefore unsuitable for
+    # cloned/multi-speaker voice jobs, even when its video detail is higher.
+    # Keep the single-pass clarity route for reference audio and only allow
+    # the existing low-VRAM policy to decide how far that card can go.
+    if voice_mode == "h3_reference" and not low_vram:
+        return {
+            "performance_preset": "ref_quality_native",
+            "postprocess_mode": "video_sr" if seedvr2_ready else "ai_upscale",
+            "ai_upscale_model": SMART_UPSCALE_MODEL,
+            "seedvr2_ready": bool(seedvr2_ready),
+            "motion_smoothing": "off",
+            "use_easycache": False,
+            "low_vram": False,
+            "max_duration": 15,
+            "two_stage_route": "bypass",
+            "warning": (
+                "已恢复“参考高清（原生 20 步）”单采路线：音色参考任务不使用 U22 训练型二采，"
+                "不拆分音频/视频 latent；最终仅按目标尺寸执行一次视频输出重建。"
+            ),
+            "dimension_plan": None,
+        }
 
     if high_res_target:
         target_label = f"{int(target_width)}×{int(target_height)}"

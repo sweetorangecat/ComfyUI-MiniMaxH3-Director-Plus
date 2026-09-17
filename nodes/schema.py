@@ -390,6 +390,23 @@ def normalize_request(raw=None):
             request["warnings"].append(
                 "已上传音色参考，但提示词没有把 <Audio 1> 等音色绑定到角色对白；请明确写出“角色使用 <Audio 1> 的音色说：……”否则可能只生成环境声。"
             )
+        if preset in TWO_STAGE_PERFORMANCE_PRESETS:
+            migrated_preset = (
+                "low_vram"
+                if preset == "low_vram_two_stage"
+                else "ref_quality_native"
+            )
+            request["performance_preset"] = migrated_preset
+            if request["rtx_quality"] == "HIGHBITRATE_ULTRA":
+                request["rtx_quality"] = "HIGH"
+            request["warnings"].append(
+                (
+                    "音色参考任务已恢复为“低显存”单采路线："
+                    if migrated_preset == "low_vram"
+                    else "音色参考任务已恢复为“参考高清（原生 20 步）”单采路线："
+                )
+                + "禁用 U22 训练型二采与社区细节 LoRA，避免污染音色、口型和对白时序；不拆分任务。"
+            )
     if request["resolved_backend"] == "ref2va_model":
         fallback = REFERENCE_UNSAFE_FALLBACKS.get(preset)
         if fallback:

@@ -626,6 +626,24 @@ def _safe_guide_preset(guide):
     mode = guide.get("mode")
     voice_mode = guide.get("voice_mode", "none")
     backend = guide.get("resolved_backend")
+    if voice_mode == "h3_reference" and name in TWO_STAGE_PERFORMANCE_PRESETS:
+        migrated_preset = "low_vram" if name == "low_vram_two_stage" else "ref_quality_native"
+        guide["resolved_performance_preset"] = migrated_preset
+        guide["two_stage_enabled"] = False
+        guide["two_stage_status"] = "旁路"
+        guide["two_stage_fallback"] = True
+        guide["community_lora_mode"] = "全部关闭"
+        guide.setdefault("warnings", []).append(
+            (
+                (
+                    "H3 音色参考已强制使用低显存单采路线，"
+                    if migrated_preset == "low_vram"
+                    else "H3 音色参考已强制使用参考高清（原生 20 步）单采路线，"
+                )
+                + "禁用 U22 二采和社区 LoRA，避免音色/口型漂移。"
+            )
+        )
+        return migrated_preset, True
     if backend == "ref2va_model" and name in TWO_STAGE_PERFORMANCE_PRESETS:
         # quality_two_stage is allowed on REF2VA (U22 turbo-v4 8+4 recipe);
         # only the unvalidated 8GB low-VRAM variant still falls back.

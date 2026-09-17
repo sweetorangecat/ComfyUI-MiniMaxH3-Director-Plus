@@ -1706,6 +1706,32 @@ def test_low_step_route_warns_about_voice_fidelity():
     assert any("音色保真提醒" in warning for warning in guide["warnings"])
 
 
+def test_smart_voice_reference_restores_native_single_pass(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (32.0, 29.0))
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="橘总使用 <Audio 1> 的音色说：慢着。",
+        duration=15,
+        width=1920,
+        height=1080,
+        aspect_ratio="16:9",
+        resolution_preset="1080p FHD",
+        voice_mode="h3_reference",
+        ref_image_size="match",
+        performance_preset="智能画质（自动适配）",
+        postprocess_mode="native",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        voice_reference_audio=_clean_voice(),
+    )
+
+    assert guide["performance_preset"] == "ref_quality_native"
+    assert guide["two_stage_enabled"] is False
+    assert guide["resolved_two_stage_route"] == "bypass"
+    assert any("原生 20 步" in warning for warning in guide["warnings"])
+
+
 def test_match_ref_image_size_warns_when_final_upscale_exceeds_one_and_half_x():
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="REF2VA",
