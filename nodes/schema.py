@@ -413,8 +413,10 @@ def normalize_request(raw=None):
         )
     if request["voice_mode"] == "h3_reference" and len(audio_references) > 1:
         request["warnings"].append(
-            "当前绑定了多路 H3 原生音色参考；模型可能在跨镜头或多人同框时发生音色串扰。"
-            "追求单个角色的声纹稳定时，请按说话角色拆分镜头/任务，或改用 Fish S2 单路锁定。"
+            "当前绑定了多路 H3 原生音色参考。MiniMax 已公开多人参考音色可能发生模型端串色，"
+            "即使轮流发声也不能保证严格声纹克隆。请让对白严格轮流、句间保留 0.6–1.0 秒无声反应，"
+            "禁止重叠对白、轻笑/哼唱等未登记发声、跨切镜对白及带人声的 BGM；三人 15 秒内各一句短台词。"
+            "追求单个角色的声纹稳定时，请按说话角色拆分生成单元并后期合成，或改用 Fish S2 单路锁定。"
         )
     if ignored_media:
         request["warnings"].append(

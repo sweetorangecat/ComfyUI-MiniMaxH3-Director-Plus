@@ -338,9 +338,9 @@ class MiniMaxH3DirectorPlus:
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
                 "target_dialogue": ("STRING", {"default": "", "multiline": True, "tooltip": "Fish高级音色锁定的目标对白"}),
                 "reference_transcript": ("STRING", {"default": "", "multiline": True, "tooltip": "音色样本对应文本，可留空"}),
-                "voice_reference_name_1": ("STRING", {"default": "", "tooltip": "音色参考1对应的角色名，可留空"}),
-                "voice_reference_name_2": ("STRING", {"default": "", "tooltip": "音色参考2对应的角色名，可留空"}),
-                "voice_reference_name_3": ("STRING", {"default": "", "tooltip": "音色参考3对应的角色名，可留空"}),
+                "voice_reference_name_1": ("STRING", {"default": "", "tooltip": "第 1 路上传音色的角色名，对应 <Audio 1>；这不是 (S1) 编号，可留空"}),
+                "voice_reference_name_2": ("STRING", {"default": "", "tooltip": "第 2 路上传音色的角色名，对应 <Audio 2>；这不是 (S2) 编号，可留空"}),
+                "voice_reference_name_3": ("STRING", {"default": "", "tooltip": "第 3 路上传音色的角色名，对应 <Audio 3>；这不是 (S3) 编号，可留空"}),
             },
             "optional": {
                 "first_image_file": (image_files, {"image_upload": True, "tooltip": "在导演台内上传首帧"}),

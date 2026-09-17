@@ -154,6 +154,36 @@ N/A
     assert request["voice_mode"] == "h3_reference"
 
 
+def test_multi_speaker_prompt_accepts_audio_slots_independent_from_speaker_order():
+    """Audio labels stay in upload order while Sx follows first vocal events."""
+    prompt = """subject_definitions:
+<Audio 1> is the voice-timbre reference for 南宫婉 <Subject 1> (S2).
+<Audio 2> is the voice-timbre reference for 南宫阙 <Subject 2> (S1).
+<Audio 3> is the voice-timbre reference for 橘总 <Subject 3> (S3).
+
+detailed_description:
+南宫阙 <Subject 2> (S1) 使用 <Audio 2> 音色说：<d>[Chinese] 门锁刚才响了。</d>
+南宫婉 <Subject 1> (S2) 使用 <Audio 1> 音色说：<d>[Chinese] 先别碰它。</d>
+橘总 <Subject 3> (S3) 使用 <Audio 3> 音色说：<d>[Chinese] 我闻到陌生人的味道。</d>
+
+overall_soundscape:
+Quiet room tone.
+non_diegetic_music:
+N/A
+"""
+
+    request = normalize_request({
+        "mode": "REF2VA",
+        "duration": 15,
+        "voice_mode": "h3_reference",
+        "voice_reference_audios": [object(), object(), object()],
+        "prompt": prompt,
+    })
+
+    assert request["voice_mode"] == "h3_reference"
+    assert any("模型端" in warning and "串色" in warning for warning in request["warnings"])
+
+
 def test_normalize_request_normalizes_unknown_voice_gender_to_auto():
     """Unknown voice_gender values (from widget misalignment) normalize to auto."""
     request = normalize_request({"mode": "T2VA", "duration": 4, "voice_gender": "baritone"})
