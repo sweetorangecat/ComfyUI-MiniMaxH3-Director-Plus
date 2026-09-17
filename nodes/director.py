@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from pathlib import Path
 
@@ -161,18 +162,23 @@ def load_uploaded_audio(filename):
         from comfy_extras.nodes_audio import LoadAudio
 
         result = LoadAudio.execute(filename)
-        audio = result[0]
-        return _canonicalize_voice_audio(audio)
+        return result[0]
     except (AttributeError, ImportError, OSError, ValueError) as exc:
         raise RequestError(f"无法加载导演台音频“{filename}”：{exc}") from exc
 
 
-def _canonicalize_voice_audio(audio, target_rate=32000):
-    """Normalize voice references to the H3 audio-VAE contract.
+def _canonicalize_voice_audio(
+    audio,
+    target_rate=32000,
+    target_dbfs=-22.0,
+    peak_ceiling_dbfs=-3.0,
+    source_name=None,
+):
+    """Normalize voice references to a consistent H3 audio-VAE contract.
 
-    H3 reference clips are more stable when all slots use the same mono
-    sample rate. This is especially important for a stereo 44.1 kHz WAV in
-    one slot next to mono 24 kHz references in the other slots.
+    H3 receives raw waveforms without loudness normalization. Keep duration
+    and dynamics intact while balancing slots with linear gain and a
+    conservative peak ceiling.
     """
     if not isinstance(audio, dict):
         return audio
@@ -196,8 +202,40 @@ def _canonicalize_voice_audio(audio, target_rate=32000):
                 waveform, size=target_length, mode="linear", align_corners=False
             )
         sample_rate = target_rate
+    measurement = waveform.to(dtype=torch.float32)
+    original_rms = float(measurement.pow(2).mean().sqrt())
+    original_peak = float(measurement.abs().max())
+    original_dbfs = 20.0 * math.log10(max(original_rms, 1e-8))
+    gain = 1.0
+    peak_limited = False
+    if original_rms > 1e-8:
+        gain = 10.0 ** ((float(target_dbfs) - original_dbfs) / 20.0)
+        if original_peak > 1e-8:
+            peak_gain_limit = 10.0 ** (float(peak_ceiling_dbfs) / 20.0) / original_peak
+            if peak_gain_limit < gain:
+                gain = peak_gain_limit
+                peak_limited = True
+    waveform = waveform * gain
+    normalized_measurement = waveform.to(dtype=torch.float32)
+    normalized_rms = float(normalized_measurement.pow(2).mean().sqrt())
+    normalized_peak = float(normalized_measurement.abs().max())
+    normalized_dbfs = 20.0 * math.log10(max(normalized_rms, 1e-8))
+    gain_db = 20.0 * math.log10(max(gain, 1e-8))
+
     normalized["waveform"] = waveform.contiguous()
     normalized["sample_rate"] = sample_rate
+    normalized["_director_voice_stats"] = {
+        "source": str(source_name or "connected input"),
+        "duration": float(waveform.shape[-1]) / float(sample_rate),
+        "sample_rate": sample_rate,
+        "channels": int(waveform.shape[1]),
+        "original_dbfs": original_dbfs,
+        "normalized_dbfs": normalized_dbfs,
+        "original_peak_dbfs": 20.0 * math.log10(max(original_peak, 1e-8)),
+        "normalized_peak_dbfs": 20.0 * math.log10(max(normalized_peak, 1e-8)),
+        "gain_db": gain_db,
+        "peak_limited": peak_limited,
+    }
     return normalized
 
 
@@ -460,6 +498,17 @@ class MiniMaxH3DirectorPlus:
             if last_allowed and last_image is not None
             else load_uploaded_image(last_image_file) if last_allowed else None
         )
+        voice_source_names = (
+            str(voice_reference_audio_file or "connected input 1")
+            if voice_reference_audio is None
+            else "connected input 1",
+            str(voice_reference_audio_2_file or "connected input 2")
+            if voice_reference_audio_2 is None
+            else "connected input 2",
+            str(voice_reference_audio_3_file or "connected input 3")
+            if voice_reference_audio_3 is None
+            else "connected input 3",
+        )
         voice_reference_audio = (
             voice_reference_audio
             if voice_mode != "none" and voice_reference_audio is not None
@@ -557,6 +606,23 @@ class MiniMaxH3DirectorPlus:
                         + "；".join(voice_report["errors"])
                     )
                 request["warnings"].extend(voice_report["warnings"])
+
+        if voice_mode == "h3_reference":
+            voice_references = [
+                _canonicalize_voice_audio(audio, source_name=source_name)
+                for audio, source_name in zip(voice_references, voice_source_names)
+            ]
+            voice_reference_audio = voice_references[0] if voice_references else None
+            voice_reference_audio_2 = voice_references[1] if len(voice_references) > 1 else None
+            voice_reference_audio_3 = voice_references[2] if len(voice_references) > 2 else None
+            for audio_index, audio in enumerate(voice_references, 1):
+                stats = audio.get("_director_voice_stats") if isinstance(audio, dict) else None
+                if stats and abs(float(stats["gain_db"])) >= 3.0:
+                    request["warnings"].append(
+                        f"音色参考 {audio_index} 原始响度约 {stats['original_dbfs']:.1f} dBFS，"
+                        f"送入 H3 前已线性校准 {stats['gain_db']:+.1f} dB 至约 "
+                        f"{stats['normalized_dbfs']:.1f} dBFS；未裁切、未压缩、未改变时长。"
+                    )
 
         requested_performance_preset = request["performance_preset"]
         smart_mode = requested_performance_preset == SMART_PRESET
@@ -1068,6 +1134,11 @@ class MiniMaxH3DirectorPlus:
                 for index, name in enumerate(request["voice_reference_names"], 1)
                 if name and index <= len(voice_references)
             ],
+            "voice_reference_stats": [
+                audio.get("_director_voice_stats")
+                for audio in voice_references
+                if isinstance(audio, dict) and audio.get("_director_voice_stats")
+            ],
             "performance_preset": request["performance_preset"],
             "requested_performance_preset": requested_performance_preset,
             "timeline": timeline,
@@ -1097,6 +1168,30 @@ class MiniMaxH3DirectorPlus:
             final_target_height,
             postprocess_path,
         )
+        for audio_index, audio in enumerate(voice_references, 1):
+            stats = audio.get("_director_voice_stats") if isinstance(audio, dict) else None
+            if not stats:
+                continue
+            role = (
+                request["voice_reference_names"][audio_index - 1]
+                if audio_index <= len(request["voice_reference_names"])
+                else ""
+            )
+            LOGGER.info(
+                "[H3 director] voice_slot=%d role=%s source=%s duration=%.2fs "
+                "sample_rate=%d channels=%d original=%.1fdBFS normalized=%.1fdBFS "
+                "gain=%+.1fdB peak_limited=%s",
+                audio_index,
+                role or "?",
+                stats["source"],
+                stats["duration"],
+                stats["sample_rate"],
+                stats["channels"],
+                stats["original_dbfs"],
+                stats["normalized_dbfs"],
+                stats["gain_db"],
+                stats["peak_limited"],
+            )
         warning_text = "\n".join(request["warnings"])
         exported_voice = voice_reference_audio if voice_mode == "fish_lock" else None
         exported_dialogue = str(target_dialogue or "").strip() if voice_mode == "fish_lock" else ""

@@ -97,6 +97,61 @@ def test_audio_marker_with_bound_reference_passes():
     assert request["resolved_backend"] == "ref2va_model"
 
 
+def test_multi_speaker_prompt_rejects_subject_order_used_as_speaker_order():
+    prompt = """subject_definitions:
+<Audio 1> is the voice-timbre reference for <Subject 2> (S2).
+<Audio 2> is the voice-timbre reference for <Subject 1> (S1).
+<Audio 3> is the voice-timbre reference for <Subject 3> (S3).
+
+detailed_description:
+橘总 <Subject 2> (S2) 使用 <Audio 1> 音色说：<d>[Chinese] 慢着。</d>
+苏小满 <Subject 1> (S1) 使用 <Audio 2> 音色说：<d>[Chinese] 这是门铃。</d>
+阿哈 <Subject 3> (S3) 使用 <Audio 3> 音色说：<d>[Chinese] 那它管谁？</d>
+
+overall_soundscape:
+Quiet room tone.
+non_diegetic_music:
+N/A
+"""
+
+    with pytest.raises(RequestError, match="首次发声顺序.*S2.*S1.*S3"):
+        normalize_request({
+            "mode": "REF2VA",
+            "duration": 15,
+            "voice_mode": "h3_reference",
+            "voice_reference_audios": [object(), object(), object()],
+            "prompt": prompt,
+        })
+
+
+def test_multi_speaker_prompt_accepts_first_vocal_event_order():
+    prompt = """subject_definitions:
+<Audio 1> is the voice-timbre reference for <Subject 2> (S1).
+<Audio 2> is the voice-timbre reference for <Subject 1> (S2).
+<Audio 3> is the voice-timbre reference for <Subject 3> (S3).
+
+detailed_description:
+橘总 <Subject 2> (S1) 使用 <Audio 1> 音色说：<d>[Chinese] 慢着。</d>
+苏小满 <Subject 1> (S2) 使用 <Audio 2> 音色说：<d>[Chinese] 这是门铃。</d>
+阿哈 <Subject 3> (S3) 使用 <Audio 3> 音色说：<d>[Chinese] 那它管谁？</d>
+
+overall_soundscape:
+Quiet room tone.
+non_diegetic_music:
+N/A
+"""
+
+    request = normalize_request({
+        "mode": "REF2VA",
+        "duration": 15,
+        "voice_mode": "h3_reference",
+        "voice_reference_audios": [object(), object(), object()],
+        "prompt": prompt,
+    })
+
+    assert request["voice_mode"] == "h3_reference"
+
+
 def test_normalize_request_normalizes_unknown_voice_gender_to_auto():
     """Unknown voice_gender values (from widget misalignment) normalize to auto."""
     request = normalize_request({"mode": "T2VA", "duration": 4, "voice_gender": "baritone"})

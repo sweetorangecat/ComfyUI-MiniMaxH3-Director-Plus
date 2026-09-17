@@ -18,6 +18,52 @@ PUBLIC_API_KEYS = (
     "voice_gender", "target_dialogue", "reference_transcript", "fish_model_path", "ref_image_size", "performance_preset",
     "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness",
 )
+
+
+def _speaker_order_from_dialogue(prompt):
+    """Return unique speaker IDs in first vocal-event order."""
+    text = str(prompt or "")
+    section = re.search(
+        r"(?ims)^\s*detailed_description\s*:\s*(.*?)"
+        r"(?=^\s*(?:overall_soundscape|non_diegetic_music)\s*:|\Z)",
+        text,
+    )
+    if not section:
+        return []
+
+    detail = section.group(1)
+    order = []
+    previous_end = 0
+    for dialogue in re.finditer(r"(?is)<d(?:\s+[^>]*)?>.*?</d>", detail):
+        lead_in = detail[previous_end:dialogue.start()]
+        speaker_ids = re.findall(r"\(S\s*(\d+)\)", lead_in, flags=re.IGNORECASE)
+        if speaker_ids:
+            speaker_id = int(speaker_ids[-1])
+            if speaker_id not in order:
+                order.append(speaker_id)
+        previous_end = dialogue.end()
+    return order
+
+
+def _validate_first_vocal_event_order(prompt, audio_reference_count):
+    """Enforce H3's speaker IDs, which are independent from Subject IDs."""
+    if audio_reference_count < 2:
+        return
+    speaker_order = _speaker_order_from_dialogue(prompt)
+    if len(speaker_order) < 2:
+        return
+    expected = list(range(1, len(speaker_order) + 1))
+    if speaker_order != expected:
+        detected = " → ".join(f"S{speaker_id}" for speaker_id in speaker_order)
+        correct = " → ".join(f"S{speaker_id}" for speaker_id in expected)
+        raise RequestError(
+            "H3 说话者编号必须按首次发声顺序排列；"
+            f"当前检测到 {detected}，应为 {correct}。"
+            "(S1)/(S2) 不是 <Subject N> 的人物顺序。请在 subject_definitions "
+            "和 detailed_description 中同步修改同一人物的 (Sx)，<Audio N> 编号保持上传槽位不变。"
+        )
+
+
 PERFORMANCE_PRESETS = {
     "智能画质（自动适配）": "smart_free_1080p",
     "免费智能 1080p": "smart_free_1080p",  # legacy alias
@@ -353,6 +399,8 @@ def normalize_request(raw=None):
             "请将音色模式切换为 H3 原生参考或 Fish 高级音色锁定并上传样本，"
             "或删除提示词中的 <Audio N> 标记。"
         )
+    if request["voice_mode"] == "h3_reference":
+        _validate_first_vocal_event_order(request.get("prompt"), len(audio_references))
     if request["voice_mode"] == "fish_lock" and not str(request["target_dialogue"]).strip():
         raise RequestError("Fish 高级音色锁定需要目标对白")
     preset = PERFORMANCE_PRESETS.get(request["performance_preset"])

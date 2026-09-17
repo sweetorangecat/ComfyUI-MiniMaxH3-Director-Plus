@@ -2,7 +2,12 @@ import json
 
 import pytest
 
-from nodes.director import MiniMaxH3DirectorPlus, align_frame_count, native_resolution_for_request
+from nodes.director import (
+    MiniMaxH3DirectorPlus,
+    _canonicalize_voice_audio,
+    align_frame_count,
+    native_resolution_for_request,
+)
 from nodes.resolution import calculate_resolution, h3_native_canvas
 from nodes.schema import RequestError
 
@@ -1631,6 +1636,81 @@ def _clean_voice(seconds=6.0, sample_rate=32000):
 
     length = int(seconds * sample_rate)
     return {"waveform": torch.full((1, 1, length), 0.3), "sample_rate": sample_rate}
+
+
+def test_voice_canonicalization_balances_quiet_references_before_h3_encoding():
+    import math
+    import torch
+
+    audio = {
+        "waveform": torch.full((1, 1, 32000), 10 ** (-30.0 / 20.0)),
+        "sample_rate": 32000,
+    }
+
+    normalized = _canonicalize_voice_audio(audio, source_name="orange-cat.wav")
+
+    rms = float(normalized["waveform"].pow(2).mean().sqrt())
+    peak = float(normalized["waveform"].abs().max())
+    stats = normalized["_director_voice_stats"]
+    assert math.isclose(20.0 * math.log10(rms), -22.0, abs_tol=0.1)
+    assert peak <= 10 ** (-3.0 / 20.0) + 1e-6
+    assert math.isclose(stats["original_dbfs"], -30.0, abs_tol=0.1)
+    assert math.isclose(stats["normalized_dbfs"], -22.0, abs_tol=0.1)
+    assert math.isclose(stats["gain_db"], 8.0, abs_tol=0.1)
+    assert stats["source"] == "orange-cat.wav"
+
+
+def test_voice_canonicalization_uses_peak_ceiling_for_high_crest_factor_audio():
+    import math
+    import torch
+
+    waveform = torch.full((1, 1, 32000), 0.01)
+    waveform[..., 100] = 0.5
+
+    normalized = _canonicalize_voice_audio(
+        {"waveform": waveform, "sample_rate": 32000}
+    )
+
+    peak_dbfs = 20.0 * math.log10(float(normalized["waveform"].abs().max()))
+    assert math.isclose(peak_dbfs, -3.0, abs_tol=0.1)
+    assert normalized["_director_voice_stats"]["peak_limited"] is True
+
+
+def test_director_normalizes_connected_h3_voice_and_exports_diagnostics():
+    import math
+    import torch
+
+    voice = {
+        "waveform": torch.full((1, 1, 6 * 32000), 10 ** (-30.0 / 20.0)),
+        "sample_rate": 32000,
+    }
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="橘总使用 <Audio 1> 的音色说：<d>[Chinese] 慢着。</d>",
+        duration=4,
+        width=1088,
+        height=1920,
+        aspect_ratio="9:16",
+        resolution_preset="1080p FHD",
+        voice_mode="h3_reference",
+        ref_image_size="match",
+        performance_preset="参考高清（原生20步）",
+        postprocess_mode="lanczos",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+        voice_reference_name_1="橘总",
+        voice_reference_audio=voice,
+    )
+
+    forwarded = guide["ref_audios"]["ref_audio_1"]
+    stats = guide["voice_reference_stats"][0]
+    forwarded_dbfs = 20.0 * math.log10(float(forwarded["waveform"].pow(2).mean().sqrt()))
+    assert math.isclose(forwarded_dbfs, -22.0, abs_tol=0.1)
+    assert stats["source"] == "connected input 1"
+    assert math.isclose(stats["duration"], 6.0, abs_tol=0.01)
+    assert any("线性校准" in warning for warning in guide["warnings"])
 
 
 def test_too_short_voice_sample_fails_before_h3_generation():
