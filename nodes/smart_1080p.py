@@ -97,7 +97,12 @@ def resolve_smart_1080p_plan(
     if voice_mode == "h3_reference" and not low_vram:
         return {
             "performance_preset": "ref_quality_native",
-            "postprocess_mode": "video_sr" if seedvr2_ready else "ai_upscale",
+            # SeedVR2 is another diffusion model.  It is much slower than the
+            # H3 pass and can redraw a completed face, mouth shape, fur, or
+            # costume, weakening the reference-audio result it is meant to
+            # preserve.  Keep H3-reference jobs on the conservative one-pass
+            # scaler even if SeedVR2 happens to be installed.
+            "postprocess_mode": "ai_upscale",
             "ai_upscale_model": SMART_UPSCALE_MODEL,
             "seedvr2_ready": bool(seedvr2_ready),
             "motion_smoothing": "off",
@@ -107,7 +112,7 @@ def resolve_smart_1080p_plan(
             "two_stage_route": "bypass",
             "warning": (
                 "已恢复“参考高清（原生 20 步）”单采路线：音色参考任务不使用 U22 训练型二采，"
-                "不拆分音频/视频 latent；最终仅按目标尺寸执行一次视频输出重建。"
+                "不拆分音频/视频 latent；1080p 最终使用保守 AI 超分，不自动启用会重绘人物细节的 SeedVR2。"
             ),
             "dimension_plan": None,
         }

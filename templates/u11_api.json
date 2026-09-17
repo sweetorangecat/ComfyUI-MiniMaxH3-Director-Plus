@@ -68,7 +68,7 @@
       "timeline_data": "{\"version\":1,\"items\":[]}",
       "target_dialogue": "",
       "reference_transcript": "",
-      "postprocess_mode": "video_sr",
+      "postprocess_mode": "ai_upscale",
       "rtx_quality": "HIGH",
       "ai_upscale_model": "auto",
       "motion_smoothing": "off",

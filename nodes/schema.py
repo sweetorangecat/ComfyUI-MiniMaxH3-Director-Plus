@@ -169,13 +169,11 @@ POSTPROCESS_MODES_BY_PERFORMANCE = {
     "custom": POSTPROCESS_MODES,
 }
 
-# The user-facing selector shows exactly one final-output route per preset:
-# SeedVR2 diffusion video SR, the measured quality leader for AI-generated
-# content. Everything above stays accepted for old workflows and API payloads;
-# when SeedVR2 is not installed the director degrades video_sr to ai_upscale
-# with a warning instead of failing.
+# The user-facing selector keeps H3 reference-audio jobs on the conservative
+# AI scaler. SeedVR2 is still available to compatible quality/two-stage routes,
+# but it should not redraw completed lip sync or timbre-conditioned faces.
 VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE = {
-    "smart_free_1080p": ("video_sr",),
+    "smart_free_1080p": ("ai_upscale",),
     "quality_two_stage": ("video_sr",),
     "low_vram_two_stage": ("ai_upscale",),
 }
@@ -286,7 +284,7 @@ DEFAULT_REQUEST = {
     "fish_model_path": "s2-pro-w4a16 (auto download)",
     "ref_image_size": "match",
     "performance_preset": "smart_free_1080p",
-    "postprocess_mode": "video_sr",
+    "postprocess_mode": "ai_upscale",
     "rtx_quality": "HIGH",
     "ai_upscale_model": "auto",
     "motion_smoothing": "off",
@@ -574,11 +572,11 @@ def public_schema():
             "postprocess_mode": {
                 "中文名称": "最终输出后处理模式",
                 "enum": list(POSTPROCESS_MODES),
-                "default": "video_sr",
-                "description": "智能画质按当前显存与目标尺寸自动选择二采直出或 SeedVR2。2K 小网格及 4K 路线缺少 SeedVR2 时提前报错；1080p 兼容路线保留通用 AI 超分。原生直出、Lanczos、RTX VSR 等历史值继续兼容。",
+                "default": "ai_upscale",
+                "description": "带 H3 音色参考的智能 1080p 固定使用保守 AI 超分，避免 SeedVR2 二次扩散重绘脸部、口型和毛发。2K 小网格及 4K 路线仍按需使用 SeedVR2；原生直出、Lanczos、RTX VSR 等历史值继续兼容。",
                 "allowed_by_performance": {
-                    "智能画质（自动适配）": ["video_sr"],
-                    "免费智能 1080p": ["video_sr"],
+                    "智能画质（自动适配）": ["ai_upscale"],
+                    "免费智能 1080p": ["ai_upscale"],
                     "质量优先二采样": ["video_sr"],
                     "低显存二采": ["ai_upscale"],
                     "其他性能预设": ["video_sr"],

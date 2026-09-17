@@ -57,7 +57,7 @@ def test_director_raw_combo_exposes_both_low_vram_presets():
 def test_director_defaults_to_smart_free_1080p_and_local_x2():
     required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
     assert required["performance_preset"][1]["default"] == "智能画质（自动适配）"
-    assert required["postprocess_mode"][1]["default"] == "video_sr"
+    assert required["postprocess_mode"][1]["default"] == "ai_upscale"
     assert required["ai_upscale_model"][1]["default"] == "auto"
 
 

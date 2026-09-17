@@ -172,7 +172,7 @@ def test_smart_h3_reference_uses_native_quality_without_two_stage():
 
     assert plan["performance_preset"] == "ref_quality_native"
     assert plan["two_stage_route"] == "bypass"
-    assert plan["postprocess_mode"] == "video_sr"
+    assert plan["postprocess_mode"] == "ai_upscale"
     assert "原生 20 步" in plan["warning"]
 
 
