@@ -30,6 +30,11 @@ def test_checked_in_u11_example_preserves_seed_mode_widget_alignment():
         named["fish_model_path"],
         named["ref_image_size"],
     ] == ["none", "s2-pro-w4a16 (auto download)", "match"]
+    assert len(values) == 41
+    assert values[38:41] == ["off", "auto", "auto"]
+    assert named["motion_smoothing"] == values[38]
+    assert named["audio_loudness"] == values[39]
+    assert named["voice_gender"] == values[40]
 
 
 def test_validator_rejects_overlapping_visible_nodes():

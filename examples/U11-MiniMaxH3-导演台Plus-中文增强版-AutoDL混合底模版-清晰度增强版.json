@@ -2263,11 +2263,9 @@
         "",
         "",
         "",
-        "",
         "off",
         "auto",
-        "auto",
-        ""
+        "auto"
       ],
       "widgets_values_named": {
         "mode": "REF2VA",
