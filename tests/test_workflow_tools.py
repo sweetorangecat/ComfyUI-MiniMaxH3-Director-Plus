@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +10,26 @@ from tools.build_u11_workflow import (
     _upgrade_subgraphs,
 )
 from tools.validate_workflow import WorkflowError, validate_workflow
+
+
+def test_checked_in_u11_example_preserves_seed_mode_widget_alignment():
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "examples"
+        / "U11-MiniMaxH3-导演台Plus-中文增强版-AutoDL混合底模版-清晰度增强版.json"
+    )
+    workflow = json.loads(path.read_text(encoding="utf-8"))
+    director = next(node for node in workflow["nodes"] if node.get("id") == 2693)
+    values = director["widgets_values"]
+    named = director["widgets_values_named"]
+
+    assert values[9] == named["seed"] == 0
+    assert values[10] == named["seed_mode"] == "fixed"
+    assert values[11:14] == [
+        named["voice_mode"],
+        named["fish_model_path"],
+        named["ref_image_size"],
+    ] == ["none", "s2-pro-w4a16 (auto download)", "match"]
 
 
 def test_validator_rejects_overlapping_visible_nodes():
