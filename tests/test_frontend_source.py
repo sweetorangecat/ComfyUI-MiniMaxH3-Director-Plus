@@ -443,4 +443,5 @@ def test_ui_adds_seed_without_reordering_existing_sections():
     ]
     assert [text.index(label) for label in sections] == sorted(text.index(label) for label in sections)
     assert 'valueControl("噪音种子", "seed"' in text
-    assert 'valueControl("种子模式", "seed_mode"' in text
+    assert 'valueControl("种子模式", "control_after_generate"' in text
+    assert '"resolution_preset", "seed", "control_after_generate"' in text

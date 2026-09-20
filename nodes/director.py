@@ -327,7 +327,10 @@ class MiniMaxH3DirectorPlus:
                 "resolution_preset": (list(MEGAPIXELS), {"default": "0.83 MP", "tooltip": "最终输出目标分辨率档位；支持 2K QHD/4K UHD，低显存模式会按时长降低 H3 原生采样尺寸，再在最终编码阶段流式放大到此目标"}),
                 "custom_width": ("INT", {"default": 16, "min": 1, "max": 8192, "tooltip": "自定义比例宽"}),
                 "custom_height": ("INT", {"default": 9, "min": 1, "max": 8192, "tooltip": "自定义比例高"}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": "seed_mode", "tooltip": "噪音种子；可选择固定、递增、递减或随机"}),
+                # Omit control_after_generate so ComfyUI creates its native
+                # fixed/increment/decrement/randomize control widget.  The
+                # Director UI mirrors that widget as control_after_generate.
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "噪音种子；可选择固定、递增、递减或随机"}),
                 "voice_mode": (["none", "h3_reference", "fish_lock"], {"default": "none", "tooltip": "无音色 / H3原生参考 / Fish高级锁定"}),
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),

@@ -12,7 +12,7 @@ from tools.build_u11_workflow import (
 from tools.validate_workflow import WorkflowError, validate_workflow
 
 
-def test_checked_in_u11_example_preserves_seed_mode_widget_alignment():
+def test_checked_in_u11_example_preserves_native_seed_control_widget_alignment():
     path = (
         Path(__file__).resolve().parents[1]
         / "examples"
@@ -24,7 +24,7 @@ def test_checked_in_u11_example_preserves_seed_mode_widget_alignment():
     named = director["widgets_values_named"]
 
     assert values[9] == named["seed"] == 0
-    assert values[10] == named["seed_mode"] == "fixed"
+    assert values[10] == named["control_after_generate"] == "fixed"
     assert values[11:14] == [
         named["voice_mode"],
         named["fish_model_path"],

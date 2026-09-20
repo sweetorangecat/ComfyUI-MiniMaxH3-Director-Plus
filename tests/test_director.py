@@ -938,7 +938,9 @@ def test_frame_alignment_matches_native_h3_grid():
 def test_director_seed_uses_comfy_control_after_generate_and_is_exported():
     seed_spec = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]["seed"]
     assert seed_spec[0] == "INT"
-    assert seed_spec[1]["control_after_generate"] == "seed_mode"
+    # Let ComfyUI create its native control_after_generate widget.  A custom
+    # option here disables that widget and leaves the Director's seed stale.
+    assert "control_after_generate" not in seed_spec[1]
 
     result = MiniMaxH3DirectorPlus().build(
         mode="T2VA",

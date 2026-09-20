@@ -747,7 +747,7 @@ function install(node) {
   protectDirectorComputeSize(node);
 
   const hidden = [
-    "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset", "custom_width", "custom_height", "seed", "seed_mode", "voice_mode", "fish_model_path",
+    "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset", "custom_width", "custom_height", "seed", "control_after_generate", "voice_mode", "fish_model_path",
     "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data",
     "target_dialogue", "reference_transcript", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
     "motion_smoothing", "audio_loudness", "voice_gender",
@@ -905,7 +905,7 @@ function install(node) {
     specGrid.append(
       finalSize,
       valueControl("噪音种子", "seed", [], widget(node, "seed")?.value ?? 0, "number"),
-      valueControl("种子模式", "seed_mode", SEED_MODES, widget(node, "seed_mode")?.value || "randomize"),
+      valueControl("种子模式", "control_after_generate", SEED_MODES, widget(node, "control_after_generate")?.value || "randomize"),
     );
     const postprocessGrid = document.createElement("div");
     postprocessGrid.className = "h3p-grid";
@@ -1236,7 +1236,7 @@ function install(node) {
   requestAnimationFrame(bindMountedControls);
   setTimeout(bindMountedControls, 250);
 
-  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "rtx_quality", "motion_smoothing", "audio_loudness", "aspect_ratio", "resolution_preset", "seed_mode"].forEach((name) => {
+  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "rtx_quality", "motion_smoothing", "audio_loudness", "aspect_ratio", "resolution_preset", "seed", "control_after_generate"].forEach((name) => {
     const item = widget(node, name);
     if (!item) return;
     const original = item.callback;
