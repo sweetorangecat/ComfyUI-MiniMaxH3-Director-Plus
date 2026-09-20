@@ -9,6 +9,9 @@ LOW_VRAM_TWO_STAGE_MIN_FIRST_MP = 0.20
 LOW_VRAM_TWO_STAGE_SCALE = 1.5
 LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.45
 LOW_VRAM_TWO_STAGE_MAX_DURATION = 6
+LOW_VRAM_TWO_STAGE_768P_MAX_DURATION = 10
+LOW_VRAM_TWO_STAGE_768P_MAX_PIXELS = 1344 * 768
+LOW_VRAM_TWO_STAGE_768P_MAX_VSR_SCALE = 1.75
 BALANCED_FHD_LANDSCAPE = (1920, 1080)
 # High-VRAM FHD restores the former detail-preserving grid.  The conservative
 # 24GB route below remains 1280x704 to keep its memory bound unchanged.
@@ -101,12 +104,18 @@ def plan_two_stage_dimensions(
         max_width, max_height = 1920, 1080
         tier = "8gb_low_vram_two_stage"
         if duration > LOW_VRAM_TWO_STAGE_MAX_DURATION:
-            return _rejected(
-                "低显存二采只支持 4 到 6 秒视频；7 秒及以上请使用低显存高清单采",
-                max_width,
-                max_height,
-                tier,
+            long_768p_budget = (
+                duration <= LOW_VRAM_TWO_STAGE_768P_MAX_DURATION
+                and final_width * final_height <= LOW_VRAM_TWO_STAGE_768P_MAX_PIXELS * 1.02
             )
+            if not long_768p_budget:
+                return _rejected(
+                    "低显存二采只支持 4 到 6 秒 1080p，或最长 10 秒 768p；"
+                    "更长时长无法同时保证当前清晰度底线",
+                    max_width,
+                    max_height,
+                    tier,
+                )
         if final_width * final_height > max_width * max_height * 1.02:
             return _rejected(
                 "低显存二采最高支持 1080p FHD 像素预算的最终输出",
@@ -130,23 +139,28 @@ def plan_two_stage_dimensions(
             )
         required_free = 6.0
         # Keep the temporal-spatial token budget approximately constant as
-        # duration grows.  Four seconds keeps the original 0.46 MP FHD grid;
-        # five/six seconds trade spatial detail for a longer clip instead of
-        # pushing the 8 GB card into the same OOM path.
+        # duration grows. Four-to-six-second FHD retains the validated budget.
+        # Seven-to-ten-second 768p uses temporal/spatial split sampling and a
+        # fixed clarity floor: the final per-frame reconstructor must not be
+        # asked to stretch the learned second-stage grid beyond 1.75x.
         duration_factor = 4.0 / float(duration)
         min_first_mp = LOW_VRAM_TWO_STAGE_MIN_FIRST_MP * duration_factor
-        # A final reconstruction model is not a replacement for real H3
-        # detail. Size the learned second-pass grid so FHD never asks the
-        # final X2 model to stretch either axis by much more than 1.45x.
-        # Smaller targets retain the old 0.20 MP fast floor.
+        max_final_vsr_scale = (
+            LOW_VRAM_TWO_STAGE_768P_MAX_VSR_SCALE
+            if duration > LOW_VRAM_TWO_STAGE_MAX_DURATION
+            else LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE * math.sqrt(float(duration) / 4.0)
+        )
+        # A final reconstruction model is not a replacement for H3 detail.
+        # Derive the first grid from the maximum accepted final scale instead
+        # of multiplying the detail floor by the duration factor a second time.
         first_mp = max(
             min_first_mp,
             (final_width * final_height)
             / (
                 1_000_000.0
-                * (LOW_VRAM_TWO_STAGE_SCALE * LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE) ** 2
+                * (LOW_VRAM_TWO_STAGE_SCALE * max_final_vsr_scale) ** 2
             ),
-        ) * duration_factor
+        )
     elif total < 16.0:
         return _rejected(
             "低显存档位不执行长视频训练型二采；请使用低显存单采并将最终目标限制为1080p",
@@ -266,10 +280,7 @@ def plan_two_stage_dimensions(
         "balanced_fhd_supersample": balanced_fhd_supersample,
         "conservative_fhd_supersample": conservative_fhd_supersample,
         "max_final_vsr_scale": (
-            (
-                LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE
-                * math.sqrt(float(duration) / 4.0)
-            )
+            max_final_vsr_scale
             if profile == "low_vram"
             else None
         ),

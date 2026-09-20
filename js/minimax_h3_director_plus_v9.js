@@ -58,6 +58,7 @@ const RESOLUTION_MEGAPIXELS = {
 const LOW_VRAM_TWO_STAGE_MIN_FIRST_MP = 0.20;
 const LOW_VRAM_TWO_STAGE_SCALE = 1.5;
 const LOW_VRAM_TWO_STAGE_MAX_FINAL_SCALE = 1.45;
+const LOW_VRAM_TWO_STAGE_768P_MAX_FINAL_SCALE = 1.75;
 const RESOLUTIONS = [
   "0.26 MP", "0.30 MP", "0.36 MP", "0.40 MP", "0.50 MP", "0.52 MP", "0.60 MP", "0.65 MP", "0.70 MP",
   "0.80 MP", "0.83 MP", "0.90 MP", "1.00 MP", "1.05 MP", "1.10 MP", "1.20 MP", "1.30 MP", "1.35 MP",
@@ -202,7 +203,7 @@ function allowedPerformancePresets(mode, voiceMode) {
 function performancePresetHint(preset) {
   if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) return "按后端、显存和时长自动选择路线；无需手动组合超分、模型和运动平滑";
   if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 8 步（共 12 步）+ 神经 latent 放大 + 4 步低 sigma 重绘";
-  if (preset === "低显存二采") return "8GB 专用真二采：4–6 秒，最高 1080p FHD；时长越长首采网格越小，阶段间自动释放显存";
+  if (preset === "低显存二采") return "8GB 专用真二采：1080p 最多 6 秒，768p 最多 10 秒；阶段间自动释放显存";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
   if (preset === "高清快速（v4 8步）") return "v4 8步仅适用于 FL/T2V 后端：社区 v4 LoRA + simple/Euler，单采不做 latent 二采";
   if (preset === "参考高清（原生20步）") return "仅适用于 REF2VA/音色参考：原生 20 步 + SageAttention，不使用 Turbo/二采";
@@ -429,10 +430,18 @@ function twoStageSizeHint(finalWidth, finalHeight, backend, firstStageMegapixels
   return `${route}；最终输出 ${finalWidth}×${finalHeight}；H3首采 ${firstWidth}×${firstHeight}；神经latent二采 ${secondWidth}×${secondHeight}；${finalStage}`;
 }
 
-function lowVramFirstStageMegapixels(finalWidth, finalHeight) {
+function lowVramTwoStageMaxDuration(resolutionPreset) {
+  return resolutionPreset === "768p H3" ? 10 : 6;
+}
+
+function lowVramFirstStageMegapixels(finalWidth, finalHeight, duration = 4) {
+  const seconds = Math.max(4, Number(duration) || 4);
+  const maxFinalScale = seconds > 6
+    ? LOW_VRAM_TWO_STAGE_768P_MAX_FINAL_SCALE
+    : LOW_VRAM_TWO_STAGE_MAX_FINAL_SCALE * Math.sqrt(seconds / 4);
   const qualityFloor = (finalWidth * finalHeight)
-    / (1000 * 1000 * (LOW_VRAM_TWO_STAGE_SCALE * LOW_VRAM_TWO_STAGE_MAX_FINAL_SCALE) ** 2);
-  return Math.max(LOW_VRAM_TWO_STAGE_MIN_FIRST_MP, qualityFloor);
+    / (1000 * 1000 * (LOW_VRAM_TWO_STAGE_SCALE * maxFinalScale) ** 2);
+  return Math.max(LOW_VRAM_TWO_STAGE_MIN_FIRST_MP * 4 / seconds, qualityFloor);
 }
 
 function isX2UpscaleModel(value) {
@@ -784,8 +793,10 @@ function install(node) {
       setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false);
       setWidget(node, "motion_smoothing", "off", false);
     }
-    if (preset === "低显存二采" && Number(widget(node, "duration")?.value) > 6) {
-      setWidget(node, "duration", 6, false);
+    const selectedResolutionPreset = widget(node, "resolution_preset")?.value || "0.83 MP";
+    const lowVramTwoStageMaxSeconds = lowVramTwoStageMaxDuration(selectedResolutionPreset);
+    if (preset === "低显存二采" && Number(widget(node, "duration")?.value) > lowVramTwoStageMaxSeconds) {
+      setWidget(node, "duration", lowVramTwoStageMaxSeconds, false);
     }
     const postprocessOptions = allowedPostprocessModes(preset);
     let postprocessMode = widget(node, "postprocess_mode")?.value || "native";
@@ -885,12 +896,12 @@ function install(node) {
     specGrid.className = "h3p-grid";
     const durationControl = valueControl("视频时长（秒）", "duration", [], widget(node, "duration")?.value || 5, "number");
     const durationInput = durationControl.querySelector('input[data-h3p-value-widget="duration"]');
-    if (durationInput) durationInput.max = preset === "低显存二采" ? "6" : "15";
+    if (durationInput) durationInput.max = preset === "低显存二采" ? String(lowVramTwoStageMaxSeconds) : "15";
     const resolutionControl = valueControl(
       "分辨率档位",
       "resolution_preset",
       preset === SMART_PRESET || preset === LEGACY_SMART_PRESET
-        ? [["768p H3", "768p H3（8GB 可选 15 秒）"], ["1080p FHD", "1080p FHD（8GB 最多 6 秒）"], ["2K QHD", "2K QHD"], ["4K UHD", "4K UHD"]]
+        ? [["768p H3", "768p H3（8GB 10 秒清晰二采，最长 15 秒兼容）"], ["1080p FHD", "1080p FHD（8GB 最多 6 秒）"], ["2K QHD", "2K QHD"], ["4K UHD", "4K UHD"]]
         : RESOLUTIONS,
       resolutionPreset,
     );
@@ -973,7 +984,8 @@ function install(node) {
     if (preset === "质量优先二采样") {
       postprocessNote.textContent = `质量优先二采样已锁定 SeedVR2 视频超分（7B sharp 权重优先）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；未安装 SeedVR2 时自动回退通用 AI 超分并提示，RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
-      postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight), "AI X2")}；1080p 4 秒保留约 1MP 神经二采基准，5–6 秒会按时长降低首采网格以控制显存，再逐帧 RealESRGAN X2 重建到 FHD；最长 6 秒，开始前检查至少 6GB 空闲显存。`;
+      const duration = Number(widget(node, "duration")?.value) || 4;
+      postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight, duration), "AI X2")}；1080p 最长 6 秒，768p 最长 10 秒；7–10 秒 768p 使用时空分块低 sigma 重绘，并把最终逐帧重建控制在约 1.75x 内。开始前检查至少 6GB 空闲显存。`;
     } else if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
       postprocessNote.textContent = "智能画质（自动适配）";
     }
