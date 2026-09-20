@@ -333,7 +333,9 @@ def test_low_vram_preset_uses_quality_first_twenty_step_sampling():
     result = MiniMaxH3PerformancePreset().apply({"performance_preset": "low_vram", "resolved_backend": "ref2va_model"})
 
     assert values["steps"] == 20
-    assert values["use_sage"] is True
+    assert values["use_sage"] is False
+    assert values["use_head_chunking"] is True
+    assert values["minimax_head_chunks"] == 16
     assert values["use_cache"] is False
     assert result[0] == 20
 
@@ -420,7 +422,7 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
     plan = acceleration_plan(guide)
 
     assert values["steps"] >= 4
-    assert values["use_sage"] is (preset in {"quality_sage", "fast_4step", "reference_fast", "low_vram"})
+    assert values["use_sage"] is (preset in {"quality_sage", "fast_4step", "reference_fast"})
     expected_cache = preset in {"fast_4step", "reference_fast"} and not (mode == "T2VA" and preset == "fast_4step")
     assert values["use_cache"] is expected_cache
     assert plan["backend"] == backend
@@ -436,7 +438,7 @@ def test_every_mode_has_a_defined_performance_contract(mode, preset):
             "resolved_backend": backend,
         })
         assert plan["route"] == "bypass"
-        assert safe_result[1] is (expected_preset in {"quality_sage", "low_vram"})
+        assert safe_result[1] is (expected_preset == "quality_sage")
         assert safe_result[2] is False
     if expected_preset in {"quality_two_stage", "low_vram_two_stage"}:
         assert plan["first_lora_name"] == (
@@ -1605,34 +1607,33 @@ def test_scheduler_router_allows_quality_sage_on_reference_backend(monkeypatch):
     assert guide["scheduler_name"] == "simple"
 
 
-def test_low_vram_uses_h3_memory_efficient_sage_patch_with_more_head_chunks(monkeypatch):
+def test_low_vram_uses_exact_reuse_attention_without_sage(monkeypatch):
     calls = []
-
-    class MemoryEfficientSage:
-        @staticmethod
-        def execute(model):
-            calls.append(("sage", model))
-            return (f"{model}:h3sage",)
-
-    class HeadChunkPatch:
-        @staticmethod
-        def execute(model, head_chunks):
-            calls.append(("chunks", model, head_chunks))
-            return (f"{model}:chunks",)
-
-    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: MemoryEfficientSage)
-    monkeypatch.setattr(performance, "_kj_minimax_class", lambda name: HeadChunkPatch)
-
-    result = performance._apply_sage_attention(
-        "model",
-        {"performance_preset": "low_vram"},
+    monkeypatch.setattr(
+        performance,
+        "_apply_sage_attention",
+        lambda *_args, **_kwargs: pytest.fail("low_vram must not use SageAttention"),
+    )
+    monkeypatch.setattr(
+        performance,
+        "_apply_minimax_reuse_attention",
+        lambda model, guide: calls.append((model, guide["minimax_head_chunks"])) or f"{model}:reuse",
     )
 
-    assert result == "model:h3sage:chunks"
-    assert calls == [
-        ("sage", "model"),
-        ("chunks", "model:h3sage", 16),
-    ]
+    guide = {
+        "mode": "T2VA",
+        "performance_preset": "low_vram",
+        "resolved_backend": "fl2va_model",
+    }
+    result = MiniMaxH3AccelerationRouter().apply("model", guide)
+
+    assert result[0] == "model:reuse"
+    assert result[2] is True
+    assert calls == [("model", 16)]
+    assert guide["sage_requested"] is False
+    assert guide["sage_applied"] is False
+    assert guide["head_chunking_requested"] is True
+    assert guide["head_chunking_applied"] is True
 
 
 def test_quality_priority_acceleration_failure_keeps_twenty_steps(monkeypatch):

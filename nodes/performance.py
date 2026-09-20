@@ -122,11 +122,13 @@ PRESETS = {
     },
     # Quality-first low-VRAM route. Keep ComfyUI's native dynamic patcher so
     # large H3 components stay staged in host RAM, then spend extra denoising
-    # steps on detail instead of using a fast shortcut. The attention patch
-    # still bounds the active GPU working set for 8GB-class cards.
+    # steps on detail instead of using a fast shortcut. Exact reuse attention
+    # avoids Sage's full INT8 Q/K temporaries on long 8GB-class sequences.
     "low_vram": {
         "steps": 20,
-        "use_sage": True,
+        "use_head_chunking": True,
+        "minimax_head_chunks": 16,
+        "use_sage": False,
         "use_cache": False,
         "interpolate": False,
         "clip_device": "dynamic",
@@ -437,7 +439,7 @@ def _resolve_attention_chunks(guide, forced_tier=None):
 def _apply_sage_attention(model, guide):
     """Apply SageAttention with an RTX 30xx-safe kernel."""
     preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
-    if preset in {"quality_sage", "low_vram"}:
+    if preset == "quality_sage":
         # The generic KJ override keeps full Q/K/V tensors alive and can add
         # multiple GiB of temporary memory on long H3 sequences. The H3
         # patch quantizes the packed attention path and splits independent
@@ -445,8 +447,7 @@ def _apply_sage_attention(model, guide):
         try:
             sage_node = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")()
             model = _node_model(sage_node.execute(model))
-            forced_tier = (16, 32, 32) if preset == "low_vram" else None
-            chunks, _source = _resolve_attention_chunks(guide, forced_tier=forced_tier)
+            chunks, _source = _resolve_attention_chunks(guide)
             chunks = chunks[0]
             chunk_node = _kj_minimax_class("MiniMaxLowVRAMAttention")()
             return _node_model(chunk_node.execute(model, chunks))
@@ -586,7 +587,7 @@ class MiniMaxH3PerformancePreset:
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
             "ref_quality_native": "参考高清（原生 20 步）：REF2VA/H3 音色参考原生 20 步 + SageAttention，不使用 Turbo/二采",
             "ref_fast_4step": "参考极速（官方 4 步）：REF2VA/H3 音色参考使用官方 Ref2VA Turbo，4 步原生 Euler",
-            "low_vram": "低显存质量优先：20 步 + Sage，使用 ComfyUI 动态分层加载，关闭缓存；速度较慢但细节更好",
+            "low_vram": "低显存质量优先：20 步 + 精确复用注意力，使用 ComfyUI 动态分层加载，关闭缓存；速度较慢但细节更好",
             "low_vram_two_stage": "低显存二采：4–6 秒 FHD，按时长缩小首采网格 + RealESRGAN X2 细节重建",
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
