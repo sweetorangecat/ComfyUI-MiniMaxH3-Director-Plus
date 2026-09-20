@@ -492,6 +492,27 @@ def test_auto_audio_cleanup_reduces_stable_noise_floor():
     assert cleaned.abs().max().item() <= 10 ** (-1.5 / 20) + 1e-6
 
 
+def test_ref2va_audio_cleanup_uses_bounded_spectral_guard():
+    timeline = torch.arange(32000, dtype=torch.float32) / 32000.0
+    voice = 0.08 * torch.sin(2 * torch.pi * 220 * timeline)
+    noise = 0.018 * torch.sin(2 * torch.pi * 7900 * timeline)
+    waveform = (voice + noise).reshape(1, 1, -1)
+
+    normalized = stream_output._normalize_output_audio(
+        {"waveform": waveform, "sample_rate": 32000},
+        "auto",
+        backend="ref2va_model",
+    )
+
+    result = normalized["waveform"]
+    assert result.shape == waveform.shape
+    assert torch.isfinite(result).all()
+    assert result.abs().max().item() <= 10 ** (-1.5 / 20) + 1e-6
+    # RF2VA protection must not apply the legacy 30 dB recovery to a quiet
+    # clip, otherwise decoded hiss is amplified with the dialogue.
+    assert result.abs().max().item() <= waveform.abs().max().item() * 10 ** (9 / 20) + 1e-5
+
+
 def test_auto_audio_cleanup_reports_actual_status(monkeypatch):
     audio = {"waveform": torch.rand(1, 1, 320), "sample_rate": 32000}
     result = _combine(
@@ -510,6 +531,28 @@ def test_auto_audio_cleanup_reports_actual_status(monkeypatch):
 
     output = result["ui"]["gifs"][0]
     assert output["audio_cleanup"] == "auto_gate_peak_limit"
+    assert output["audio_cleanup_reason"] == "applied"
+
+
+def test_ref2va_audio_cleanup_reports_spectral_guard(monkeypatch):
+    audio = {"waveform": torch.rand(1, 1, 32000), "sample_rate": 32000}
+    result = _combine(
+        monkeypatch,
+        {
+            "target_width": 3,
+            "target_height": 2,
+            "postprocess_path": "native_bypass",
+            "audio_loudness": "auto",
+            "resolved_backend": "ref2va_model",
+        },
+        torch.rand(3, 2, 3, 3),
+        [],
+        audio=audio,
+        audio_inputs=[],
+    )
+
+    output = result["ui"]["gifs"][0]
+    assert output["audio_cleanup"] == "rf2va_spectral_guard"
     assert output["audio_cleanup_reason"] == "applied"
 
 

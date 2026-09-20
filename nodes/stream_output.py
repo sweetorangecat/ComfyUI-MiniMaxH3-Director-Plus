@@ -37,6 +37,9 @@ class _VsrProcessingError(RuntimeError):
 
 _AUDIO_TARGET_PEAK = 10 ** (-1.5 / 20)
 _AUDIO_MAX_GAIN = 10 ** (30 / 20)
+_RF2VA_AUDIO_MAX_GAIN = 10 ** (9 / 20)
+_RF2VA_AUDIO_NFFT = 1024
+_RF2VA_AUDIO_HOP = 256
 _AUDIO_GATE_REDUCTION = 0.12
 _AUDIO_GATE_RATIO = 1.8
 _AUDIO_GATE_MIN_DYNAMIC_RANGE = 4.0
@@ -154,7 +157,78 @@ def _clean_output_audio(waveform):
     return (clean * gain).clamp(-_AUDIO_TARGET_PEAK, _AUDIO_TARGET_PEAK)
 
 
-def _normalize_output_audio(audio, mode):
+def _clean_rf2va_audio(waveform):
+    """Suppress RF2VA VAE hiss without aggressively changing voice timbre.
+
+    RF2VA can leave a low-level broadband residue in the decoded waveform. A
+    bounded spectral gate is safer than a fixed high-cut: it estimates the
+    quietest frames as the noise profile, attenuates only energy close to that
+    profile, and limits loudness recovery so the residue cannot be amplified.
+    """
+    clean = torch.nan_to_num(
+        waveform.detach().to(device="cpu", dtype=torch.float32),
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
+    if not clean.numel():
+        return clean
+    if clean.ndim != 3 or clean.shape[-1] < 32:
+        peak = float(clean.abs().max().item())
+        if peak <= 1e-8:
+            return clean
+        gain = min(_AUDIO_TARGET_PEAK / peak, _RF2VA_AUDIO_MAX_GAIN)
+        return (clean * gain).clamp(-_AUDIO_TARGET_PEAK, _AUDIO_TARGET_PEAK)
+
+    # Remove decoder DC bias per channel before the spectral operation.
+    clean = clean - clean.mean(dim=-1, keepdim=True)
+    sample_count = int(clean.shape[-1])
+    n_fft = min(_RF2VA_AUDIO_NFFT, 1 << max(5, (sample_count - 1).bit_length() - 1))
+    n_fft = max(32, n_fft)
+    hop = max(8, min(_RF2VA_AUDIO_HOP, n_fft // 4))
+    window = torch.hann_window(n_fft, dtype=clean.dtype)
+    flat = clean.reshape(-1, sample_count)
+    spectrum = torch.stft(
+        flat,
+        n_fft=n_fft,
+        hop_length=hop,
+        win_length=n_fft,
+        window=window,
+        center=True,
+        return_complex=True,
+    )
+    magnitude = spectrum.abs().clamp_min(1e-8)
+    frame_energy = magnitude.square().mean(dim=1)
+    # The bottom fifth of frames is the most reliable noise estimate for H3
+    # clips, while the ratio floor prevents musical-noise pumping.
+    count = max(1, int(frame_energy.shape[-1] * 0.2))
+    noise = magnitude.topk(count, dim=-1, largest=False).values.median(dim=-1).values
+    threshold = noise.unsqueeze(-1) * 1.35
+    residual = (magnitude - threshold).clamp_min(0.0)
+    gain = (residual / magnitude).clamp(0.32, 1.0)
+    # Smooth the mask in time and frequency to avoid isolated spectral tones.
+    mask = F.avg_pool2d(
+        gain.unsqueeze(1), kernel_size=(3, 5), stride=1, padding=(1, 2)
+    ).squeeze(1)
+    filtered = spectrum * mask
+    denoised = torch.istft(
+        filtered,
+        n_fft=n_fft,
+        hop_length=hop,
+        win_length=n_fft,
+        window=window,
+        center=True,
+        length=sample_count,
+    )
+    denoised = denoised.reshape_as(clean)
+    peak = float(denoised.abs().max().item())
+    if peak <= 1e-8:
+        return denoised
+    gain = min(_AUDIO_TARGET_PEAK / peak, _RF2VA_AUDIO_MAX_GAIN)
+    return (denoised * gain).clamp(-_AUDIO_TARGET_PEAK, _AUDIO_TARGET_PEAK)
+
+
+def _normalize_output_audio(audio, mode, backend=None):
     """Clean and normalize auto audio without modifying the source AUDIO."""
     mode = str(mode or "original")
     if audio is None or mode == "original":
@@ -173,7 +247,10 @@ def _normalize_output_audio(audio, mode):
         return audio
 
     normalized = dict(audio)
-    normalized["waveform"] = _clean_output_audio(waveform)
+    if str(backend or "") == "ref2va_model":
+        normalized["waveform"] = _clean_rf2va_audio(waveform)
+    else:
+        normalized["waveform"] = _clean_output_audio(waveform)
     return normalized
 
 
@@ -1186,12 +1263,19 @@ class MiniMaxH3StreamingVideoCombine:
 
         metadata_path = dasiwa._metadata_file(prompt, extra_pnginfo) if save_metadata else None
         audio_loudness = str(guide.get("audio_loudness", "original") or "original")
+        audio_backend = str(guide.get("resolved_backend", "") or "")
         audio_cleanup = "disabled"
         audio_cleanup_reason = "original_mode"
         if audio_loudness == "auto":
             try:
-                output_audio = _normalize_output_audio(audio, audio_loudness)
-                audio_cleanup = "auto_gate_peak_limit"
+                output_audio = _normalize_output_audio(
+                    audio, audio_loudness, backend=audio_backend
+                )
+                audio_cleanup = (
+                    "rf2va_spectral_guard"
+                    if audio_backend == "ref2va_model"
+                    else "auto_gate_peak_limit"
+                )
                 audio_cleanup_reason = "applied"
             except ValueError:
                 raise
@@ -1201,7 +1285,9 @@ class MiniMaxH3StreamingVideoCombine:
                 audio_cleanup = "bypass_error"
                 audio_cleanup_reason = str(exc)
         else:
-            output_audio = _normalize_output_audio(audio, audio_loudness)
+            output_audio = _normalize_output_audio(
+                audio, audio_loudness, backend=audio_backend
+            )
         audio_path, audio_duration = dasiwa._audio_file(output_audio)
         attempts = []
         output_path = None
