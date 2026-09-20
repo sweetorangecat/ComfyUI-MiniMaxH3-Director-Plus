@@ -872,7 +872,8 @@ def build_workflow(source):
     acceleration_note = _note_node(
         allocate_node(), "加速与后处理说明", [-400, 2730], [950, 270],
         "## 智能画质（自动适配）\n\n"
-        "1080p FHD / 2K QHD / 4K UHD\n\n"
+        "768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n"
+        "8GB 低显存选择 768p H3（1344×768）可运行 4–15 秒；选择 1080p FHD 仍限制为 4–6 秒。\n\n"
         "当前后台链路与显存检查结果见导演台状态；版本说明见插件 docs/U11清晰度增强版交付说明.md。",
     )
     output_note = _note_node(

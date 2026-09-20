@@ -669,7 +669,12 @@ class MiniMaxH3DirectorPlus:
                     "ComfyUI-SeedVR2_VideoUpscaler 节点并将 seedvr2_ema_7b/3b 与 "
                     "ema_vae_fp16.safetensors 放入 models/SEEDVR2。"
                 )
-            if min(int(requested_width), int(requested_height)) > 1080:
+            if resolution_preset == "768p H3":
+                # Keep the explicit low-resolution target. On 8GB cards the
+                # smart planner uses this target to unlock the 4–15 second
+                # single-pass route instead of forcing the 1080p 6s budget.
+                pass
+            elif min(int(requested_width), int(requested_height)) > 1080:
                 # 2K QHD / 4K UHD targets stay exact; resolve_smart_1080p_plan
                 # already enforced the trained two-stage + SeedVR2 chain (or
                 # raised with a clear reason before queueing).
@@ -1141,6 +1146,11 @@ class MiniMaxH3DirectorPlus:
             ],
             "performance_preset": request["performance_preset"],
             "requested_performance_preset": requested_performance_preset,
+            "max_duration": (
+                int(smart_plan["max_duration"])
+                if smart_plan is not None
+                else 15
+            ),
             "timeline": timeline,
             "warnings": request["warnings"],
             "reference_transcript": reference_transcript,

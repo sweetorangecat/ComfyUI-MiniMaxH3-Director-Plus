@@ -15,6 +15,8 @@ SMART_LOW_VRAM_UPSCALE_MODEL = "RealESRGAN_x2plus.pth"
 LOW_VRAM_MAX_SECONDS = 6
 LOW_VRAM_MIN_FREE_GB = 6.0
 LOW_VRAM_TOTAL_GB = 16.0
+LOW_VRAM_LONG_MAX_SECONDS = 15
+LOW_VRAM_LONG_MAX_PIXELS = 1344 * 768
 
 
 def smart_1080p_target(width, height):
@@ -78,6 +80,12 @@ def resolve_smart_1080p_plan(
 
     seconds = _duration_seconds(duration)
     low_vram = total_vram_gb <= LOW_VRAM_TOTAL_GB
+    low_vram_long_target = (
+        low_vram
+        and target_width is not None
+        and target_height is not None
+        and int(target_width) * int(target_height) <= LOW_VRAM_LONG_MAX_PIXELS
+    )
     high_res_target = (
         target_width is not None
         and target_height is not None
@@ -147,19 +155,29 @@ def resolve_smart_1080p_plan(
                 "但 SeedVR2 节点或 models/SEEDVR2 权重未就绪；请安装后重试，或把最终目标降为 1080p。"
             )
     if low_vram:
-        if not 4 <= seconds <= LOW_VRAM_MAX_SECONDS:
+        max_duration = (
+            LOW_VRAM_LONG_MAX_SECONDS if low_vram_long_target else LOW_VRAM_MAX_SECONDS
+        )
+        if not 4 <= seconds <= max_duration:
             raise RequestError(
-                f"请求 {seconds} 秒超出低显存模式最多支持 {LOW_VRAM_MAX_SECONDS} 秒（总显存 "
+                f"请求 {seconds} 秒超出低显存模式最多支持 {max_duration} 秒（总显存 "
                 f"{float(total_vram_gb):.1f}GB，空闲显存 {float(free_vram_gb):.1f}GB），请缩短或拆段"
             )
-        preset = "low_vram_two_stage" if backend == "fl2va_model" else "low_vram"
-        route = "trained_latent_fl" if backend == "fl2va_model" else "bypass"
-        warning = (
-            "已启用低显存质量优先 1080p 模式：采样 20 步，速度较慢。当前显存档位最多支持 6 秒；"
-            "系统会降低生成阶段分辨率，"
-            "并在生成后免费超分到目标 1080p 尺寸。"
-        )
-        max_duration = LOW_VRAM_MAX_SECONDS
+        if low_vram_long_target:
+            preset = "low_vram"
+            route = "bypass"
+            warning = (
+                "已启用 8GB 低显存 768p 长时单采：允许 4–15 秒；系统会按时长降低 "
+                "H3 实际采样网格，15 秒约为 0.26MP，再使用单次 AI X2 重建到所选 768p 输出。"
+            )
+        else:
+            preset = "low_vram_two_stage" if backend == "fl2va_model" else "low_vram"
+            route = "trained_latent_fl" if backend == "fl2va_model" else "bypass"
+            warning = (
+                "已启用低显存质量优先 1080p 模式：采样 20 步，速度较慢。当前显存档位最多支持 6 秒；"
+                "系统会降低生成阶段分辨率，"
+                "并在生成后免费超分到目标 1080p 尺寸。"
+            )
     else:
         if not 4 <= seconds <= 15:
             raise RequestError("视频时长必须在 4 到 15 秒之间")

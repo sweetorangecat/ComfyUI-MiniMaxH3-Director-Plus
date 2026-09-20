@@ -11,7 +11,7 @@ const NODE_CLASS = "MiniMaxH3DirectorPlus";
 const SMART_PRESET = "智能画质（自动适配）";
 const LEGACY_SMART_PRESET = "免费智能 1080p";
 const SMART_HIGH_RESOLUTIONS = ["2K QHD", "4K UHD"];
-const SMART_RESOLUTIONS = ["1080p FHD", ...SMART_HIGH_RESOLUTIONS];
+const SMART_RESOLUTIONS = ["768p H3", "1080p FHD", ...SMART_HIGH_RESOLUTIONS];
 const SMART_UPSCALE_MODEL = "auto";
 // Keep node geometry independent from the browser sidebar width.
 const DIRECTOR_UI_WIDTH = 1350;
@@ -40,6 +40,8 @@ const ASPECTS = {
   "8:5": [8, 5], "5:8": [5, 8], "16:9": [16, 9], "9:16": [9, 16], "21:9": [21, 9], "9:21": [9, 21],
 };
 const EXACT_OUTPUT_TARGETS = {
+  "768p H3|16:9": [1344, 768],
+  "768p H3|9:16": [768, 1344],
   "1080p FHD|16:9": [1920, 1080],
   "1080p FHD|9:16": [1080, 1920],
   "2K QHD|16:9": [2560, 1440],
@@ -48,6 +50,7 @@ const EXACT_OUTPUT_TARGETS = {
   "4K UHD|9:16": [2160, 3840],
 };
 const RESOLUTION_MEGAPIXELS = {
+  "768p H3": 1344 * 768 / (1024 * 1024),
   "1080p FHD": 1920 * 1080 / (1024 * 1024),
   "2K QHD": 3.6864,
   "4K UHD": 8.2944,
@@ -59,7 +62,7 @@ const RESOLUTIONS = [
   "0.26 MP", "0.30 MP", "0.36 MP", "0.40 MP", "0.50 MP", "0.52 MP", "0.60 MP", "0.65 MP", "0.70 MP",
   "0.80 MP", "0.83 MP", "0.90 MP", "1.00 MP", "1.05 MP", "1.10 MP", "1.20 MP", "1.30 MP", "1.35 MP",
   "1.40 MP", "1.50 MP", "1.55 MP", "1.60 MP", "1.65 MP", "1.70 MP", "1.75 MP", "1.80 MP", "1.90 MP",
-  "2.00 MP", "2.10 MP", "1080p FHD", "2K QHD", "4K UHD",
+  "2.00 MP", "2.10 MP", "768p H3", "1080p FHD", "2K QHD", "4K UHD",
 ];
 const SEED_MODES = [
   ["fixed", "固定"],
@@ -387,7 +390,7 @@ function calculatedResolution(node) {
     ? [Math.max(1, Number(widget(node, "custom_width")?.value) || 16), Math.max(1, Number(widget(node, "custom_height")?.value) || 9)]
     : (ASPECTS[aspect] || ASPECTS["16:9"]);
   const performancePreset = String(widget(node, "performance_preset")?.value || "");
-  if ((performancePreset === SMART_PRESET || performancePreset === LEGACY_SMART_PRESET) && !SMART_HIGH_RESOLUTIONS.includes(preset)) return smart1080pTarget(...ratio);
+  if ((performancePreset === SMART_PRESET || performancePreset === LEGACY_SMART_PRESET) && preset === "1080p FHD") return smart1080pTarget(...ratio);
   const exact = EXACT_OUTPUT_TARGETS[`${preset}|${aspect}`];
   if (exact) return exact;
   const megapixels = (RESOLUTION_MEGAPIXELS[preset] ?? Number.parseFloat(preset)) || 0.83;
@@ -886,8 +889,8 @@ function install(node) {
     const resolutionControl = valueControl(
       "分辨率档位",
       "resolution_preset",
-      preset === SMART_PRESET
-        ? [["1080p FHD", "1080p FHD"], ["2K QHD", "2K QHD"], ["4K UHD", "4K UHD"]]
+      preset === SMART_PRESET || preset === LEGACY_SMART_PRESET
+        ? [["768p H3", "768p H3（8GB 可选 15 秒）"], ["1080p FHD", "1080p FHD（8GB 最多 6 秒）"], ["2K QHD", "2K QHD"], ["4K UHD", "4K UHD"]]
         : RESOLUTIONS,
       resolutionPreset,
     );

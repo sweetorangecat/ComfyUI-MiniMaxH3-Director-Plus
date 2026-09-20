@@ -121,6 +121,45 @@ def test_low_vram_smart_fhd_stays_on_ai_upscale_when_seedvr2_is_available(monkey
     assert guide["upscale_profile"] == "standard"
 
 
+def test_low_vram_smart_768p_allows_fifteen_seconds(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
+    monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report",
+        lambda route: {"ready": False, "missing": ["MinimaxH3LatentUpscaler3D"], "required_assets": []},
+    )
+    monkeypatch.setattr(
+        "nodes.director._seedvr2_dependency_report",
+        lambda: {"ready": False, "missing": ["SeedVR2VideoUpscaler"], "available_dit": []},
+    )
+    monkeypatch.setattr(
+        "nodes.director.resolve_upscale_model_name",
+        lambda *args, **kwargs: "RealESRGAN_x2plus.pth",
+    )
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA",
+        prompt="人物缓慢转身。",
+        duration=15,
+        width=1344,
+        height=768,
+        aspect_ratio="16:9",
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="智能画质（自动适配）",
+        postprocess_mode="ai_upscale",
+        resolution_preset="768p H3",
+        timeline_data="{}",
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert guide["performance_preset"] == "low_vram"
+    assert guide["max_duration"] == 15
+    assert (guide["requested_width"], guide["requested_height"]) == (1344, 768)
+    assert (guide["target_width"], guide["target_height"]) == (1344, 768)
+    assert guide["native_width"] * guide["native_height"] <= 0.26 * 1024 * 1024 * 1.1
+
+
 def test_video_sr_falls_back_to_ai_upscale_when_seedvr2_missing(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
     monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")

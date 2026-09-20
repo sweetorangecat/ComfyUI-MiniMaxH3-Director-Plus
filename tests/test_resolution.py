@@ -58,3 +58,8 @@ def test_uhd_output_presets_keep_exact_16_9_targets():
 def test_exact_fhd_targets_are_not_rounded_above_1080p():
     assert calculate_resolution("1080p FHD", "16:9") == (1920, 1080)
     assert calculate_resolution("1080p FHD", "9:16") == (1080, 1920)
+
+
+def test_exact_h3_768p_targets_use_the_official_native_canvas():
+    assert calculate_resolution("768p H3", "16:9") == (1344, 768)
+    assert calculate_resolution("768p H3", "9:16") == (768, 1344)

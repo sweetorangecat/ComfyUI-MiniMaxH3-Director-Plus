@@ -34,7 +34,7 @@ REF2VA 的训练型 reference latent 二采（`trained_latent_ref`）仅保留�
 
 `audio_loudness` 控制最终编码前的音频处理，默认 `auto`：将过小的 H3 音轨峰值安全提升到 -1.5 dBFS，最大增益 30 dB；静音保持静音。设为 `original` 时保持原始波形。该处理只影响最终 MP4 音轨，不改变 H3 参考音色或生成内容。
 
-API 中的 `resolution_preset` 表示请求的最终输出目标，支持精确 `1080p FHD`（1920×1080）、`2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。4K 不是 H3 原生采样。普通低显存路线支持 4–15 秒并把最终目标限制在 1080p；`低显存二采` 支持 4–6 秒和 FHD 像素预算，时长越长会自动降低首采网格；20–24GB 级显卡在至少有 18GB 空闲显存时可执行 4–15 秒精确 FHD 保守二采，但 2K 仍只开放 8 秒以内；28GB 以上才允许通过前置检查后请求长视频 2K/4K。所有路线仍由同一个流式 MP4 输出节点保存。
+API 中的 `resolution_preset` 表示请求的最终输出目标，支持精确 `768p H3`（1344×768）、`1080p FHD`（1920×1080）、`2K QHD`（2560×1440）和 `4K UHD`（3840×2160）。4K 不是 H3 原生采样。8GB 低显存选择 `768p H3` 支持 4–15 秒；选择 `1080p FHD` 或更高目标时仍按对应显存预算限制时长，普通 1080p 低显存路线最多 6 秒。`低显存二采` 支持 4–6 秒和 FHD 像素预算，时长越长会自动降低首采网格；20–24GB 级显卡在至少有 18GB 空闲显存时可执行 4–15 秒精确 FHD 保守二采，但 2K 仍只开放 8 秒以内；28GB 以上才允许通过前置检查后请求长视频 2K/4K。所有路线仍由同一个流式 MP4 输出节点保存。
 
 `GET /schema` 的 `resolved_outputs` 描述运行前可观察结果：`resolved_two_stage_route`、`first_stage_width/height`、`second_stage_width/height`、`final_upscale_scale_x/y`、`final_upscale_scale`、`max_final_vsr_scale`、`vram_safety_tier`、`quality_basis` 与 `required_assets`。实际 `generate` 响应和任务元数据还可查看 guide/status 的 `rtx_deblur_mode`、`postprocess_path`、`source` 与 final尺寸，展示“首采 -> 神经二采 -> 最终输出”，不要只显示最终分辨率标签。
 

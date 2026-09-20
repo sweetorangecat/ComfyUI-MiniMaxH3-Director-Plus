@@ -99,6 +99,35 @@ def test_low_vram_rejects_duration_above_six_with_actionable_chinese_error():
     assert "缩短或拆段" in message
 
 
+@pytest.mark.parametrize("backend", ["fl2va_model", "ref2va_model"])
+def test_low_vram_768p_allows_fifteen_seconds_on_single_pass_route(backend):
+    plan = resolve_smart_1080p_plan(
+        backend,
+        15,
+        8,
+        7,
+        target_width=1344,
+        target_height=768,
+    )
+
+    assert plan["performance_preset"] == "low_vram"
+    assert plan["two_stage_route"] == "bypass"
+    assert plan["max_duration"] == 15
+    assert "768p" in plan["warning"]
+
+
+def test_low_vram_1080p_still_rejects_more_than_six_seconds():
+    with pytest.raises(RequestError, match="最多支持 6 秒"):
+        resolve_smart_1080p_plan(
+            "fl2va_model",
+            15,
+            8,
+            7,
+            target_width=1920,
+            target_height=1080,
+        )
+
+
 def test_any_insufficient_free_vram_is_rejected_even_with_large_total_vram():
     with pytest.raises(RequestError) as exc:
         resolve_smart_1080p_plan("fl2va_model", 10, 24, 5.5)
