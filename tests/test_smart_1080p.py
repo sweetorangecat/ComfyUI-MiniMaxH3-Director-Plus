@@ -151,6 +151,25 @@ def test_low_vram_ten_second_768p_fl_keeps_trained_detail_route_when_ready():
     assert "10 秒" in plan["warning"]
 
 
+def test_low_vram_ten_second_768p_ref_uses_guarded_trained_detail_route_when_ready():
+    plan = resolve_smart_1080p_plan(
+        "ref2va_model",
+        10,
+        8,
+        7,
+        two_stage_ready=True,
+        target_width=1344,
+        target_height=768,
+        voice_mode="h3_reference",
+    )
+
+    assert plan["performance_preset"] == "low_vram_two_stage"
+    assert plan["two_stage_route"] == "trained_latent_ref"
+    assert plan["two_stage_audio_guard"] is True
+    assert plan["dimension_plan"]["allowed"] is True
+    assert "REF2VA" in plan["warning"]
+
+
 def test_low_vram_1080p_still_rejects_more_than_six_seconds():
     with pytest.raises(RequestError, match="最多支持 6 秒"):
         resolve_smart_1080p_plan(

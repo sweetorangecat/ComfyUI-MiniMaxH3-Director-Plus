@@ -626,7 +626,16 @@ def _safe_guide_preset(guide):
     mode = guide.get("mode")
     voice_mode = guide.get("voice_mode", "none")
     backend = guide.get("resolved_backend")
-    if voice_mode == "h3_reference" and name in TWO_STAGE_PERFORMANCE_PRESETS:
+    guarded_reference_redraw = bool(
+        guide.get("two_stage_audio_guard")
+        and backend == "ref2va_model"
+        and name == "low_vram_two_stage"
+    )
+    if (
+        voice_mode == "h3_reference"
+        and name == "low_vram_two_stage"
+        and not guarded_reference_redraw
+    ):
         migrated_preset = "low_vram" if name == "low_vram_two_stage" else "ref_quality_native"
         guide["resolved_performance_preset"] = migrated_preset
         guide["two_stage_enabled"] = False
@@ -645,9 +654,8 @@ def _safe_guide_preset(guide):
         )
         return migrated_preset, True
     if backend == "ref2va_model" and name in TWO_STAGE_PERFORMANCE_PRESETS:
-        # quality_two_stage is allowed on REF2VA (U22 turbo-v4 8+4 recipe);
-        # only the unvalidated 8GB low-VRAM variant still falls back.
-        if name == "quality_two_stage":
+        # REF2VA supports the U22 quality route and the guarded 8GB redraw route.
+        if name == "quality_two_stage" or guarded_reference_redraw:
             guide["resolved_performance_preset"] = name
             return name, False
         fallback = REFERENCE_UNSAFE_FALLBACKS.get(name, "quality_sage")

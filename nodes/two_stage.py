@@ -91,6 +91,55 @@ def _second_stage_grid_metadata(latent):
     return shape, 0, "landscape"
 
 
+def _as_nested_tensor(members, prototype):
+    """Repack AV members with the same nested-container contract as ComfyUI."""
+    try:
+        from comfy.nested_tensor import NestedTensor
+
+        return NestedTensor(members)
+    except ImportError:
+        return torch.nested.as_nested_tensor(members, layout=prototype.layout)
+
+
+def _lock_stage2_audio(latent, enabled=True):
+    """Freeze the H3 audio branch while a video-only second pass is sampled."""
+    if not enabled or not isinstance(latent, dict):
+        return latent
+    samples = latent.get("samples")
+    if samples is None or not getattr(samples, "is_nested", False):
+        return latent
+    members = list(samples.unbind())
+    if len(members) < 2:
+        return latent
+    previous_mask = latent.get("noise_mask")
+    if previous_mask is not None and getattr(previous_mask, "is_nested", False):
+        masks = list(previous_mask.unbind())
+        if len(masks) < 2:
+            masks = [torch.ones_like(members[0]), torch.zeros_like(members[1])]
+        else:
+            masks[0] = masks[0].clone()
+            masks[1] = torch.zeros_like(members[1])
+    else:
+        masks = [torch.ones_like(members[0]), torch.zeros_like(members[1])]
+    protected = dict(latent)
+    protected["noise_mask"] = _as_nested_tensor(masks, samples)
+    return protected
+
+
+def _audio_drift(final_latent, stage1_audio):
+    """Return the largest pre-reinsert audio-latent drift for diagnostics."""
+    if not isinstance(final_latent, dict) or not isinstance(stage1_audio, dict):
+        return None
+    final_samples = final_latent.get("samples")
+    stage1_samples = stage1_audio.get("samples")
+    if not getattr(final_samples, "is_nested", False) or not isinstance(stage1_samples, torch.Tensor):
+        return None
+    final_members = list(final_samples.unbind())
+    if len(final_members) < 2 or final_members[1].shape != stage1_samples.shape:
+        return None
+    return float((final_members[1].to(dtype=torch.float32) - stage1_samples.to(dtype=torch.float32)).abs().max().item())
+
+
 class AnchoredKeyframeNoise:
     """Fresh Gaussian noise with anchored keyframe latent slices silenced.
 
@@ -104,15 +153,27 @@ class AnchoredKeyframeNoise:
     else while the anchor stays clean.
     """
 
-    def __init__(self, base_noise, mask_first=False, mask_last=False):
+    def __init__(self, base_noise, mask_first=False, mask_last=False, mask_audio=False):
         self._base = base_noise
         self.seed = getattr(base_noise, "seed", None)
         self.mask_first = bool(mask_first)
         self.mask_last = bool(mask_last)
+        self.mask_audio = bool(mask_audio)
 
     def generate_noise(self, input_latent):
         noise = self._base.generate_noise(input_latent)
         samples = input_latent.get("samples") if isinstance(input_latent, dict) else None
+        # MMH3SplitUpscale asks the NOISE object for the video and audio
+        # branches separately.  H3 audio latents are 4D with 32 channels, so
+        # freeze that unpacked call as well as the packed AV call below.
+        if (
+            self.mask_audio
+            and isinstance(samples, torch.Tensor)
+            and samples.ndim == 4
+            and samples.shape[1] == 32
+            and isinstance(noise, torch.Tensor)
+        ):
+            return torch.zeros_like(noise)
         if samples is None or not getattr(samples, "is_nested", False):
             return noise
         if not getattr(noise, "is_nested", False):
@@ -129,6 +190,8 @@ class AnchoredKeyframeNoise:
         if self.mask_last:
             video[:, :, -1] = 0.0
         members[0] = video
+        if self.mask_audio:
+            members[1] = torch.zeros_like(members[1])
         try:
             # ComfyUI 的 AV latent 噪声是它自家的 comfy.nested_tensor.NestedTensor
             # （普通 Python 类），不是 torch 的 jagged 嵌套张量。
@@ -144,12 +207,20 @@ def anchored_keyframe_noise(base_noise, guide):
     mode = str(guide.get("mode") or "")
     mask_first = guide.get("first_frame") is not None or mode in ("I2VA", "FL2VA")
     mask_last = guide.get("last_frame") is not None or mode in ("L2VA", "FL2VA")
-    if not (mask_first or mask_last):
+    mask_audio = bool(guide.get("two_stage_audio_guard"))
+    if not (mask_first or mask_last or mask_audio):
         return base_noise, ""
-    wrapped = AnchoredKeyframeNoise(base_noise, mask_first=mask_first, mask_last=mask_last)
+    wrapped = AnchoredKeyframeNoise(
+        base_noise,
+        mask_first=mask_first,
+        mask_last=mask_last,
+        mask_audio=mask_audio,
+    )
     which = "+".join(
         name for name, flag in (("首帧", mask_first), ("尾帧", mask_last)) if flag
     )
+    if mask_audio:
+        which = f"{which}+音频" if which else "音频"
     return wrapped, which
 
 
@@ -177,6 +248,16 @@ def _reinsert_stage1_audio(final_denoised, stage1_audio):
     if not isinstance(separated, (tuple, list)) or len(separated) < 2:
         raise RuntimeError("H3 二采最终 AV latent 分离失败，无法锁定音频分支")
     final_video = separated[0]
+    final_audio = separated[1]
+    final_audio_samples = final_audio.get("samples") if isinstance(final_audio, dict) else None
+    stage1_audio_samples = stage1_audio.get("samples") if isinstance(stage1_audio, dict) else None
+    if (
+        isinstance(final_audio_samples, torch.Tensor)
+        and isinstance(stage1_audio_samples, torch.Tensor)
+        and final_audio_samples.shape == stage1_audio_samples.shape
+        and torch.equal(final_audio_samples, stage1_audio_samples)
+    ):
+        return final_denoised
     return _node_output(LTXVConcatAVLatent.execute(final_video, stage1_audio))
 
 
@@ -555,6 +636,8 @@ class MiniMaxH3TwoStageSampler:
                 scale,
             )
             merged = _node_output(LTXVConcatAVLatent.execute(upscaled_video, audio_latent))
+            audio_guard = bool(guide.get("two_stage_audio_guard"))
+            merged = _lock_stage2_audio(merged, enabled=audio_guard)
             merged_video_shape = _latent_shape(upscaled_video)
             second_grid, est_tokens, orientation = _second_stage_grid_metadata(merged)
             LOGGER.info(
@@ -649,8 +732,14 @@ class MiniMaxH3TwoStageSampler:
 
         guide["two_stage_first_sigma_count"] = len(first_sigmas)
         guide["two_stage_second_sigma_count"] = len(second_sigmas)
+        drift = _audio_drift(final_denoised, audio_latent)
+        if drift is not None:
+            guide["two_stage_audio_drift_before_reinsert"] = drift
+            LOGGER.info("[H3 two-stage] audio drift before exact reinsert max_abs=%.8g", drift)
         final_denoised = _reinsert_stage1_audio(final_denoised, audio_latent)
-        guide["two_stage_audio_lock"] = "stage1_reinsert"
+        guide["two_stage_audio_lock"] = (
+            "masked_stage1_reinsert" if guide.get("two_stage_audio_guard") else "stage1_reinsert"
+        )
         LOGGER.info(
             "[H3 two-stage] audio locked to stage-1 latent after second-stage video redraw"
         )

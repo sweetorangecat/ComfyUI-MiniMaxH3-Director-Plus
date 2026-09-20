@@ -1054,7 +1054,11 @@ class MiniMaxH3DirectorPlus:
                 and two_stage_plan.get("adaptive_qhd")
                 and postprocess_path == "video_sr"
             ),
+            "two_stage_enabled": bool(two_stage_plan),
             "resolved_two_stage_route": resolved_two_stage_route,
+            "two_stage_audio_guard": bool(
+                (smart_plan or {}).get("two_stage_audio_guard", False)
+            ),
             "first_stage_width": int(native_width),
             "first_stage_height": int(native_height),
             "second_stage_width": int(

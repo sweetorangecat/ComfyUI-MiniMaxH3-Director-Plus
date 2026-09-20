@@ -493,7 +493,12 @@ def normalize_request(raw=None):
         )
 
     allowed_postprocess = allowed_postprocess_modes(resolved_preset)
-    if request["postprocess_mode"] not in allowed_postprocess:
+    smart_reference_native_compat = (
+        resolved_preset == "smart_free_1080p"
+        and request["voice_mode"] == "h3_reference"
+        and request["postprocess_mode"] == "native"
+    )
+    if request["postprocess_mode"] not in allowed_postprocess and not smart_reference_native_compat:
         if resolved_preset == "quality_two_stage":
             raise RequestError(
                 "质量优先二采样已包含 H3 latent 放大重绘，只能搭配 SeedVR2 视频超分或 RTX VSR；"

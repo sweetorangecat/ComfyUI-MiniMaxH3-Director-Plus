@@ -10,6 +10,7 @@ from nodes.performance import MiniMaxH3PerformancePreset, preset_values
 from nodes.schema import allowed_performance_presets
 from nodes.two_stage import (
     MiniMaxH3TwoStageSampler,
+    _lock_stage2_audio,
     _node_output,
     anchored_keyframe_noise,
     clone_guider_with_model,
@@ -276,6 +277,15 @@ def test_trained_two_stage_preserves_audio_and_uses_fl_four_plus_four(monkeypatc
         def __init__(self, seed):
             self.seed = seed
 
+        def generate_noise(self, input_latent):
+            samples = input_latent["samples"]
+            if getattr(samples, "is_nested", False):
+                return torch.nested.as_nested_tensor(
+                    [torch.ones_like(member) for member in samples.unbind()],
+                    layout=torch.jagged,
+                )
+            return torch.ones_like(samples)
+
     class EmptyNoise:
         seed = None
 
@@ -449,6 +459,15 @@ def _run_two_stage_with_fakes(monkeypatch, *, split_callables, guide_extra=None)
     class FakeNoise:
         def __init__(self, seed):
             self.seed = seed
+
+        def generate_noise(self, input_latent):
+            samples = input_latent["samples"]
+            if getattr(samples, "is_nested", False):
+                return torch.nested.as_nested_tensor(
+                    [torch.ones_like(member) for member in samples.unbind()],
+                    layout=torch.jagged,
+                )
+            return torch.ones_like(samples)
 
     class EmptyNoise:
         seed = 0
@@ -756,6 +775,109 @@ def test_anchored_keyframe_noise_passthrough_for_ref2va():
     )
     assert wrapped is base
     assert which == ""
+
+
+def test_ref2va_audio_guard_zeros_audio_noise_but_keeps_video_editable():
+    class BaseNoise:
+        seed = 11
+
+        def generate_noise(self, input_latent):
+            return torch.nested.as_nested_tensor(
+                [torch.ones(1, 4, 3, 2, 2), torch.ones(1, 4, 2, 2, 2)],
+                layout=torch.jagged,
+            )
+
+    latent = {
+        "samples": torch.nested.as_nested_tensor(
+            [torch.zeros(1, 4, 3, 2, 2), torch.zeros(1, 4, 2, 2, 2)],
+            layout=torch.jagged,
+        )
+    }
+    wrapped, which = anchored_keyframe_noise(
+        BaseNoise(),
+        {
+            "mode": "REF2VA",
+            "voice_mode": "h3_reference",
+            "resolved_two_stage_route": "trained_latent_ref",
+            "two_stage_audio_guard": True,
+        },
+    )
+
+    video_noise, audio_noise = wrapped.generate_noise(latent).unbind()
+    assert torch.equal(video_noise, torch.ones_like(video_noise))
+    assert torch.equal(audio_noise, torch.zeros_like(audio_noise))
+    assert which == "音频"
+
+
+def test_ref2va_audio_guard_zeros_audio_noise_after_split_upscaler_unpacks_av():
+    class BaseNoise:
+        seed = 11
+
+        def generate_noise(self, input_latent):
+            return torch.ones_like(input_latent["samples"])
+
+    wrapped, _ = anchored_keyframe_noise(
+        BaseNoise(),
+        {"mode": "REF2VA", "two_stage_audio_guard": True},
+    )
+
+    video_noise = wrapped.generate_noise(
+        {"samples": torch.zeros(1, 24, 3, 2, 2)}
+    )
+    audio_noise = wrapped.generate_noise(
+        {"samples": torch.zeros(1, 32, 2, 20)}
+    )
+
+    assert torch.equal(video_noise, torch.ones_like(video_noise))
+    assert torch.equal(audio_noise, torch.zeros_like(audio_noise))
+
+
+def test_ref2va_audio_guard_adds_zero_audio_mask_and_editable_video_mask():
+    video = torch.zeros(1, 4, 3, 2, 2)
+    audio = torch.zeros(1, 4, 2, 2, 2)
+    latent = {
+        "samples": torch.nested.as_nested_tensor([video, audio], layout=torch.jagged)
+    }
+
+    protected = _lock_stage2_audio(latent, enabled=True)
+
+    video_mask, audio_mask = protected["noise_mask"].unbind()
+    assert torch.equal(video_mask, torch.ones_like(video))
+    assert torch.equal(audio_mask, torch.zeros_like(audio))
+    assert "noise_mask" not in latent
+
+
+def test_guarded_tiled_ref2va_reports_audio_drift_and_restores_stage1_audio(monkeypatch):
+    from comfy_extras.nodes_lt import LTXVConcatAVLatent
+
+    def fake_split_upscale(**kwargs):
+        audio_probe = torch.zeros(1, 32, 2, 20)
+        audio_noise = kwargs["noise"].generate_noise({"samples": audio_probe})
+        assert torch.equal(audio_noise, torch.zeros_like(audio_probe))
+
+        video, audio = kwargs["latent"]["samples"].unbind()
+        mutated_audio = {"samples": audio + 3.0}
+        mutated = _node_output(
+            LTXVConcatAVLatent.execute({"samples": video}, mutated_audio)
+        )
+        return types.SimpleNamespace(result=(mutated,))
+
+    events, result, guide, *_rest, original_audio = _run_two_stage_with_fakes(
+        monkeypatch,
+        split_callables=(fake_split_upscale, lambda **kwargs: {}, lambda **kwargs: {}),
+        guide_extra={
+            "mode": "REF2VA",
+            "voice_mode": "h3_reference",
+            "resolved_two_stage_route": "trained_latent_ref",
+            "two_stage_audio_guard": True,
+        },
+    )
+
+    _, final_audio = result[0]["samples"].unbind()
+    assert len(events["sampler"]) == 1
+    assert torch.equal(final_audio, original_audio["samples"])
+    assert guide["two_stage_audio_lock"] == "masked_stage1_reinsert"
+    assert guide["two_stage_audio_drift_before_reinsert"] == pytest.approx(3.0)
 
 
 def test_anchored_keyframe_noise_uses_comfy_nested_tensor(monkeypatch):

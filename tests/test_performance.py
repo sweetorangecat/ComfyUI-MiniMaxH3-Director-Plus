@@ -387,6 +387,22 @@ PERFORMANCE_DEFENSIVE_FALLBACKS = {
 }
 
 
+def test_guarded_h3_reference_low_vram_two_stage_keeps_ref_route():
+    guide = {
+        "mode": "REF2VA",
+        "voice_mode": "h3_reference",
+        "performance_preset": "low_vram_two_stage",
+        "resolved_backend": "ref2va_model",
+        "two_stage_audio_guard": True,
+    }
+
+    plan = acceleration_plan(guide)
+
+    assert plan["preset"] == "low_vram_two_stage"
+    assert plan["route"] == "trained_latent_ref"
+    assert guide.get("two_stage_fallback") is not True
+
+
 @pytest.mark.parametrize("mode", ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"])
 @pytest.mark.parametrize("preset", ["quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "reference_fast", "low_vram", "low_vram_two_stage", "custom"])
 def test_every_mode_has_a_defined_performance_contract(mode, preset):
