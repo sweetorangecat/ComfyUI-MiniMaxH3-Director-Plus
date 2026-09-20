@@ -116,6 +116,23 @@ def test_low_vram_768p_allows_fifteen_seconds_on_single_pass_route(backend):
     assert "768p" in plan["warning"]
 
 
+def test_low_vram_short_768p_fl_prefers_trained_detail_route_when_ready():
+    plan = resolve_smart_1080p_plan(
+        "fl2va_model",
+        6,
+        8,
+        7,
+        two_stage_ready=True,
+        target_width=1344,
+        target_height=768,
+    )
+
+    assert plan["performance_preset"] == "low_vram_two_stage"
+    assert plan["two_stage_route"] == "trained_latent_fl"
+    assert plan["dimension_plan"]["allowed"] is True
+    assert "768p" in plan["warning"]
+
+
 def test_low_vram_1080p_still_rejects_more_than_six_seconds():
     with pytest.raises(RequestError, match="最多支持 6 秒"):
         resolve_smart_1080p_plan(

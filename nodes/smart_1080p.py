@@ -86,6 +86,12 @@ def resolve_smart_1080p_plan(
         and target_height is not None
         and int(target_width) * int(target_height) <= LOW_VRAM_LONG_MAX_PIXELS
     )
+    short_low_vram_detail = (
+        low_vram_long_target
+        and seconds <= LOW_VRAM_MAX_SECONDS
+        and backend == "fl2va_model"
+        and bool(two_stage_ready)
+    )
     high_res_target = (
         target_width is not None
         and target_height is not None
@@ -154,6 +160,17 @@ def resolve_smart_1080p_plan(
                 f"智能预设的 {target_label} 输出需要 SeedVR2 视频超分完成最后一级扩散重建，"
                 "但 SeedVR2 节点或 models/SEEDVR2 权重未就绪；请安装后重试，或把最终目标降为 1080p。"
             )
+    if short_low_vram_detail:
+        dimension_plan = plan_two_stage_dimensions(
+            int(target_width),
+            int(target_height),
+            seconds,
+            total_vram_gb,
+            free_vram_gb,
+            profile="low_vram",
+        )
+        if not dimension_plan["allowed"]:
+            short_low_vram_detail = False
     if low_vram:
         max_duration = (
             LOW_VRAM_LONG_MAX_SECONDS if low_vram_long_target else LOW_VRAM_MAX_SECONDS
@@ -163,7 +180,15 @@ def resolve_smart_1080p_plan(
                 f"请求 {seconds} 秒超出低显存模式最多支持 {max_duration} 秒（总显存 "
                 f"{float(total_vram_gb):.1f}GB，空闲显存 {float(free_vram_gb):.1f}GB），请缩短或拆段"
             )
-        if low_vram_long_target:
+        if short_low_vram_detail:
+            preset = "low_vram_two_stage"
+            route = "trained_latent_fl"
+            warning = (
+                "已启用 8GB 低显存 768p 清晰路线：4–6 秒使用训练型 latent 二采，"
+                "由训练型 3D latent 放大和低 sigma 重绘补足空间细节；"
+                "最终只做一次 X2 级 AI 超分。"
+            )
+        elif low_vram_long_target:
             preset = "low_vram"
             route = "bypass"
             warning = (
