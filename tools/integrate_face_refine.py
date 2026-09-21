@@ -160,7 +160,9 @@ def integrate(main, face):
                                audio_edge[1], audio_edge[2], audio_lock["id"], 3, "AUDIO"])
 
     for node in branch:
-        node["mode"] = 0
+        # An active preview is its own execution root: it would evaluate the
+        # tracker even when the final lazy selector requests only original frames.
+        node["mode"] = 2 if node["type"] == "PreviewImage" else 0
         node.setdefault("properties", {})[MARKER] = True
 
     selector_id = max(node["id"] for node in workflow["nodes"] if isinstance(node.get("id"), int)) + 1

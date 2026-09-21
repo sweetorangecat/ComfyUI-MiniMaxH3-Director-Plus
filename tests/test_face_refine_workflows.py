@@ -27,7 +27,10 @@ def test_main_workflow_uses_one_lazy_face_refine_switch_before_final_output():
     assert by_id[image_edge[1]]["type"] == "MiniMaxH3FaceRefineSwitch"
     assert not any(node["type"] in {"VHS_LoadVideoPath", "VHS_VideoCombine"} for node in workflow["nodes"])
     branch = [node for node in workflow["nodes"] if node.get("properties", {}).get("director_plus_face_refine")]
-    assert branch and all(node["mode"] == 0 for node in branch)
+    assert branch
+    # PreviewImage is an independent OUTPUT_NODE. If active, it bypasses the
+    # lazy selector and runs the detector even when face_refine_mode is off.
+    assert all(node["mode"] == (2 if node["type"] == "PreviewImage" else 0) for node in branch)
 
 
 def assert_edges(workflow):
@@ -94,3 +97,6 @@ def test_integration_is_repeatable_and_graph_remains_connected():
     result = integrate(main, face)
     assert result == integrate(result, face)
     assert_edges(result)
+    previews = [node for node in result["nodes"] if node.get("properties", {}).get(
+        "director_plus_face_refine") and node["type"] == "PreviewImage"]
+    assert previews and all(node["mode"] == 2 for node in previews)

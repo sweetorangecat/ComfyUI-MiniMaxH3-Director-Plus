@@ -1346,7 +1346,11 @@ def test_low_vram_two_stage_keeps_forced_saving_tier(monkeypatch):
     assert source == "preset"
 
 
-def test_acceleration_router_exposes_and_parses_attention_chunk_widget(monkeypatch):
+@pytest.mark.parametrize("selection,expected", [
+    ("自动（按显存）", None), ("2（最快）", 2), ("4", 4),
+    ("8（均衡）", 8), ("16（最省显存）", 16),
+])
+def test_acceleration_router_exposes_and_parses_attention_chunk_widget(monkeypatch, selection, expected):
     monkeypatch.setattr(
         performance,
         "_apply_acceleration",
@@ -1366,9 +1370,9 @@ def test_acceleration_router_exposes_and_parses_attention_chunk_widget(monkeypat
     MiniMaxH3AccelerationRouter().apply(
         "model",
         guide,
-        attention_chunks="8（均衡）",
+        attention_chunks=selection,
     )
-    assert guide["minimax_head_chunks_ui"] == 8
+    assert guide["minimax_head_chunks_ui"] == expected
 
 
 def test_quality_two_stage_without_verified_patch_fails_closed():
