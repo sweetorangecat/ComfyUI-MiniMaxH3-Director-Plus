@@ -8,12 +8,13 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_media_slot_state_node_contract():
+@pytest.mark.parametrize("script", ["media_slot_state.test.mjs", "director_restore.test.mjs"])
+def test_media_slot_state_node_contract(script):
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed")
     result = subprocess.run(
-        [node, "--test", "tests/js/media_slot_state.test.mjs"],
+        [node, "--test", f"tests/js/{script}"],
         cwd=ROOT,
         capture_output=True,
         text=True,

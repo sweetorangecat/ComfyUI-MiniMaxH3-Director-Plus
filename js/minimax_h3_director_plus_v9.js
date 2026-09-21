@@ -191,6 +191,18 @@ function setWidget(node, name, value, notify = true) {
   node.graph?.setDirtyCanvas(true, true);
 }
 
+function restoreFaceRefineDefault(node) {
+  const item = widget(node, "face_refine_mode");
+  // Older workflows lack this appended widget (or restore an empty DOM-widget
+  // value into it). A display-only fallback leaves the queued value invalid.
+  if (item && (item.value == null || item.value === "")) {
+    const previous = item.value;
+    setWidget(node, "face_refine_mode", "off", false);
+    node.onWidgetChanged?.("face_refine_mode", "off", previous, item);
+  }
+  return item?.value ?? "off";
+}
+
 function allowedPerformancePresets(mode, voiceMode) {
   let presets;
   if (voiceMode !== "none" || mode === "REF2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.reference;
@@ -778,7 +790,7 @@ function install(node) {
     sanitizeUploadWidgets(node);
     const mode = widget(node, "mode")?.value || "FL2VA";
     const voiceMode = widget(node, "voice_mode")?.value || "none";
-    const faceRefineMode = widget(node, "face_refine_mode")?.value || "off";
+    const faceRefineMode = restoreFaceRefineDefault(node);
     const savedVoiceGender = String(widget(node, "voice_gender")?.value || "");
     if (!VOICE_GENDERS.some(([value]) => value === savedVoiceGender)) {
       setWidget(node, "voice_gender", "auto", false);
@@ -1280,6 +1292,8 @@ function install(node) {
   const originalConfigure = node.onConfigure;
   node.onConfigure = function (...args) {
     originalConfigure?.apply(this, args);
+    // Repair synchronously: queue/save need not wait for the next DOM render.
+    restoreFaceRefineDefault(this);
     requestAnimationFrame(render);
   };
   render();
