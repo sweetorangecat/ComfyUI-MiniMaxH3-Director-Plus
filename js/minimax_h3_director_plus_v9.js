@@ -1283,9 +1283,12 @@ function install(node) {
     const item = widget(node, name);
     if (!item) return;
     const original = item.callback;
-    item.callback = (value) => {
-      original?.(value);
+    item.callback = function (...args) {
+      // Native numeric widgets read this.options when the seed changes after
+      // queueing. Preserve the widget receiver and the full host signature.
+      const result = original?.apply(this, args);
       render();
+      return result;
     };
   });
 

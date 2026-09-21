@@ -22,7 +22,7 @@ class Element {
   querySelectorAll() { return []; }
 }
 
-function installedDirector(initialValue = "off") {
+function installedDirector(initialValue = "off", extraWidgets = []) {
   let extension;
   const frames = [];
   const context = vm.createContext({
@@ -46,7 +46,7 @@ function installedDirector(initialValue = "off") {
   const face = { name: "face_refine_mode", value: initialValue, options: { values: ["off", "auto"] } };
   const node = {
     comfyClass: "MiniMaxH3DirectorPlus",
-    widgets: [face, { name: "mode", value: "T2VA" }],
+    widgets: [face, { name: "mode", value: "T2VA" }, ...extraWidgets],
     size: [1350, 1760],
     setSize(value) { this.size = value; },
     graph: { setDirtyCanvas() {} },
@@ -87,4 +87,31 @@ test("unexpected nonempty face modes remain visible to validation", () => {
   const { node, face } = installedDirector();
   node.onConfigure({ face_refine_mode: "not-a-mode" });
   assert.equal(face.value, "not-a-mode");
+});
+
+test("afterQueued seed update retains the native numeric callback receiver", () => {
+  const seed = {
+    name: "seed", value: 0, options: { step2: 1 },
+    callback(value) {
+      const step = this.options.step2 || 1;
+      this.value = Math.round(value / step) * step;
+    },
+  };
+  installedDirector("off", [seed]);
+  // Same method call as ComfyUI's applyWidgetControl after randomize/increment.
+  seed.callback(12345.6);
+  assert.equal(seed.value, 12346);
+});
+
+test("wrapped widget callbacks preserve host arguments and return values", () => {
+  const calls = [];
+  const seed = {
+    name: "seed", value: 0,
+    callback(...args) { calls.push({ receiver: this, args }); return "host-result"; },
+  };
+  const { node } = installedDirector("off", [seed]);
+  const canvas = {};
+  assert.equal(seed.callback(42, canvas, node), "host-result");
+  assert.equal(calls[0].receiver, seed);
+  assert.deepEqual(calls[0].args, [42, canvas, node]);
 });
