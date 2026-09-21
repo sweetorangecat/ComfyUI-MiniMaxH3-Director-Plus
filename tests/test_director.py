@@ -191,8 +191,12 @@ def test_low_vram_smart_768p_ten_seconds_uses_tiled_trained_redraw(monkeypatch):
     assert guide["performance_preset"] == "low_vram_two_stage"
     assert guide["resolved_two_stage_route"] == "trained_latent_fl"
     assert guide["two_stage_tiled"] is True
-    assert guide["postprocess_path"] == "ai_upscale"
-    assert guide["final_upscale_scale"] <= 1.80
+    assert guide["postprocess_path"] == "native_bypass"
+    assert (guide["first_stage_width"], guide["first_stage_height"]) == (672, 384)
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (1344, 768)
+    assert guide["final_upscale_scale"] == 1.0
+    assert guide["split_tile_width"] == 512
+    assert guide["split_chunk_frames"] == 73
     assert (guide["target_width"], guide["target_height"]) == (1344, 768)
 
 
@@ -230,7 +234,8 @@ def test_low_vram_smart_768p_ten_second_ref2va_uses_guarded_tiled_redraw(monkeyp
     assert guide["two_stage_audio_guard"] is True
     assert guide["two_stage_tiled"] is True
     assert guide["two_stage_tiling_required"] is True
-    assert guide["postprocess_path"] == "ai_upscale"
+    assert guide["postprocess_path"] == "native_bypass"
+    assert (guide["second_stage_width"], guide["second_stage_height"]) == (1344, 768)
     assert (guide["target_width"], guide["target_height"]) == (1344, 768)
 
 

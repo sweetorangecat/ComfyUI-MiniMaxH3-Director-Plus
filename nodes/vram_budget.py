@@ -11,7 +11,7 @@ LOW_VRAM_TWO_STAGE_MAX_VSR_SCALE = 1.45
 LOW_VRAM_TWO_STAGE_MAX_DURATION = 6
 LOW_VRAM_TWO_STAGE_768P_MAX_DURATION = 10
 LOW_VRAM_TWO_STAGE_768P_MAX_PIXELS = 1344 * 768
-LOW_VRAM_TWO_STAGE_768P_MAX_VSR_SCALE = 1.75
+LOW_VRAM_TWO_STAGE_768P_MAX_VSR_SCALE = 1.0
 BALANCED_FHD_LANDSCAPE = (1920, 1080)
 # High-VRAM FHD restores the former detail-preserving grid.  The conservative
 # 24GB route below remains 1280x704 to keep its memory bound unchanged.
@@ -58,6 +58,7 @@ def plan_two_stage_dimensions(
     total = float(total_vram_gb)
     free = float(free_vram_gb)
     profile = str(profile or "quality")
+    long_768p_budget = False
     if final_width <= 0 or final_height <= 0:
         raise ValueError("最终尺寸必须大于 0")
     if duration < 4 or duration > 15:
@@ -140,9 +141,8 @@ def plan_two_stage_dimensions(
         required_free = 6.0
         # Keep the temporal-spatial token budget approximately constant as
         # duration grows. Four-to-six-second FHD retains the validated budget.
-        # Seven-to-ten-second 768p uses temporal/spatial split sampling and a
-        # fixed clarity floor: the final per-frame reconstructor must not be
-        # asked to stretch the learned second-stage grid beyond 1.75x.
+        # Long 768p uses a separate 2x tiled grid below. Its redraw reaches the
+        # output resolution instead of asking a frame upscaler to invent it.
         duration_factor = 4.0 / float(duration)
         min_first_mp = LOW_VRAM_TWO_STAGE_MIN_FIRST_MP * duration_factor
         max_final_vsr_scale = (
@@ -223,7 +223,14 @@ def plan_two_stage_dimensions(
             tier,
         )
 
-    if balanced_fhd_supersample:
+    if long_768p_budget:
+        # Only the first pass is full-frame. Keep it at one quarter of the
+        # target area; the existing 512px / 73-frame tiles bound pass two.
+        # Round upward so non-64px targets need at most a small final downscale.
+        first_width = max(32, math.ceil(final_width / 64) * 32)
+        first_height = max(32, math.ceil(final_height / 64) * 32)
+        second_width, second_height = first_width * 2, first_height * 2
+    elif balanced_fhd_supersample:
         if final_width > final_height:
             first_width, first_height = BALANCED_FHD_FIRST_LANDSCAPE
         else:
@@ -247,7 +254,7 @@ def plan_two_stage_dimensions(
         )
         second_width = max(32, int(round(first_width * 1.5 / 32.0)) * 32)
         second_height = max(32, int(round(first_height * 1.5 / 32.0)) * 32)
-    if not (balanced_fhd_supersample or conservative_fhd_supersample) and (
+    if not (long_768p_budget or balanced_fhd_supersample or conservative_fhd_supersample) and (
         not balanced_fhd_supersample
         and (second_width > final_width or second_height > final_height)
     ):
@@ -277,6 +284,7 @@ def plan_two_stage_dimensions(
         "max_final_height": max_height,
         "quality_basis": "H3 神经 latent 二采",
         "budget_profile": profile,
+        "two_stage_tiling_required": long_768p_budget,
         "balanced_fhd_supersample": balanced_fhd_supersample,
         "conservative_fhd_supersample": conservative_fhd_supersample,
         "max_final_vsr_scale": (

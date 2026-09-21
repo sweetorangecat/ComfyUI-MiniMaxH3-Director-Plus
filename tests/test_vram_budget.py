@@ -206,11 +206,12 @@ def test_8gb_low_vram_two_stage_rejects_seven_second_clips():
     assert "4 到 6 秒" in plan["reason"]
 
 
-def test_8gb_low_vram_two_stage_keeps_ten_second_768p_detail_floor():
+@pytest.mark.parametrize("duration", [7, 8, 9, 10])
+@pytest.mark.parametrize("target", [(1344, 768), (768, 1344), (1024, 1024), (1280, 720)])
+def test_8gb_long_two_stage_reconstructs_target_grid(duration, target):
     plan = plan_two_stage_dimensions(
-        1344,
-        768,
-        10,
+        *target,
+        duration,
         total_vram_gb=8,
         free_vram_gb=7,
         profile="low_vram",
@@ -218,10 +219,12 @@ def test_8gb_low_vram_two_stage_keeps_ten_second_768p_detail_floor():
 
     assert plan["allowed"] is True
     assert plan["vram_safety_tier"] == "8gb_low_vram_two_stage"
-    assert plan["first_stage_megapixels"] >= 0.13
-    assert plan["second_stage_megapixels"] >= 0.30
-    assert plan["final_scale"] <= 1.80
-    assert plan["max_final_vsr_scale"] <= 1.80
+    assert plan["first_stage_megapixels"] <= 0.30
+    assert plan["final_scale"] <= 1.0
+    assert plan["two_stage_tiling_required"] is True
+    for axis, requested in zip(("width", "height"), target):
+        assert plan[f"second_stage_{axis}"] == 2 * plan[f"first_stage_{axis}"]
+        assert requested <= plan[f"second_stage_{axis}"] < requested + 64
 
 
 def test_8gb_low_vram_two_stage_rejects_target_above_fhd_area():

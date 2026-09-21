@@ -196,18 +196,23 @@ def resolve_smart_1080p_plan(
         if low_vram_detail:
             preset = "low_vram_two_stage"
             route = "trained_latent_ref" if backend == "ref2va_model" else "trained_latent_fl"
+            finish_note = (
+                "二采达到目标尺寸后直接导出，不追加 AI 放大；8GB 峰值与画质需实测。"
+                if dimension_plan["final_scale"] <= 1.0
+                else f"最终 AI X2 收尾约 {dimension_plan['final_scale']:.2f} 倍。"
+            )
             if voice_mode == "h3_reference":
                 warning = (
-                    f"已启用 8GB 低显存 768p REF2VA 清晰路线：{seconds} 秒使用训练型 latent 二采，"
+                    f"已启用低显存 768p REF2VA 二采：{seconds} 秒使用训练型 latent 二采，"
                     "第二阶段锁定音频分支（零噪声、零重绘遮罩并在完成后精确回填），"
                     "仅对视频做时空分块低 sigma 重绘；"
-                    f"最终 AI X2 收尾约 {dimension_plan['final_scale']:.2f} 倍。"
+                    + finish_note
                 )
             else:
                 warning = (
-                    f"已启用 8GB 低显存 768p 清晰路线：{seconds} 秒使用训练型 latent 二采，"
+                    f"已启用低显存 768p 二采：{seconds} 秒使用训练型 latent 二采，"
                     "第二阶段按时空分块低 sigma 重绘补足空间细节；"
-                    f"最终 AI X2 收尾约 {dimension_plan['final_scale']:.2f} 倍。"
+                    + finish_note
                 )
         elif low_vram_long_target:
             preset = "low_vram"
