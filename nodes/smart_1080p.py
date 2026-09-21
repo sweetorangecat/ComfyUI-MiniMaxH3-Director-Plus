@@ -59,6 +59,7 @@ def resolve_smart_1080p_plan(
     target_width=None,
     target_height=None,
     voice_mode="none",
+    target_preset=None,
 ):
     """Resolve Smart generation policy for a backend, VRAM state and target.
 
@@ -80,6 +81,18 @@ def resolve_smart_1080p_plan(
 
     seconds = _duration_seconds(duration)
     low_vram = total_vram_gb <= LOW_VRAM_TOTAL_GB
+    if target_preset == "480p":
+        if not 4 <= seconds <= 15:
+            raise RequestError("视频时长必须在 4 到 15 秒之间")
+        return {
+            "performance_preset": "low_vram" if low_vram else "quality_sage",
+            "postprocess_mode": "ai_upscale",
+            "ai_upscale_model": SMART_LOW_VRAM_UPSCALE_MODEL if low_vram else SMART_UPSCALE_MODEL,
+            "seedvr2_ready": bool(seedvr2_ready), "motion_smoothing": "off",
+            "use_easycache": False, "low_vram": low_vram, "max_duration": 15,
+            "two_stage_route": "bypass", "dimension_plan": None,
+            "warning": "480p 单采：保留 480p 输出目标，按时长控制采样网格，不自动执行训练型二采或 SeedVR2。4–15 秒为策略允许范围，8GB 实际峰值和画质仍需实测。",
+        }
     low_vram_long_target = (
         low_vram
         and target_width is not None

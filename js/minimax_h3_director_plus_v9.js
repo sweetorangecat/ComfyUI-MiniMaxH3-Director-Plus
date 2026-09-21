@@ -11,7 +11,7 @@ const NODE_CLASS = "MiniMaxH3DirectorPlus";
 const SMART_PRESET = "智能画质（自动适配）";
 const LEGACY_SMART_PRESET = "免费智能 1080p";
 const SMART_HIGH_RESOLUTIONS = ["2K QHD", "4K UHD"];
-const SMART_RESOLUTIONS = ["768p H3", "1080p FHD", ...SMART_HIGH_RESOLUTIONS];
+const SMART_RESOLUTIONS = ["480p", "768p H3", "1080p FHD", ...SMART_HIGH_RESOLUTIONS];
 const SMART_UPSCALE_MODEL = "auto";
 // Keep node geometry independent from the browser sidebar width.
 const DIRECTOR_UI_WIDTH = 1350;
@@ -50,6 +50,7 @@ const EXACT_OUTPUT_TARGETS = {
   "4K UHD|9:16": [2160, 3840],
 };
 const RESOLUTION_MEGAPIXELS = {
+  "480p": 854 * 480 / (1024 * 1024),
   "768p H3": 1344 * 768 / (1024 * 1024),
   "1080p FHD": 1920 * 1080 / (1024 * 1024),
   "2K QHD": 3.6864,
@@ -63,7 +64,7 @@ const RESOLUTIONS = [
   "0.26 MP", "0.30 MP", "0.36 MP", "0.40 MP", "0.50 MP", "0.52 MP", "0.60 MP", "0.65 MP", "0.70 MP",
   "0.80 MP", "0.83 MP", "0.90 MP", "1.00 MP", "1.05 MP", "1.10 MP", "1.20 MP", "1.30 MP", "1.35 MP",
   "1.40 MP", "1.50 MP", "1.55 MP", "1.60 MP", "1.65 MP", "1.70 MP", "1.75 MP", "1.80 MP", "1.90 MP",
-  "2.00 MP", "2.10 MP", "768p H3", "1080p FHD", "2K QHD", "4K UHD",
+  "2.00 MP", "2.10 MP", "480p", "768p H3", "1080p FHD", "2K QHD", "4K UHD",
 ];
 const SEED_MODES = [
   ["fixed", "固定"],
@@ -403,6 +404,10 @@ function calculatedResolution(node) {
     ? [Math.max(1, Number(widget(node, "custom_width")?.value) || 16), Math.max(1, Number(widget(node, "custom_height")?.value) || 9)]
     : (ASPECTS[aspect] || ASPECTS["16:9"]);
   const performancePreset = String(widget(node, "performance_preset")?.value || "");
+  if (preset === "480p") {
+    const scale = 480 / Math.min(...ratio);
+    return ratio.map((side) => Math.max(2, Math.round(side * scale / 2) * 2));
+  }
   if ((performancePreset === SMART_PRESET || performancePreset === LEGACY_SMART_PRESET) && preset === "1080p FHD") return smart1080pTarget(...ratio);
   const exact = EXACT_OUTPUT_TARGETS[`${preset}|${aspect}`];
   if (exact) return exact;
@@ -914,7 +919,7 @@ function install(node) {
       "分辨率档位",
       "resolution_preset",
       preset === SMART_PRESET || preset === LEGACY_SMART_PRESET
-        ? [["768p H3", "768p H3（8GB 10 秒清晰二采，最长 15 秒兼容）"], ["1080p FHD", "1080p FHD（8GB 最多 6 秒）"], ["2K QHD", "2K QHD"], ["4K UHD", "4K UHD"]]
+        ? [["480p", "480p（8GB 单采，4–15 秒）"], ["768p H3", "768p H3（8GB 放大输出，画质需实测）"], ["1080p FHD", "1080p FHD（8GB 最多 6 秒）"], ["2K QHD", "2K QHD"], ["4K UHD", "4K UHD"]]
         : RESOLUTIONS,
       resolutionPreset,
     );

@@ -1,7 +1,7 @@
 {
   "id": "92cc2937-1602-5bb6-9edd-1686668d1545",
   "revision": 0,
-  "last_node_id": 2751,
+  "last_node_id": 2752,
   "last_link_id": 5991,
   "nodes": [
     {
@@ -1021,7 +1021,7 @@
         }
       },
       "widgets_values": [
-        "全部自动叠加",
+        "全部关闭",
         "注入新噪声（U22 同配方）",
         "自动（按显存）"
       ],
@@ -1364,7 +1364,7 @@
         }
       },
       "widgets_values": [
-        "## 清晰度增强版说明\n\n- 默认使用“智能画质（自动适配）”：20GB 级以上显卡优先走 U17/U22 的 8+4 训练型 latent 二采，首采速度保持不变，二采只在满足显存条件时启用。\n- 8GB 低显存：选择 768p H3（1344×768）可运行 4–15 秒；选择 1080p FHD 仍限制为 4–6 秒。\n- 1080p：3D latent 放大后进行 4 步低 sigma 重绘，直接得到更清晰的 FHD 细节；低显存自动回退兼容路线。\n- 2K：先完成训练型 latent 二采建立细节基准，再由 SeedVR2 做一次最终尺寸重建；不会把 H3 原生采样直接推到 2K，因此速度和显存更可控。\n- REF2VA 使用已验证的 turbo v4 配方；Fish S2 声纹锁定与 2K latent 二采互斥时，系统会在排队前提示并回退到兼容目标。\n- 若本机未安装 latent upscaler / 二采 LoRA / SeedVR2，系统会明确提示依赖缺失，不会静默输出模糊结果。"
+        "480p / 768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n480p 智能单采允许 4–15 秒，8GB 峰值与画质需实测。768p 是最终输出尺寸，不代表原生采样细节；1080p 低显存限制为 4–6 秒。\n\n额外社区 LoRA 默认关闭。可选 Qwen 本地提示词草稿默认关闭，不自动改写导演台。接入说明：docs/Qwen本地草稿与480p.md"
       ],
       "widgets_values_named": {
         "text": "## 清晰度增强版说明\n\n- 默认使用“智能画质（自动适配）”：20GB 级以上显卡优先走 U17/U22 的 8+4 训练型 latent 二采，首采速度保持不变，二采只在满足显存条件时启用。\n- 8GB 低显存：选择 768p H3（1344×768）可运行 4–15 秒；选择 1080p FHD 仍限制为 4–6 秒。\n- 1080p：3D latent 放大后进行 4 步低 sigma 重绘，直接得到更清晰的 FHD 细节；低显存自动回退兼容路线。\n- 2K：先完成训练型 latent 二采建立细节基准，再由 SeedVR2 做一次最终尺寸重建；不会把 H3 原生采样直接推到 2K，因此速度和显存更可控。\n- REF2VA 使用已验证的 turbo v4 配方；Fish S2 声纹锁定与 2K latent 二采互斥时，系统会在排队前提示并回退到兼容目标。\n- 若本机未安装 latent upscaler / 二采 LoRA / SeedVR2，系统会明确提示依赖缺失，不会静默输出模糊结果。"
@@ -3445,6 +3445,58 @@
       "widgets_values": [],
       "color": "#3f789e",
       "bgcolor": "#31566f"
+    },
+    {
+      "id": 2752,
+      "type": "MiniMaxH3LocalPromptDraft",
+      "title": "可选：本地提示词草稿（默认关闭，预览后使用）",
+      "pos": [
+        5350,
+        0
+      ],
+      "size": [
+        640,
+        850
+      ],
+      "flags": {},
+      "order": 48,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "draft",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "report",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "original_prompt",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "MiniMaxH3LocalPromptDraft"
+      },
+      "widgets_values": [
+        false,
+        "qwen3vl_32b_h3_ultra_uncensored_heretic_int8_convrot.safetensors",
+        "qwen3vl_32b_h3_generation_tail_50_63_int8_convrot.safetensors",
+        "",
+        "Draft a MiniMax H3 video prompt. Preserve supplied dialogue verbatim, reference numbers, speaker bindings and timing. Do not invent dialogue. Return only the draft.",
+        512,
+        0
+      ]
     }
   ],
   "links": [

@@ -20,6 +20,7 @@ if __package__:
     from .nodes.stream_output import MiniMaxH3StreamingVideoCombine
     from .nodes.vae_decode import MiniMaxH3SafeVAEDecode
     from .nodes.longfilm import MiniMaxH3LongFilm61
+    from .nodes.local_prompt import MiniMaxH3LocalPromptDraft
     from .nodes.face_refine import (
         NODE_CLASS_MAPPINGS as FACE_NODE_CLASS_MAPPINGS,
         NODE_DISPLAY_NAME_MAPPINGS as FACE_NODE_DISPLAY_NAME_MAPPINGS,
@@ -43,9 +44,11 @@ if __package__:
         "MiniMaxH3StreamingVideoCombine": MiniMaxH3StreamingVideoCombine,
         "MiniMaxH3SafeVAEDecode": MiniMaxH3SafeVAEDecode,
         "MiniMaxH3LongFilm61": MiniMaxH3LongFilm61,
+        "MiniMaxH3LocalPromptDraft": MiniMaxH3LocalPromptDraft,
     }
 
     NODE_DISPLAY_NAME_MAPPINGS = {
+        "MiniMaxH3LocalPromptDraft": "H3 本地提示词草稿（Qwen 编码器 + Tail）",
         "MiniMaxH3DirectorPlus": "MiniMax H3 导演台 Plus",
         "MiniMaxH3FishVoiceBridge": "H3 Fish S2 音色桥接",
         "MiniMaxH3DirectorPlusGuide": "H3 导演指南应用",

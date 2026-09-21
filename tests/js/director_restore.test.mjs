@@ -115,3 +115,16 @@ test("wrapped widget callbacks preserve host arguments and return values", () =>
   assert.equal(calls[0].receiver, seed);
   assert.deepEqual(calls[0].args, [42, canvas, node]);
 });
+
+test("smart mode retains 480p selection and synchronizes actual output dimensions", () => {
+  const preset = { name: "resolution_preset", value: "480p" };
+  const width = { name: "width", value: 1920 };
+  const height = { name: "height", value: 1080 };
+  installedDirector("off", [preset, width, height,
+    { name: "aspect_ratio", value: "16:9" },
+    { name: "performance_preset", value: "智能画质（自动适配）" },
+  ]);
+  assert.equal(preset.value, "480p");
+  assert.equal(width.value, 854);
+  assert.equal(height.value, 480);
+});

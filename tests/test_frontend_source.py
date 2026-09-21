@@ -193,9 +193,10 @@ def test_ui_smart_resolution_allows_768p_through_4k():
     text = source()
 
     assert 'const SMART_HIGH_RESOLUTIONS = ["2K QHD", "4K UHD"]' in text
-    assert 'const SMART_RESOLUTIONS = ["768p H3", "1080p FHD", ...SMART_HIGH_RESOLUTIONS]' in text
+    assert 'const SMART_RESOLUTIONS = ["480p", "768p H3", "1080p FHD", ...SMART_HIGH_RESOLUTIONS]' in text
     assert '(preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) && !SMART_RESOLUTIONS.includes(resolutionPreset)' in text
-    assert '[["768p H3", "768p H3（8GB 10 秒清晰二采，最长 15 秒兼容）"], ["1080p FHD", "1080p FHD（8GB 最多 6 秒）"], ["2K QHD", "2K QHD"], ["4K UHD", "4K UHD"]]' in text
+    assert '["480p", "480p（8GB 单采，4–15 秒）"]' in text
+    assert '["768p H3", "768p H3（8GB 放大输出，画质需实测）"]' in text
     assert "if (preset === SMART_PRESET) resolutionControl" not in text
     assert 'preset === "1080p FHD") return smart1080pTarget' in text
     assert 'performancePreset === SMART_PRESET' in text

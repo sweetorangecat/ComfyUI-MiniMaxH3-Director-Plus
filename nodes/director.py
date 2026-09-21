@@ -654,6 +654,7 @@ class MiniMaxH3DirectorPlus:
                 seedvr2_ready=seedvr2_ready, two_stage_ready=two_stage_ready,
                 target_width=requested_width, target_height=requested_height,
                 voice_mode=request["voice_mode"],
+                target_preset=resolution_preset,
             )
             request["performance_preset"] = smart_plan["performance_preset"]
             request["postprocess_mode"] = smart_plan["postprocess_mode"]
@@ -663,6 +664,7 @@ class MiniMaxH3DirectorPlus:
                 request["warnings"].append(smart_plan["warning"])
             if (
                 not seedvr2_ready
+                and resolution_preset != "480p"
                 and not smart_plan["low_vram"]
                 and smart_plan["performance_preset"] != "quality_two_stage"
             ):
@@ -675,7 +677,7 @@ class MiniMaxH3DirectorPlus:
                     "ComfyUI-SeedVR2_VideoUpscaler 节点并将 seedvr2_ema_7b/3b 与 "
                     "ema_vae_fp16.safetensors 放入 models/SEEDVR2。"
                 )
-            if resolution_preset == "768p H3":
+            if resolution_preset in {"480p", "768p H3"}:
                 # Keep the explicit low-resolution target. On 8GB cards the
                 # smart planner uses this target to unlock the 4–15 second
                 # single-pass route instead of forcing the 1080p 6s budget.
@@ -783,6 +785,12 @@ class MiniMaxH3DirectorPlus:
                 custom_width,
                 custom_height,
             )
+        if resolution_preset == "480p" and two_stage_plan is None:
+            # Final output uses even video dimensions; H3 samples a 32px grid.
+            native_width = max(32, int(native_width) // 32 * 32)
+            native_height = max(32, int(native_height) // 32 * 32)
+            native_capped = (native_width, native_height) != (requested_width, requested_height)
+
         postprocess_source_width = int(
             two_stage_plan["second_stage_width"] if two_stage_plan else native_width
         )

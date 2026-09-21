@@ -11,9 +11,11 @@ import uuid
 
 try:
     from .validate_workflow import validate_workflow
+    from .add_optional_qwen import add_optional_qwen
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from validate_workflow import validate_workflow
+    from add_optional_qwen import add_optional_qwen
 
 
 PLUGIN_ID = "ComfyUI-MiniMaxH3-Director-Plus"
@@ -172,7 +174,7 @@ def _acceleration_node(node_id, pos):
             _output("加速成功", "BOOLEAN"),
             _output("第二阶段模型", "MODEL"),
         ],
-        "properties": _properties("MiniMaxH3AccelerationRouter"), "widgets_values": ["全部自动叠加"], "color": "#24353d", "bgcolor": "#344b55",
+        "properties": _properties("MiniMaxH3AccelerationRouter"), "widgets_values": ["全部关闭"], "color": "#24353d", "bgcolor": "#344b55",
     }
 
 
@@ -872,8 +874,8 @@ def build_workflow(source):
     acceleration_note = _note_node(
         allocate_node(), "加速与后处理说明", [-400, 2730], [950, 270],
         "## 智能画质（自动适配）\n\n"
-        "768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n"
-        "8GB 低显存选择 768p H3（1344×768）可运行 4–15 秒；选择 1080p FHD 仍限制为 4–6 秒。\n\n"
+        "480p / 768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n"
+        "480p 智能单采允许 4–15 秒，8GB 峰值与画质需实测。768p 是最终输出尺寸，不保证原生细节；1080p 低显存限制为 4–6 秒。\n\n"
         "当前后台链路与显存检查结果见导演台状态；版本说明见插件 docs/U11清晰度增强版交付说明.md。",
     )
     output_note = _note_node(
@@ -1022,7 +1024,7 @@ def build_workflow(source):
         "source": "U10-DaSiWa-MiniMaxH3-MythicAlchemy-v12导演台.json",
         "voice_semantics": "reference_only",
     }
-    return workflow
+    return add_optional_qwen(workflow)
 
 
 def build_api_template():
@@ -1058,7 +1060,7 @@ def build_api_template():
             for index in range(1, 10)
         },
         "14": {"class_type": "MiniMaxH3ModelRouter", "inputs": {"guide": ["10", 0], "fl2va_model": ["1", 0], "ref2va_model": ["2", 0]}, "_meta": {"title": "API 模型路由"}},
-        "15": {"class_type": "MiniMaxH3AccelerationRouter", "inputs": {"model": ["14", 0], "guide": ["10", 0], "community_loras": "全部自动叠加", "second_stage_noise": "注入新噪声（U22 同配方）"}, "_meta": {"title": "API 兼容加速"}},
+        "15": {"class_type": "MiniMaxH3AccelerationRouter", "inputs": {"model": ["14", 0], "guide": ["10", 0], "community_loras": "全部关闭", "second_stage_noise": "注入新噪声（U22 同配方）"}, "_meta": {"title": "API 兼容加速"}},
         "28": {"class_type": "MiniMaxH3PerformancePreset", "inputs": {"guide": ["10", 0], "acceleration_ready": ["15", 2]}, "_meta": {"title": "API 性能预设应用"}},
         "27": {"class_type": "MiniMaxH3FishVoiceBridge", "inputs": {"guide": ["10", 0], "reference_audio": ["13", 0]}, "_meta": {"title": "API Fish S2 音色桥接"}},
         "16": {"class_type": "MiniMaxH3DirectorPlusGuide", "inputs": {"clip": ["3", 0], "video_vae": ["4", 0], "audio_vae": ["5", 0], "guide": ["10", 0], "generated_voice_audio": ["27", 0]}, "_meta": {"title": "API H3 原生指南"}},

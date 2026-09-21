@@ -50,6 +50,7 @@ MEGAPIXELS = {
     "1.90 MP": 1.90,
     "2.00 MP": 2.00,
     "2.10 MP": 2.10,
+    "480p": 854 * 480 / (1024 * 1024),
     "768p H3": 1344 * 768 / (1024 * 1024),
     "1080p FHD": 1920 * 1080 / (1024 * 1024),
     "2K QHD": 3.6864,
@@ -91,6 +92,10 @@ def calculate_resolution(preset, aspect, custom_width=16, custom_height=9):
         ratio = ASPECTS.get(aspect)
         if ratio is None:
             raise ValueError(f"不支持的画面比例：{aspect}")
+
+    if preset == "480p":
+        scale = 480 / min(ratio)
+        return tuple(max(2, int(round(side * scale / 2)) * 2) for side in ratio)
 
     exact_target = EXACT_OUTPUT_TARGETS.get((preset, aspect))
     if exact_target is not None:
