@@ -1206,7 +1206,7 @@ function install(node) {
     const faceRefineNote = document.createElement("div");
     faceRefineNote.className = "h3p-spec-note";
     faceRefineNote.textContent = faceRefineMode === "auto"
-      ? "仅重绘跟踪到的人脸区域；镜头切换、遮挡或跟踪失败时会保守回退到原帧。"
+      ? "一次修复选定 Picture 对应的一个人物；需原始单人身份参考及身份/切镜检测依赖。先检查跟踪，检测仍可能出错，不保证身份与清晰度。"
       : "关闭时直接使用原始视频帧，不加载人脸修复模型。";
     faceRefine.append(faceRefineNote);
     root.append(faceRefine);

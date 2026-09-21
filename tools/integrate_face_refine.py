@@ -19,7 +19,7 @@ NODE_TYPES = {
 }
 PROMPT = (
     "subject_definitions:\n<Subject 1> is the same person shown in <Picture 1>. "
-    "The picture is an identity reference cropped from the source video.\n\n"
+    "The picture is the original clean character identity reference.\n\n"
     "summary:\nRefine existing facial detail while retaining the person's identity, "
     "facial proportions, age, expression, gaze, head pose and original lighting.\n\n"
     "retention_analysis:\n<Subject 1>: fully_preserved.\n\n"
@@ -60,9 +60,18 @@ def make_example(template, side="right", preview=False):
     by_id[2]["widgets_values"][3:6] = [768, 768, "manual"]
     by_id[2]["widgets_values"][2] = 2.5
     by_id[2]["widgets_values"][10] = False
+    by_id[2]["widgets_values"][17] = "auto (pyscenedetect)"
     by_id[2]["widgets_values"][12] = side + "_most"
     by_id[2]["title"] = "02 跟踪" + ("右侧人物" if side == "right" else "左侧人物")
     by_id[9]["widgets_values"][0] = PROMPT
+    # A degraded frame is the img2img base, not the identity reference.
+    by_id[112].update(type="LoadImage", title="原始单人角色图（必选）", inputs=[],
+        outputs=[{"name": "IMAGE", "type": "IMAGE", "links": []},
+                 {"name": "MASK", "type": "MASK", "links": []}],
+        widgets_values=["", "image"], properties={"Node name for S&R": "LoadImage"})
+    workflow["links"] = [edge for edge in workflow["links"] if edge[3] != 112]
+    by_id[112]["outputs"][0]["links"] = [edge[0] for edge in workflow["links"] if edge[1] == 112]
+    _clean_links(workflow)
     by_id[12]["title"] = "人脸修复 8 步 LoRA"
     by_id[13]["title"] = "原音轨锁定（本项目内置）"
     by_id[16]["widgets_values"] = ["simple", 8, 0.4]
@@ -74,8 +83,9 @@ def make_example(template, side="right", preview=False):
         "768×768，8 步，denoise=0.4；select 选择左/右人物，连续跟踪。\n"
         "先用 tracking-only 示例检查跟踪。身份识别默认关闭，可另装依赖后启用。\n"
         "合成保持输入分辨率、帧数和原音轨；1080p 原片输出仍为 1080p。\n"
-        "高清角色参考图可替换 ImageFromBatch 到参考图输入的连线。\n"
-        "RTX 5090 已跑通；这段双人物近景实测变软，不能保证更清晰。\n"
+        "完整修复示例必须在 LoadImage 选择原始单人角色图；不再拿模糊视频裁剪作身份参考。\n"
+        "独立示例使用单人物修复提示词；要沿用完整原提示词与参考编号，请使用主 U11 集成分支。\n"
+        "自动切镜需要 scenedetect；位置跟踪仍可能选错人，先检查预览。新接线尚未实测画质。\n"
         "主工作流默认禁用本分支，需按原片对照后决定是否启用。"
     ]
     if preview:
@@ -100,6 +110,68 @@ def _clean_links(workflow):
                 item["link"] = None
         for item in node.get("outputs", []):
             item["links"] = [ident for ident in item.get("links") or [] if ident in valid]
+
+
+def _wire_director_references(workflow, director, tracker):
+    branch = [node for node in workflow["nodes"] if node.get("properties", {}).get(MARKER)]
+    context = next(node for node in branch if node["type"] in {
+        "ImageFromBatch", "MiniMaxH3FaceRefineInputs"})
+    cond = next(node for node in branch if node["type"] in {
+        "MiniMaxH3ReferenceToVideo", "MiniMaxH3FaceRefineConditioning"})
+    old_names = [item["name"] for item in cond["inputs"]]
+    new_inputs = [("clip", "CLIP"), ("vae", "VAE"), ("audio_vae", "VAE"),
+                  ("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"),
+                  ("width", "INT"), ("height", "INT"), ("length", "INT")]
+    new_names = [name for name, _ in new_inputs]
+    edges = []
+    for edge in workflow["links"]:
+        preserve_override = (context["type"] == "MiniMaxH3FaceRefineInputs"
+                             and edge[3] == context["id"] and edge[4] == 1)
+        if (edge[1] == context["id"] or edge[3] == context["id"]) and not preserve_override:
+            continue
+        if edge[3] == tracker["id"] and edge[4] == 1:
+            continue
+        if edge[3] == cond["id"]:
+            name = old_names[edge[4]]
+            if name not in new_names or name == "guide":
+                continue
+            edge[4] = new_names.index(name)
+        edges.append(edge)
+    cond.update(type="MiniMaxH3FaceRefineConditioning", widgets_values=[],
+                title="人脸修复条件（原提示词与完整参考编号）",
+                inputs=[{"name": name, "type": kind, "link": None} for name, kind in new_inputs])
+    choice = context.get("widgets_values", [1])[0] if context["type"] == "MiniMaxH3FaceRefineInputs" else 1
+    context.update(type="MiniMaxH3FaceRefineInputs", title="选择修复人物：原始 Picture 编号",
+        widgets_values=[choice], inputs=[
+            {"name": "guide", "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE", "link": None},
+            {"name": "identity_override", "type": "IMAGE", "link": None, "shape": 7}],
+        outputs=[{"name": "refine_guide", "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE", "links": []},
+                 {"name": "identity_reference", "type": "IMAGE", "links": []}])
+    for node in (context, cond):
+        node["properties"] = {"Node name for S&R": node["type"], "cnr_id": PLUGIN, MARKER: True}
+        node.pop("widgets_values_named", None)
+    for source, slot, target, target_slot, kind in [
+        (director, 0, context, 0, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"),
+        (context, 0, cond, 3, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"),
+        (context, 1, tracker, 1, "IMAGE"),
+    ]:
+        edges.append([0, source["id"], slot, target["id"], target_slot, kind])
+    workflow["links"] = edges
+    tracker["widgets_values"][10] = True
+    tracker["widgets_values"][17] = "auto (pyscenedetect)"
+    tracker["widgets_values"][19] = "by_identity"
+    tracker["title"] = "跟踪选定身份（自动检测切镜）"
+    for node in branch:
+        if node["type"] == "Note":
+            node["widgets_values"] = [
+                "导演台人脸修复开关默认关闭；开启后一次修复一个选定人物。\n"
+                "在“选择修复人物”节点中填写导演台 Picture 编号，确认对应单人角色图。\n"
+                "三视图/多人图请另接同一人物的清晰单人图到 identity_override，供跟踪识别。\n"
+                "修复条件保留导演台完整提示词、图片和音频编号，不使用原片模糊裁剪当身份图。\n"
+                "无普通参考图的模式必须连接 identity_override 并选择 Picture 1。\n"
+                "需要 insightface、onnxruntime 和 scenedetect；依赖或身份识别失败会报错。\n"
+                "切镜按检测结果分别平滑；未匹配镜头保持原片。自动检测与身份识别仍可能出错。\n"
+                "768×768、8步、denoise=0.4；保留原音轨。尚未验证本次接线的实际画质和8G显存。"]
 
 
 def integrate(main, face):
@@ -187,6 +259,9 @@ def integrate(main, face):
     add_link(face_stitch, 0, selector, 2, "IMAGE")
     remove_target_links(saver["id"], 0)
     add_link(selector, 0, saver, 0, "IMAGE")
+    _wire_director_references(workflow, director, face_track)
+    for ident, edge in enumerate(workflow["links"], 1):
+        edge[0] = ident
     for order, node in enumerate(workflow["nodes"]):
         node["order"] = order
     origin_x = max(node["pos"][0] + node["size"][0] for node in branch) + 300
@@ -194,7 +269,7 @@ def integrate(main, face):
                                "color": "#3f789e", "font_size": 24, "flags": {}})
     workflow["last_node_id"] = max(node["id"] for node in workflow["nodes"] if isinstance(node["id"], int))
     workflow["last_link_id"] = max([edge[0] for edge in workflow["links"]] + [0])
-    workflow.setdefault("extra", {})[MARKER] = {"subject": "right", "gpu_inference_verified": False,
+    workflow.setdefault("extra", {})[MARKER] = {"subject": "selected_reference", "gpu_inference_verified": False,
                                                "input": "original_decoded_frames", "enabled_by_default": False}
     # Reconstruct serialized socket metadata after rewiring. ComfyUI validates
     # both sides of every edge, so stale output link ids are not harmless.

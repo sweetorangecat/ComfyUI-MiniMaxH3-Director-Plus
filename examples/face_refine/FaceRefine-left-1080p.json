@@ -428,7 +428,7 @@
         "Node name for S&R": "MiniMaxH3ReferenceToVideo"
       },
       "widgets_values": [
-        "subject_definitions:\n<Subject 1> is the same person shown in <Picture 1>. The picture is an identity reference cropped from the source video.\n\nsummary:\nRefine existing facial detail while retaining the person's identity, facial proportions, age, expression, gaze, head pose and original lighting.\n\nretention_analysis:\n<Subject 1>: fully_preserved.\n\ndetailed_description:\nPreserve the original action and mouth timing. Resolve natural skin detail, eyes and eyelashes without changing makeup, facial accessories or hairstyle. No new action or dialogue. No plastic skin or exaggerated sharpening.\n\noverall_soundscape:\nRetain the source audio.\n\nnon_diegetic_music:\nNo additional music.",
+        "subject_definitions:\n<Subject 1> is the same person shown in <Picture 1>. The picture is the original clean character identity reference.\n\nsummary:\nRefine existing facial detail while retaining the person's identity, facial proportions, age, expression, gaze, head pose and original lighting.\n\nretention_analysis:\n<Subject 1>: fully_preserved.\n\ndetailed_description:\nPreserve the original action and mouth timing. Resolve natural skin detail, eyes and eyelashes without changing makeup, facial accessories or hairstyle. No new action or dialogue. No plastic skin or exaggerated sharpening.\n\noverall_soundscape:\nRetain the source audio.\n\nnon_diegetic_music:\nNo additional music.",
         768,
         768,
         362,
@@ -933,8 +933,7 @@
           "name": "crops",
           "type": "IMAGE",
           "links": [
-            6,
-            34
+            6
           ]
         },
         {
@@ -1001,7 +1000,7 @@
         0.5,
         0,
         "insightface",
-        "none",
+        "auto (pyscenedetect)",
         3,
         "off",
         0,
@@ -1085,8 +1084,8 @@
     },
     {
       "id": 112,
-      "type": "ImageFromBatch",
-      "title": "03 从第一帧脸部裁剪提取参考（可替换高清角色图）",
+      "type": "LoadImage",
+      "title": "原始单人角色图（必选）",
       "pos": [
         1040,
         0
@@ -1098,13 +1097,7 @@
       "flags": {},
       "order": 19,
       "mode": 0,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 34
-        }
-      ],
+      "inputs": [],
       "outputs": [
         {
           "name": "IMAGE",
@@ -1112,14 +1105,19 @@
           "links": [
             35
           ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
         }
       ],
       "properties": {
-        "Node name for S&R": "ImageFromBatch"
+        "Node name for S&R": "LoadImage"
       },
       "widgets_values": [
-        0,
-        1
+        "",
+        "image"
       ]
     },
     {
@@ -1263,7 +1261,7 @@
         "Node name for S&R": "Note"
       },
       "widgets_values": [
-        "人脸修复由当前 Director Plus 项目提供，无需安装独立 FaceRefine 插件。\n768×768，8 步，denoise=0.4；select 选择左/右人物，连续跟踪。\n先用 tracking-only 示例检查跟踪。身份识别默认关闭，可另装依赖后启用。\n合成保持输入分辨率、帧数和原音轨；1080p 原片输出仍为 1080p。\n高清角色参考图可替换 ImageFromBatch 到参考图输入的连线。\nRTX 5090 已跑通；这段双人物近景实测变软，不能保证更清晰。\n主工作流默认禁用本分支，需按原片对照后决定是否启用。"
+        "人脸修复由当前 Director Plus 项目提供，无需安装独立 FaceRefine 插件。\n768×768，8 步，denoise=0.4；select 选择左/右人物，连续跟踪。\n先用 tracking-only 示例检查跟踪。身份识别默认关闭，可另装依赖后启用。\n合成保持输入分辨率、帧数和原音轨；1080p 原片输出仍为 1080p。\n完整修复示例必须在 LoadImage 选择原始单人角色图；不再拿模糊视频裁剪作身份参考。\n独立示例使用单人物修复提示词；要沿用完整原提示词与参考编号，请使用主 U11 集成分支。\n自动切镜需要 scenedetect；位置跟踪仍可能选错人，先检查预览。新接线尚未实测画质。\n主工作流默认禁用本分支，需按原片对照后决定是否启用。"
       ]
     }
   ],
@@ -1531,14 +1529,6 @@
       9,
       12,
       "INT"
-    ],
-    [
-      34,
-      2,
-      0,
-      112,
-      0,
-      "IMAGE"
     ],
     [
       35,

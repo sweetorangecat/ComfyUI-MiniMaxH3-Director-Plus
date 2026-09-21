@@ -590,6 +590,9 @@ class MiniMaxH3TwoStageSampler:
             raise ValueError(f"训练型 H3 二采 sigma 轨迹无效：{exc}") from exc
 
         route = guide.get("resolved_two_stage_route", "trained_latent_fl")
+        from .stage_diagnostics import StageDiagnostics
+
+        diagnostics = StageDiagnostics(guide, getattr(noise, "seed", None))
         guide["two_stage_status"] = "训练型 3D latent 二采执行中"
         LOGGER.info(
             "[H3 two-stage] route=%s split=%s sigmas=%s+%s first_lora=%s second_lora=%s input=%s",
@@ -618,11 +621,13 @@ class MiniMaxH3TwoStageSampler:
             separated = LTXVSeparateAVLatent.execute(first_denoised)
             video_latent = _node_output(separated, 0)
             audio_latent = _node_output(separated, 1)
+            diagnostics.save("first", video_latent["samples"])
             source_video_shape = _latent_shape(video_latent)
             source_audio_shape = _latent_shape(audio_latent)
             _release_between_stages()
             upscale_started = time.perf_counter()
             upscaled_video = run_trained_latent_upscaler(video_latent, scale)
+            diagnostics.save("upscaled", upscaled_video["samples"])
             _log_stage_perf(
                 "upscale",
                 time.perf_counter() - upscale_started,
@@ -737,6 +742,7 @@ class MiniMaxH3TwoStageSampler:
             guide["two_stage_audio_drift_before_reinsert"] = drift
             LOGGER.info("[H3 two-stage] audio drift before exact reinsert max_abs=%.8g", drift)
         final_denoised = _reinsert_stage1_audio(final_denoised, audio_latent)
+        diagnostics.save("second", final_denoised["samples"])
         guide["two_stage_audio_lock"] = (
             "masked_stage1_reinsert" if guide.get("two_stage_audio_guard") else "stage1_reinsert"
         )

@@ -85,7 +85,34 @@ class MiniMaxH3FaceTrackCrop(_FaceNode):
         images = kwargs["images"]
         if images.ndim != 4 or not len(images) or images.shape[-1] < 3:
             raise ValueError("FaceRefine 需要非空 NHWC 视频帧。")
-        return super().run(**kwargs)
+        backend = _backend()
+        if kwargs.get("cut_detection", "none") != "none":
+            try:
+                backend._make_cut_detector(kwargs.get("cut_threshold", 3.0))
+            except ImportError as error:
+                raise RuntimeError("FaceRefine 切镜检测需要 scenedetect，请安装 requirements-facerefine.txt。") from error
+        reference = kwargs.get("identity_reference")
+        if reference is not None:
+            if not kwargs.get("identity_track", True):
+                raise ValueError("连接身份参考时必须启用 identity_track，避免参考被忽略。")
+            try:
+                embedder = backend._make_embedder(kwargs.get("identity_model", "insightface"),
+                                                 kwargs.get("identity_clip_vision"))
+                detector = _load_detector(kwargs["detector"]) if getattr(embedder, "needs_detector", True) else None
+                anchor = embedder.embed_reference(reference[:1], detector, kwargs.get("confidence", 0.35))
+            except Exception as error:
+                raise RuntimeError("FaceRefine 身份匹配初始化失败；请检查所选身份模型依赖。") from error
+            if anchor is None:
+                raise ValueError("FaceRefine 身份参考未识别出有效人脸，请使用该人物清晰的单人参考图。")
+        result = super().run(**kwargs)
+        if reference is not None:
+            report = result[3]
+            if any(message in report for message in (
+                "unavailable, tracking by continuity", "absent-shot detection failed",
+                "needs a usable identity anchor; ignored",
+            )):
+                raise RuntimeError("FaceRefine 身份跟踪退化，已停止后续重绘。请检查跟踪报告：" + report)
+        return result
 
 
 class MiniMaxH3FaceStitch(_FaceNode):
@@ -206,10 +233,76 @@ class MiniMaxH3FaceRefineSwitch:
         return (selected,)
 
 
+class MiniMaxH3FaceRefineInputs:
+    CATEGORY = _FaceNode.CATEGORY
+    FUNCTION = "prepare"
+    RETURN_TYPES = ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE", "IMAGE")
+    RETURN_NAMES = ("refine_guide", "identity_reference")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
+                "identity_picture": ("INT", {"default": 1, "min": 1, "max": 12,
+                    "tooltip": "要修复的人物在导演台中的 Picture 编号；一次只修复此人。请选择单人清晰参考。"}),
+            },
+            "optional": {"identity_override": ("IMAGE", {
+                "tooltip": "可接同一人物的单人脸部参考用于跟踪；保留导演台原有图片编号。无普通参考图的模式必须连接。"})},
+        }
+
+    def prepare(self, guide, identity_picture, identity_override=None):
+        state = guide.copy()
+        refs = dict(guide.get("ref_images") or {})
+        key = f"ref_image_{identity_picture}"
+        if not refs:
+            if identity_override is None or identity_picture != 1:
+                raise ValueError("此模式没有普通角色参考图，请连接人脸修复 identity_override，并选择 Picture 1。")
+            refs[key] = identity_override
+        if key not in refs:
+            raise ValueError(f"人脸修复选择的 <Picture {identity_picture}> 不存在，请核对导演台参考图编号。")
+        identity = identity_override if identity_override is not None else refs[key]
+        state["ref_images"] = refs
+        return state, identity
+
+
+class MiniMaxH3FaceRefineConditioning:
+    CATEGORY = _FaceNode.CATEGORY
+    FUNCTION = "apply"
+    RETURN_TYPES = ("CONDITIONING", "LATENT")
+    RETURN_NAMES = ("conditioning", "av_latent")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "clip": ("CLIP",), "vae": ("VAE",), "audio_vae": ("VAE",),
+            "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
+            "width": ("INT", {"forceInput": True}),
+            "height": ("INT", {"forceInput": True}),
+            "length": ("INT", {"forceInput": True}),
+        }}
+
+    def apply(self, clip, vae, audio_vae, guide, width, height, length):
+        from .guide import native_node, normalize_h3_reference_audio
+        from .performance import memory_policy
+
+        with memory_policy(guide):
+            return native_node("MiniMaxH3ReferenceToVideo").execute(
+                clip=clip, vae=vae, audio_vae=audio_vae, prompt=guide["prompt"],
+                width=width, height=height, length=length,
+                ref_image_size=guide.get("ref_image_size", "match"),
+                ref_images=guide.get("ref_images", {}),
+                ref_videos=guide.get("ref_videos", {}),
+                ref_video_audios=guide.get("ref_video_audios", {}),
+                ref_audios={key: normalize_h3_reference_audio(value)
+                            for key, value in (guide.get("ref_audios") or {}).items()},
+            )
+
+
 NODE_CLASS_MAPPINGS = {cls.__name__: cls for cls in (
     MiniMaxH3FaceTrackCrop, MiniMaxH3FaceStitch, MiniMaxH3FaceInjectVideoLatent,
     MiniMaxH3FacePerFrameDenoise, MiniMaxH3FaceTransformInfo, MiniMaxH3FaceAudioLock,
-    MiniMaxH3FaceRefineSwitch,
+    MiniMaxH3FaceRefineSwitch, MiniMaxH3FaceRefineInputs, MiniMaxH3FaceRefineConditioning,
 )}
 NODE_DISPLAY_NAME_MAPPINGS = {
     "MiniMaxH3FaceTrackCrop": "H3 人脸跟踪与裁剪",
@@ -219,4 +312,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MiniMaxH3FaceTransformInfo": "H3 人脸跟踪报告",
     "MiniMaxH3FaceAudioLock": "H3 人脸修复原音轨锁定",
     "MiniMaxH3FaceRefineSwitch": "H3 人脸修复开关（懒加载）",
+    "MiniMaxH3FaceRefineInputs": "H3 人脸修复参考（原始角色图）",
+    "MiniMaxH3FaceRefineConditioning": "H3 人脸修复条件（沿用导演台）",
 }

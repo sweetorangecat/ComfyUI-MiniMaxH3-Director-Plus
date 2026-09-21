@@ -1,8 +1,8 @@
 {
   "id": "92cc2937-1602-5bb6-9edd-1686668d1545",
   "revision": 0,
-  "last_node_id": 2752,
-  "last_link_id": 5991,
+  "last_node_id": 2751,
+  "last_link_id": 64,
   "nodes": [
     {
       "id": 1,
@@ -192,7 +192,7 @@
           "widget": {
             "name": "steps"
           },
-          "link": 5942
+          "link": 21
         },
         {
           "name": "noise_seed",
@@ -200,7 +200,7 @@
           "widget": {
             "name": "noise_seed"
           },
-          "link": 5944
+          "link": 23
         },
         {
           "name": "shift_video",
@@ -268,35 +268,35 @@
           "widget": {
             "name": "switch"
           },
-          "link": 5899
+          "link": 10
         },
         {
           "label": "clip_fromLora",
           "name": "clip",
           "type": "CLIP",
-          "link": 5839
+          "link": 5
         },
         {
           "name": "guide",
           "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
-          "link": 5898
+          "link": 9
         },
         {
           "name": "model",
           "type": "MODEL",
-          "link": 5854
+          "link": 6
         },
         {
           "name": "generated_voice_audio",
           "shape": 7,
           "type": "AUDIO",
-          "link": 5943
+          "link": 22
         },
         {
           "name": "second_model",
           "shape": 7,
           "type": "MODEL",
-          "link": 5945
+          "link": 24
         }
       ],
       "outputs": [
@@ -305,7 +305,7 @@
           "name": "CLIP",
           "type": "CLIP",
           "links": [
-            5838
+            4
           ]
         },
         {
@@ -313,7 +313,7 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            5474
+            1
           ]
         },
         {
@@ -321,15 +321,15 @@
           "name": "FLOAT",
           "type": "FLOAT",
           "links": [
-            5475
+            2
           ]
         },
         {
           "name": "AUDIO",
           "type": "AUDIO",
           "links": [
-            5761,
-            5987
+            3,
+            57
           ]
         },
         {
@@ -346,14 +346,14 @@
           "name": "MODEL",
           "type": "MODEL",
           "links": [
-            5894
+            7
           ]
         },
         {
           "name": "MODEL_1",
           "type": "MODEL",
           "links": [
-            5895
+            8
           ]
         }
       ],
@@ -610,13 +610,13 @@
           "localized_name": "model",
           "name": "model",
           "type": "MODEL",
-          "link": 5900
+          "link": 11
         },
         {
           "localized_name": "clip",
           "name": "clip",
           "type": "CLIP",
-          "link": 5838
+          "link": 4
         },
         {
           "localized_name": "stack_data",
@@ -643,7 +643,7 @@
           "name": "MODEL",
           "type": "MODEL",
           "links": [
-            5854
+            6
           ]
         },
         {
@@ -651,7 +651,7 @@
           "name": "CLIP",
           "type": "CLIP",
           "links": [
-            5839
+            5
           ]
         }
       ],
@@ -874,21 +874,21 @@
           "localized_name": "guide",
           "name": "guide",
           "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
-          "link": 5935
+          "link": 14
         },
         {
           "localized_name": "fl2va_model",
           "name": "fl2va_model",
           "shape": 7,
           "type": "MODEL",
-          "link": 5894
+          "link": 7
         },
         {
           "localized_name": "ref2va_model",
           "name": "ref2va_model",
           "shape": 7,
           "type": "MODEL",
-          "link": 5895
+          "link": 8
         }
       ],
       "outputs": [
@@ -897,7 +897,7 @@
           "name": "当前模型",
           "type": "MODEL",
           "links": [
-            5936
+            15
           ]
         }
       ],
@@ -937,13 +937,13 @@
           "localized_name": "model",
           "name": "model",
           "type": "MODEL",
-          "link": 5936
+          "link": 15
         },
         {
           "localized_name": "guide",
           "name": "guide",
           "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
-          "link": 5937
+          "link": 16
         },
         {
           "localized_name": "community_loras",
@@ -982,7 +982,7 @@
           "name": "第一阶段模型",
           "type": "MODEL",
           "links": [
-            5900
+            11
           ]
         },
         {
@@ -996,7 +996,7 @@
           "name": "加速成功",
           "type": "BOOLEAN",
           "links": [
-            5939
+            18
           ]
         },
         {
@@ -1004,7 +1004,7 @@
           "name": "第二阶段模型",
           "type": "MODEL",
           "links": [
-            5945
+            24
           ]
         }
       ],
@@ -1054,7 +1054,7 @@
           "localized_name": "guide",
           "name": "guide",
           "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
-          "link": 5938
+          "link": 17
         },
         {
           "localized_name": "acceleration_ready",
@@ -1064,7 +1064,7 @@
           "widget": {
             "name": "acceleration_ready"
           },
-          "link": 5939
+          "link": 18
         }
       ],
       "outputs": [
@@ -1073,7 +1073,7 @@
           "name": "采样步数",
           "type": "INT",
           "links": [
-            5942
+            21
           ]
         },
         {
@@ -1183,13 +1183,13 @@
           "localized_name": "guide",
           "name": "guide",
           "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
-          "link": 5940
+          "link": 19
         },
         {
           "localized_name": "reference_audio",
           "name": "reference_audio",
           "type": "AUDIO",
-          "link": 5941
+          "link": 20
         }
       ],
       "outputs": [
@@ -1198,7 +1198,7 @@
           "name": "Fish生成的新对白",
           "type": "AUDIO",
           "links": [
-            5943
+            22
           ]
         }
       ],
@@ -1236,13 +1236,13 @@
           "localized_name": "images",
           "name": "images",
           "type": "IMAGE",
-          "link": 5474
+          "link": 1
         },
         {
           "localized_name": "guide",
           "name": "guide",
           "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
-          "link": 5933
+          "link": 12
         },
         {
           "localized_name": "enabled",
@@ -1269,9 +1269,9 @@
           "name": "色彩稳定帧",
           "type": "IMAGE",
           "links": [
-            5985,
-            5986,
-            5989
+            55,
+            56,
+            59
           ]
         },
         {
@@ -1427,20 +1427,20 @@
           "localized_name": "images",
           "name": "images",
           "type": "IMAGE",
-          "link": 5991
+          "link": 61
         },
         {
           "localized_name": "guide",
           "name": "guide",
           "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
-          "link": 5934
+          "link": 13
         },
         {
           "localized_name": "audio",
           "name": "audio",
           "shape": 7,
           "type": "AUDIO",
-          "link": 5761
+          "link": 3
         },
         {
           "localized_name": "frame_rate",
@@ -1449,7 +1449,7 @@
           "widget": {
             "name": "frame_rate"
           },
-          "link": 5475
+          "link": 2
         },
         {
           "localized_name": "codec",
@@ -2149,14 +2149,15 @@
           "name": "导演指南",
           "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
           "links": [
-            5898,
-            5933,
-            5934,
-            5935,
-            5937,
-            5938,
-            5940,
-            5988
+            9,
+            12,
+            13,
+            14,
+            16,
+            17,
+            19,
+            58,
+            62
           ]
         },
         {
@@ -2188,7 +2189,7 @@
           "name": "Fish音色样本",
           "type": "AUDIO",
           "links": [
-            5941
+            20
           ]
         },
         {
@@ -2202,7 +2203,7 @@
           "name": "FL2VA硬端点",
           "type": "BOOLEAN",
           "links": [
-            5899
+            10
           ]
         },
         {
@@ -2210,7 +2211,7 @@
           "name": "噪音种子",
           "type": "INT",
           "links": [
-            5944
+            23
           ]
         }
       ],
@@ -2337,7 +2338,7 @@
           "name": "SAMPLER",
           "type": "SAMPLER",
           "links": [
-            5963
+            40
           ]
         }
       ],
@@ -2368,7 +2369,7 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 5960
+          "link": 37
         }
       ],
       "outputs": [
@@ -2376,7 +2377,7 @@
           "name": "SIGMAS",
           "type": "SIGMAS",
           "links": [
-            5964
+            41
           ]
         }
       ],
@@ -2413,7 +2414,7 @@
           "name": "NOISE",
           "type": "NOISE",
           "links": [
-            5961
+            38
           ]
         }
       ],
@@ -2445,27 +2446,27 @@
         {
           "name": "noise",
           "type": "NOISE",
-          "link": 5961
+          "link": 38
         },
         {
           "name": "guider",
           "type": "GUIDER",
-          "link": 5962
+          "link": 39
         },
         {
           "name": "sampler",
           "type": "SAMPLER",
-          "link": 5963
+          "link": 40
         },
         {
           "name": "sigmas",
           "type": "SIGMAS",
-          "link": 5964
+          "link": 41
         },
         {
           "name": "latent_image",
           "type": "LATENT",
-          "link": 5967
+          "link": 44
         }
       ],
       "outputs": [
@@ -2473,7 +2474,7 @@
           "name": "output",
           "type": "LATENT",
           "links": [
-            5968
+            45
           ]
         },
         {
@@ -2507,17 +2508,17 @@
         {
           "name": "base_images",
           "type": "IMAGE",
-          "link": 5986
+          "link": 56
         },
         {
           "name": "refined_crops",
           "type": "IMAGE",
-          "link": 5971
+          "link": 47
         },
         {
           "name": "transform",
           "type": "H3FACEXFORM",
-          "link": 5972
+          "link": 48
         },
         {
           "name": "masks",
@@ -2531,7 +2532,7 @@
           "name": "images",
           "type": "IMAGE",
           "links": [
-            5990
+            60
           ]
         }
       ],
@@ -2573,9 +2574,9 @@
           "name": "VAE",
           "type": "VAE",
           "links": [
-            5948,
-            5952,
-            5969
+            26,
+            30,
+            46
           ]
         }
       ],
@@ -2610,8 +2611,8 @@
           "name": "VAE",
           "type": "VAE",
           "links": [
-            5949,
-            5956
+            27,
+            34
           ]
         }
       ],
@@ -2628,7 +2629,7 @@
     },
     {
       "id": 2734,
-      "type": "MiniMaxH3ReferenceToVideo",
+      "type": "MiniMaxH3FaceRefineConditioning",
       "pos": [
         3750,
         300
@@ -2644,88 +2645,37 @@
         {
           "name": "clip",
           "type": "CLIP",
-          "link": 5947
+          "link": 25
         },
         {
           "name": "vae",
           "type": "VAE",
-          "link": 5948
+          "link": 26
         },
         {
           "name": "audio_vae",
           "type": "VAE",
-          "link": 5949
+          "link": 27
         },
         {
-          "name": "ref_images.ref_image_0",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": 5980
-        },
-        {
-          "label": "ref_image_1",
-          "name": "ref_images.ref_image_1",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        },
-        {
-          "label": "ref_image_2",
-          "name": "ref_images.ref_image_2",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        },
-        {
-          "label": "ref_video_0",
-          "name": "ref_videos.ref_video_0",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        },
-        {
-          "label": "ref_video_audio_0",
-          "name": "ref_video_audios.ref_video_audio_0",
-          "shape": 7,
-          "type": "AUDIO",
-          "link": null
-        },
-        {
-          "name": "ref_audios.ref_audio_0",
-          "shape": 7,
-          "type": "AUDIO",
-          "link": null
-        },
-        {
-          "label": "ref_audio_1",
-          "name": "ref_audios.ref_audio_1",
-          "shape": 7,
-          "type": "AUDIO",
-          "link": null
+          "name": "guide",
+          "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
+          "link": 63
         },
         {
           "name": "width",
           "type": "INT",
-          "widget": {
-            "name": "width"
-          },
-          "link": 5975
+          "link": 49
         },
         {
           "name": "height",
           "type": "INT",
-          "widget": {
-            "name": "height"
-          },
-          "link": 5976
+          "link": 50
         },
         {
           "name": "length",
           "type": "INT",
-          "widget": {
-            "name": "length"
-          },
-          "link": 5978
+          "link": 52
         }
       ],
       "outputs": [
@@ -2733,31 +2683,26 @@
           "name": "positive",
           "type": "CONDITIONING",
           "links": [
-            5959
+            36
           ]
         },
         {
           "name": "LATENT",
           "type": "LATENT",
           "links": [
-            5950
+            28
           ]
         }
       ],
       "properties": {
-        "Node name for S&R": "MiniMaxH3ReferenceToVideo",
+        "Node name for S&R": "MiniMaxH3FaceRefineConditioning",
+        "cnr_id": "ComfyUI-MiniMaxH3-Director-Plus",
         "director_plus_face_refine": true
       },
-      "widgets_values": [
-        "subject_definitions:\n<Subject 1> is the same person shown in <Picture 1>. The picture is an identity reference cropped from the source video.\n\nsummary:\nRefine existing facial detail while retaining the person's identity, facial proportions, age, expression, gaze, head pose and original lighting.\n\nretention_analysis:\n<Subject 1>: fully_preserved.\n\ndetailed_description:\nPreserve the original action and mouth timing. Resolve natural skin detail, eyes and eyelashes without changing makeup, facial accessories or hairstyle. No new action or dialogue. No plastic skin or exaggerated sharpening.\n\noverall_soundscape:\nRetain the source audio.\n\nnon_diegetic_music:\nNo additional music.",
-        768,
-        768,
-        362,
-        "match"
-      ],
+      "widgets_values": [],
       "color": "#232",
       "bgcolor": "#353",
-      "title": "05 单人物参考与脸部重绘提示"
+      "title": "人脸修复条件（原提示词与完整参考编号）"
     },
     {
       "id": 2735,
@@ -2777,17 +2722,17 @@
         {
           "name": "av_latent",
           "type": "LATENT",
-          "link": 5950
+          "link": 28
         },
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 5951
+          "link": 29
         },
         {
           "name": "vae",
           "type": "VAE",
-          "link": 5952
+          "link": 30
         }
       ],
       "outputs": [
@@ -2795,7 +2740,7 @@
           "name": "av_latent",
           "type": "LATENT",
           "links": [
-            5955
+            33
           ]
         },
         {
@@ -2831,22 +2776,22 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 5954
+          "link": 32
         },
         {
           "name": "av_latent",
           "type": "LATENT",
-          "link": 5955
+          "link": 33
         },
         {
           "name": "audio_vae",
           "type": "VAE",
-          "link": 5956
+          "link": 34
         },
         {
           "name": "audio",
           "type": "AUDIO",
-          "link": 5987
+          "link": 57
         }
       ],
       "outputs": [
@@ -2854,14 +2799,14 @@
           "name": "model",
           "type": "MODEL",
           "links": [
-            5977
+            51
           ]
         },
         {
           "name": "av_latent",
           "type": "LATENT",
           "links": [
-            5965
+            42
           ]
         },
         {
@@ -2898,17 +2843,17 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 5977
+          "link": 51
         },
         {
           "name": "av_latent",
           "type": "LATENT",
-          "link": 5965
+          "link": 42
         },
         {
           "name": "transform",
           "type": "H3FACEXFORM",
-          "link": 5966
+          "link": 43
         }
       ],
       "outputs": [
@@ -2916,7 +2861,7 @@
           "name": "av_latent",
           "type": "LATENT",
           "links": [
-            5967
+            44
           ]
         },
         {
@@ -2928,8 +2873,8 @@
           "name": "model",
           "type": "MODEL",
           "links": [
-            5958,
-            5960
+            35,
+            37
           ]
         }
       ],
@@ -2968,12 +2913,12 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 5958
+          "link": 35
         },
         {
           "name": "conditioning",
           "type": "CONDITIONING",
-          "link": 5959
+          "link": 36
         }
       ],
       "outputs": [
@@ -2981,7 +2926,7 @@
           "name": "GUIDER",
           "type": "GUIDER",
           "links": [
-            5962
+            39
           ]
         }
       ],
@@ -3010,12 +2955,12 @@
         {
           "name": "samples",
           "type": "LATENT",
-          "link": 5968
+          "link": 45
         },
         {
           "name": "vae",
           "type": "VAE",
-          "link": 5969
+          "link": 46
         }
       ],
       "outputs": [
@@ -3023,7 +2968,7 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            5971
+            47
           ]
         }
       ],
@@ -3054,7 +2999,7 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 5953
+          "link": 31
         }
       ],
       "outputs": [
@@ -3062,7 +3007,7 @@
           "name": "MODEL",
           "type": "MODEL",
           "links": [
-            5981
+            53
           ]
         }
       ],
@@ -3096,13 +3041,13 @@
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 5985
+          "link": 55
         },
         {
           "name": "identity_reference",
           "shape": 7,
           "type": "IMAGE",
-          "link": null
+          "link": 64
         }
       ],
       "outputs": [
@@ -3110,23 +3055,22 @@
           "name": "crops",
           "type": "IMAGE",
           "links": [
-            5951,
-            5979
+            29
           ]
         },
         {
           "name": "transform",
           "type": "H3FACEXFORM",
           "links": [
-            5966,
-            5972
+            43,
+            48
           ]
         },
         {
           "name": "preview",
           "type": "IMAGE",
           "links": [
-            5984
+            54
           ]
         },
         {
@@ -3138,21 +3082,21 @@
           "name": "canvas_w",
           "type": "INT",
           "links": [
-            5975
+            49
           ]
         },
         {
           "name": "canvas_h",
           "type": "INT",
           "links": [
-            5976
+            50
           ]
         },
         {
           "name": "frame_count",
           "type": "INT",
           "links": [
-            5978
+            52
           ]
         }
       ],
@@ -3172,23 +3116,23 @@
         51,
         "gaussian",
         "per_frame",
-        false,
+        true,
         0.28,
         "right_most",
         "none",
         0.5,
         0,
         "insightface",
-        "none",
+        "auto (pyscenedetect)",
         3,
-        "off",
+        "by_identity",
         0,
         0,
         0
       ],
       "color": "#322",
       "bgcolor": "#533",
-      "title": "02 跟踪右侧人物"
+      "title": "跟踪选定身份（自动检测切镜）"
     },
     {
       "id": 2744,
@@ -3210,7 +3154,7 @@
           "name": "MODEL",
           "type": "MODEL",
           "links": [
-            5953
+            31
           ]
         }
       ],
@@ -3246,7 +3190,7 @@
           "name": "CLIP",
           "type": "CLIP",
           "links": [
-            5947
+            25
           ]
         }
       ],
@@ -3265,8 +3209,8 @@
     },
     {
       "id": 2746,
-      "type": "ImageFromBatch",
-      "title": "03 从第一帧脸部裁剪提取参考（可替换高清角色图）",
+      "type": "MiniMaxH3FaceRefineInputs",
+      "title": "选择修复人物：原始 Picture 编号",
       "pos": [
         3750,
         0
@@ -3280,26 +3224,39 @@
       "mode": 0,
       "inputs": [
         {
-          "name": "image",
+          "name": "guide",
+          "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
+          "link": 62
+        },
+        {
+          "name": "identity_override",
           "type": "IMAGE",
-          "link": 5979
+          "link": null,
+          "shape": 7
         }
       ],
       "outputs": [
         {
-          "name": "IMAGE",
+          "name": "refine_guide",
+          "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
+          "links": [
+            63
+          ]
+        },
+        {
+          "name": "identity_reference",
           "type": "IMAGE",
           "links": [
-            5980
+            64
           ]
         }
       ],
       "properties": {
-        "Node name for S&R": "ImageFromBatch",
+        "Node name for S&R": "MiniMaxH3FaceRefineInputs",
+        "cnr_id": "ComfyUI-MiniMaxH3-Director-Plus",
         "director_plus_face_refine": true
       },
       "widgets_values": [
-        0,
         1
       ]
     },
@@ -3322,7 +3279,7 @@
         {
           "name": "model",
           "type": "MODEL",
-          "link": 5981
+          "link": 53
         }
       ],
       "outputs": [
@@ -3330,7 +3287,7 @@
           "name": "model",
           "type": "MODEL",
           "links": [
-            5954
+            32
           ]
         }
       ],
@@ -3359,7 +3316,7 @@
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 5984
+          "link": 54
         }
       ],
       "outputs": [],
@@ -3391,7 +3348,7 @@
         "director_plus_face_refine": true
       },
       "widgets_values": [
-        "人脸修复由当前 Director Plus 项目提供，无需安装独立 FaceRefine 插件。\n768×768，8 步，denoise=0.4；select 选择左/右人物，连续跟踪。\n先用 tracking-only 示例检查跟踪。身份识别默认关闭，可另装依赖后启用。\n合成保持输入分辨率、帧数和原音轨；1080p 原片输出仍为 1080p。\n高清角色参考图可替换 ImageFromBatch 到参考图输入的连线。\nRTX 5090 已跑通；这段双人物近景实测变软，不能保证更清晰。\n主工作流默认禁用本分支，需按原片对照后决定是否启用。"
+        "导演台人脸修复开关默认关闭；开启后一次修复一个选定人物。\n在“选择修复人物”节点中填写导演台 Picture 编号，确认对应单人角色图。\n三视图/多人图请另接同一人物的清晰单人图到 identity_override，供跟踪识别。\n修复条件保留导演台完整提示词、图片和音频编号，不使用原片模糊裁剪当身份图。\n无普通参考图的模式必须连接 identity_override 并选择 Picture 1。\n需要 insightface、onnxruntime 和 scenedetect；依赖或身份识别失败会报错。\n切镜按检测结果分别平滑；未匹配镜头保持原片。自动检测与身份识别仍可能出错。\n768×768、8步、denoise=0.4；保留原音轨。尚未验证本次接线的实际画质和8G显存。"
       ]
     },
     {
@@ -3413,18 +3370,18 @@
         {
           "name": "guide",
           "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
-          "link": 5988
+          "link": 58
         },
         {
           "name": "original_images",
           "type": "IMAGE",
-          "link": 5989,
+          "link": 59,
           "shape": 7
         },
         {
           "name": "refined_images",
           "type": "IMAGE",
-          "link": 5990,
+          "link": 60,
           "shape": 7
         }
       ],
@@ -3433,7 +3390,7 @@
           "name": "images",
           "type": "IMAGE",
           "links": [
-            5991
+            61
           ]
         }
       ],
@@ -3449,7 +3406,7 @@
   ],
   "links": [
     [
-      5474,
+      1,
       1512,
       1,
       2723,
@@ -3457,7 +3414,7 @@
       "IMAGE"
     ],
     [
-      5475,
+      2,
       1512,
       2,
       2568,
@@ -3465,7 +3422,7 @@
       "FLOAT"
     ],
     [
-      5761,
+      3,
       1512,
       3,
       2568,
@@ -3473,7 +3430,7 @@
       "AUDIO"
     ],
     [
-      5838,
+      4,
       1512,
       0,
       2678,
@@ -3481,7 +3438,7 @@
       "CLIP"
     ],
     [
-      5839,
+      5,
       2678,
       1,
       1512,
@@ -3489,7 +3446,7 @@
       "CLIP"
     ],
     [
-      5854,
+      6,
       2678,
       0,
       1512,
@@ -3497,7 +3454,7 @@
       "MODEL"
     ],
     [
-      5894,
+      7,
       1512,
       6,
       2718,
@@ -3505,7 +3462,7 @@
       "MODEL"
     ],
     [
-      5895,
+      8,
       1512,
       7,
       2718,
@@ -3513,7 +3470,7 @@
       "MODEL"
     ],
     [
-      5898,
+      9,
       2693,
       0,
       1512,
@@ -3521,7 +3478,7 @@
       "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
     ],
     [
-      5899,
+      10,
       2693,
       7,
       1512,
@@ -3529,7 +3486,7 @@
       "BOOLEAN"
     ],
     [
-      5900,
+      11,
       2719,
       0,
       2678,
@@ -3537,7 +3494,7 @@
       "MODEL"
     ],
     [
-      5933,
+      12,
       2693,
       0,
       2723,
@@ -3545,7 +3502,7 @@
       "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
     ],
     [
-      5934,
+      13,
       2693,
       0,
       2568,
@@ -3553,7 +3510,7 @@
       "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
     ],
     [
-      5935,
+      14,
       2693,
       0,
       2718,
@@ -3561,7 +3518,7 @@
       "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
     ],
     [
-      5936,
+      15,
       2718,
       0,
       2719,
@@ -3569,7 +3526,7 @@
       "MODEL"
     ],
     [
-      5937,
+      16,
       2693,
       0,
       2719,
@@ -3577,7 +3534,7 @@
       "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
     ],
     [
-      5938,
+      17,
       2693,
       0,
       2720,
@@ -3585,7 +3542,7 @@
       "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
     ],
     [
-      5939,
+      18,
       2719,
       2,
       2720,
@@ -3593,7 +3550,7 @@
       "BOOLEAN"
     ],
     [
-      5940,
+      19,
       2693,
       0,
       2722,
@@ -3601,7 +3558,7 @@
       "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
     ],
     [
-      5941,
+      20,
       2693,
       5,
       2722,
@@ -3609,7 +3566,7 @@
       "AUDIO"
     ],
     [
-      5942,
+      21,
       2720,
       0,
       1512,
@@ -3617,7 +3574,7 @@
       "INT"
     ],
     [
-      5943,
+      22,
       2722,
       0,
       1512,
@@ -3625,7 +3582,7 @@
       "AUDIO"
     ],
     [
-      5944,
+      23,
       2693,
       8,
       1512,
@@ -3633,7 +3590,7 @@
       "INT"
     ],
     [
-      5945,
+      24,
       2719,
       3,
       1512,
@@ -3641,7 +3598,7 @@
       "MODEL"
     ],
     [
-      5947,
+      25,
       2745,
       0,
       2734,
@@ -3649,7 +3606,7 @@
       "CLIP"
     ],
     [
-      5948,
+      26,
       2732,
       0,
       2734,
@@ -3657,7 +3614,7 @@
       "VAE"
     ],
     [
-      5949,
+      27,
       2733,
       0,
       2734,
@@ -3665,7 +3622,7 @@
       "VAE"
     ],
     [
-      5950,
+      28,
       2734,
       1,
       2735,
@@ -3673,7 +3630,7 @@
       "LATENT"
     ],
     [
-      5951,
+      29,
       2743,
       0,
       2735,
@@ -3681,7 +3638,7 @@
       "IMAGE"
     ],
     [
-      5952,
+      30,
       2732,
       0,
       2735,
@@ -3689,7 +3646,7 @@
       "VAE"
     ],
     [
-      5953,
+      31,
       2744,
       0,
       2741,
@@ -3697,7 +3654,7 @@
       "MODEL"
     ],
     [
-      5954,
+      32,
       2747,
       0,
       2736,
@@ -3705,7 +3662,7 @@
       "MODEL"
     ],
     [
-      5955,
+      33,
       2735,
       0,
       2736,
@@ -3713,7 +3670,7 @@
       "LATENT"
     ],
     [
-      5956,
+      34,
       2733,
       0,
       2736,
@@ -3721,7 +3678,7 @@
       "VAE"
     ],
     [
-      5958,
+      35,
       2737,
       2,
       2738,
@@ -3729,7 +3686,7 @@
       "MODEL"
     ],
     [
-      5959,
+      36,
       2734,
       0,
       2738,
@@ -3737,7 +3694,7 @@
       "CONDITIONING"
     ],
     [
-      5960,
+      37,
       2737,
       2,
       2728,
@@ -3745,7 +3702,7 @@
       "MODEL"
     ],
     [
-      5961,
+      38,
       2729,
       0,
       2730,
@@ -3753,7 +3710,7 @@
       "NOISE"
     ],
     [
-      5962,
+      39,
       2738,
       0,
       2730,
@@ -3761,7 +3718,7 @@
       "GUIDER"
     ],
     [
-      5963,
+      40,
       2727,
       0,
       2730,
@@ -3769,7 +3726,7 @@
       "SAMPLER"
     ],
     [
-      5964,
+      41,
       2728,
       0,
       2730,
@@ -3777,7 +3734,7 @@
       "SIGMAS"
     ],
     [
-      5965,
+      42,
       2736,
       1,
       2737,
@@ -3785,7 +3742,7 @@
       "LATENT"
     ],
     [
-      5966,
+      43,
       2743,
       1,
       2737,
@@ -3793,7 +3750,7 @@
       "H3FACEXFORM"
     ],
     [
-      5967,
+      44,
       2737,
       0,
       2730,
@@ -3801,7 +3758,7 @@
       "LATENT"
     ],
     [
-      5968,
+      45,
       2730,
       0,
       2739,
@@ -3809,7 +3766,7 @@
       "LATENT"
     ],
     [
-      5969,
+      46,
       2732,
       0,
       2739,
@@ -3817,7 +3774,7 @@
       "VAE"
     ],
     [
-      5971,
+      47,
       2739,
       0,
       2731,
@@ -3825,7 +3782,7 @@
       "IMAGE"
     ],
     [
-      5972,
+      48,
       2743,
       1,
       2731,
@@ -3833,23 +3790,23 @@
       "H3FACEXFORM"
     ],
     [
-      5975,
+      49,
       2743,
       4,
       2734,
-      10,
+      4,
       "INT"
     ],
     [
-      5976,
+      50,
       2743,
       5,
       2734,
-      11,
+      5,
       "INT"
     ],
     [
-      5977,
+      51,
       2736,
       0,
       2737,
@@ -3857,31 +3814,15 @@
       "MODEL"
     ],
     [
-      5978,
+      52,
       2743,
       6,
       2734,
-      12,
+      6,
       "INT"
     ],
     [
-      5979,
-      2743,
-      0,
-      2746,
-      0,
-      "IMAGE"
-    ],
-    [
-      5980,
-      2746,
-      0,
-      2734,
-      3,
-      "IMAGE"
-    ],
-    [
-      5981,
+      53,
       2741,
       0,
       2747,
@@ -3889,7 +3830,7 @@
       "MODEL"
     ],
     [
-      5984,
+      54,
       2743,
       2,
       2749,
@@ -3897,7 +3838,7 @@
       "IMAGE"
     ],
     [
-      5985,
+      55,
       2723,
       0,
       2743,
@@ -3905,7 +3846,7 @@
       "IMAGE"
     ],
     [
-      5986,
+      56,
       2723,
       0,
       2731,
@@ -3913,7 +3854,7 @@
       "IMAGE"
     ],
     [
-      5987,
+      57,
       1512,
       3,
       2736,
@@ -3921,7 +3862,7 @@
       "AUDIO"
     ],
     [
-      5988,
+      58,
       2693,
       0,
       2751,
@@ -3929,7 +3870,7 @@
       "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
     ],
     [
-      5989,
+      59,
       2723,
       0,
       2751,
@@ -3937,7 +3878,7 @@
       "IMAGE"
     ],
     [
-      5990,
+      60,
       2731,
       0,
       2751,
@@ -3945,11 +3886,35 @@
       "IMAGE"
     ],
     [
-      5991,
+      61,
       2751,
       0,
       2568,
       0,
+      "IMAGE"
+    ],
+    [
+      62,
+      2693,
+      0,
+      2746,
+      0,
+      "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
+    ],
+    [
+      63,
+      2746,
+      0,
+      2734,
+      3,
+      "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
+    ],
+    [
+      64,
+      2746,
+      1,
+      2743,
+      1,
       "IMAGE"
     ]
   ],
@@ -6953,7 +6918,7 @@
     },
     "links_added_by_ue": [],
     "director_plus_face_refine": {
-      "subject": "right",
+      "subject": "selected_reference",
       "gpu_inference_verified": false,
       "input": "original_decoded_frames",
       "enabled_by_default": false

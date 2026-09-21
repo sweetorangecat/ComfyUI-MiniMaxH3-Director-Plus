@@ -14,6 +14,60 @@ def face_module():
     return face_refine
 
 
+def test_refine_inputs_preserve_numbering_and_select_original_identity():
+    module = face_module()
+    refs = {"ref_image_1": torch.zeros(1, 8, 8, 3),
+            "ref_image_2": torch.ones(1, 8, 8, 3)}
+    guide = {"prompt": "<Subject 1> uses <Picture 2> and <Audio 2>",
+             "ref_images": refs, "ref_audios": {"ref_audio_2": object()}}
+    state, identity = module.MiniMaxH3FaceRefineInputs().prepare(guide, 2)
+    assert identity is refs["ref_image_2"]
+    assert state["prompt"] == guide["prompt"]
+    assert state["ref_images"] == refs
+    assert state["ref_audios"] == guide["ref_audios"]
+    assert state is not guide
+    with pytest.raises(ValueError, match="Picture 3"):
+        module.MiniMaxH3FaceRefineInputs().prepare(guide, 3)
+
+
+def test_refine_inputs_require_explicit_reference_when_no_director_refs():
+    module = face_module()
+    guide = {"prompt": "Original action", "first_frame": torch.ones(1, 8, 8, 3)}
+    with pytest.raises(ValueError, match="参考"):
+        module.MiniMaxH3FaceRefineInputs().prepare(guide, 1)
+    ref = torch.zeros(1, 8, 8, 3)
+    state, identity = module.MiniMaxH3FaceRefineInputs().prepare(guide, 1, ref)
+    assert state["ref_images"] == {"ref_image_1": ref}
+    assert identity is ref
+    assert "ref_images" not in guide
+
+
+def test_refine_conditioning_uses_crop_dimensions_without_mutating_guide(monkeypatch):
+    module = face_module()
+    from nodes import guide as guide_module
+    calls = []
+    fake = types.SimpleNamespace(execute=lambda **kwargs: calls.append(kwargs) or ("cond", "latent"))
+    monkeypatch.setattr(guide_module, "native_node", lambda name: fake)
+    state = {"prompt": "exact prompt", "width": 1344, "height": 768,
+             "ref_images": {"ref_image_1": object()}, "ref_audios": {}}
+    result = module.MiniMaxH3FaceRefineConditioning().apply("clip", "vae", "audio", state, 768, 768, 121)
+    assert result == ("cond", "latent")
+    assert calls[0]["prompt"] == "exact prompt"
+    assert calls[0]["width"] == 768 and calls[0]["length"] == 121
+    assert calls[0]["ref_images"] == state["ref_images"]
+    assert state["width"] == 1344
+
+
+def test_tracker_rejects_unusable_explicit_identity_before_tracking(monkeypatch):
+    module = face_module()
+    backend = types.SimpleNamespace(_make_embedder=lambda *args: types.SimpleNamespace(
+        needs_detector=False, embed_reference=lambda *args: None))
+    monkeypatch.setattr(module, "_backend", lambda: backend)
+    with pytest.raises(ValueError, match="身份参考"):
+        module.MiniMaxH3FaceTrackCrop().run(images=torch.zeros(2, 8, 8, 3),
+            identity_reference=torch.zeros(1, 8, 8, 3), identity_track=True)
+
+
 def test_detector_discovery_without_impact_subpack(tmp_path, monkeypatch):
     module = face_module()
     import folder_paths
@@ -181,3 +235,15 @@ def test_face_refine_switch_requests_only_refined_frames_when_enabled():
     assert switch.select(
         guide, original_images=None, refined_images=refined
     ) == (refined,)
+
+
+def test_tracker_stops_if_backend_loses_identity_matching(monkeypatch):
+    module = face_module()
+    embedder = types.SimpleNamespace(needs_detector=False, embed_reference=lambda *a: object())
+    backend = types.SimpleNamespace(_make_embedder=lambda *a: embedder)
+    monkeypatch.setattr(module, "_backend", lambda: backend)
+    monkeypatch.setattr(module._FaceNode, "run", lambda *a, **k: (
+        None, None, None, "identity: insightface unavailable, tracking by continuity: error", 768, 768, 1))
+    with pytest.raises(RuntimeError, match="身份跟踪退化"):
+        module.MiniMaxH3FaceTrackCrop().run(images=torch.zeros(1, 32, 32, 3),
+            identity_reference=torch.zeros(1, 32, 32, 3), identity_track=True)

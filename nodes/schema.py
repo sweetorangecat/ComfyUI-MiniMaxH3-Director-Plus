@@ -647,7 +647,7 @@ def public_schema():
                 "中文名称": "人脸修复",
                 "enum": list(FACE_REFINE_MODES),
                 "default": "off",
-                "description": "关闭时完全旁路且不加载修复模型；自动时使用项目内置的镜头感知人脸跟踪与保守局部重绘。",
+                "description": "关闭时完全旁路且不加载修复模型；开启后按原始 Picture 参考修复单个人物，需身份与切镜检测依赖。检测可能出错，需先检查跟踪，不保证画质提升。",
             },
             "custom_width": {"中文名称": "自定义宽度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 16},
             "custom_height": {"中文名称": "自定义高度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 9},

@@ -79,6 +79,8 @@ def test_face_examples_preserve_audio_fps_and_sampling_recipe():
             assert "SamplerCustomAdvanced" not in types
             continue
         by_id = {node["id"]: node for node in workflow["nodes"]}
+        assert by_id[112]["type"] == "LoadImage"
+        assert not any(node["type"] == "ImageFromBatch" for node in workflow["nodes"])
         saver = next(node for node in workflow["nodes"] if node["type"] == "VHS_VideoCombine")
         for input_name, source_type, slot in [("audio", "VHS_LoadVideoPath", 2),
                                                ("frame_rate", "VHS_VideoInfoLoaded", 0)]:
@@ -100,3 +102,35 @@ def test_integration_is_repeatable_and_graph_remains_connected():
     previews = [node for node in result["nodes"] if node.get("properties", {}).get(
         "director_plus_face_refine") and node["type"] == "PreviewImage"]
     assert previews and all(node["mode"] == 2 for node in previews)
+
+
+def test_main_refinement_preserves_director_references_and_tracks_identity():
+    workflow = json.loads(next((ROOT / "examples").glob("U11-*.json")).read_text("utf-8"))
+    by_id = {node["id"]: node for node in workflow["nodes"]}
+    context = next(node for node in workflow["nodes"] if node["type"] == "MiniMaxH3FaceRefineInputs")
+    conditioning = next(node for node in workflow["nodes"] if node["type"] == "MiniMaxH3FaceRefineConditioning")
+    tracker = next(node for node in workflow["nodes"] if node["type"] == "MiniMaxH3FaceTrackCrop")
+    for node, name, source, slot in [(context, "guide", "MiniMaxH3DirectorPlus", 0),
+                                    (conditioning, "guide", context["type"], 0),
+                                    (tracker, "identity_reference", context["type"], 1)]:
+        socket = next(item for item in node["inputs"] if item["name"] == name)
+        edge = next(edge for edge in workflow["links"] if edge[0] == socket["link"])
+        assert by_id[edge[1]]["type"] == source and edge[2] == slot
+    assert tracker["widgets_values"][10] is True
+    assert tracker["widgets_values"][17] == "auto (pyscenedetect)"
+    assert tracker["widgets_values"][19] == "by_identity"
+    assert not any(node["type"] == "ImageFromBatch" and node.get("properties", {}).get(
+        "director_plus_face_refine") for node in workflow["nodes"])
+
+
+def test_regeneration_preserves_user_identity_override():
+    from tools.integrate_face_refine import integrate
+    main = json.loads(next((ROOT / "examples").glob("U11-*.json")).read_text("utf-8"))
+    context = next(node for node in main["nodes"] if node["type"] == "MiniMaxH3FaceRefineInputs")
+    new_id = main["last_node_id"] + 1
+    main["nodes"].append({"id": new_id, "type": "LoadImage", "pos": [0, 0], "size": [300, 300],
+                          "inputs": [], "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": []}]})
+    main["links"].append([main["last_link_id"] + 1, new_id, 0, context["id"], 1, "IMAGE"])
+    result = integrate(main, {})
+    assert any(edge[1] == new_id and edge[3:5] == [context["id"], 1] for edge in result["links"])
+    assert_edges(result)

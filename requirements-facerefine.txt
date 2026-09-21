@@ -2,4 +2,6 @@
 ultralytics
 scipy
 scenedetect>=0.7
-# identity_track + insightface additionally requires insightface and onnxruntime.
+# Main U11 identity-reference tracking requires these; positional standalone previews do not.
+insightface
+onnxruntime
