@@ -457,7 +457,7 @@ def normalize_request(raw=None):
             request["warnings"].append(
                 "已上传音色参考，但提示词没有把 <Audio 1> 等音色绑定到角色对白；请明确写出“角色使用 <Audio 1> 的音色说：……”否则可能只生成环境声。"
             )
-        if preset in TWO_STAGE_PERFORMANCE_PRESETS:
+        if preset == "low_vram_two_stage":
             migrated_preset = (
                 "low_vram"
                 if preset == "low_vram_two_stage"

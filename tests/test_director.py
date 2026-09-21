@@ -1906,7 +1906,8 @@ def test_low_step_route_warns_about_voice_fidelity():
     assert any("音色保真提醒" in warning for warning in guide["warnings"])
 
 
-def test_smart_voice_reference_restores_native_single_pass(monkeypatch):
+@pytest.mark.parametrize("preset", ["智能画质（自动适配）", "quality_two_stage"])
+def test_voice_reference_restores_guarded_high_resolution_redraw(monkeypatch, preset):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (32.0, 29.0))
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="REF2VA",
@@ -1918,18 +1919,22 @@ def test_smart_voice_reference_restores_native_single_pass(monkeypatch):
         resolution_preset="1080p FHD",
         voice_mode="h3_reference",
         ref_image_size="match",
-        performance_preset="智能画质（自动适配）",
-        postprocess_mode="native",
+        performance_preset=preset,
+        postprocess_mode="rtx_vsr" if preset == "quality_two_stage" else "ai_upscale",
         timeline_data="{}",
         target_dialogue="",
         reference_transcript="",
         voice_reference_audio=_clean_voice(),
     )
 
-    assert guide["performance_preset"] == "ref_quality_native"
-    assert guide["two_stage_enabled"] is False
-    assert guide["resolved_two_stage_route"] == "bypass"
-    assert any("原生 20 步" in warning for warning in guide["warnings"])
+    assert guide["performance_preset"] == "quality_two_stage"
+    assert guide["two_stage_enabled"] is True
+    assert guide["resolved_two_stage_route"] == "trained_latent_ref"
+    assert guide["two_stage_audio_guard"] is True
+    assert guide["second_stage_width"] >= 1920
+    assert guide["second_stage_height"] >= 1080
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
+    assert len(guide["ref_audios"]) == 1
 
 
 def test_match_ref_image_size_warns_when_final_upscale_exceeds_one_and_half_x():

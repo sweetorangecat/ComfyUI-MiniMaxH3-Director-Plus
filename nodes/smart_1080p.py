@@ -115,13 +115,14 @@ def resolve_smart_1080p_plan(
     )
     dimension_plan = None
 
-    # H3 reference audio is a soft conditioning signal that must survive the
-    # entire native denoising path.  The trained U22 redraw changes the AV
-    # latent after the reference binding and is therefore unsuitable for
-    # cloned/multi-speaker voice jobs, even when its video detail is higher.
-    # Keep the single-pass clarity route for reference audio and only allow
-    # the existing low-VRAM policy to decide how far that card can go.
-    if voice_mode == "h3_reference" and not low_vram:
+    # Reference audio does not require a blanket ban on video redraw. With
+    # sufficient budget, use the normal trained route and freeze/reinsert the
+    # first-pass audio. Preserve the native fallback for limited machines.
+    reference_redraw_ready = (
+        backend == "ref2va_model" and two_stage_ready
+        and float(total_vram_gb) >= 20.0 and float(free_vram_gb) >= 18.0
+    )
+    if voice_mode == "h3_reference" and not low_vram and not reference_redraw_ready:
         return {
             "performance_preset": "ref_quality_native",
             # SeedVR2 is another diffusion model.  It is much slower than the
@@ -138,7 +139,7 @@ def resolve_smart_1080p_plan(
             "max_duration": 15,
             "two_stage_route": "bypass",
             "warning": (
-                "已恢复“参考高清（原生 20 步）”单采路线：音色参考任务不使用 U22 训练型二采，"
+                "二采依赖或显存预算不足，使用“参考高清（原生 20 步）”单采路线："
                 "不拆分音频/视频 latent；1080p 最终使用保守 AI 超分，不自动启用会重绘人物细节的 SeedVR2。"
             ),
             "dimension_plan": None,
@@ -271,6 +272,8 @@ def resolve_smart_1080p_plan(
     # Low-VRAM FHD runs must stay on the conservative per-frame X2 path.
     # SeedVR2 diffusion reconstruction is the source of unstable artifacts on
     # 8GB-class cards, even when its node and weights happen to be installed.
+    if voice_mode == "h3_reference" and route == "trained_latent_ref":
+        warning += " 二采锁定首采音频（零噪声、零重绘遮罩、最终精确回填）；音色匹配与口型仍需实际验证。"
     postprocess_mode = (
         "ai_upscale"
         if low_vram
@@ -291,9 +294,7 @@ def resolve_smart_1080p_plan(
         "warning": warning,
         "dimension_plan": dimension_plan,
         "two_stage_audio_guard": bool(
-            low_vram
-            and low_vram_detail
-            and route == "trained_latent_ref"
+            route == "trained_latent_ref"
             and voice_mode == "h3_reference"
         ),
     }

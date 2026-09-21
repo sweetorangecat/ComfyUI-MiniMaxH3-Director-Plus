@@ -747,7 +747,8 @@ class MiniMaxH3TwoStageSampler:
             "masked_stage1_reinsert" if guide.get("two_stage_audio_guard") else "stage1_reinsert"
         )
         LOGGER.info(
-            "[H3 two-stage] audio locked to stage-1 latent after second-stage video redraw"
+            "[H3 two-stage] audio locked to stage-1 latent after second-stage video redraw mode=%s",
+            guide["two_stage_audio_lock"],
         )
         LOGGER.info("[H3 two-stage] completed output=%s", _latent_shape(final_denoised))
         return final_denoised, final_denoised

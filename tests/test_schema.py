@@ -702,18 +702,13 @@ def test_ref2va_unsafe_legacy_preset_falls_back_after_backend_resolution(
         },
     ],
 )
-def test_h3_reference_two_stage_state_migrates_to_native_quality(payload):
+def test_h3_reference_two_stage_state_preserves_explicit_quality_route(payload):
     request = normalize_request(payload)
 
     assert request["resolved_backend"] == "ref2va_model"
-    if request["voice_mode"] == "h3_reference":
-        assert request["performance_preset"] == "ref_quality_native"
-        assert request["postprocess_mode"] == "rtx_vsr"
-        assert request["rtx_quality"] == "HIGH"
-    else:
-        assert request["performance_preset"] == "quality_two_stage"
-        assert request["postprocess_mode"] == "rtx_vsr"
-        assert request["rtx_quality"] == "HIGHBITRATE_ULTRA"
+    assert request["performance_preset"] == "quality_two_stage"
+    assert request["postprocess_mode"] == "rtx_vsr"
+    assert request["rtx_quality"] == "HIGHBITRATE_ULTRA"
 
     reloaded = normalize_request(request)
     assert {
@@ -725,7 +720,7 @@ def test_h3_reference_two_stage_state_migrates_to_native_quality(payload):
     }
 
 
-def test_h3_reference_backend_migrates_two_stage_preset_to_native_quality():
+def test_h3_reference_backend_preserves_two_stage_preset():
     request = normalize_request({
         "mode": "I2VA",
         "first_image": "opening.png",
@@ -735,9 +730,8 @@ def test_h3_reference_backend_migrates_two_stage_preset_to_native_quality():
         "postprocess_mode": "rtx_vsr",
     })
     assert request["resolved_backend"] == "ref2va_model"
-    assert request["performance_preset"] == "ref_quality_native"
-    assert request["rtx_quality"] == "HIGH"
-    assert any("原生 20 步" in warning for warning in request["warnings"])
+    assert request["performance_preset"] == "quality_two_stage"
+    assert request["rtx_quality"] == "HIGHBITRATE_ULTRA"
 
 
 def test_h3_reference_low_vram_two_stage_migrates_to_low_vram_single_pass():
