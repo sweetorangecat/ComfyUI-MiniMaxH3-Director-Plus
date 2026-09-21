@@ -104,50 +104,111 @@ def _clean_links(workflow):
 
 def integrate(main, face):
     workflow = deepcopy(main)
-    removed = {node["id"] for node in workflow["nodes"] if node.get("properties", {}).get(MARKER)}
-    workflow["nodes"] = [node for node in workflow["nodes"] if node["id"] not in removed]
-    workflow["links"] = [edge for edge in workflow["links"] if edge[1] not in removed and edge[3] not in removed]
+    nodes = workflow["nodes"]
+    by_id = {node["id"]: node for node in nodes}
+    # Reuse the project-owned branch already present in the U11 workflow. This
+    # keeps its latent/model wiring intact while replacing only the old
+    # save-and-reread boundary.
+    branch = [node for node in nodes if node.get("properties", {}).get(MARKER)]
+    old_switches = [node for node in branch if node.get("type") == "MiniMaxH3FaceRefineSwitch"]
+    obsolete_types = {"VHS_LoadVideoPath", "VHS_VideoCombine", "VHS_VideoInfoLoaded"}
+    obsolete = {node["id"] for node in branch if node.get("type") in obsolete_types}
+    obsolete.update(node["id"] for node in old_switches)
+    if obsolete:
+        workflow["nodes"] = [node for node in nodes if node["id"] not in obsolete]
+        workflow["links"] = [edge for edge in workflow["links"] if edge[1] not in obsolete and edge[3] not in obsolete]
+        nodes = workflow["nodes"]
+        by_id = {node["id"]: node for node in nodes}
     workflow["groups"] = [group for group in workflow.get("groups", []) if group.get("title") != "FaceRefine 人脸修复"]
     _clean_links(workflow)
     saver = next(node for node in workflow["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
-    branch = deepcopy(face)
-    origin_x = max(node["pos"][0] + node["size"][0] for node in workflow["nodes"]) + 300
-    _layout(branch["nodes"], origin_x, 0)
-    subgraphs = workflow.get("definitions", {}).get("subgraphs", [])
-    all_nodes = workflow["nodes"] + [node for graph in subgraphs for node in graph.get("nodes", [])]
-    first_id = max(node["id"] for node in all_nodes if isinstance(node["id"], int)) + 1
-    mapping = {node["id"]: first_id + index for index, node in enumerate(branch["nodes"])}
-    first_link = max([edge[0] for edge in workflow["links"]] + [0]) + 1
-    link_mapping = {edge[0]: first_link + index for index, edge in enumerate(branch["links"])}
-    for node in branch["nodes"]:
-        node["id"] = mapping[node["id"]]
-        node["mode"] = 2
+    branch = [node for node in workflow["nodes"] if node.get("properties", {}).get(MARKER)]
+    if not branch:
+        raise ValueError("主工作流缺少项目内置 FaceRefine 分支，请先导入旧版 FaceRefine 集成工作流")
+    face_track = next(node for node in branch if node.get("type") == "MiniMaxH3FaceTrackCrop")
+    face_stitch = next(node for node in branch if node.get("type") == "MiniMaxH3FaceStitch")
+    audio_lock = next(node for node in branch if node.get("type") == "MiniMaxH3FaceAudioLock")
+    color_guard = next(node for node in workflow["nodes"] if node.get("type") == "MiniMaxH3ColorGuard")
+    director = next(node for node in workflow["nodes"] if node.get("type") == "MiniMaxH3DirectorPlus")
+    director_values = director.setdefault("widgets_values", [])
+    if not director_values or director_values[-1] != "off":
+        director_values.append("off")
+    director.setdefault("widgets_values_named", {})["face_refine_mode"] = "off"
+
+    def remove_target_links(target_id, target_slot):
+        workflow["links"] = [edge for edge in workflow["links"] if not (edge[3] == target_id and edge[4] == target_slot)]
+
+    def add_link(source, source_slot, target, target_slot, data_type):
+        ident = max([edge[0] for edge in workflow["links"]] + [0]) + 1
+        workflow["links"].append([ident, source["id"], source_slot, target["id"], target_slot, data_type])
+        return ident
+
+    def source_link(target_id, target_slot):
+        return next((edge for edge in workflow["links"] if edge[3] == target_id and edge[4] == target_slot), None)
+
+    # Original decoded frames are the tracking/stitch base. The original H3
+    # audio remains authoritative and never passes through a video file.
+    remove_target_links(face_track["id"], 0)
+    remove_target_links(face_stitch["id"], 0)
+    remove_target_links(audio_lock["id"], 3)
+    add_link(color_guard, 0, face_track, 0, "IMAGE")
+    add_link(color_guard, 0, face_stitch, 0, "IMAGE")
+    audio_edge = source_link(saver["id"], 2)
+    if audio_edge is None:
+        raise ValueError("主工作流最终输出没有原始音频连接")
+    workflow["links"].append([max([edge[0] for edge in workflow["links"]] + [0]) + 1,
+                               audio_edge[1], audio_edge[2], audio_lock["id"], 3, "AUDIO"])
+
+    for node in branch:
+        node["mode"] = 0
         node.setdefault("properties", {})[MARKER] = True
-        for input_ in node.get("inputs", []):
-            if input_.get("link") is not None:
-                input_["link"] = link_mapping[input_["link"]]
-        for output in node.get("outputs", []):
-            output["links"] = [link_mapping[ident] for ident in output.get("links") or []]
-    for edge in branch["links"]:
-        edge[0], edge[1], edge[3] = link_mapping[edge[0]], mapping[edge[1]], mapping[edge[3]]
-    reader = next(node for node in branch["nodes"] if node["type"] == "VHS_LoadVideoPath")
-    reader["title"] = "自动读取 U11 原版输出"
-    reader["widgets_values"]["video"] = ""
-    link_id = first_link + len(branch["links"])
-    reader.setdefault("inputs", []).append({"name": "video", "type": "STRING",
-                                           "widget": {"name": "video"}, "link": link_id})
-    saver["outputs"][1].setdefault("links", []).append(link_id)
-    branch["links"].append([link_id, saver["id"], 1, reader["id"], len(reader["inputs"]) - 1, "STRING"])
-    workflow["nodes"].extend(branch["nodes"])
-    workflow["links"].extend(branch["links"])
+
+    selector_id = max(node["id"] for node in workflow["nodes"] if isinstance(node.get("id"), int)) + 1
+    selector = {
+        "id": selector_id, "type": "MiniMaxH3FaceRefineSwitch", "title": "人脸修复统一开关（懒加载）",
+        "pos": [saver["pos"][0] + saver["size"][0] + 80, saver["pos"][1]], "size": [420, 150], "flags": {},
+        "order": max(node.get("order", 0) for node in workflow["nodes"]) + 1, "mode": 0,
+        "inputs": [
+            {"name": "guide", "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE", "link": None},
+            {"name": "original_images", "type": "IMAGE", "link": None, "shape": 7},
+            {"name": "refined_images", "type": "IMAGE", "link": None, "shape": 7},
+        ],
+        "outputs": [{"name": "images", "type": "IMAGE", "links": []}],
+        "properties": {"Node name for S&R": "MiniMaxH3FaceRefineSwitch", "cnr_id": PLUGIN, MARKER: True},
+        "widgets_values": [], "color": "#3f789e", "bgcolor": "#31566f",
+    }
+    workflow["nodes"].append(selector)
+    for target, slot in ((selector, 0),):
+        remove_target_links(target["id"], slot)
+    add_link(director, 0, selector, 0, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")
+    add_link(color_guard, 0, selector, 1, "IMAGE")
+    add_link(face_stitch, 0, selector, 2, "IMAGE")
+    remove_target_links(saver["id"], 0)
+    add_link(selector, 0, saver, 0, "IMAGE")
     for order, node in enumerate(workflow["nodes"]):
         node["order"] = order
+    origin_x = max(node["pos"][0] + node["size"][0] for node in branch) + 300
     workflow["groups"].append({"title": "FaceRefine 人脸修复", "bounding": [origin_x - 40, -100, 2600, 2580],
                                "color": "#3f789e", "font_size": 24, "flags": {}})
     workflow["last_node_id"] = max(node["id"] for node in workflow["nodes"] if isinstance(node["id"], int))
-    workflow["last_link_id"] = link_id
+    workflow["last_link_id"] = max([edge[0] for edge in workflow["links"]] + [0])
     workflow.setdefault("extra", {})[MARKER] = {"subject": "right", "gpu_inference_verified": False,
-                                               "input": "saved_output_filename", "enabled_by_default": False}
+                                               "input": "original_decoded_frames", "enabled_by_default": False}
+    # Reconstruct serialized socket metadata after rewiring. ComfyUI validates
+    # both sides of every edge, so stale output link ids are not harmless.
+    for node in workflow["nodes"]:
+        for item in node.get("inputs", []):
+            item["link"] = None
+        for item in node.get("outputs", []):
+            item["links"] = []
+    for edge in workflow["links"]:
+        ident, source_id, source_slot, target_id, target_slot, _ = edge
+        source = next(node for node in workflow["nodes"] if node["id"] == source_id)
+        target = next(node for node in workflow["nodes"] if node["id"] == target_id)
+        target["inputs"][target_slot]["link"] = ident
+        target_links = source["outputs"][source_slot].setdefault("links", [])
+        if ident not in target_links:
+            target_links.append(ident)
     return workflow
 
 

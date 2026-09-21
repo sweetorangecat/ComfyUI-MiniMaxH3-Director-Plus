@@ -12,11 +12,12 @@ POSTPROCESS_MODES = ("native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr")
 RTX_QUALITIES = ("HIGH", "ULTRA", "HIGHBITRATE_ULTRA")
 MOTION_SMOOTHING_MODES = ("auto", "off", "rife_x2")
 AUDIO_LOUDNESS_MODES = ("auto", "original")
+FACE_REFINE_MODES = ("off", "auto")
 PUBLIC_API_KEYS = (
     "mode", "prompt", "duration", "aspect_ratio", "resolution_preset", "custom_width", "custom_height",
     "seed", "first_image", "last_image", "references", "voice_mode", "voice_reference_audio", "voice_reference_audios", "voice_reference_names",
     "voice_gender", "target_dialogue", "reference_transcript", "fish_model_path", "ref_image_size", "performance_preset",
-    "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness",
+    "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness", "face_refine_mode",
 )
 
 
@@ -295,6 +296,7 @@ DEFAULT_REQUEST = {
     "ai_upscale_model": "auto",
     "motion_smoothing": "off",
     "audio_loudness": "auto",
+    "face_refine_mode": "off",
     "ignored_media": [],
     "postprocess": {},
     "output": {},
@@ -374,6 +376,9 @@ def normalize_request(raw=None):
     request["audio_loudness"] = str(request.get("audio_loudness") or "auto")
     if request["audio_loudness"] not in AUDIO_LOUDNESS_MODES:
         raise RequestError(f"不支持的最终音频响度模式：{request['audio_loudness']}")
+    request["face_refine_mode"] = str(request.get("face_refine_mode") or "off")
+    if request["face_refine_mode"] not in FACE_REFINE_MODES:
+        raise RequestError(f"不支持的人脸修复模式：{request['face_refine_mode']}")
     request["ai_upscale_model"] = str(request.get("ai_upscale_model") or "auto").strip() or "auto"
 
     try:
@@ -637,6 +642,12 @@ def public_schema():
                 "enum": list(AUDIO_LOUDNESS_MODES),
                 "default": "auto",
                 "description": "自动模式在最终编码前安全提升过小的 H3 音频响度；original 保持原始波形。",
+            },
+            "face_refine_mode": {
+                "中文名称": "人脸修复",
+                "enum": list(FACE_REFINE_MODES),
+                "default": "off",
+                "description": "关闭时完全旁路且不加载修复模型；自动时使用项目内置的镜头感知人脸跟踪与保守局部重绘。",
             },
             "custom_width": {"中文名称": "自定义宽度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 16},
             "custom_height": {"中文名称": "自定义高度", "type": "integer", "minimum": 1, "maximum": 8192, "default": 9},

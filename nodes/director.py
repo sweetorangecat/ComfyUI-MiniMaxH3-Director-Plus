@@ -363,6 +363,7 @@ class MiniMaxH3DirectorPlus:
                 "motion_smoothing": (["off", "rife_x2"], {"default": "off", "tooltip": "运动平滑：默认关闭以保留原始帧；需要 48 FPS 时手动启用流式 RIFE 2x；低显存模式只允许关闭"}),
                 "audio_loudness": (["auto", "original"], {"default": "auto", "tooltip": "最终音频：自动增强过小的 H3 音量，或保持原始响度"}),
                 "voice_gender": ("STRING", {"default": "auto", "tooltip": "保持参考音色的性别与音域；旧工作流错位值在 normalize_request 中自动归一化为 auto"}),
+                "face_refine_mode": (["off", "auto"], {"default": "off", "tooltip": "人脸修复：关闭时完全旁路；自动时运行项目内置的镜头感知局部人脸重绘"}),
                 "first_image": ("IMAGE",),
                 "last_image": ("IMAGE",),
                 "voice_reference_audio": ("AUDIO",),
@@ -410,6 +411,7 @@ class MiniMaxH3DirectorPlus:
         custom_height=9,
         seed=0,
         voice_gender="auto",
+        face_refine_mode="off",
         voice_reference_name_1="",
         voice_reference_name_2="",
         voice_reference_name_3="",
@@ -594,6 +596,7 @@ class MiniMaxH3DirectorPlus:
             "ai_upscale_model": ai_upscale_model,
             "motion_smoothing": motion_smoothing,
             "audio_loudness": audio_loudness,
+            "face_refine_mode": face_refine_mode,
             "ignored_media": ignored_media,
         })
 
@@ -1030,6 +1033,7 @@ class MiniMaxH3DirectorPlus:
             "version": 1,
             "mode": mode,
             "voice_mode": voice_mode,
+            "face_refine_mode": request["face_refine_mode"],
             "voice_gender": request["voice_gender"],
             "resolved_backend": request["resolved_backend"],
             "prompt": resolved_prompt,

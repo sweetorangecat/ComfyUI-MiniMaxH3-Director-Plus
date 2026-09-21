@@ -759,7 +759,7 @@ function install(node) {
     "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset", "custom_width", "custom_height", "seed", "control_after_generate", "voice_mode", "fish_model_path",
     "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data",
     "target_dialogue", "reference_transcript", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
-    "motion_smoothing", "audio_loudness", "voice_gender",
+    "motion_smoothing", "audio_loudness", "voice_gender", "face_refine_mode",
     "first_image_file", "last_image_file", "voice_reference_audio_file", "voice_reference_audio_2_file", "voice_reference_audio_3_file",
     "reference_image_1_file", "reference_image_2_file", "reference_image_3_file", "reference_image_4_file", "reference_image_5_file",
     "reference_image_6_file", "reference_image_7_file", "reference_image_8_file", "reference_image_9_file",
@@ -778,6 +778,7 @@ function install(node) {
     sanitizeUploadWidgets(node);
     const mode = widget(node, "mode")?.value || "FL2VA";
     const voiceMode = widget(node, "voice_mode")?.value || "none";
+    const faceRefineMode = widget(node, "face_refine_mode")?.value || "off";
     const savedVoiceGender = String(widget(node, "voice_gender")?.value || "");
     if (!VOICE_GENDERS.some(([value]) => value === savedVoiceGender)) {
       setWidget(node, "voice_gender", "auto", false);
@@ -1174,6 +1175,24 @@ function install(node) {
       audioLane.append(audioGrid);
     }
     voice.append(audioLane);
+
+    const faceRefine = document.createElement("section");
+    faceRefine.className = "h3p-section";
+    faceRefine.innerHTML = '<div class="h3p-section-title"><span>人脸修复</span><span class="h3p-hint">可选的局部清晰度修复</span></div>';
+    const faceRefineBar = document.createElement("div");
+    faceRefineBar.className = "h3p-grid";
+    faceRefineBar.append(valueControl("人脸修复", "face_refine_mode", [
+      ["off", "关闭"],
+      ["auto", "自动"],
+    ], faceRefineMode));
+    faceRefine.append(faceRefineBar);
+    const faceRefineNote = document.createElement("div");
+    faceRefineNote.className = "h3p-spec-note";
+    faceRefineNote.textContent = faceRefineMode === "auto"
+      ? "仅重绘跟踪到的人脸区域；镜头切换、遮挡或跟踪失败时会保守回退到原帧。"
+      : "关闭时直接使用原始视频帧，不加载人脸修复模型。";
+    faceRefine.append(faceRefineNote);
+    root.append(faceRefine);
     fishPanel = document.createElement("details");
     fishPanel.className = "h3p-fish";
     fishPanel.open = false;
@@ -1248,7 +1267,7 @@ function install(node) {
   requestAnimationFrame(bindMountedControls);
   setTimeout(bindMountedControls, 250);
 
-  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "rtx_quality", "motion_smoothing", "audio_loudness", "aspect_ratio", "resolution_preset", "seed", "control_after_generate"].forEach((name) => {
+  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "rtx_quality", "motion_smoothing", "audio_loudness", "face_refine_mode", "aspect_ratio", "resolution_preset", "seed", "control_after_generate"].forEach((name) => {
     const item = widget(node, name);
     if (!item) return;
     const original = item.callback;

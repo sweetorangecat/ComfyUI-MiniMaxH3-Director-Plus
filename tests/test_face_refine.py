@@ -153,3 +153,31 @@ def test_per_frame_strength_keeps_locked_audio_mask():
     assert mask[0, 0, -1, 0, 0].item() == pytest.approx(0.35)
     assert audio_mask.eq(0).all()
     assert latent["noise_mask"].unbind()[0].eq(1).all()
+
+
+def test_face_refine_switch_requests_only_original_frames_when_disabled():
+    module = face_module()
+    switch = module.MiniMaxH3FaceRefineSwitch()
+    guide = {"face_refine_mode": "off"}
+
+    assert switch.check_lazy_status(
+        guide, original_images=None, refined_images=None
+    ) == ["original_images"]
+    original = object()
+    assert switch.select(
+        guide, original_images=original, refined_images=None
+    ) == (original,)
+
+
+def test_face_refine_switch_requests_only_refined_frames_when_enabled():
+    module = face_module()
+    switch = module.MiniMaxH3FaceRefineSwitch()
+    guide = {"face_refine_mode": "auto"}
+
+    assert switch.check_lazy_status(
+        guide, original_images=None, refined_images=None
+    ) == ["refined_images"]
+    refined = object()
+    assert switch.select(
+        guide, original_images=None, refined_images=refined
+    ) == (refined,)

@@ -1,8 +1,8 @@
 {
   "id": "92cc2937-1602-5bb6-9edd-1686668d1545",
   "revision": 0,
-  "last_node_id": 2750,
-  "last_link_id": 5985,
+  "last_node_id": 2751,
+  "last_link_id": 5991,
   "nodes": [
     {
       "id": 1,
@@ -328,7 +328,8 @@
           "name": "AUDIO",
           "type": "AUDIO",
           "links": [
-            5761
+            5761,
+            5987
           ]
         },
         {
@@ -1268,7 +1269,9 @@
           "name": "色彩稳定帧",
           "type": "IMAGE",
           "links": [
-            5932
+            5985,
+            5986,
+            5989
           ]
         },
         {
@@ -1424,7 +1427,7 @@
           "localized_name": "images",
           "name": "images",
           "type": "IMAGE",
-          "link": 5932
+          "link": 5991
         },
         {
           "localized_name": "guide",
@@ -1595,9 +1598,7 @@
           "localized_name": "filename",
           "name": "filename",
           "type": "STRING",
-          "links": [
-            5985
-          ]
+          "links": []
         }
       ],
       "title": "预览与输出",
@@ -2154,7 +2155,8 @@
             5935,
             5937,
             5938,
-            5940
+            5940,
+            5988
           ]
         },
         {
@@ -2265,7 +2267,8 @@
         "",
         "off",
         "auto",
-        "auto"
+        "auto",
+        "off"
       ],
       "widgets_values_named": {
         "mode": "REF2VA",
@@ -2308,7 +2311,8 @@
         "reference_image_9_file": "",
         "motion_smoothing": "off",
         "audio_loudness": "auto",
-        "voice_gender": "auto"
+        "voice_gender": "auto",
+        "face_refine_mode": "off"
       },
       "color": "#24353d",
       "bgcolor": "#344b55"
@@ -2326,7 +2330,7 @@
       ],
       "flags": {},
       "order": 26,
-      "mode": 2,
+      "mode": 0,
       "inputs": [],
       "outputs": [
         {
@@ -2359,7 +2363,7 @@
       ],
       "flags": {},
       "order": 27,
-      "mode": 2,
+      "mode": 0,
       "inputs": [
         {
           "name": "model",
@@ -2402,7 +2406,7 @@
       ],
       "flags": {},
       "order": 28,
-      "mode": 2,
+      "mode": 0,
       "inputs": [],
       "outputs": [
         {
@@ -2436,7 +2440,7 @@
       ],
       "flags": {},
       "order": 29,
-      "mode": 2,
+      "mode": 0,
       "inputs": [
         {
           "name": "noise",
@@ -2498,12 +2502,12 @@
       ],
       "flags": {},
       "order": 30,
-      "mode": 2,
+      "mode": 0,
       "inputs": [
         {
           "name": "base_images",
           "type": "IMAGE",
-          "link": 5970
+          "link": 5986
         },
         {
           "name": "refined_crops",
@@ -2527,7 +2531,7 @@
           "name": "images",
           "type": "IMAGE",
           "links": [
-            5973
+            5990
           ]
         }
       ],
@@ -2562,7 +2566,7 @@
       ],
       "flags": {},
       "order": 31,
-      "mode": 2,
+      "mode": 0,
       "inputs": [],
       "outputs": [
         {
@@ -2599,7 +2603,7 @@
       ],
       "flags": {},
       "order": 32,
-      "mode": 2,
+      "mode": 0,
       "inputs": [],
       "outputs": [
         {
@@ -2635,7 +2639,7 @@
       ],
       "flags": {},
       "order": 33,
-      "mode": 2,
+      "mode": 0,
       "inputs": [
         {
           "name": "clip",
@@ -2768,7 +2772,7 @@
       ],
       "flags": {},
       "order": 34,
-      "mode": 2,
+      "mode": 0,
       "inputs": [
         {
           "name": "av_latent",
@@ -2822,7 +2826,7 @@
       ],
       "flags": {},
       "order": 35,
-      "mode": 2,
+      "mode": 0,
       "inputs": [
         {
           "name": "model",
@@ -2842,7 +2846,7 @@
         {
           "name": "audio",
           "type": "AUDIO",
-          "link": 5957
+          "link": 5987
         }
       ],
       "outputs": [
@@ -2889,7 +2893,7 @@
       ],
       "flags": {},
       "order": 36,
-      "mode": 2,
+      "mode": 0,
       "inputs": [
         {
           "name": "model",
@@ -2959,7 +2963,7 @@
       ],
       "flags": {},
       "order": 37,
-      "mode": 2,
+      "mode": 0,
       "inputs": [
         {
           "name": "model",
@@ -3001,7 +3005,7 @@
       ],
       "flags": {},
       "order": 38,
-      "mode": 2,
+      "mode": 0,
       "inputs": [
         {
           "name": "samples",
@@ -3033,81 +3037,6 @@
       "title": "8. Decode refined crops"
     },
     {
-      "id": 2740,
-      "type": "VHS_VideoCombine",
-      "pos": [
-        4790,
-        860
-      ],
-      "size": [
-        440,
-        600
-      ],
-      "flags": {},
-      "order": 39,
-      "mode": 2,
-      "inputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 5973
-        },
-        {
-          "name": "audio",
-          "shape": 7,
-          "type": "AUDIO",
-          "link": 5974
-        },
-        {
-          "name": "meta_batch",
-          "shape": 7,
-          "type": "VHS_BatchManager",
-          "link": null
-        },
-        {
-          "name": "vae",
-          "shape": 7,
-          "type": "VAE",
-          "link": null
-        },
-        {
-          "name": "frame_rate",
-          "type": "FLOAT",
-          "widget": {
-            "name": "frame_rate"
-          },
-          "link": 5983
-        }
-      ],
-      "outputs": [
-        {
-          "name": "Filenames",
-          "type": "VHS_FILENAMES",
-          "links": []
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "VHS_VideoCombine",
-        "director_plus_face_refine": true
-      },
-      "widgets_values": {
-        "frame_rate": 24,
-        "loop_count": 0,
-        "filename_prefix": "video/FaceRefine/right",
-        "format": "video/h264-mp4",
-        "pix_fmt": "yuv420p",
-        "crf": 16,
-        "save_metadata": true,
-        "trim_to_audio": false,
-        "pingpong": false,
-        "save_output": true,
-        "videopreview": ""
-      },
-      "color": "#233",
-      "bgcolor": "#355",
-      "title": "保存修复版（原帧率与原音轨）"
-    },
-    {
       "id": 2741,
       "type": "LoraLoaderModelOnly",
       "pos": [
@@ -3119,8 +3048,8 @@
         220
       ],
       "flags": {},
-      "order": 40,
-      "mode": 2,
+      "order": 39,
+      "mode": 0,
       "inputs": [
         {
           "name": "model",
@@ -3150,91 +3079,6 @@
       "title": "人脸修复 8 步 LoRA"
     },
     {
-      "id": 2742,
-      "type": "VHS_LoadVideoPath",
-      "pos": [
-        2710,
-        0
-      ],
-      "size": [
-        440,
-        330
-      ],
-      "flags": {},
-      "order": 41,
-      "mode": 2,
-      "inputs": [
-        {
-          "name": "meta_batch",
-          "shape": 7,
-          "type": "VHS_BatchManager",
-          "link": null
-        },
-        {
-          "name": "vae",
-          "shape": 7,
-          "type": "VAE",
-          "link": null
-        },
-        {
-          "name": "video",
-          "type": "STRING",
-          "widget": {
-            "name": "video"
-          },
-          "link": 5985
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            5946,
-            5970
-          ]
-        },
-        {
-          "name": "frame_count",
-          "type": "INT",
-          "links": []
-        },
-        {
-          "name": "audio",
-          "type": "AUDIO",
-          "links": [
-            5957,
-            5974
-          ]
-        },
-        {
-          "name": "video_info",
-          "type": "VHS_VIDEOINFO",
-          "links": [
-            5982
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "VHS_LoadVideoPath",
-        "director_plus_face_refine": true
-      },
-      "widgets_values": {
-        "video": "",
-        "force_rate": 0,
-        "custom_width": 0,
-        "custom_height": 0,
-        "frame_load_cap": 0,
-        "skip_first_frames": 0,
-        "select_every_nth": 1,
-        "format": "None",
-        "videopreview": ""
-      },
-      "color": "#233",
-      "bgcolor": "#355",
-      "title": "自动读取 U11 原版输出"
-    },
-    {
       "id": 2743,
       "type": "MiniMaxH3FaceTrackCrop",
       "pos": [
@@ -3246,13 +3090,13 @@
         960
       ],
       "flags": {},
-      "order": 42,
-      "mode": 2,
+      "order": 40,
+      "mode": 0,
       "inputs": [
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 5946
+          "link": 5985
         },
         {
           "name": "identity_reference",
@@ -3358,8 +3202,8 @@
         220
       ],
       "flags": {},
-      "order": 43,
-      "mode": 2,
+      "order": 41,
+      "mode": 0,
       "inputs": [],
       "outputs": [
         {
@@ -3394,8 +3238,8 @@
         220
       ],
       "flags": {},
-      "order": 44,
-      "mode": 2,
+      "order": 42,
+      "mode": 0,
       "inputs": [],
       "outputs": [
         {
@@ -3432,8 +3276,8 @@
         200
       ],
       "flags": {},
-      "order": 45,
-      "mode": 2,
+      "order": 43,
+      "mode": 0,
       "inputs": [
         {
           "name": "image",
@@ -3472,8 +3316,8 @@
         160
       ],
       "flags": {},
-      "order": 46,
-      "mode": 2,
+      "order": 44,
+      "mode": 0,
       "inputs": [
         {
           "name": "model",
@@ -3497,63 +3341,6 @@
       "widgets_values": []
     },
     {
-      "id": 2748,
-      "type": "VHS_VideoInfoLoaded",
-      "title": "从原片读取帧率",
-      "pos": [
-        4790,
-        540
-      ],
-      "size": [
-        440,
-        220
-      ],
-      "flags": {},
-      "order": 47,
-      "mode": 2,
-      "inputs": [
-        {
-          "name": "video_info",
-          "type": "VHS_VIDEOINFO",
-          "link": 5982
-        }
-      ],
-      "outputs": [
-        {
-          "name": "fps",
-          "type": "FLOAT",
-          "links": [
-            5983
-          ]
-        },
-        {
-          "name": "frame_count",
-          "type": "INT",
-          "links": []
-        },
-        {
-          "name": "duration",
-          "type": "FLOAT",
-          "links": []
-        },
-        {
-          "name": "width",
-          "type": "INT",
-          "links": []
-        },
-        {
-          "name": "height",
-          "type": "INT",
-          "links": []
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "VHS_VideoInfoLoaded",
-        "director_plus_face_refine": true
-      },
-      "widgets_values": []
-    },
-    {
       "id": 2749,
       "type": "PreviewImage",
       "title": "先检查跟踪预览：脸框应一直跟随同一个人",
@@ -3566,8 +3353,8 @@
         350
       ],
       "flags": {},
-      "order": 48,
-      "mode": 2,
+      "order": 45,
+      "mode": 0,
       "inputs": [
         {
           "name": "images",
@@ -3595,8 +3382,8 @@
         440
       ],
       "flags": {},
-      "order": 49,
-      "mode": 2,
+      "order": 46,
+      "mode": 0,
       "inputs": [],
       "outputs": [],
       "properties": {
@@ -3606,6 +3393,58 @@
       "widgets_values": [
         "人脸修复由当前 Director Plus 项目提供，无需安装独立 FaceRefine 插件。\n768×768，8 步，denoise=0.4；select 选择左/右人物，连续跟踪。\n先用 tracking-only 示例检查跟踪。身份识别默认关闭，可另装依赖后启用。\n合成保持输入分辨率、帧数和原音轨；1080p 原片输出仍为 1080p。\n高清角色参考图可替换 ImageFromBatch 到参考图输入的连线。\nRTX 5090 已跑通；这段双人物近景实测变软，不能保证更清晰。\n主工作流默认禁用本分支，需按原片对照后决定是否启用。"
       ]
+    },
+    {
+      "id": 2751,
+      "type": "MiniMaxH3FaceRefineSwitch",
+      "title": "人脸修复统一开关（懒加载）",
+      "pos": [
+        2215,
+        470
+      ],
+      "size": [
+        420,
+        150
+      ],
+      "flags": {},
+      "order": 47,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "guide",
+          "type": "MINIMAX_H3_DIRECTOR_PLUS_GUIDE",
+          "link": 5988
+        },
+        {
+          "name": "original_images",
+          "type": "IMAGE",
+          "link": 5989,
+          "shape": 7
+        },
+        {
+          "name": "refined_images",
+          "type": "IMAGE",
+          "link": 5990,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": [
+            5991
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "MiniMaxH3FaceRefineSwitch",
+        "cnr_id": "ComfyUI-MiniMaxH3-Director-Plus",
+        "director_plus_face_refine": true
+      },
+      "widgets_values": [],
+      "color": "#3f789e",
+      "bgcolor": "#31566f"
     }
   ],
   "links": [
@@ -3696,14 +3535,6 @@
       2678,
       0,
       "MODEL"
-    ],
-    [
-      5932,
-      2723,
-      0,
-      2568,
-      0,
-      "IMAGE"
     ],
     [
       5933,
@@ -3810,14 +3641,6 @@
       "MODEL"
     ],
     [
-      5946,
-      2742,
-      0,
-      2743,
-      0,
-      "IMAGE"
-    ],
-    [
       5947,
       2745,
       0,
@@ -3896,14 +3719,6 @@
       2736,
       2,
       "VAE"
-    ],
-    [
-      5957,
-      2742,
-      2,
-      2736,
-      3,
-      "AUDIO"
     ],
     [
       5958,
@@ -4002,14 +3817,6 @@
       "VAE"
     ],
     [
-      5970,
-      2742,
-      0,
-      2731,
-      0,
-      "IMAGE"
-    ],
-    [
       5971,
       2739,
       0,
@@ -4024,22 +3831,6 @@
       2731,
       2,
       "H3FACEXFORM"
-    ],
-    [
-      5973,
-      2731,
-      0,
-      2740,
-      0,
-      "IMAGE"
-    ],
-    [
-      5974,
-      2742,
-      2,
-      2740,
-      1,
-      "AUDIO"
     ],
     [
       5975,
@@ -4098,22 +3889,6 @@
       "MODEL"
     ],
     [
-      5982,
-      2742,
-      3,
-      2748,
-      0,
-      "VHS_VIDEOINFO"
-    ],
-    [
-      5983,
-      2748,
-      0,
-      2740,
-      4,
-      "FLOAT"
-    ],
-    [
       5984,
       2743,
       2,
@@ -4123,11 +3898,59 @@
     ],
     [
       5985,
-      2568,
+      2723,
+      0,
+      2743,
+      0,
+      "IMAGE"
+    ],
+    [
+      5986,
+      2723,
+      0,
+      2731,
+      0,
+      "IMAGE"
+    ],
+    [
+      5987,
+      1512,
+      3,
+      2736,
+      3,
+      "AUDIO"
+    ],
+    [
+      5988,
+      2693,
+      0,
+      2751,
+      0,
+      "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"
+    ],
+    [
+      5989,
+      2723,
+      0,
+      2751,
       1,
-      2742,
+      "IMAGE"
+    ],
+    [
+      5990,
+      2731,
+      0,
+      2751,
       2,
-      "STRING"
+      "IMAGE"
+    ],
+    [
+      5991,
+      2751,
+      0,
+      2568,
+      0,
+      "IMAGE"
     ]
   ],
   "groups": [
@@ -4206,7 +4029,7 @@
     {
       "title": "FaceRefine 人脸修复",
       "bounding": [
-        2670,
+        5490,
         -100,
         2600,
         2580
@@ -7132,7 +6955,7 @@
     "director_plus_face_refine": {
       "subject": "right",
       "gpu_inference_verified": false,
-      "input": "saved_output_filename",
+      "input": "original_decoded_frames",
       "enabled_by_default": false
     }
   },

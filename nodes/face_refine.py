@@ -174,9 +174,42 @@ class MiniMaxH3FaceAudioLock:
         return patched, result, audio
 
 
+class MiniMaxH3FaceRefineSwitch:
+    CATEGORY = _FaceNode.CATEGORY
+    FUNCTION = "select"
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {"guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",)},
+            "optional": {
+                "original_images": ("IMAGE", {"lazy": True}),
+                "refined_images": ("IMAGE", {"lazy": True}),
+            },
+        }
+
+    @staticmethod
+    def _selected(guide):
+        return "refined_images" if guide.get("face_refine_mode", "off") == "auto" else "original_images"
+
+    def check_lazy_status(self, guide, original_images=None, refined_images=None):
+        selected = self._selected(guide)
+        return [selected] if locals()[selected] is None else []
+
+    def select(self, guide, original_images=None, refined_images=None):
+        selected_name = self._selected(guide)
+        selected = refined_images if selected_name == "refined_images" else original_images
+        if selected is None:
+            raise ValueError("人脸修复输出未连接" if selected_name == "refined_images" else "原始视频帧未连接")
+        return (selected,)
+
+
 NODE_CLASS_MAPPINGS = {cls.__name__: cls for cls in (
     MiniMaxH3FaceTrackCrop, MiniMaxH3FaceStitch, MiniMaxH3FaceInjectVideoLatent,
     MiniMaxH3FacePerFrameDenoise, MiniMaxH3FaceTransformInfo, MiniMaxH3FaceAudioLock,
+    MiniMaxH3FaceRefineSwitch,
 )}
 NODE_DISPLAY_NAME_MAPPINGS = {
     "MiniMaxH3FaceTrackCrop": "H3 人脸跟踪与裁剪",
@@ -185,4 +218,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MiniMaxH3FacePerFrameDenoise": "H3 人脸逐帧重绘强度",
     "MiniMaxH3FaceTransformInfo": "H3 人脸跟踪报告",
     "MiniMaxH3FaceAudioLock": "H3 人脸修复原音轨锁定",
+    "MiniMaxH3FaceRefineSwitch": "H3 人脸修复开关（懒加载）",
 }

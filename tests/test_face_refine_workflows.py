@@ -6,18 +6,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_main_workflow_reads_its_own_saved_video_for_face_refinement():
+def test_main_workflow_uses_one_lazy_face_refine_switch_before_final_output():
     workflow = json.loads(next((ROOT / "examples").glob("U11-*.json")).read_text("utf-8"))
-    readers = [node for node in workflow["nodes"] if node["type"] == "VHS_LoadVideoPath"]
-    assert readers, "Main workflow has no integrated face refinement branch"
-    reader = readers[0]
-    video_input = next(item for item in reader["inputs"] if item["name"] == "video")
-    link = next(link for link in workflow["links"] if link[0] == video_input["link"])
-    saver = next(node for node in workflow["nodes"] if node["id"] == link[1])
-    assert saver["type"] == "MiniMaxH3StreamingVideoCombine" and link[2] == 1
-    assert "MiniMaxH3FaceStitch" in {node["type"] for node in workflow["nodes"]}
+    by_id = {node["id"]: node for node in workflow["nodes"]}
+    switches = [node for node in workflow["nodes"] if node["type"] == "MiniMaxH3FaceRefineSwitch"]
+    assert len(switches) == 1
+    switch = switches[0]
+    sources = {}
+    for input_ in switch["inputs"]:
+        edge = next(edge for edge in workflow["links"] if edge[0] == input_["link"])
+        sources[input_["name"]] = by_id[edge[1]]["type"]
+    assert sources == {
+        "guide": "MiniMaxH3DirectorPlus",
+        "original_images": "MiniMaxH3ColorGuard",
+        "refined_images": "MiniMaxH3FaceStitch",
+    }
+    output = next(node for node in workflow["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
+    image_input = next(item for item in output["inputs"] if item["name"] == "images")
+    image_edge = next(edge for edge in workflow["links"] if edge[0] == image_input["link"])
+    assert by_id[image_edge[1]]["type"] == "MiniMaxH3FaceRefineSwitch"
+    assert not any(node["type"] in {"VHS_LoadVideoPath", "VHS_VideoCombine"} for node in workflow["nodes"])
     branch = [node for node in workflow["nodes"] if node.get("properties", {}).get("director_plus_face_refine")]
-    assert branch and all(node["mode"] == 2 for node in branch)
+    assert branch and all(node["mode"] == 0 for node in branch)
 
 
 def assert_edges(workflow):

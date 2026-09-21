@@ -2020,3 +2020,44 @@ def test_fhd_two_stage_preserves_direct_export(monkeypatch, vram, aspect, width,
     assert not guide.get("video_sr_plan")
     assert any("不执行额外的视频超分" in warning for warning in guide["warnings"])
     assert not any("追加轻量精修" in warning for warning in guide["warnings"])
+
+
+def test_face_refine_defaults_off_and_is_exported_in_guide():
+    optional = MiniMaxH3DirectorPlus.INPUT_TYPES()["optional"]
+    assert optional["face_refine_mode"][0] == ["off", "auto"]
+    assert optional["face_refine_mode"][1]["default"] == "off"
+
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="A quiet room.",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="quality",
+        timeline_data='{"version":1,"items":[]}',
+        target_dialogue="",
+        reference_transcript="",
+    )
+
+    assert guide["face_refine_mode"] == "off"
+
+
+def test_face_refine_auto_is_exported_in_guide():
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA",
+        prompt="A quiet room.",
+        duration=5,
+        width=1344,
+        height=768,
+        voice_mode="none",
+        ref_image_size="match",
+        performance_preset="quality",
+        timeline_data='{"version":1,"items":[]}',
+        target_dialogue="",
+        reference_transcript="",
+        face_refine_mode="auto",
+    )
+
+    assert guide["face_refine_mode"] == "auto"
