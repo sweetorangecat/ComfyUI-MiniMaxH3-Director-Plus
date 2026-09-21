@@ -273,7 +273,8 @@ def resolve_smart_1080p_plan(
     # SeedVR2 diffusion reconstruction is the source of unstable artifacts on
     # 8GB-class cards, even when its node and weights happen to be installed.
     if voice_mode == "h3_reference" and route == "trained_latent_ref":
-        warning += " 二采锁定首采音频（零噪声、零重绘遮罩、最终精确回填）；音色匹配与口型仍需实际验证。"
+        warning = warning.replace("8 步首采", "完整首采（至 sigma=0）")
+        warning += " 完成全部首采步数后再锁定音频（零噪声、零重绘遮罩、最终精确回填），增加首采耗时；音色匹配与口型仍需实际验证。"
     postprocess_mode = (
         "ai_upscale"
         if low_vram

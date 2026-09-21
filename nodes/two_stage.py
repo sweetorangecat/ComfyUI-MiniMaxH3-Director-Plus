@@ -589,6 +589,22 @@ class MiniMaxH3TwoStageSampler:
         except ValueError as exc:
             raise ValueError(f"训练型 H3 二采 sigma 轨迹无效：{exc}") from exc
 
+        audio_guard = bool(guide.get("two_stage_audio_guard"))
+        if audio_guard:
+            # The split-point denoised output is an x0 prediction, not a
+            # completed audio trajectory. Once frozen it cannot receive the
+            # remaining updates. Finish AV at the original grid before locking
+            # audio and re-noising only video for the high-resolution redraw.
+            if not torch.isfinite(sigmas).all() or float(sigmas[-1]) != 0.0:
+                raise ValueError("锁定音频的首采必须使用以 sigma=0 结束的完整轨迹")
+            first_sigmas = sigmas
+            guide["two_stage_audio_source"] = "completed_first_pass"
+            LOGGER.info(
+                "[H3 two-stage] 音色保护：首采完整执行 %d 步至 sigma=0 后锁定音频，"
+                "再执行 %d 步视频二采；不再锁定切分点的中间音频预测",
+                len(first_sigmas) - 1, len(second_sigmas) - 1,
+            )
+
         route = guide.get("resolved_two_stage_route", "trained_latent_fl")
         from .stage_diagnostics import StageDiagnostics
 
@@ -641,7 +657,6 @@ class MiniMaxH3TwoStageSampler:
                 scale,
             )
             merged = _node_output(LTXVConcatAVLatent.execute(upscaled_video, audio_latent))
-            audio_guard = bool(guide.get("two_stage_audio_guard"))
             merged = _lock_stage2_audio(merged, enabled=audio_guard)
             merged_video_shape = _latent_shape(upscaled_video)
             second_grid, est_tokens, orientation = _second_stage_grid_metadata(merged)

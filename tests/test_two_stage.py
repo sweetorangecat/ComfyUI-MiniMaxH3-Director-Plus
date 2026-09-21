@@ -878,6 +878,22 @@ def test_guarded_tiled_ref2va_reports_audio_drift_and_restores_stage1_audio(monk
     assert torch.equal(final_audio, original_audio["samples"])
     assert guide["two_stage_audio_lock"] == "masked_stage1_reinsert"
     assert guide["two_stage_audio_drift_before_reinsert"] == pytest.approx(3.0)
+    assert events["sampler"][0][2][-1].item() == 0
+
+
+@pytest.mark.parametrize("guarded", [True, False])
+def test_locked_audio_is_taken_after_complete_first_pass(monkeypatch, guarded):
+    events, result, guide, sigmas, *_ = _run_two_stage_with_fakes(
+        monkeypatch, split_callables=None,
+        guide_extra={"mode": "REF2VA", "voice_mode": "h3_reference" if guarded else "none",
+                     "two_stage_audio_guard": guarded, "two_stage_tiled": False})
+    first_schedule = events["sampler"][0][2]
+    assert torch.equal(first_schedule, sigmas if guarded else sigmas[:5])
+    assert torch.equal(events["sampler"][1][2], sigmas[4:])
+    assert guide["two_stage_first_sigma_count"] == len(first_schedule)
+    if guarded:
+        assert first_schedule[-1].item() == 0
+        assert guide["two_stage_audio_source"] == "completed_first_pass"
 
 
 def test_anchored_keyframe_noise_uses_comfy_nested_tensor(monkeypatch):
