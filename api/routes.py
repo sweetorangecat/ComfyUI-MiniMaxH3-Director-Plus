@@ -118,14 +118,20 @@ async def assets_handler(request):
     from aiohttp import web
     import folder_paths
 
+    destination = None
     try:
         post = await request.post()
         field = post.get("asset") or post.get("file")
         if field is None or not getattr(field, "file", None):
             return web.json_response(error_payload("missing_asset", "缺少 asset 文件字段"), status=400)
-        destination = asset_destination(folder_paths.get_input_directory(), post.get("filename") or field.filename)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        with destination.open("wb") as output:
+        input_root = Path(folder_paths.get_input_directory())
+        validated = asset_destination(input_root, post.get("filename") or field.filename)
+        # Uploads are snapshots: changing only the bytes at an existing path leaves
+        # both browser /view caches and ComfyUI's filename-based node cache stale.
+        # Keep the original basename, but give every upload a new input path.
+        destination = validated.parent / uuid.uuid4().hex / validated.name
+        destination.parent.mkdir(parents=True, exist_ok=False)
+        with destination.open("xb") as output:
             while True:
                 block = field.file.read(1024 * 1024)
                 if not block:
@@ -134,8 +140,10 @@ async def assets_handler(request):
     except ValueError as exc:
         return web.json_response(error_payload("invalid_asset", str(exc)), status=400)
     except Exception as exc:
+        if destination is not None and destination.is_file():
+            destination.unlink(missing_ok=True)
         return web.json_response(error_payload("upload_failed", f"上传失败：{exc}"), status=400)
-    return web.json_response({"ok": True, "asset": f"h3-director-plus/{destination.name}"})
+    return web.json_response({"ok": True, "asset": destination.relative_to(input_root).as_posix()})
 
 
 async def generate_handler(request):

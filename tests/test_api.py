@@ -234,6 +234,46 @@ def test_asset_upload_accepts_known_media_extension(tmp_path):
     assert destination.suffix in ALLOWED_EXTENSIONS
 
 
+def test_same_named_uploads_use_independent_paths_for_preview_and_execution(tmp_path, monkeypatch):
+    import io
+    import json
+    import sys
+    import wave
+    from types import SimpleNamespace
+    from api.routes import assets_handler
+
+    monkeypatch.setitem(sys.modules, "folder_paths", SimpleNamespace(get_input_directory=lambda: str(tmp_path)))
+    legacy = asset_destination(tmp_path, "橘总.wav")
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"legacy workflow audio")
+
+    async def upload(payload):
+        async def post():
+            return {"asset": SimpleNamespace(file=io.BytesIO(payload), filename="橘总.wav")}
+        response = await assets_handler(SimpleNamespace(post=post))
+        assert response.status == 200
+        return json.loads(response.body)["asset"]
+
+    def recording(seconds, sample):
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as audio:
+            audio.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+            audio.writeframes(sample * (8000 * seconds))
+        return buffer.getvalue()
+
+    first_bytes = recording(1, b"\x00\x00")
+    second_bytes = recording(2, b"\x01\x00")
+    first = asyncio.run(upload(first_bytes))
+    second = asyncio.run(upload(second_bytes))
+    assert first != second  # Both the /view URL and ComfyUI input cache key must change.
+    assert (tmp_path / first).read_bytes() == first_bytes
+    assert (tmp_path / second).read_bytes() == second_bytes
+    with wave.open(str(tmp_path / second), "rb") as audio:
+        assert audio.getnframes() / audio.getframerate() == 2
+    assert (tmp_path / second).name == "橘总.wav"
+    assert legacy.read_bytes() == b"legacy workflow audio"
+
+
 def test_validate_generation_does_not_queue_models():
     calls = []
 
