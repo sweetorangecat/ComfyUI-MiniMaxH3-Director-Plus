@@ -694,6 +694,25 @@ class MiniMaxH3DirectorPlus:
                     target_ratio = ASPECTS[aspect_ratio]
                 requested_width, requested_height = smart_1080p_target(*target_ratio)
 
+        # Keep H3 reference-audio jobs on the proven native 20-step route.
+        # The trained redraw path can change speaker conditioning; it is
+        # available only as an explicit diagnostic opt-in.
+        if (
+            voice_mode == "h3_reference"
+            and request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS
+            and smart_vram is not None
+            and float(smart_vram[0]) >= 20.0
+            and float(smart_vram[1]) >= 18.0
+            and os.environ.get("MMH3_REF_VOICE_TWO_STAGE", "0") != "1"
+        ):
+            request["warnings"].append(
+                "H3 音色参考默认关闭训练型二采，改用参考高清原生 20 步；"
+                "如需测试二采音色稳定性，请设置 MMH3_REF_VOICE_TWO_STAGE=1。"
+            )
+            request["performance_preset"] = "ref_quality_native"
+            request["postprocess_mode"] = "ai_upscale"
+            request["motion_smoothing"] = "off"
+
         if request["performance_preset"] == "low_vram":
             limit_width, limit_height = low_vram_target_limit(request["duration"])
             requested_sides = sorted((int(requested_width), int(requested_height)), reverse=True)

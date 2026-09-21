@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from numbers import Real
 import math
+import os
 
 from .schema import RequestError
 from .vram_budget import plan_two_stage_dimensions
@@ -115,10 +116,13 @@ def resolve_smart_1080p_plan(
     )
     dimension_plan = None
 
-    # Reference audio does not require a blanket ban on video redraw. With
-    # sufficient budget, use the normal trained route and freeze/reinsert the
-    # first-pass audio. Preserve the native fallback for limited machines.
+    # Reference-audio jobs must keep the proven native route by default. The
+    # trained redraw path can alter speaker conditioning even when audio is
+    # reinserted into the final latent, so make it an explicit experiment.
+    reference_voice_two_stage = os.environ.get("MMH3_REF_VOICE_TWO_STAGE", "0") == "1"
     reference_redraw_ready = (
+        reference_voice_two_stage
+        and
         backend == "ref2va_model" and two_stage_ready
         and float(total_vram_gb) >= 20.0 and float(free_vram_gb) >= 18.0
     )

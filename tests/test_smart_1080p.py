@@ -245,7 +245,8 @@ def test_smart_2k_target_routes_direct_at_high_free_vram():
     assert plan["dimension_plan"]["qhd_direct"] is False
 
 
-def test_smart_h3_reference_uses_guarded_two_stage_when_budget_allows():
+def test_smart_h3_reference_keeps_native_route_by_default(monkeypatch):
+    monkeypatch.delenv("MMH3_REF_VOICE_TWO_STAGE", raising=False)
     plan = resolve_smart_1080p_plan(
         "ref2va_model", 15, 32, 29,
         seedvr2_ready=True, two_stage_ready=True,
@@ -253,6 +254,18 @@ def test_smart_h3_reference_uses_guarded_two_stage_when_budget_allows():
         voice_mode="h3_reference",
     )
 
+    assert plan["performance_preset"] == "ref_quality_native"
+    assert plan["two_stage_route"] == "bypass"
+
+
+def test_smart_h3_reference_two_stage_is_explicit_opt_in(monkeypatch):
+    monkeypatch.setenv("MMH3_REF_VOICE_TWO_STAGE", "1")
+    plan = resolve_smart_1080p_plan(
+        "ref2va_model", 15, 32, 29,
+        seedvr2_ready=True, two_stage_ready=True,
+        target_width=1920, target_height=1080,
+        voice_mode="h3_reference",
+    )
     assert plan["performance_preset"] == "quality_two_stage"
     assert plan["two_stage_route"] == "trained_latent_ref"
     assert plan["two_stage_audio_guard"] is True
