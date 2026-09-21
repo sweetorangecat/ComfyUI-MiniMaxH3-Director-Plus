@@ -3445,58 +3445,6 @@
       "widgets_values": [],
       "color": "#3f789e",
       "bgcolor": "#31566f"
-    },
-    {
-      "id": 2752,
-      "type": "MiniMaxH3LocalPromptDraft",
-      "title": "可选：本地提示词草稿（默认关闭，预览后使用）",
-      "pos": [
-        5350,
-        0
-      ],
-      "size": [
-        640,
-        850
-      ],
-      "flags": {},
-      "order": 48,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "draft",
-          "type": "STRING",
-          "links": null
-        },
-        {
-          "name": "report",
-          "type": "STRING",
-          "links": null
-        },
-        {
-          "name": "original_prompt",
-          "type": "STRING",
-          "links": null
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "MiniMaxH3LocalPromptDraft"
-      },
-      "widgets_values": [
-        false,
-        "qwen3vl_32b_h3_ultra_uncensored_heretic_int8_convrot.safetensors",
-        "qwen3vl_32b_h3_generation_tail_50_63_int8_convrot.safetensors",
-        "",
-        "Draft a MiniMax H3 video prompt. Preserve supplied dialogue verbatim, reference numbers, speaker bindings and timing. Do not invent dialogue. Return only the draft.",
-        512,
-        0
-      ]
     }
   ],
   "links": [

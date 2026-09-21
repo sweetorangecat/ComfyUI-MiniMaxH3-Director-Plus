@@ -11,11 +11,9 @@ import uuid
 
 try:
     from .validate_workflow import validate_workflow
-    from .add_optional_qwen import add_optional_qwen
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from validate_workflow import validate_workflow
-    from add_optional_qwen import add_optional_qwen
 
 
 PLUGIN_ID = "ComfyUI-MiniMaxH3-Director-Plus"
@@ -1024,7 +1022,7 @@ def build_workflow(source):
         "source": "U10-DaSiWa-MiniMaxH3-MythicAlchemy-v12导演台.json",
         "voice_semantics": "reference_only",
     }
-    return add_optional_qwen(workflow)
+    return workflow
 
 
 def build_api_template():
