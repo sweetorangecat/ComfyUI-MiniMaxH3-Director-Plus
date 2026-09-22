@@ -21,7 +21,15 @@ def _transcript_line(index, transcript):
     return f"<Audio {index}> 的样本原文是“{transcript}”（仅用于音色对齐，不复制其内容）。"
 
 
-def _augment_structured_prompt(detail, audio_count, audio_names, transcripts):
+def _gender_instruction(voice_gender):
+    return {
+        "male": "Preserve every referenced speaker's gender as male and vocal register; do not feminize the voice.",
+        "female": "Preserve every referenced speaker's gender as female and vocal register; do not masculinize the voice.",
+        "neutral": "Preserve every referenced speaker's gender-neutral vocal register and timbre without introducing a gender shift.",
+    }.get(str(voice_gender or "auto").strip().lower())
+
+
+def _augment_structured_prompt(detail, audio_count, audio_names, transcripts, voice_gender="auto"):
     """Pass a structured prompt through, only filling in missing audio bindings.
 
     Re-wrapping a professionally structured prompt would duplicate the
@@ -41,6 +49,12 @@ def _augment_structured_prompt(detail, audio_count, audio_names, transcripts):
     for index, transcript in enumerate(transcripts, 1):
         if transcript and index <= audio_count and transcript not in text:
             additions.append(_transcript_line(index, transcript))
+    # Structured prompts intentionally remain author-owned. An explicit
+    # gender constraint is the one exception: without it, a female reference
+    # can drift to a default male register even though the audio slot is right.
+    gender_instruction = _gender_instruction(voice_gender)
+    if gender_instruction and gender_instruction.lower() not in text.lower():
+        additions.append(gender_instruction)
     if not additions:
         return text
     return text + "\n\naudio_reference_notes:\n" + "\n".join(additions)
@@ -70,7 +84,7 @@ def build_reference_prompt(
     resolved_audio_count = max(int(bool(has_audio)), min(3, int(audio_count or 0)))
     if is_structured_reference_prompt(detail):
         prompt = _augment_structured_prompt(
-            detail, resolved_audio_count, audio_names, transcripts
+            detail, resolved_audio_count, audio_names, transcripts, voice_gender
         )
         if any(marker in prompt for marker in FORBIDDEN_AUDIO_MARKERS):
             raise ValueError("提示词包含不允许的音频复制语义")

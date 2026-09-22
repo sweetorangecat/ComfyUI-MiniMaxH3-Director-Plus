@@ -129,6 +129,30 @@ def test_structured_prompt_passes_through_without_rewrapping():
     assert "generic reference image" not in prompt
 
 
+def test_structured_prompt_applies_explicit_female_voice_constraint():
+    detail = (
+        "subject_definitions:\n"
+        "<Audio 1> is the voice-timbre reference for 南宫婉.\n"
+        "<Audio 2> is the voice-timbre reference for 南宫阙.\n\n"
+        "summary:\n"
+        "[reference generation + audio reference] two speakers.\n\n"
+        "detailed_description:\n"
+        "南宫婉 speaks first, then 南宫阙.\n"
+    )
+
+    prompt = build_reference_prompt(
+        mode="REF2VA",
+        detail=detail,
+        duration=5,
+        has_audio=True,
+        audio_count=2,
+        voice_gender="female",
+    )
+
+    assert "Preserve every referenced speaker's gender as female" in prompt
+    assert "do not masculinize the voice" in prompt
+
+
 def test_structured_prompt_fills_only_missing_audio_binding():
     detail = (
         "subject_definitions:\n"
