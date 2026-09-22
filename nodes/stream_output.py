@@ -1289,9 +1289,18 @@ class MiniMaxH3StreamingVideoCombine:
         performance_tier = str(guide.get("performance_preset", "") or "")
         if audio_backend == "fl2va_model" and performance_tier in {"low_vram", "low_vram_two_stage", "低显存", "低显存二采"}:
             audio_backend = f"{audio_backend}:{performance_tier}"
+        # FL2VA low-VRAM audio is already the locked stage-1 waveform. Any
+        # automatic gain or gate here can lower quiet speech further, so the
+        # automatic mode deliberately preserves the source waveform.
+        audio_loudness_effective = audio_loudness
+        if audio_loudness == "auto" and audio_backend.startswith("fl2va_model:"):
+            audio_loudness_effective = "original"
         audio_cleanup = "disabled"
-        audio_cleanup_reason = "original_mode"
-        if audio_loudness == "auto":
+        audio_cleanup_reason = (
+            "low_vram_fl2va_preserved" if audio_loudness_effective == "original" and audio_loudness == "auto"
+            else "original_mode"
+        )
+        if audio_loudness_effective == "auto":
             try:
                 output_audio = _normalize_output_audio(
                     audio, audio_loudness, backend=audio_backend
@@ -1313,7 +1322,7 @@ class MiniMaxH3StreamingVideoCombine:
                 audio_cleanup_reason = str(exc)
         else:
             output_audio = _normalize_output_audio(
-                audio, audio_loudness, backend=audio_backend
+                audio, audio_loudness_effective, backend=audio_backend
             )
         audio_path, audio_duration = dasiwa._audio_file(output_audio)
         attempts = []
