@@ -472,7 +472,17 @@ def run_tiled_second_stage(
                 overlap_ratio=float(guide.get("split_overlap_ratio", 0.25)),
                 fade_ratio=float(guide.get("split_fade_ratio", 0.5)),
                 min_tile_size=int(guide.get("split_min_tile_size", 256)),
-                seam_denoise=float(guide.get("split_seam_denoise", 0.65)),
+                # Low-VRAM retries use smaller temporal/spatial tiles. A high
+                # seam redraw strength then repositions edges at every tile
+                # boundary, which is perceived as frame-to-frame misalignment.
+                seam_denoise=float(
+                    guide.get(
+                        "split_seam_denoise",
+                        0.35 if guide.get("performance_preset") in {
+                            "low_vram_two_stage", "低显存二采"
+                        } else 0.65,
+                    )
+                ),
             ),
             0,
         )

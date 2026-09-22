@@ -247,7 +247,27 @@ def _normalize_output_audio(audio, mode, backend=None):
         return audio
 
     normalized = dict(audio)
-    if str(backend or "") == "ref2va_model":
+    backend_name = str(backend or "")
+    # Low-VRAM FL2VA clips are commonly already close to the decoder noise
+    # floor.  The general envelope gate can remove consonants and short
+    # transients together with that floor, making dialogue unintelligible.
+    # Keep this route deliberately conservative: sanitize and peak-normalize,
+    # but do not gate the waveform.
+    if backend_name.endswith(":low_vram") or backend_name.endswith(":low_vram_two_stage"):
+        clean = torch.nan_to_num(
+            waveform.detach().to(device="cpu", dtype=torch.float32),
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
+        )
+        peak = float(clean.abs().max().item()) if clean.numel() else 0.0
+        if peak <= 1e-8:
+            return audio
+        gain = min(_AUDIO_TARGET_PEAK / peak, _AUDIO_MAX_GAIN)
+        normalized = dict(audio)
+        normalized["waveform"] = (clean * gain).clamp(-_AUDIO_TARGET_PEAK, _AUDIO_TARGET_PEAK)
+        return normalized
+    if backend_name == "ref2va_model":
         normalized["waveform"] = _clean_rf2va_audio(waveform)
     else:
         normalized["waveform"] = _clean_output_audio(waveform)
@@ -1264,6 +1284,11 @@ class MiniMaxH3StreamingVideoCombine:
         metadata_path = dasiwa._metadata_file(prompt, extra_pnginfo) if save_metadata else None
         audio_loudness = str(guide.get("audio_loudness", "original") or "original")
         audio_backend = str(guide.get("resolved_backend", "") or "")
+        # Preserve the performance tier for audio cleanup. Low-VRAM FL2VA
+        # needs peak normalization without envelope gating (see helper).
+        performance_tier = str(guide.get("performance_preset", "") or "")
+        if audio_backend == "fl2va_model" and performance_tier in {"low_vram", "low_vram_two_stage", "低显存", "低显存二采"}:
+            audio_backend = f"{audio_backend}:{performance_tier}"
         audio_cleanup = "disabled"
         audio_cleanup_reason = "original_mode"
         if audio_loudness == "auto":
@@ -1274,6 +1299,8 @@ class MiniMaxH3StreamingVideoCombine:
                 audio_cleanup = (
                     "rf2va_spectral_guard"
                     if audio_backend == "ref2va_model"
+                    else "low_vram_peak_limit"
+                    if ":low_vram" in audio_backend or ":低显存" in audio_backend
                     else "auto_gate_peak_limit"
                 )
                 audio_cleanup_reason = "applied"
