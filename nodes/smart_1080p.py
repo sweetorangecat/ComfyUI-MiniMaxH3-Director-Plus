@@ -116,17 +116,22 @@ def resolve_smart_1080p_plan(
     )
     dimension_plan = None
 
-    # Reference-audio jobs must keep the proven native route by default. The
-    # trained redraw path can alter speaker conditioning even when audio is
-    # reinserted into the final latent, so make it an explicit experiment.
-    reference_voice_two_stage = os.environ.get("MMH3_REF_VOICE_TWO_STAGE", "0") == "1"
+    # High-VRAM FHD reference-audio jobs use the trained redraw by default.
+    # It preserves the completed first-pass audio latent; set the switch to 0
+    # when exact native single-pass behavior is required for an A/B run.
+    reference_voice_two_stage = os.environ.get("MMH3_REF_VOICE_TWO_STAGE", "1") != "0"
+    fhd_reference_target = (
+        target_width is not None and target_height is not None
+        and {int(target_width), int(target_height)} == {1920, 1080}
+    )
     reference_redraw_ready = (
         reference_voice_two_stage
+        and fhd_reference_target
         and
         backend == "ref2va_model" and two_stage_ready
         and float(total_vram_gb) >= 20.0 and float(free_vram_gb) >= 18.0
     )
-    if voice_mode == "h3_reference" and not low_vram and not reference_redraw_ready:
+    if voice_mode == "h3_reference" and not low_vram and not reference_redraw_ready and fhd_reference_target:
         return {
             "performance_preset": "ref_quality_native",
             # SeedVR2 is another diffusion model.  It is much slower than the
@@ -143,7 +148,7 @@ def resolve_smart_1080p_plan(
             "max_duration": 15,
             "two_stage_route": "bypass",
             "warning": (
-                "二采依赖或显存预算不足，使用“参考高清（原生 20 步）”单采路线："
+                "二采开关已关闭、依赖或显存预算不足，使用“参考高清（原生 20 步）”单采路线："
                 "不拆分音频/视频 latent；1080p 最终使用保守 AI 超分，不自动启用会重绘人物细节的 SeedVR2。"
             ),
             "dimension_plan": None,

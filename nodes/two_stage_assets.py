@@ -43,7 +43,15 @@ REF_DETAIL_LORA_CHAIN = (
 # MMH3_EXTRA_LORAS=0 disables this chain; strengths are starting points and
 # can be tuned after A/B runs.
 REF_EXTRA_LORA_CHAIN = (
-    (("动作i连续性修复LORA.safetensors", "动作连续性修复LORA.safetensors"), 0.4),
+    ((
+        "Motion_Repair.safetensors",
+        "动作i连续性修复LORA.safetensors",
+        "动作连续性修复LORA.safetensors",
+    ), 0.4),
+    (("H3_Combat_V2.safetensors",), 0.35),
+    ((
+        "minimax_h3_turbo_4step_10ErosMax_test4_pruned_curveproj1025_exp_v001-T8.safetensors",
+    ), 0.25),
     (("MinimaxH3真实电影质感V1.0.safetensors", "MinimaxH3真实电影质感V0.1.safetensors"), 0.5),
 )
 LATENT_UPSCALER_MODEL_FP16 = "minimax_h3_latent_upscaler_3d_fp16.safetensors"

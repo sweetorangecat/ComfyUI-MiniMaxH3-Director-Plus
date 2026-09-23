@@ -245,7 +245,7 @@ def test_smart_2k_target_routes_direct_at_high_free_vram():
     assert plan["dimension_plan"]["qhd_direct"] is False
 
 
-def test_smart_h3_reference_keeps_native_route_by_default(monkeypatch):
+def test_smart_h3_reference_fhd_uses_audio_guarded_redraw_by_default(monkeypatch):
     monkeypatch.delenv("MMH3_REF_VOICE_TWO_STAGE", raising=False)
     plan = resolve_smart_1080p_plan(
         "ref2va_model", 15, 32, 29,
@@ -254,21 +254,21 @@ def test_smart_h3_reference_keeps_native_route_by_default(monkeypatch):
         voice_mode="h3_reference",
     )
 
-    assert plan["performance_preset"] == "ref_quality_native"
-    assert plan["two_stage_route"] == "bypass"
+    assert plan["performance_preset"] == "quality_two_stage"
+    assert plan["two_stage_route"] == "trained_latent_ref"
+    assert plan["two_stage_audio_guard"] is True
 
 
-def test_smart_h3_reference_two_stage_is_explicit_opt_in(monkeypatch):
-    monkeypatch.setenv("MMH3_REF_VOICE_TWO_STAGE", "1")
+def test_smart_h3_reference_can_disable_redraw(monkeypatch):
+    monkeypatch.setenv("MMH3_REF_VOICE_TWO_STAGE", "0")
     plan = resolve_smart_1080p_plan(
         "ref2va_model", 15, 32, 29,
         seedvr2_ready=True, two_stage_ready=True,
         target_width=1920, target_height=1080,
         voice_mode="h3_reference",
     )
-    assert plan["performance_preset"] == "quality_two_stage"
-    assert plan["two_stage_route"] == "trained_latent_ref"
-    assert plan["two_stage_audio_guard"] is True
+    assert plan["performance_preset"] == "ref_quality_native"
+    assert plan["two_stage_route"] == "bypass"
 
 
 @pytest.mark.parametrize("ready,total,free", [(False, 32, 29), (True, 24, 17)])
@@ -376,3 +376,19 @@ def test_low_vram_never_routes_fhd_to_seedvr2_even_when_available():
     assert plan["low_vram"] is True
     assert plan["postprocess_mode"] == "ai_upscale"
     assert plan["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+
+
+@pytest.mark.parametrize("width,height", [(1920,1080), (1080,1920)])
+def test_reference_fhd_can_explicitly_disable_redraw(monkeypatch, width, height):
+    monkeypatch.setenv("MMH3_REF_VOICE_TWO_STAGE", "0")
+    plan = resolve_smart_1080p_plan("ref2va_model", 5, 32, 30.7,
+        two_stage_ready=True, voice_mode="h3_reference", target_width=width, target_height=height)
+    assert plan["performance_preset"] == "ref_quality_native"
+    assert "二采开关已关闭" in plan["warning"]
+
+
+def test_reference_768p_uses_existing_quality_route(monkeypatch):
+    monkeypatch.delenv("MMH3_REF_VOICE_TWO_STAGE", raising=False)
+    plan = resolve_smart_1080p_plan("ref2va_model", 5, 32, 30.7,
+        two_stage_ready=True, voice_mode="h3_reference", target_width=1344, target_height=768)
+    assert plan["performance_preset"] == "quality_two_stage"
