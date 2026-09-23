@@ -29,7 +29,7 @@ def test_checked_in_u11_example_preserves_native_seed_control_widget_alignment()
         named["voice_mode"],
         named["fish_model_path"],
         named["ref_image_size"],
-    ] == ["none", "s2-pro-w4a16 (auto download)", "match"]
+    ] == ["h3_reference", "s2-pro-w4a16 (auto download)", "match"]
     assert len(values) == 42
     assert values[-1] == named["face_refine_mode"] == "off"
     assert values[38:41] == ["off", "auto", "auto"]

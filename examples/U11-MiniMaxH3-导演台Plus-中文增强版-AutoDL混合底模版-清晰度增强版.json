@@ -1330,7 +1330,7 @@
         }
       },
       "widgets_values": [
-        "## 导演与素材区\n\n1. 先选择模式，导演台会自动显示所需素材上传框。\n2. REF2VA 图片 reference 最多 9 张；提示词用 <Picture 1> 到 <Picture 9> 引用。\n3. H3 原生音色最多 3 路：<Audio N> 是第 N 路上传槽位；(Sx) 按目标视频首次实际发声顺序编号，因此首位说话者可以使用 <Audio 2> 并写 (S1)。多人原生音色存在模型端串色风险，不保证严格克隆。\n4. 无需创建或连接任何图片、音频加载节点。"
+        "三人对白示例：必须在导演台上传三份真实音频。\nAudio 1 = 橘总 / S1；Audio 2 = 苏小满 / S2；Audio 3 = 阿哈 / S3。\n上传文件槽直接加载音频，外部 AUDIO 接口可以不接线。\n每份建议 5–10 秒，仅含对应角色的干净单人声，无音乐、串话。\n参考图 1–3 对应三人，4 为房间，5 为铃铛。素材未随示例附带。"
       ],
       "widgets_values_named": {
         "text": "## 导演与素材区\n\n1. 先选择模式，导演台会自动显示所需素材上传框。\n2. REF2VA 图片 reference 最多 9 张；提示词用 <Picture 1> 到 <Picture 9> 引用。\n3. H3 原生音色最多 3 路：<Audio N> 是第 N 路上传槽位；(Sx) 按目标视频首次实际发声顺序编号，因此首位说话者可以使用 <Audio 2> 并写 (S1)。多人原生音色存在模型端串色风险，不保证严格克隆。\n4. 无需创建或连接任何图片、音频加载节点。"
@@ -2229,7 +2229,7 @@
       },
       "widgets_values": [
         "REF2VA",
-        "subject_definitions:\n橘总 <Subject 1> is the same upright adult orange cat from <Picture 1>, wearing a dark short Chinese-style jacket and red collar. Preserve one stable identity and outfit.\n苏小满 <Subject 2> is the same young woman from <Picture 2>, with shoulder-length softly curled black hair, a black leather jacket, white top and blue jeans. Preserve one stable identity and outfit.\n阿哈 <Subject 3> is the same upright adult gray-black-white husky from <Picture 3>, wearing a dark blue vest and trousers. Preserve one stable identity and outfit.\n<Picture 4> is the furnished warm apartment environment reference. <Picture 5> is the unique old copper bell reference. All picture references are ordinary composition or identity references, not fixed first or last frames.\n\nsummary:\n[reference generation] Generate a 15-second, 16:9 live-action comedy clip with exactly two numbered shots. The two shots are a visual continuity test; ordinary REF2VA references do not replace a hard endpoint workflow.\n\nretention_analysis:\nKeep one identity, body scale, outfit, warm furnished living-room geometry, door and cabinet relationship, and one copper bell. Do not duplicate characters or the prop. Maintain the 180-degree axis and screen direction where possible. There is no fixed first frame or last frame.\n\ndetailed_description:\n[Shot 1] 00:00.000-00:09.000. A level medium-wide shot in the same furnished warm living room. The orange cat reaches toward the silent copper bell, then looks to Su Xiaoman with a serious comic expression. Su Xiaoman stays on screen left and Aha stays slightly behind her. No dialogue, no lip-sync, and no bell ring.\n[Shot 2] 00:09.000-00:15.000. Cut once to a level two-shot with Aha on screen right and Su Xiaoman on screen left, keeping the same door, cabinet and table context. Aha leans toward the bell while Su Xiaoman holds it steady, then places it back on the table. Preserve the characters' identities and natural proportions, but treat the cut as a newly generated composition because these are soft references. No dialogue, no lip-sync, and no bell ring.\n\noverall_soundscape:\nQuiet indoor room tone and restrained cloth movement only. No random voices, animal sounds, subtitles, labels or watermark.\n\nnon_diegetic_music:\nN/A",
+        "subject_definitions:\n橘总 <Subject 1> (S1) is the orange cat from <Picture 1>. <Audio 1> is his voice reference only.\n苏小满 <Subject 2> (S2) is the young woman from <Picture 2>. <Audio 2> is her voice reference only.\n阿哈 <Subject 3> (S3) is the husky from <Picture 3>. <Audio 3> is his voice reference only.\n<Picture 4> is the furnished warm apartment. <Picture 5> is the unique copper bell.\n\nsummary:\nGenerate a 15-second live-action comedy in one continuous medium-wide shot with all three characters visible.\n\nretention_analysis:\nPreserve identities, outfits, screen positions and the single bell. Use each audio solely for its assigned speaker's timbre. Do not reproduce the reference recording's words. Only the current speaker moves their mouth; the others listen silently.\n\ndetailed_description:\n00:00.000-00:01.000 Establish the living room and the silent bell on the table.\n00:01.000-00:04.000 橘总 <Subject 1> (S1) uses <Audio 1>, looks at the bell and says: <d>[Chinese] 这铃铛，谁都不许碰。</d>\n00:04.000-00:05.000 A silent reaction; no speaker change within a line.\n00:05.000-00:08.000 苏小满 <Subject 2> (S2) uses <Audio 2>, looks at the cat and says: <d>[Chinese] 那你刚才伸手干什么？</d>\n00:08.000-00:09.000 The cat withdraws his paw silently.\n00:09.000-00:12.000 阿哈 <Subject 3> (S3) uses <Audio 3>, looks at the cat and says: <d>[Chinese] 他是在检查自己的规矩。</d>\n00:12.000-00:15.000 All three react silently; no additional speech.\n\noverall_soundscape:\nClear Mandarin dialogue, one speaker at a time, no overlapping voices, no off-screen voices, no barking or meowing. Quiet room tone and subtle cloth movement. No bell ring.\n\nnon_diegetic_music:\nN/A",
         15,
         1344,
         768,
@@ -2239,7 +2239,7 @@
         9,
         0,
         "fixed",
-        "none",
+        "h3_reference",
         "s2-pro-w4a16 (auto download)",
         "match",
         "参考高清（原生20步）",
@@ -2249,9 +2249,9 @@
         "{\"version\":1,\"items\":[]}",
         "",
         "",
-        "",
-        "",
-        "",
+        "橘总",
+        "苏小满",
+        "阿哈",
         "",
         "",
         "",
@@ -2273,7 +2273,7 @@
       ],
       "widgets_values_named": {
         "mode": "REF2VA",
-        "prompt": "subject_definitions:\n橘总 <Subject 1> is the same upright adult orange cat from <Picture 1>, wearing a dark short Chinese-style jacket and red collar. Preserve one stable identity and outfit.\n苏小满 <Subject 2> is the same young woman from <Picture 2>, with shoulder-length softly curled black hair, a black leather jacket, white top and blue jeans. Preserve one stable identity and outfit.\n阿哈 <Subject 3> is the same upright adult gray-black-white husky from <Picture 3>, wearing a dark blue vest and trousers. Preserve one stable identity and outfit.\n<Picture 4> is the furnished warm apartment environment reference. <Picture 5> is the unique old copper bell reference. All picture references are ordinary composition or identity references, not fixed first or last frames.\n\nsummary:\n[reference generation] Generate a 15-second, 16:9 live-action comedy clip with exactly two numbered shots. The two shots are a visual continuity test; ordinary REF2VA references do not replace a hard endpoint workflow.\n\nretention_analysis:\nKeep one identity, body scale, outfit, warm furnished living-room geometry, door and cabinet relationship, and one copper bell. Do not duplicate characters or the prop. Maintain the 180-degree axis and screen direction where possible. There is no fixed first frame or last frame.\n\ndetailed_description:\n[Shot 1] 00:00.000-00:09.000. A level medium-wide shot in the same furnished warm living room. The orange cat reaches toward the silent copper bell, then looks to Su Xiaoman with a serious comic expression. Su Xiaoman stays on screen left and Aha stays slightly behind her. No dialogue, no lip-sync, and no bell ring.\n[Shot 2] 00:09.000-00:15.000. Cut once to a level two-shot with Aha on screen right and Su Xiaoman on screen left, keeping the same door, cabinet and table context. Aha leans toward the bell while Su Xiaoman holds it steady, then places it back on the table. Preserve the characters' identities and natural proportions, but treat the cut as a newly generated composition because these are soft references. No dialogue, no lip-sync, and no bell ring.\n\noverall_soundscape:\nQuiet indoor room tone and restrained cloth movement only. No random voices, animal sounds, subtitles, labels or watermark.\n\nnon_diegetic_music:\nN/A",
+        "prompt": "subject_definitions:\n橘总 <Subject 1> (S1) is the orange cat from <Picture 1>. <Audio 1> is his voice reference only.\n苏小满 <Subject 2> (S2) is the young woman from <Picture 2>. <Audio 2> is her voice reference only.\n阿哈 <Subject 3> (S3) is the husky from <Picture 3>. <Audio 3> is his voice reference only.\n<Picture 4> is the furnished warm apartment. <Picture 5> is the unique copper bell.\n\nsummary:\nGenerate a 15-second live-action comedy in one continuous medium-wide shot with all three characters visible.\n\nretention_analysis:\nPreserve identities, outfits, screen positions and the single bell. Use each audio solely for its assigned speaker's timbre. Do not reproduce the reference recording's words. Only the current speaker moves their mouth; the others listen silently.\n\ndetailed_description:\n00:00.000-00:01.000 Establish the living room and the silent bell on the table.\n00:01.000-00:04.000 橘总 <Subject 1> (S1) uses <Audio 1>, looks at the bell and says: <d>[Chinese] 这铃铛，谁都不许碰。</d>\n00:04.000-00:05.000 A silent reaction; no speaker change within a line.\n00:05.000-00:08.000 苏小满 <Subject 2> (S2) uses <Audio 2>, looks at the cat and says: <d>[Chinese] 那你刚才伸手干什么？</d>\n00:08.000-00:09.000 The cat withdraws his paw silently.\n00:09.000-00:12.000 阿哈 <Subject 3> (S3) uses <Audio 3>, looks at the cat and says: <d>[Chinese] 他是在检查自己的规矩。</d>\n00:12.000-00:15.000 All three react silently; no additional speech.\n\noverall_soundscape:\nClear Mandarin dialogue, one speaker at a time, no overlapping voices, no off-screen voices, no barking or meowing. Quiet room tone and subtle cloth movement. No bell ring.\n\nnon_diegetic_music:\nN/A",
         "duration": 15,
         "width": 1344,
         "height": 768,
@@ -2283,7 +2283,7 @@
         "custom_height": 9,
         "seed": 0,
         "control_after_generate": "fixed",
-        "voice_mode": "none",
+        "voice_mode": "h3_reference",
         "fish_model_path": "s2-pro-w4a16 (auto download)",
         "ref_image_size": "match",
         "performance_preset": "参考高清（原生20步）",
@@ -2293,9 +2293,9 @@
         "timeline_data": "{\"version\":1,\"items\":[]}",
         "target_dialogue": "",
         "reference_transcript": "",
-        "voice_reference_name_1": "",
-        "voice_reference_name_2": "",
-        "voice_reference_name_3": "",
+        "voice_reference_name_1": "橘总",
+        "voice_reference_name_2": "苏小满",
+        "voice_reference_name_3": "阿哈",
         "first_image_file": "",
         "last_image_file": "",
         "voice_reference_audio_file": "",
