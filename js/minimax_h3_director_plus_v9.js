@@ -609,7 +609,7 @@ function removeUpload(node, widgetName, render) {
     const compacted = compactBoundSlots(files, names, audioIndex);
     VOICE_AUDIO_FIELDS.forEach((field, index) => syncUploadWidget(node, field, compacted.files[index]));
     [1, 2, 3].forEach((index) => syncUploadWidget(node, `voice_reference_name_${index}`, compacted.names[index]));
-    node._h3pAssetNotice = "音色参考已重新编号，请检查提示词中的 <Audio N> 与角色名。";
+    node._h3pAssetNotice = "已移除该路音色参考；后续音频和角色名已前移，请检查提示词中的 <Audio N> 编号。";
     render();
     return;
   }

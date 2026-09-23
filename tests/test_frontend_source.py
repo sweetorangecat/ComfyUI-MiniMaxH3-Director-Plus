@@ -41,7 +41,7 @@ def test_upload_controls_support_non_destructive_remove_and_slot_compaction():
     assert 'compactSlots' in text
     assert 'compactBoundSlots' in text
     assert '\u53c2\u8003\u56fe\u5df2\u91cd\u65b0\u7f16\u53f7\uff0c\u8bf7\u68c0\u67e5\u63d0\u793a\u8bcd\u4e2d\u7684 <Picture N> \u5f15\u7528\u3002' in text
-    assert '\u97f3\u8272\u53c2\u8003\u5df2\u91cd\u65b0\u7f16\u53f7\uff0c\u8bf7\u68c0\u67e5\u63d0\u793a\u8bcd\u4e2d\u7684 <Audio N> \u4e0e\u89d2\u8272\u540d\u3002' in text
+    assert '已移除该路音色参考；后续音频和角色名已前移，请检查提示词中的 <Audio N> 编号。' in text
     assert 'setAttribute("role", "status")' in text
     assert 'method: "DELETE"' not in text
     assert 'unlink' not in text.lower()
@@ -65,7 +65,8 @@ def test_upload_removal_compacts_ref_images_and_bound_audio_names():
     assert "REF2VA_IMAGE_SLOTS" in text
     assert "voice_reference_name_1" in text
     assert "\u53c2\u8003\u56fe\u5df2\u91cd\u65b0\u7f16\u53f7" in text
-    assert "\u97f3\u8272\u53c2\u8003\u5df2\u91cd\u65b0\u7f16\u53f7" in text
+    assert 'VOICE_AUDIO_FIELDS.forEach((field, index) => syncUploadWidget(node, field, compacted.files[index]))' in text
+    assert '[1, 2, 3].forEach((index) => syncUploadWidget(node, `voice_reference_name_${index}`, compacted.names[index]))' in text
 
 
 def test_endpoint_removal_is_independent_from_ref_compaction():
