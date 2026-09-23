@@ -1,10 +1,34 @@
 import json
 import re
+import pytest
 from pathlib import Path
 
 from nodes.director import MiniMaxH3DirectorPlus
 from nodes import guide as guide_module
 from tools.validate_workflow import validate_workflow
+
+
+@pytest.mark.parametrize("mode", ["T2VA", "REF2VA"])
+def test_voice_mode_none_keeps_dialogue_without_missing_audio_references(mode):
+    from tools.configure_three_voice_example import PROMPT
+    state, *_ = MiniMaxH3DirectorPlus().build(
+        mode=mode, prompt=PROMPT, duration=15, width=1344, height=768,
+        voice_mode="none", ref_image_size="match", performance_preset="稳定质量",
+        timeline_data="{}", target_dialogue="", reference_transcript="",
+        voice_reference_audio_file="unused-one.wav",
+        voice_reference_audio_2_file="unused-two.wav",
+        voice_reference_audio_3_file="unused-three.wav",
+    )
+    output = state["prompt"]
+    assert "<Audio" not in output
+    assert "voice reference" not in output
+    assert "reference recording" not in output
+    assert re.findall(r"<d>.*?</d>", output) == re.findall(r"<d>.*?</d>", PROMPT)
+    assert re.findall(r"00:\d+\.\d+-00:\d+\.\d+", output) == re.findall(r"00:\d+\.\d+-00:\d+\.\d+", PROMPT)
+    for i in range(1, 4):
+        assert f"<Subject {i}> (S{i})" in output
+    assert state["ref_audios"] == {}
+    assert "<Audio 3>" in PROMPT
 
 
 def test_shipped_example_forwards_all_three_named_audio_slots(monkeypatch):

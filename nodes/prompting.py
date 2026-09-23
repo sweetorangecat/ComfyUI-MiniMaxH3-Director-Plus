@@ -2,6 +2,30 @@
 
 from __future__ import annotations
 
+import re
+
+
+def without_voice_references(prompt):
+    """Derive a no-reference prompt without editing the user's saved text.
+
+    Keep dialogue verbatim, including any literal audio tag spoken as text.
+    Known example binding sentences are removed; other numbered references
+    become an explicit request for an automatically generated voice.
+    """
+    def clean(text):
+        text = re.sub(
+            r"<Audio\s+\d+>\s+is\s+(?:his|her|their)\s+voice reference only\.",
+            "", text, flags=re.IGNORECASE,
+        )
+        text = text.replace(
+            "Use each audio solely for its assigned speaker's timbre. Do not reproduce the reference recording's words.",
+            "Generate a distinct, consistent voice for each speaker.",
+        )
+        return re.sub(r"<Audio\s+\d+>", "an automatically generated voice", text, flags=re.IGNORECASE)
+
+    parts = re.split(r"(<d(?:\s+[^>]*)?>.*?</d>)", str(prompt or ""), flags=re.IGNORECASE | re.DOTALL)
+    return "".join(part if i % 2 else clean(part) for i, part in enumerate(parts))
+
 
 FORBIDDEN_AUDIO_MARKERS = ("fully_" + "copy", "partially_" + "copy", "audio " + "reuse")
 

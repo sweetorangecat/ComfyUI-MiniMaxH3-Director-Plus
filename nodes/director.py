@@ -8,7 +8,7 @@ import math
 import os
 from pathlib import Path
 
-from .prompting import build_reference_prompt
+from .prompting import build_reference_prompt, without_voice_references
 from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution, h3_native_canvas
 from .rtx_vsr_stream import probe_vsr_capability
 from .rife_stream import DEFAULT_RIFE_MODEL, probe_rife_capability
@@ -566,6 +566,8 @@ class MiniMaxH3DirectorPlus:
         voice_slots = (voice_reference_audio, voice_reference_audio_2, voice_reference_audio_3)
         require_contiguous_slots(voice_slots, "音色参考")
         voice_references = [item for item in voice_slots if item is not None]
+        if voice_mode == "none":
+            prompt = without_voice_references(prompt)
         request = normalize_request({
             "mode": mode,
             "prompt": prompt,
