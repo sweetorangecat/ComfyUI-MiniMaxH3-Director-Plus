@@ -19,6 +19,30 @@ BALANCED_FHD_FIRST_LANDSCAPE = (1344, 768)
 BALANCED_FHD_SECOND_SCALE = 1.5
 
 
+def split_tile_plan(free_vram_gb):
+    """Choose second-stage tiles; larger tiles reduce repeated H3 tile passes.
+
+    The 768px profile is selected only with at least 22GB free before sampling.
+    OOM handling in the sampler falls back to 512px, then 256px, without
+    changing the requested latent grid or video duration.
+    """
+    if float(free_vram_gb) >= 22.0:
+        return {
+            "split_tile_width": 768,
+            "split_tile_height": 768,
+            "split_chunk_frames": 141,
+            "split_temporal_overlap_frames": 39,
+            "split_motion_anchor_frames": "39",
+        }
+    return {
+        "split_tile_width": 512,
+        "split_tile_height": 512,
+        "split_chunk_frames": 73,
+        "split_temporal_overlap_frames": 22,
+        "split_motion_anchor_frames": "22",
+    }
+
+
 def _aligned_size(width, height, target_mp, alignment=32):
     width = max(1, int(width))
     height = max(1, int(height))

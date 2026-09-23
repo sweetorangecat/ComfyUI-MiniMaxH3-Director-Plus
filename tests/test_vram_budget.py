@@ -1,7 +1,7 @@
 import pytest
 
 
-from nodes.vram_budget import plan_two_stage_dimensions
+from nodes.vram_budget import plan_two_stage_dimensions, split_tile_plan
 
 
 def test_32gb_15s_2k_keeps_neural_basis_near_1080p():
@@ -391,3 +391,22 @@ def test_adaptive_qhd_uses_smaller_grid_without_shortening_clip(total, free):
 def test_adaptive_qhd_rejects_unknown_or_insufficient_budget(total, free):
     plan = plan_two_stage_dimensions(2560, 1440, 15, total, free, adaptive=True)
     assert plan["allowed"] is False
+
+def test_23gb_free_vram_selects_large_retryable_second_stage_tiles():
+    assert split_tile_plan(23.1) == {
+        "split_tile_width": 768,
+        "split_tile_height": 768,
+        "split_chunk_frames": 141,
+        "split_temporal_overlap_frames": 39,
+        "split_motion_anchor_frames": "39",
+    }
+
+
+def test_lower_free_vram_keeps_conservative_second_stage_tiles():
+    assert split_tile_plan(21.9) == {
+        "split_tile_width": 512,
+        "split_tile_height": 512,
+        "split_chunk_frames": 73,
+        "split_temporal_overlap_frames": 22,
+        "split_motion_anchor_frames": "22",
+    }

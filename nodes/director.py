@@ -29,7 +29,7 @@ from .upscale import (
     is_x4_upscale_model_name,
     resolve_upscale_model_name,
 )
-from .vram_budget import plan_two_stage_dimensions
+from .vram_budget import plan_two_stage_dimensions, split_tile_plan
 
 
 BASE_MODES = {"T2VA", "I2VA", "FL2VA", "L2VA"}
@@ -1063,6 +1063,7 @@ class MiniMaxH3DirectorPlus:
             )
 
         length = align_frame_count(int(duration) * 24)
+        split_tiles = split_tile_plan(smart_vram[1] if smart_vram else 0)
         guide = {
             "version": 1,
             "mode": mode,
@@ -1081,11 +1082,7 @@ class MiniMaxH3DirectorPlus:
             "two_stage_image_scale": TWO_STAGE_IMAGE_SCALE,
             "two_stage_tiled": bool(two_stage_tiled),
             "two_stage_tiling_required": bool(two_stage_plan and two_stage_tiled),
-            "split_tile_width": 768 if smart_vram and smart_vram[1] >= 24 else 512,
-            "split_tile_height": 768 if smart_vram and smart_vram[1] >= 24 else 512,
-            "split_chunk_frames": 141 if smart_vram and smart_vram[1] >= 24 else 73,
-            "split_temporal_overlap_frames": 39 if smart_vram and smart_vram[1] >= 24 else 22,
-            "split_motion_anchor_frames": "39" if smart_vram and smart_vram[1] >= 24 else "22",
+            **split_tiles,
             "qhd_direct": bool(two_stage_plan and two_stage_plan.get("qhd_direct")),
             "video_sr_required": bool(
                 two_stage_plan

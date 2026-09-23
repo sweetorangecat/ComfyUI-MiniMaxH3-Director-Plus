@@ -2084,3 +2084,17 @@ def test_face_refine_auto_is_exported_in_guide():
     )
 
     assert guide["face_refine_mode"] == "auto"
+
+def test_ref_audio_fhd_23gb_uses_larger_retryable_tiles(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (23.5, 23.1))
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA", prompt="两个人在机场走廊交接证件。", duration=15,
+        width=1920, height=1080, aspect_ratio="16:9", resolution_preset="1080p FHD",
+        voice_mode="h3_reference", ref_image_size="max",
+        performance_preset="智能画质（自动适配）", postprocess_mode="ai_upscale",
+        timeline_data="{}", target_dialogue="", reference_transcript="",
+        voice_reference_audio=_clean_voice(),
+    )
+    assert guide["performance_preset"] == "quality_two_stage"
+    assert (guide["split_tile_width"], guide["split_tile_height"]) == (768, 768)
+    assert guide["split_chunk_frames"] == 141
