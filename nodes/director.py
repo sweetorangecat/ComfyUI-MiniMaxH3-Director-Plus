@@ -648,8 +648,14 @@ class MiniMaxH3DirectorPlus:
                     if request["resolved_backend"] == "ref2va_model"
                     else "trained_latent_fl"
                 )
-                two_stage_ready = bool(
-                    _trained_two_stage_dependency_report(smart_two_stage_route).get("ready", False)
+                two_stage_report = _trained_two_stage_dependency_report(smart_two_stage_route)
+                two_stage_ready = bool(two_stage_report.get("ready", False))
+                LOGGER.info(
+                    "[H3 director] 二采依赖 route=%s ready=%s missing=%s voice_redraw=%s",
+                    smart_two_stage_route,
+                    two_stage_ready,
+                    "、".join(two_stage_report.get("missing", [])) or "none",
+                    os.environ.get("MMH3_REF_VOICE_TWO_STAGE", "1"),
                 )
             smart_plan = resolve_smart_1080p_plan(
                 request["resolved_backend"], request["duration"], total_vram_gb, free_vram_gb,
@@ -1244,6 +1250,8 @@ class MiniMaxH3DirectorPlus:
                 stats["peak_limited"],
             )
         warning_text = "\n".join(request["warnings"])
+        for warning in request["warnings"]:
+            LOGGER.info("[H3 director] 路线说明：%s", warning)
         exported_voice = voice_reference_audio if voice_mode == "fish_lock" else None
         exported_dialogue = str(target_dialogue or "").strip() if voice_mode == "fish_lock" else ""
         return (
