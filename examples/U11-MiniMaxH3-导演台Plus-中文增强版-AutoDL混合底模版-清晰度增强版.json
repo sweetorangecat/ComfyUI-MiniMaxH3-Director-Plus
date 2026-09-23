@@ -2,7 +2,7 @@
   "id": "92cc2937-1602-5bb6-9edd-1686668d1545",
   "revision": 0,
   "last_node_id": 2751,
-  "last_link_id": 64,
+  "last_link_id": 65,
   "nodes": [
     {
       "id": 1,
@@ -1198,7 +1198,8 @@
           "name": "Fish生成的新对白",
           "type": "AUDIO",
           "links": [
-            22
+            22,
+            65
           ]
         }
       ],
@@ -1585,6 +1586,13 @@
             "name": "save_last_frame"
           },
           "link": null
+        },
+        {
+          "localized_name": "audio_override",
+          "name": "audio_override",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 65
         }
       ],
       "outputs": [
@@ -3916,6 +3924,14 @@
       2743,
       1,
       "IMAGE"
+    ],
+    [
+      65,
+      2722,
+      0,
+      2568,
+      19,
+      "AUDIO"
     ]
   ],
   "groups": [

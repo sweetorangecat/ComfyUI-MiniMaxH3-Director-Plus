@@ -45,6 +45,22 @@ def test_director_exposes_native_upload_widgets_for_each_media_role():
     assert "voice_gender" not in inputs["required"]
     assert optional["voice_gender"][0] == "STRING"
     assert optional["voice_gender"][1]["default"] == "auto"
+    assert "audio_reuse" in inputs["required"]["voice_mode"][0]
+
+
+def test_full_audio_reuse_keeps_original_out_of_h3_reference_conditioning():
+    source_audio = _clean_voice()
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="T2VA", prompt="固定镜头，角色安静地看向窗外。<Audio 1>", duration=5,
+        width=1344, height=768, voice_mode="audio_reuse", ref_image_size="match",
+        performance_preset="稳定质量", timeline_data="{}", target_dialogue="",
+        reference_transcript="", voice_reference_audio=source_audio,
+    )
+
+    assert guide["ref_audios"] == {}
+    assert guide["resolved_backend"] == "fl2va_model"
+    assert guide["audio_reuse_audio"] is source_audio
+    assert "<Audio 1>" not in guide["prompt"]
 
 
 def test_director_raw_combo_exposes_both_low_vram_presets():

@@ -331,7 +331,7 @@ class MiniMaxH3DirectorPlus:
                 # fixed/increment/decrement/randomize control widget.  The
                 # Director UI mirrors that widget as control_after_generate.
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "噪音种子；可选择固定、递增、递减或随机"}),
-                "voice_mode": (["none", "h3_reference", "fish_lock"], {"default": "none", "tooltip": "无音色 / H3原生参考 / Fish高级锁定"}),
+                "voice_mode": (["none", "h3_reference", "fish_lock", "audio_reuse"], {"default": "none", "tooltip": "无音色 / H3官方参考音频条件 / Fish克隆音色并生成目标对白 / 完整复用上传音频"}),
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
                 "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "智能画质（自动适配）", "tooltip": "性能预设；按显存、分辨率与时长自动选择后台链路"}),
@@ -566,7 +566,7 @@ class MiniMaxH3DirectorPlus:
         voice_slots = (voice_reference_audio, voice_reference_audio_2, voice_reference_audio_3)
         require_contiguous_slots(voice_slots, "音色参考")
         voice_references = [item for item in voice_slots if item is not None]
-        if voice_mode == "none":
+        if voice_mode in {"none", "audio_reuse"}:
             prompt = without_voice_references(prompt)
         request = normalize_request({
             "mode": mode,
@@ -605,7 +605,7 @@ class MiniMaxH3DirectorPlus:
         # Voice sample quality gate: fail (or warn) before H3 sampling starts.
         # Official H3 bounds each reference clip to 2–15s; the stable timbre
         # window in practice is 5–10s of clean single-speaker speech.
-        if voice_mode != "none":
+        if voice_mode not in {"none", "audio_reuse"}:
             for audio_index, audio in enumerate(voice_references, 1):
                 voice_report = analyze_voice_reference(audio, index=audio_index)
                 if voice_report["errors"]:
@@ -1049,7 +1049,7 @@ class MiniMaxH3DirectorPlus:
                 duration=duration,
                 has_first=first_image is not None,
                 has_last=last_image is not None,
-                has_audio=voice_mode != "none",
+                has_audio=voice_mode == "h3_reference",
                 extra_reference_count=len(request["references"]),
                 audio_count=len(voice_references),
                 audio_names=(voice_reference_name_1, voice_reference_name_2, voice_reference_name_3),
@@ -1171,6 +1171,7 @@ class MiniMaxH3DirectorPlus:
             "ref_videos": {},
             "ref_video_audios": {},
             "ref_audios": ref_audios,
+            "audio_reuse_audio": voice_reference_audio if voice_mode == "audio_reuse" else None,
             "voice_reference_names": request["voice_reference_names"],
             "voice_reference_bindings": [
                 {

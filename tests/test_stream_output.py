@@ -89,6 +89,7 @@ def _combine(monkeypatch, guide, images, captured, audio=None, encode_calls=None
         save_first_frame=kwargs.get("save_first_frame", False),
         save_last_frame=kwargs.get("save_last_frame", False),
         audio=audio,
+        audio_override=kwargs.get("audio_override"),
     )
 
 
@@ -477,6 +478,69 @@ def test_auto_audio_loudness_is_applied_before_dasiwa_encoding(monkeypatch):
         10 ** (-1.5 / 20), rel=1e-5
     )
     assert torch.equal(audio["waveform"], waveform)
+
+
+def test_full_audio_reuse_uses_uploaded_track_without_cleanup(monkeypatch):
+    generated = {"waveform": torch.zeros(1, 2, 320), "sample_rate": 32000}
+    uploaded = {"waveform": torch.ones(1, 1, 160), "sample_rate": 16000}
+    audio_inputs = []
+
+    _combine(
+        monkeypatch,
+        {
+            "target_width": 3,
+            "target_height": 2,
+            "postprocess_path": "native_bypass",
+            "audio_loudness": "auto",
+            "voice_mode": "audio_reuse",
+            "audio_reuse_audio": uploaded,
+        },
+        torch.rand(3, 2, 3, 3),
+        [],
+        audio=generated,
+        audio_inputs=audio_inputs,
+    )
+
+    assert len(audio_inputs) == 1
+    assert audio_inputs[0] is uploaded
+
+
+def test_fish_clone_audio_override_replaces_generated_h3_track(monkeypatch):
+    generated_h3 = {"waveform": torch.zeros(1, 2, 320), "sample_rate": 32000}
+    cloned_dialogue = {"waveform": torch.ones(1, 1, 160), "sample_rate": 16000}
+    audio_inputs = []
+
+    _combine(
+        monkeypatch,
+        {"target_width": 3, "target_height": 2, "postprocess_path": "native_bypass", "voice_mode": "fish_lock"},
+        torch.rand(3, 2, 3, 3),
+        [],
+        audio=generated_h3,
+        audio_override=cloned_dialogue,
+        audio_inputs=audio_inputs,
+    )
+
+    assert len(audio_inputs) == 1
+    assert audio_inputs[0] is cloned_dialogue
+
+
+def test_audio_override_is_ignored_outside_fish_clone_mode(monkeypatch):
+    generated = {"waveform": torch.zeros(1, 2, 320), "sample_rate": 32000}
+    unrelated = {"waveform": torch.ones(1, 1, 160), "sample_rate": 16000}
+    audio_inputs = []
+
+    _combine(
+        monkeypatch,
+        {"target_width": 3, "target_height": 2, "postprocess_path": "native_bypass", "voice_mode": "h3_reference"},
+        torch.rand(3, 2, 3, 3),
+        [],
+        audio=generated,
+        audio_override=unrelated,
+        audio_inputs=audio_inputs,
+    )
+
+    assert len(audio_inputs) == 1
+    assert audio_inputs[0] is generated
 
 
 def test_auto_audio_cleanup_reduces_stable_noise_floor():

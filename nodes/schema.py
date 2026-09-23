@@ -7,7 +7,7 @@ from copy import deepcopy
 
 
 MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA")
-VOICE_MODES = ("none", "h3_reference", "fish_lock")
+VOICE_MODES = ("none", "h3_reference", "fish_lock", "audio_reuse")
 POSTPROCESS_MODES = ("native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr")
 RTX_QUALITIES = ("HIGH", "ULTRA", "HIGHBITRATE_ULTRA")
 MOTION_SMOOTHING_MODES = ("auto", "off", "rife_x2")
@@ -218,7 +218,7 @@ def allowed_motion_smoothing(performance_preset, postprocess_mode):
 
 def allowed_performance_presets(mode, voice_mode="none"):
     """Return the safe, user-facing presets for the active H3 route."""
-    if voice_mode != "none" or mode == "REF2VA":
+    if voice_mode not in {"none", "audio_reuse"} or mode == "REF2VA":
         presets = PERFORMANCE_PRESETS_BY_ROUTE["reference"]
         if voice_mode == "fish_lock":
             # Fish S2 and the trained latent redraw are mutually exclusive.
@@ -316,6 +316,8 @@ def normalize_request(raw=None):
         raise RequestError("音色参考最多支持 3 路")
     if request["voice_mode"] == "fish_lock" and len(audio_references) > 1:
         raise RequestError("Fish 高级音色锁定只使用音色参考 1，请只上传 1 路音频")
+    if request["voice_mode"] == "audio_reuse" and len(audio_references) > 1:
+        raise RequestError("完整复用模式只接受 1 路原音频，请移除第 2、3 路音频")
     request["voice_reference_audios"] = audio_references
     voice_names = list(request.get("voice_reference_names") or [])
     if len(voice_names) > 3:
@@ -444,7 +446,7 @@ def normalize_request(raw=None):
 
     request["resolved_backend"] = (
         "ref2va_model"
-        if request["mode"] == "REF2VA" or request["voice_mode"] != "none"
+        if request["mode"] == "REF2VA" or request["voice_mode"] in {"h3_reference", "fish_lock"}
         else "fl2va_model"
     )
     if request["resolved_backend"] == "ref2va_model" and request["mode"] != "REF2VA":

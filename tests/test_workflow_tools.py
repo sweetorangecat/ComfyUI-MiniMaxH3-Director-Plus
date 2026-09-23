@@ -310,6 +310,27 @@ def test_visual_workflow_embeds_media_uploads_in_director():
     assert not any(node["type"] in {"LoadImage", "LoadAudio"} for node in built["nodes"])
 
 
+def test_built_workflow_routes_fish_dialogue_to_output_override():
+    source = {
+        "last_node_id": 10,
+        "last_link_id": 20,
+        "nodes": [
+            {"id": 1, "type": "Settings", "title": "Settings", "pos": [0, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 2, "type": "MiniMaxH3Director", "title": "", "pos": [400, 0], "size": [800, 500], "mode": 0, "inputs": [], "outputs": []},
+            {"id": 3, "type": "DaSiWa_EnhancedVideoCombine", "title": "", "pos": [1250, 0], "size": [300, 300], "mode": 0, "inputs": [], "outputs": []},
+        ],
+        "links": [],
+        "groups": [],
+        "definitions": {"subgraphs": []},
+    }
+    built = build_workflow(source)
+    fish = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3FishVoiceBridge")
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
+    override_slot = next(index for index, item in enumerate(output["inputs"]) if item["name"] == "audio_override")
+
+    assert any(link[1:6] == [fish["id"], 0, output["id"], override_slot, "AUDIO"] for link in built["links"])
+
+
 def test_built_workflow_keeps_duration_and_resolution_widgets():
     source = {
         "last_node_id": 10,

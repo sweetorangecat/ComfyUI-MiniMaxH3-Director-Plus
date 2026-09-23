@@ -110,9 +110,7 @@ class MiniMaxH3DirectorPlusGuide:
                 "audio_vae": ("VAE",),
                 "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
             },
-            "optional": {
-                "generated_voice_audio": ("AUDIO",),
-            },
+            "optional": {"generated_voice_audio": ("AUDIO",)},
         }
 
     RETURN_TYPES = ("CONDITIONING", "LATENT")
@@ -124,9 +122,10 @@ class MiniMaxH3DirectorPlusGuide:
         state = guide.copy()
         if state.get("voice_mode") == "fish_lock":
             if generated_voice_audio is None:
-                raise ValueError("Fish 高级音色锁定尚未生成目标对白音频")
+                raise ValueError("Fish S2 音色克隆尚未生成目标对白")
+            # Condition H3 on the new target speech for lip sync. The workflow
+            # separately routes this same Fish output to the final mux input.
             state["ref_audios"] = {"ref_audio_1": generated_voice_audio}
-
         clip, video_vae, audio_vae = _route_low_vram_inputs(
             clip, video_vae, audio_vae, state
         )

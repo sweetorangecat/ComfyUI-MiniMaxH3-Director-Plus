@@ -607,6 +607,19 @@ def test_chinese_performance_presets_normalize_to_stable_keys(preset, expected):
     assert request["performance_preset"] == expected
 
 
+def test_full_audio_reuse_mode_keeps_original_upload_and_does_not_route_it_to_h3():
+    audio = {"waveform": "original", "sample_rate": 16000}
+    request = normalize_request({
+        "mode": "T2VA",
+        "voice_mode": "audio_reuse",
+        "voice_reference_audio": audio,
+        "prompt": "一个人在房间里平静地看向镜头。",
+    })
+
+    assert request["voice_reference_audios"] == [audio]
+    assert request["resolved_backend"] == "fl2va_model"
+
+
 @pytest.mark.parametrize(
     ("mode", "voice_mode", "expected"),
     [

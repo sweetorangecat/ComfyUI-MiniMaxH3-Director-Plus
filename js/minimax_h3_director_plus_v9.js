@@ -86,9 +86,10 @@ const REF2VA_IMAGE_SLOTS = [
 const VOICE_MODES = [
   ["none", "不使用音色"],
   ["h3_reference", "H3 原生参考（非严格克隆）"],
-  ["fish_lock", "Fish S2 声纹锁定（更像本人）"],
+  ["fish_lock", "Fish S2 克隆音色并生成新对白"],
+  ["audio_reuse", "完整复用上传音频"],
 ];
-const VOICE_MODE_LABELS = {none: "不使用音色", h3_reference: "H3 原生参考（非严格克隆）", fish_lock: "Fish S2 声纹锁定"};
+const VOICE_MODE_LABELS = {none: "不使用音色", h3_reference: "H3 原生音频参考", fish_lock: "Fish S2 克隆音色", audio_reuse: "完整复用上传音频"};
 const POSTPROCESS_MODES = [
   ["native", "原生尺寸直出"],
   ["lanczos", "Lanczos 快速放大"],
@@ -206,7 +207,7 @@ function restoreFaceRefineDefault(node) {
 
 function allowedPerformancePresets(mode, voiceMode) {
   let presets;
-  if (voiceMode !== "none" || mode === "REF2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.reference;
+  if ((voiceMode !== "none" && voiceMode !== "audio_reuse") || mode === "REF2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.reference;
   else if (mode === "T2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.t2va;
   else presets = PERFORMANCE_PRESETS_BY_ROUTE.endpoint;
   if (voiceMode === "fish_lock") return presets.filter((item) => !["质量优先二采样", "低显存二采"].includes(item));
@@ -849,7 +850,7 @@ function install(node) {
       setWidget(node, "resolution_preset", "1080p FHD", false);
       [resolvedWidth, resolvedHeight] = syncResolution(node);
     }
-    const resolvedBackend = mode === "REF2VA" || voiceMode !== "none"
+    const resolvedBackend = mode === "REF2VA" || ["h3_reference", "fish_lock"].includes(voiceMode)
       ? "ref2va_model"
       : "fl2va_model";
 
@@ -1147,18 +1148,18 @@ function install(node) {
 
     const voice = document.createElement("section");
     voice.className = "h3p-section";
-    voice.innerHTML = '<div class="h3p-section-title"><span>音色参考</span><span class="h3p-hint">只提取音色与表达方式</span></div>';
+    voice.innerHTML = '<div class="h3p-section-title"><span>声音模式</span><span class="h3p-hint">分别选择 H3 音频参考、音色克隆或原音复用</span></div>';
     const voiceBar = document.createElement("div");
     voiceBar.className = "h3p-grid";
     voiceBar.append(valueControl("音色模式", "voice_mode", VOICE_MODES, voiceMode));
-    if (voiceMode !== "none") {
+    if (["h3_reference", "fish_lock"].includes(voiceMode)) {
       voiceBar.append(valueControl("性别/音域约束", "voice_gender", VOICE_GENDERS, widget(node, "voice_gender")?.value || "auto"));
     }
     voice.append(voiceBar);
     if (voiceMode === "h3_reference") {
       const nativeVoiceNote = document.createElement("div");
       nativeVoiceNote.className = "h3p-spec-note";
-      nativeVoiceNote.textContent = "H3 原生参考只能约束音色、表达和性别音域，仍可能发生声线漂移；需要尽量像上传者时请选择 Fish S2 声纹锁定。";
+      nativeVoiceNote.textContent = "H3 官方 ref_audios 会把整段样本作为音频条件输入，可能带入样本中的说话内容；它不是只提取音色的克隆器。只克隆音色请选 Fish S2，原音完整进入成片请选“完整复用上传音频”。";
       voice.append(nativeVoiceNote);
       const hasVoiceSample = Boolean(String(widget(node, "voice_reference_audio_file")?.value || "").trim());
       const promptText = String(widget(node, "prompt")?.value || "");
@@ -1172,8 +1173,12 @@ function install(node) {
     const audioLane = document.createElement("div");
     audioLane.className = "h3p-audio-lane";
     const audioHintTitle = document.createElement("b");
-    audioHintTitle.textContent = "编号音色入口：";
-    audioLane.append(audioHintTitle, `提示词中使用 ${AUDIO_REFERENCE_HINT} 指定人物音色。样本只提取音色，不使用原音频完整内容。`);
+    audioHintTitle.textContent = "声音文件：";
+    audioLane.append(audioHintTitle, voiceMode === "audio_reuse"
+      ? "原文件只作为成片音轨封装，不送入 H3，也不会经过响度清理。"
+      : voiceMode === "fish_lock"
+        ? "样本送入 Fish S2 克隆音色，生成你填写的新目标对白。"
+        : `H3 音频参考按整段输入；提示词可用 ${AUDIO_REFERENCE_HINT} 绑定参考音频。`);
     if (voiceMode !== "none" && VOICE_REFERENCE_MODES.includes(mode)) {
       const audioGrid = document.createElement("div");
       audioGrid.className = "h3p-audio-grid";
@@ -1213,7 +1218,7 @@ function install(node) {
     fishPanel = document.createElement("details");
     fishPanel.className = "h3p-fish";
     fishPanel.open = false;
-    fishPanel.innerHTML = '<summary>高级音色锁定 · Fish S2（可选）</summary><div class="h3p-fish-body">Fish S2 先用参考音色生成新的目标对白，再把生成结果送入 H3 reference 路线。不会复用样本里的原对白，也不会在失败时静默回退。</div>';
+    fishPanel.innerHTML = '<summary>Fish S2 音色克隆（可选）</summary><div class="h3p-fish-body">Fish S2 使用第一路样本克隆音色，按“目标对白”生成新音频；新音频用于 H3 口型条件，并作为最终视频音轨。不会从时间轴抽取对白，也不会把样本原对白混入成片。失败会明确报错。</div>';
     if (voiceMode === "fish_lock") {
       fishPanel.open = true;
       const fishBody = fishPanel.querySelector(".h3p-fish-body");

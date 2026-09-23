@@ -74,6 +74,7 @@
       "motion_smoothing": "off",
       "audio_loudness": "auto",
       "voice_gender": "auto",
+      "face_refine_mode": "off",
       "voice_reference_name_1": "",
       "voice_reference_name_2": "",
       "voice_reference_name_3": "",

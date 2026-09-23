@@ -40,6 +40,8 @@ API 中的 `resolution_preset` 表示请求的最终输出目标，支持精确 
 
 `voice_mode = "fish_lock"` 时只使用 `voice_reference_audios` 的第 1 路作为 Fish 音色样本，`target_dialogue` 是要新生成的对白，`reference_transcript` 是样本音频原文（建议填写），`fish_model_path` 默认使用 `s2-pro-w4a16 (auto download)`。Fish 失败会返回明确错误，不会静默回退到 H3 原生音色。
 
+`voice_mode = "h3_reference"` 会将最多三路完整上传音频作为 H3 原生 `ref_audios` 条件，模型可能复现参考片段中的语音内容；这不是只提取音色。`voice_mode = "audio_reuse"` 只接受一路上传音频，不把它送进 H3 条件，而是将整段音频作为最终视频音轨。Fish 模式把克隆后生成的新音频同时送入 H3 作为口型条件并接到最终音轨，不会从时间轴抽取对白。
+
 `voice_gender` 可选 `auto`、`male`、`female`、`neutral`，默认 `auto`。它会写入 H3 reference 提示词，用于保持性别与音域；H3 原生参考仍不是严格声纹克隆。要尽量避免男声漂移为女声，请传 `voice_gender = "male"`；要锁定本人声线，请使用 `fish_lock`。
 
 ### `GET /h3-director-plus/status`

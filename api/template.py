@@ -95,6 +95,7 @@ def patch_template(template, request):
 
     bridge_id, bridge = _node_by_title(prompt, "API Fish S2 音色桥接")
     guide_id, guide = _node_by_title(prompt, "API H3 原生指南")
+    _, combine = _node_by_title(prompt, "预览与输出")
     if request.get("voice_mode") == "fish_lock":
         if bridge is None or guide is None:
             raise TemplateError("API 模板缺少 Fish S2 音色桥接")
@@ -104,11 +105,21 @@ def patch_template(template, request):
         bridge.setdefault("inputs", {})["guide"] = [controller_id, 0]
         bridge["inputs"]["reference_audio"] = [first_voice_id, 0]
         guide.setdefault("inputs", {})["generated_voice_audio"] = [bridge_id, 0]
+        if combine is not None:
+            combine.setdefault("inputs", {})["audio_override"] = [bridge_id, 0]
     else:
         if bridge_id is not None:
             prompt.pop(bridge_id, None)
         if guide is not None:
             guide.setdefault("inputs", {}).pop("generated_voice_audio", None)
+        if combine is not None:
+            combine.setdefault("inputs", {}).pop("audio_override", None)
+
+    if request.get("voice_mode") == "audio_reuse" and combine is not None:
+        source_id, _ = _node_by_title(prompt, VOICE_TITLES[0])
+        if source_id is None:
+            raise TemplateError("完整复用音频需要上传音色参考音频1")
+        combine.setdefault("inputs", {})["audio_override"] = [source_id, 0]
 
     references = list(request.get("references") or []) if references_allowed else []
     for index in range(1, 10):
@@ -131,7 +142,7 @@ def patch_template(template, request):
         seed_node.setdefault("inputs", {})["noise_seed"] = int(request["seed"])
     _, scheduler_node = _node_by_title(prompt, "API 调度器")
     if scheduler_node is not None and "performance_preset" in request:
-        backend = "ref2va_model" if request.get("mode") == "REF2VA" or request.get("voice_mode") != "none" else "fl2va_model"
+        backend = "ref2va_model" if request.get("mode") == "REF2VA" or request.get("voice_mode") in {"h3_reference", "fish_lock"} else "fl2va_model"
         requested_preset = request["performance_preset"]
         preset_name = PRESET_LABELS.get(requested_preset, requested_preset)
         if (

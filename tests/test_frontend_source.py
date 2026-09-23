@@ -78,7 +78,7 @@ def test_endpoint_removal_is_independent_from_ref_compaction():
 
 def test_ui_has_chinese_primary_sections():
     text = source()
-    for label in ("快速设置", "生成规格", "导演与素材", "音色参考", "实际后端", "高级音色锁定"):
+    for label in ("快速设置", "生成规格", "导演与素材", "声音模式", "实际后端", "Fish S2 音色克隆"):
         assert label in text
 
 
@@ -350,8 +350,8 @@ def test_dom_controls_stop_litegraph_pointer_events():
 def test_ui_explains_native_reference_routing():
     text = source()
     assert "H3 原生参考（非严格克隆）" in text
-    assert "Fish S2 声纹锁定（更像本人）" in text
-    assert "仍可能发生声线漂移" in text
+    assert "Fish S2 克隆音色并生成新对白" in text
+    assert "可能带入样本中的说话内容" in text
     assert "当前提示词未绑定 <Audio 1>" in text
     assert "ref2va_model" in text
     assert "fl2va_model" in text
@@ -443,7 +443,7 @@ def test_ui_adds_seed_without_reordering_existing_sections():
         "<span>快速设置</span>",
         "<span>生成规格</span>",
         "<span>导演与素材</span>",
-        "<span>音色参考</span>",
+        "<span>声音模式</span>",
     ]
     assert [text.index(label) for label in sections] == sorted(text.index(label) for label in sections)
     assert 'valueControl("噪音种子", "seed"' in text

@@ -1039,7 +1039,10 @@ class MiniMaxH3StreamingVideoCombine:
                 "save_first_frame": ("BOOLEAN", {"default": False}),
                 "save_last_frame": ("BOOLEAN", {"default": False}),
             },
-            "optional": {"audio": ("AUDIO",)},
+            "optional": {
+                "audio": ("AUDIO",),
+                "audio_override": ("AUDIO",),
+            },
             "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
         }
 
@@ -1078,6 +1081,7 @@ class MiniMaxH3StreamingVideoCombine:
         save_first_frame,
         save_last_frame,
         audio=None,
+        audio_override=None,
         prompt=None,
         extra_pnginfo=None,
     ):
@@ -1282,6 +1286,18 @@ class MiniMaxH3StreamingVideoCombine:
                     replay_chunks.clear()
 
         metadata_path = dasiwa._metadata_file(prompt, extra_pnginfo) if save_metadata else None
+        voice_mode = guide.get("voice_mode")
+        reused_audio = (
+            audio_override if voice_mode in {"fish_lock", "audio_reuse"} and audio_override is not None
+            else guide.get("audio_reuse_audio") if voice_mode == "audio_reuse"
+            else guide.get("fish_output_audio") if voice_mode == "fish_lock"
+            else None
+        )
+        if reused_audio is not None:
+            # Exact-reuse mode deliberately bypasses H3's generated waveform and
+            # all loudness cleanup. The original upload is muxed as the output
+            # soundtrack; only container encoding can alter its samples.
+            output_audio = reused_audio
         audio_loudness = str(guide.get("audio_loudness", "original") or "original")
         audio_backend = str(guide.get("resolved_backend", "") or "")
         # Preserve the performance tier for audio cleanup. Low-VRAM FL2VA
@@ -1300,7 +1316,10 @@ class MiniMaxH3StreamingVideoCombine:
             "low_vram_fl2va_preserved" if audio_loudness_effective == "original" and audio_loudness == "auto"
             else "original_mode"
         )
-        if audio_loudness_effective == "auto":
+        if reused_audio is not None:
+            audio_cleanup = "disabled"
+            audio_cleanup_reason = "uploaded_audio_reused"
+        elif audio_loudness_effective == "auto":
             try:
                 output_audio = _normalize_output_audio(
                     audio, audio_loudness, backend=audio_backend

@@ -98,6 +98,26 @@ def test_api_template_routes_fish_generated_dialogue_into_h3_guide():
     assert bridge["inputs"]["guide"] == ["10", 0]
     assert bridge["inputs"]["reference_audio"] == ["13", 0]
     assert guide["inputs"]["generated_voice_audio"] == [bridge_id, 0]
+    output = next(node for node in prompt.values() if node.get("_meta", {}).get("title") == "预览与输出")
+    assert output["inputs"]["audio_override"] == [bridge_id, 0]
+
+
+def test_api_template_routes_original_audio_to_final_mux_without_h3_reference():
+    from tools.build_u11_workflow import build_api_template
+
+    prompt = patch_template(build_api_template(), {
+        "mode": "FL2VA",
+        "voice_mode": "audio_reuse",
+        "voice_reference_audio": "original.wav",
+    })
+
+    guide = next(node for node in prompt.values() if node.get("_meta", {}).get("title") == "快速设置 / API 入参")
+    output = next(node for node in prompt.values() if node.get("_meta", {}).get("title") == "预览与输出")
+    loader = next(node for node in prompt.values() if node.get("_meta", {}).get("title") == "API 音色参考音频1")
+    assert guide["inputs"]["voice_reference_audio"] == ["13", 0]
+    assert loader["inputs"]["audio"] == "original.wav"
+    assert output["inputs"]["audio_override"] == ["13", 0]
+    assert not any(node["class_type"] == "MiniMaxH3FishVoiceBridge" for node in prompt.values())
 
 
 def test_api_template_routes_acceleration_status_into_performance_preset():

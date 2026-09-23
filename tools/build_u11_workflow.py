@@ -256,6 +256,7 @@ def _upgrade_stream_output_inputs(workflow, output):
         ("guide", "MINIMAX_H3_DIRECTOR_PLUS_GUIDE"),
         ("frame_rate", "FLOAT"),
         ("audio", "AUDIO"),
+        ("audio_override", "AUDIO"),
     )
     existing = {item.get("name"): item for item in old_inputs}
     output["inputs"] = [
@@ -937,6 +938,9 @@ def build_workflow(source):
     _add_link(workflow, allocate_link, acceleration, 2, performance, 1, "BOOLEAN")
     _add_link(workflow, allocate_link, director, 0, fish, 0, "MINIMAX_H3_DIRECTOR_PLUS_GUIDE")
     _add_link(workflow, allocate_link, director, 5, fish, 1, "AUDIO")
+    if output is not None:
+        override_slot = next(index for index, item in enumerate(output["inputs"]) if item["name"] == "audio_override")
+        _add_link(workflow, allocate_link, fish, 0, output, override_slot, "AUDIO")
 
     if settings is not None:
         steps_slot = _append_input(settings, "steps", "INT", widget=True)
@@ -1020,7 +1024,7 @@ def build_workflow(source):
     workflow.setdefault("extra", {})["u11_director_plus"] = {
         "version": "1.3",
         "source": "U10-DaSiWa-MiniMaxH3-MythicAlchemy-v12导演台.json",
-        "voice_semantics": "reference_only",
+        "voice_semantics": "official_h3_audio_reference_fish_clone_or_full_audio_reuse",
     }
     return workflow
 
