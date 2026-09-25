@@ -21,7 +21,7 @@ from .schema import (
 )
 from .smart_1080p import SMART_PRESET, resolve_smart_1080p_plan, smart_1080p_target
 from .two_stage_assets import dependency_report, resolve_two_stage_route, resolve_split_upscale_callables
-from .video_sr import resolve_seedvr2_plan, seedvr2_dependency_report
+from .video_sr import resolve_seedvr2_fhd_plan, resolve_seedvr2_plan, seedvr2_dependency_report
 from .voice_guard import analyze_voice_reference
 from .upscale import (
     _available_upscale_models,
@@ -335,7 +335,7 @@ class MiniMaxH3DirectorPlus:
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
                 "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "智能画质（自动适配）", "tooltip": "性能预设；按显存、分辨率与时长自动选择后台链路"}),
-                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "智能1080p在显存和依赖满足时使用训练型二采并直接导出，H3音色任务锁定首采音频；预算不足时使用单采加AI超分。SeedVR2用于兼容的高分辨率路线。"}),
+                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "1080p 使用 H3 单采 + VOSR2 或 SeedVR2 超分，不执行 H3 二采。480p/768p 单采输出。"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
                 "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "auto", "tooltip": "通用 AI 超分模型；默认 auto 按实际倍率自动选择 X2/X4"}),
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
@@ -642,7 +642,7 @@ class MiniMaxH3DirectorPlus:
             seedvr2_report = _seedvr2_dependency_report()
             seedvr2_ready = seedvr2_report.get("ready", False)
             two_stage_ready = False
-            if request["voice_mode"] != "fish_lock":
+            if request["voice_mode"] != "fish_lock" and resolution_preset not in {"480p", "768p H3", "1080p FHD"}:
                 smart_two_stage_route = (
                     "trained_latent_ref"
                     if request["resolved_backend"] == "ref2va_model"
@@ -663,6 +663,7 @@ class MiniMaxH3DirectorPlus:
                 target_width=requested_width, target_height=requested_height,
                 voice_mode=request["voice_mode"],
                 target_preset=resolution_preset,
+                postprocess_mode=request["postprocess_mode"],
             )
             request["performance_preset"] = smart_plan["performance_preset"]
             request["postprocess_mode"] = smart_plan["postprocess_mode"]
@@ -672,6 +673,7 @@ class MiniMaxH3DirectorPlus:
                 request["warnings"].append(smart_plan["warning"])
             if (
                 not seedvr2_ready
+                and resolution_preset not in {"1080p FHD", "768p H3"}
                 and resolution_preset != "480p"
                 and not smart_plan["low_vram"]
                 and smart_plan["performance_preset"] != "quality_two_stage"
@@ -824,7 +826,15 @@ class MiniMaxH3DirectorPlus:
             two_stage_plan["second_stage_height"] if two_stage_plan else native_height
         )
         # Preserve near-FHD H3 detail without another diffusion reconstruction.
-        if two_stage_plan is not None and (
+        if request["postprocess_mode"] == "vosr2":
+            from .two_stage_assets import _comfy_node_mappings
+            mappings = _comfy_node_mappings()
+            missing = [n for n in ("TESpeedVOSR2Loader", "TESpeedVOSR2Settings", "TESpeedVOSR2Video") if n not in mappings]
+            if missing:
+                raise RequestError("VOSR2 节点未就绪，请安装 TE-Speed-VOSR2 并重启，或选择 SeedVR2：" + "、".join(missing))
+            request["video_sr_plan"] = {"engine": "vosr2"}
+            postprocess_path = "video_sr"
+        elif two_stage_plan is not None and (
             two_stage_plan.get("balanced_fhd_supersample")
             or two_stage_plan.get("conservative_fhd_supersample")
             or two_stage_plan.get("qhd_direct")
@@ -915,8 +925,10 @@ class MiniMaxH3DirectorPlus:
                     raise RequestError(
                         f"RIFE 运动平滑前置检查失败，尚未开始 H3 视频生成：{exc}"
                     ) from exc
-        if postprocess_path == "video_sr":
+        if postprocess_path == "video_sr" and request["postprocess_mode"] != "vosr2":
             seedvr2_report = _seedvr2_dependency_report()
+            if not seedvr2_report["ready"] and smart_mode and resolution_preset == "1080p FHD":
+                raise RequestError("SeedVR2 未就绪：" + "、".join(seedvr2_report["missing"]))
             if not seedvr2_report["ready"]:
                 # The curated UI only exposes SeedVR2 as the final-output route;
                 # when its nodes/weights are missing, degrade to the per-frame
@@ -932,9 +944,11 @@ class MiniMaxH3DirectorPlus:
                 )
             else:
                 total_for_sr = _cuda_memory_gb()[0]
-                request["video_sr_plan"] = resolve_seedvr2_plan(
+                request["video_sr_plan"] = (resolve_seedvr2_fhd_plan if resolution_preset == "1080p FHD" else resolve_seedvr2_plan)(
                     total_for_sr, available_dit=seedvr2_report.get("available_dit")
                 )
+                if not request["video_sr_plan"].get("dit_model"):
+                    raise RequestError("1080p SeedVR2 路线需要安装 3B 权重")
                 request["warnings"].append(
                     "最终输出使用 SeedVR2 扩散视频超分（逐帧时间一致性优于通用 AI 超分）："
                     f"模型 {request['video_sr_plan']['dit_model']}，"
@@ -1159,7 +1173,7 @@ class MiniMaxH3DirectorPlus:
             "upscale_method": {
                 "rtx_vsr": "rtx_vsr",
                 "ai_upscale": "comfy_upscale_model",
-                "video_sr": "seedvr2",
+                "video_sr": "vosr2" if request["postprocess_mode"] == "vosr2" else "seedvr2",
                 "lanczos": "lanczos",
                 "balanced_fhd_downscale": "aspect_lanczos_downscale",
                 "downscale": "cpu_bicubic",

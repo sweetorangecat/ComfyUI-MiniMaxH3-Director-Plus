@@ -571,6 +571,14 @@ def _iter_video_sr_frame_chunks(
     one call with a hardware-tiered plan; the upscaled tensor is yielded back
     in small CPU chunks to keep encoder feeding bounded.
     """
+    if (plan or {}).get("engine") == "vosr2":
+        from .video_finish import _vosr2, validate_sr_result
+        prepared = _center_crop_batch_to_target_aspect(images, target_width, target_height)
+        result = _vosr2(prepared, target_width, target_height, seed)
+        validate_sr_result(result, len(images))
+        for start in range(0, len(result), max(1, int(max_chunk_frames))):
+            yield _resize_cpu_chunk(result[start:start + max(1, int(max_chunk_frames))], target_width, target_height, method="lanczos").clamp(0, 1)
+        return
     callables = resolve_seedvr2_callables()
     if callables is None:
         raise RuntimeError(
@@ -1125,7 +1133,7 @@ class MiniMaxH3StreamingVideoCombine:
             probe_rife_capability(guide.get("rife_model", DEFAULT_RIFE_MODEL))
         if postprocess_path == "video_sr":
             validate_frames_for_reconstruction(source)
-            if resolve_seedvr2_callables() is None:
+            if (guide.get("video_sr_plan") or {}).get("engine") != "vosr2" and resolve_seedvr2_callables() is None:
                 raise RuntimeError(
                     "缺少 SeedVR2 视频超分节点：请安装 ComfyUI-SeedVR2_VideoUpscaler，"
                     "或在导演台把最终输出改为通用 AI 超分"

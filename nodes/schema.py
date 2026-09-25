@@ -8,7 +8,7 @@ from copy import deepcopy
 
 MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA")
 VOICE_MODES = ("none", "h3_reference", "fish_lock", "audio_reuse")
-POSTPROCESS_MODES = ("native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr")
+POSTPROCESS_MODES = ("vosr2", "native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr")
 RTX_QUALITIES = ("HIGH", "ULTRA", "HIGHBITRATE_ULTRA")
 MOTION_SMOOTHING_MODES = ("auto", "off", "rife_x2")
 AUDIO_LOUDNESS_MODES = ("auto", "original")
@@ -165,7 +165,7 @@ TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_st
 # verified final reconstruction route. Other presets still expose one
 # selectable final-output method at a time.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
-    "smart_free_1080p": ("ai_upscale", "video_sr"),
+    "smart_free_1080p": ("ai_upscale", "video_sr", "vosr2"),
     "quality_two_stage": ("video_sr", "rtx_vsr"),
     "low_vram_two_stage": ("ai_upscale",),
     "quality": POSTPROCESS_MODES,
@@ -180,7 +180,7 @@ POSTPROCESS_MODES_BY_PERFORMANCE = {
 # AI scaler. SeedVR2 is still available to compatible quality/two-stage routes,
 # but it should not redraw completed lip sync or timbre-conditioned faces.
 VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE = {
-    "smart_free_1080p": ("ai_upscale",),
+    "smart_free_1080p": ("vosr2", "video_sr"),
     "quality_two_stage": ("video_sr",),
     "low_vram_two_stage": ("ai_upscale",),
 }
@@ -601,10 +601,10 @@ def public_schema():
                 "中文名称": "最终输出后处理模式",
                 "enum": list(POSTPROCESS_MODES),
                 "default": "ai_upscale",
-                "description": "带 H3 音色参考的智能 1080p 固定使用保守 AI 超分，避免 SeedVR2 二次扩散重绘脸部、口型和毛发。2K 小网格及 4K 路线仍按需使用 SeedVR2；原生直出、Lanczos、RTX VSR 等历史值继续兼容。",
+                "description": "智能1080p使用H3单采，再以VOSR2或SeedVR2超分，跳过H3二采。旧ai_upscale选择在1080p智能路线映射为VOSR2。",
                 "allowed_by_performance": {
-                    "智能画质（自动适配）": ["ai_upscale"],
-                    "免费智能 1080p": ["ai_upscale"],
+                    "智能画质（自动适配）": ["vosr2", "video_sr"],
+                    "免费智能 1080p": ["vosr2", "video_sr"],
                     "质量优先二采样": ["video_sr"],
                     "低显存二采": ["ai_upscale"],
                     "其他性能预设": ["video_sr"],

@@ -61,6 +61,7 @@ def resolve_smart_1080p_plan(
     target_height=None,
     voice_mode="none",
     target_preset=None,
+    postprocess_mode=None,
 ):
     """Resolve Smart generation policy for a backend, VRAM state and target.
 
@@ -82,6 +83,20 @@ def resolve_smart_1080p_plan(
 
     seconds = _duration_seconds(duration)
     low_vram = total_vram_gb <= LOW_VRAM_TOTAL_GB
+    if target_preset in {"1080p FHD", "768p H3"}:
+        if not 4 <= seconds <= 15:
+            raise RequestError("视频时长必须在 4 到 15 秒之间")
+        fhd = target_preset == "1080p FHD"
+        method = postprocess_mode if postprocess_mode in {"vosr2", "video_sr"} else "vosr2"
+        return {
+            "performance_preset": "low_vram" if low_vram else ("ref_quality_native" if backend == "ref2va_model" and voice_mode == "h3_reference" else "quality_sage"),
+            "postprocess_mode": method if fhd else ("lanczos" if low_vram else "native"),
+            "ai_upscale_model": SMART_UPSCALE_MODEL,
+            "seedvr2_ready": bool(seedvr2_ready), "motion_smoothing": "off",
+            "use_easycache": False, "low_vram": low_vram, "max_duration": 15,
+            "two_stage_route": "bypass", "dimension_plan": None,
+            "warning": ("1080p 单采 + " + ("VOSR2" if method == "vosr2" else "SeedVR2") + " 视频超分：跳过 H3 latent 二采，保留首采音频。") if fhd else "768p 单采直出：跳过 H3 latent 二采。",
+        }
     if target_preset == "480p":
         if not 4 <= seconds <= 15:
             raise RequestError("视频时长必须在 4 到 15 秒之间")
