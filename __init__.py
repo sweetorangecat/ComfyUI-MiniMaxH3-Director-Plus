@@ -13,6 +13,7 @@ if __package__:
         MiniMaxH3SchedulerRouter,
     )
     from .nodes.two_stage import MiniMaxH3TwoStageSampler
+    from .nodes.video_finish import MiniMaxH3VideoFinish
     from .nodes.resolution import MiniMaxH3ResolutionPlus
     from .nodes.status import MiniMaxH3DirectorPlusStatus
     from .nodes.color_guard import MiniMaxH3ColorGuard
@@ -27,6 +28,7 @@ if __package__:
     )
 
     NODE_CLASS_MAPPINGS = {
+        "MiniMaxH3VideoFinish": MiniMaxH3VideoFinish,
         "MiniMaxH3DirectorPlus": MiniMaxH3DirectorPlus,
         "MiniMaxH3FishVoiceBridge": MiniMaxH3FishVoiceBridge,
         "MiniMaxH3DirectorPlusGuide": MiniMaxH3DirectorPlusGuide,
@@ -48,6 +50,7 @@ if __package__:
     }
 
     NODE_DISPLAY_NAME_MAPPINGS = {
+        "MiniMaxH3VideoFinish": "H3 独立视频超分（480p / 768p / 1080p）",
         "MiniMaxH3LocalPromptDraft": "H3 本地提示词草稿（Qwen 编码器 + Tail）",
         "MiniMaxH3DirectorPlus": "MiniMax H3 导演台 Plus",
         "MiniMaxH3FishVoiceBridge": "H3 Fish S2 音色桥接",
