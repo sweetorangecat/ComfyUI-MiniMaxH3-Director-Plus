@@ -617,7 +617,7 @@ def test_director_exposes_postprocess_widgets():
     required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
     optional = MiniMaxH3DirectorPlus.INPUT_TYPES()["optional"]
 
-    assert required["postprocess_mode"][0] == ["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "rtx_vsr"]
+    assert required["postprocess_mode"][0] == ["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage", "rtx_vsr"]
     assert "SeedVR2" in required["postprocess_mode"][1]["tooltip"]
     assert required["rtx_quality"][0] == ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"]
     assert required["ai_upscale_model"][0][0] == "auto"

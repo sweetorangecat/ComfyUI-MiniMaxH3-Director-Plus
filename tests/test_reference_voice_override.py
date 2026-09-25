@@ -17,7 +17,7 @@ def test_director_does_not_undo_default_reference_redraw(monkeypatch, switch, ex
               and "MMH3_REF_VOICE_TWO_STAGE" in ast.unparse(node.test)]
     assert len(guards) == 1
     request = {"performance_preset": "quality_two_stage", "warnings": []}
-    scope = dict(os=os, voice_mode="h3_reference", request=request,
+    scope = dict(postprocess_mode="ai_upscale", os=os, voice_mode="h3_reference", request=request,
                  smart_vram=(31.4, 30.7), TWO_STAGE_PERFORMANCE_PRESETS={"quality_two_stage"})
     exec(compile(ast.Module(body=guards, type_ignores=[]), "director_guard", "exec"), scope)
     assert request["performance_preset"] == expected

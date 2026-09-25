@@ -26,7 +26,7 @@ def test_two_stage_presets_remain_available_only_on_non_reference_routes():
 def test_schema_exposes_final_postprocess_controls():
     schema = public_schema()["properties"]
 
-    assert schema["postprocess_mode"]["enum"] == ["vosr2", "native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"]
+    assert schema["postprocess_mode"]["enum"] == ["h3_two_stage", "vosr2", "native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"]
     assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"]
     assert schema["rtx_quality"]["allowed_by_performance"] == {
         "质量优先二采样": ["HIGHBITRATE_ULTRA"],
@@ -34,7 +34,7 @@ def test_schema_exposes_final_postprocess_controls():
     }
     assert schema["ai_upscale_model"]["default"] == "auto"
     assert schema["postprocess_mode"]["default"] == "ai_upscale"
-    assert schema["postprocess_mode"]["allowed_by_performance"]["智能画质（自动适配）"] == ["vosr2", "video_sr"]
+    assert schema["postprocess_mode"]["allowed_by_performance"]["智能画质（自动适配）"] == ["h3_two_stage", "vosr2", "video_sr"]
     assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["video_sr"]
     assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == ["ai_upscale"]
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
@@ -296,7 +296,7 @@ def test_smart_free_1080p_aliases_and_output_controls_are_locked():
     for preset in ("免费智能 1080p", "smart_free_1080p"):
         request = normalize_request({"mode": "T2VA", "performance_preset": preset})
         assert request["performance_preset"] == "smart_free_1080p"
-    assert allowed_postprocess_modes("smart_free_1080p") == ("ai_upscale", "video_sr", "vosr2")
+    assert allowed_postprocess_modes("smart_free_1080p") == ("ai_upscale", "video_sr", "vosr2", "h3_two_stage")
     assert schema_module.allowed_motion_smoothing("smart_free_1080p", "ai_upscale") == ("off",)
 
     with pytest.raises(RequestError, match="smart_free_1080p.*后处理模式"):
@@ -316,7 +316,7 @@ def test_smart_free_1080p_aliases_and_output_controls_are_locked():
 def test_quality_two_stage_prefers_video_sr_and_keeps_rtx_vsr_for_legacy():
     assert allowed_postprocess_modes("quality_two_stage") == ("video_sr", "rtx_vsr")
     assert schema_module.visible_postprocess_modes("quality_two_stage") == ("video_sr",)
-    assert schema_module.visible_postprocess_modes("smart_free_1080p") == ("vosr2", "video_sr")
+    assert schema_module.visible_postprocess_modes("smart_free_1080p") == ("h3_two_stage", "vosr2", "video_sr")
     assert schema_module.visible_postprocess_modes("low_vram_two_stage") == ("ai_upscale",)
     allowed_rtx_qualities = getattr(schema_module, "allowed_rtx_qualities", None)
     assert callable(allowed_rtx_qualities), "缺少 RTX VSR 质量兼容矩阵"

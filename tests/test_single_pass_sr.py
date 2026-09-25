@@ -61,3 +61,32 @@ def test_output_vosr_dispatch_never_loads_seedvr(monkeypatch):
     out=torch.cat(list(stream_output._iter_video_sr_frame_chunks(torch.zeros(3,72,128,3),192,108,plan={'engine':'vosr2'})))
     assert out.shape==(3,108,192,3)
     assert seen['shape'][0]==3
+
+@pytest.mark.parametrize('backend',['fl2va_model','ref2va_model'])
+def test_user_can_select_h3_second_pass_without_video_sr(backend):
+    p=resolve_smart_1080p_plan(backend,5,32,28,two_stage_ready=True,target_width=1920,target_height=1080,target_preset='1080p FHD',postprocess_mode='h3_two_stage')
+    assert p['performance_preset']=='quality_two_stage'
+    assert p['two_stage_route']!='bypass'
+    assert p['dimension_plan'] is not None
+    assert p['postprocess_mode'] not in {'vosr2','video_sr'}
+
+def test_selected_second_pass_requires_its_dependencies():
+    from nodes.schema import RequestError
+    with pytest.raises(RequestError,match='二采'):
+        resolve_smart_1080p_plan('ref2va_model',5,32,28,two_stage_ready=False,target_width=1920,target_height=1080,target_preset='1080p FHD',postprocess_mode='h3_two_stage')
+
+def test_director_explicit_second_pass_survives_old_disable_switch(monkeypatch):
+    import torch
+    audio={"waveform": (torch.sin(torch.arange(144000).float()*0.04)*0.2).reshape(1,1,-1), "sample_rate":48000}
+    from nodes import director
+    monkeypatch.setenv('MMH3_REF_VOICE_TWO_STAGE','0')
+    monkeypatch.setattr(director,'_probe_vram_after_prefree',lambda:(32,28))
+    monkeypatch.setattr(director,'_cuda_memory_gb',lambda:(32,28))
+    monkeypatch.setattr(director,'_trained_two_stage_dependency_report',lambda route:{'ready':True,'missing':[],'required_assets':[]})
+    monkeypatch.setattr(director,'_seedvr2_dependency_report',lambda:{'ready':False,'missing':['SeedVR2'],'available_dit':[]})
+    monkeypatch.setattr(director,'resolve_split_upscale_callables',lambda:(lambda:None,)*3)
+    g,*_=director.MiniMaxH3DirectorPlus().build(mode='REF2VA',prompt='A person walks.',duration=5,width=1920,height=1080,aspect_ratio='16:9',resolution_preset='1080p FHD',voice_mode='h3_reference',ref_image_size='match',performance_preset='智能画质（自动适配）',voice_reference_audio=audio,postprocess_mode='h3_two_stage',timeline_data='{}',target_dialogue='',reference_transcript='')
+    assert g['two_stage_enabled'] is True
+    assert g['resolved_two_stage_route']=='trained_latent_ref'
+    assert g['postprocess_path']=='balanced_fhd_downscale'
+    assert not g.get('video_sr_plan')

@@ -335,7 +335,7 @@ class MiniMaxH3DirectorPlus:
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
                 "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "智能画质（自动适配）", "tooltip": "性能预设；按显存、分辨率与时长自动选择后台链路"}),
-                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "1080p 使用 H3 单采 + VOSR2 或 SeedVR2 超分，不执行 H3 二采。480p/768p 单采输出。"}),
+                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "放大方式可选 H3 二采、VOSR2、SeedVR2。选择 VOSR2/SeedVR2 时1080p使用单采加超分。"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
                 "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "auto", "tooltip": "通用 AI 超分模型；默认 auto 按实际倍率自动选择 X2/X4"}),
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
@@ -642,7 +642,7 @@ class MiniMaxH3DirectorPlus:
             seedvr2_report = _seedvr2_dependency_report()
             seedvr2_ready = seedvr2_report.get("ready", False)
             two_stage_ready = False
-            if request["voice_mode"] != "fish_lock" and resolution_preset not in {"480p", "768p H3", "1080p FHD"}:
+            if request["voice_mode"] != "fish_lock" and (request["postprocess_mode"] == "h3_two_stage" or resolution_preset not in {"480p", "768p H3", "1080p FHD"}):
                 smart_two_stage_route = (
                     "trained_latent_ref"
                     if request["resolved_backend"] == "ref2va_model"
@@ -712,6 +712,7 @@ class MiniMaxH3DirectorPlus:
             and smart_vram is not None
             and float(smart_vram[0]) >= 20.0
             and float(smart_vram[1]) >= 18.0
+            and postprocess_mode != "h3_two_stage"
             and os.environ.get("MMH3_REF_VOICE_TWO_STAGE", "1") == "0"
         ):
             request["warnings"].append(
@@ -840,7 +841,7 @@ class MiniMaxH3DirectorPlus:
             or two_stage_plan.get("qhd_direct")
         ):
             postprocess_path = "balanced_fhd_downscale"
-        elif two_stage_plan is not None and two_stage_plan.get("adaptive_qhd"):
+        elif two_stage_plan is not None and two_stage_plan.get("adaptive_qhd") and postprocess_mode != "h3_two_stage":
             postprocess_path = "video_sr"
         elif requested_width == postprocess_source_width and requested_height == postprocess_source_height:
             postprocess_path = "native_bypass"

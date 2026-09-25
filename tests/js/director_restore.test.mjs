@@ -128,7 +128,7 @@ test("smart mode retains 480p selection and synchronizes actual output dimension
   assert.equal(width.value, 854);
   assert.equal(height.value, 480);
 });
-for (const method of ["vosr2", "video_sr"]) {
+for (const method of ["h3_two_stage", "vosr2", "video_sr"]) {
   test(`smart FHD render preserves selected ${method}`, () => {
     const output = { name: "postprocess_mode", value: method };
     installedDirector("off", [output,

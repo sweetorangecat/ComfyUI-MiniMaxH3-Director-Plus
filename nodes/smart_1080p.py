@@ -83,6 +83,28 @@ def resolve_smart_1080p_plan(
 
     seconds = _duration_seconds(duration)
     low_vram = total_vram_gb <= LOW_VRAM_TOTAL_GB
+    if postprocess_mode == "h3_two_stage":
+        if not 4 <= seconds <= 15:
+            raise RequestError("视频时长必须在 4 到 15 秒之间")
+        if voice_mode == "fish_lock":
+            raise RequestError("Fish 音色锁定不支持 H3 二采，请选择 VOSR2 或 SeedVR2")
+        if not two_stage_ready:
+            raise RequestError("所选 H3 二采依赖未就绪，请安装二采模型与节点，或选择其他放大方式")
+        if not target_width or not target_height:
+            raise RequestError("H3 二采需要明确的目标尺寸")
+        dimensions = plan_two_stage_dimensions(target_width, target_height, seconds, total_vram_gb, free_vram_gb, adaptive=True)
+        if not dimensions["allowed"]:
+            raise RequestError("H3 二采预算不足：" + dimensions["reason"])
+        return {
+            "performance_preset": "quality_two_stage",
+            "postprocess_mode": "lanczos",
+            "ai_upscale_model": SMART_UPSCALE_MODEL,
+            "seedvr2_ready": bool(seedvr2_ready), "motion_smoothing": "off",
+            "use_easycache": False, "low_vram": low_vram, "max_duration": 15,
+            "two_stage_route": "trained_latent_ref" if backend == "ref2va_model" else "trained_latent_fl",
+            "dimension_plan": dimensions,
+            "warning": "已选择 H3 二采：首采后放大 latent 并重绘，不叠加 VOSR2 或 SeedVR2。",
+        }
     if target_preset in {"1080p FHD", "768p H3"}:
         if not 4 <= seconds <= 15:
             raise RequestError("视频时长必须在 4 到 15 秒之间")
