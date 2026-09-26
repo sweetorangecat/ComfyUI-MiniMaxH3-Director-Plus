@@ -11,9 +11,11 @@ import uuid
 
 try:
     from .validate_workflow import validate_workflow
+    from .remove_face_refine import remove_face_refine
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from validate_workflow import validate_workflow
+    from remove_face_refine import remove_face_refine
 
 
 PLUGIN_ID = "ComfyUI-MiniMaxH3-Director-Plus"
@@ -835,7 +837,7 @@ def _upgrade_subgraphs(workflow):
 
 
 def build_workflow(source):
-    workflow = deepcopy(source)
+    workflow = remove_face_refine(source)
     workflow["id"] = str(uuid.uuid5(uuid.NAMESPACE_URL, "minimax-h3-director-plus-u11"))
     workflow["revision"] = 0
     nodes = workflow.setdefault("nodes", [])

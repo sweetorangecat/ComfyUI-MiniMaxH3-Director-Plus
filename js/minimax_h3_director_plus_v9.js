@@ -197,9 +197,8 @@ function setWidget(node, name, value, notify = true) {
 
 function restoreFaceRefineDefault(node) {
   const item = widget(node, "face_refine_mode");
-  // Older workflows lack this appended widget (or restore an empty DOM-widget
-  // value into it). A display-only fallback leaves the queued value invalid.
-  if (item && (item.value == null || item.value === "")) {
+  // Keep the serialized slot for old workflows, but retire the face branch.
+  if (item && item.value !== "off") {
     const previous = item.value;
     setWidget(node, "face_refine_mode", "off", false);
     node.onWidgetChanged?.("face_refine_mode", "off", previous, item);
@@ -798,7 +797,7 @@ function install(node) {
     sanitizeUploadWidgets(node);
     const mode = widget(node, "mode")?.value || "FL2VA";
     const voiceMode = widget(node, "voice_mode")?.value || "none";
-    const faceRefineMode = restoreFaceRefineDefault(node);
+    restoreFaceRefineDefault(node);
     const savedVoiceGender = String(widget(node, "voice_gender")?.value || "");
     if (!VOICE_GENDERS.some(([value]) => value === savedVoiceGender)) {
       setWidget(node, "voice_gender", "auto", false);
@@ -960,14 +959,14 @@ function install(node) {
         ? valueControl("RTX VSR 质量", "rtx_quality", rtxQualityOptions, rtxQuality)
         : document.createElement("span");
     const motionControl = valueControl("运动平滑", "motion_smoothing", motionOptions, motionSmoothing);
+    quickGrid.append(postprocessControl);
     postprocessGrid.append(
-      postprocessControl,
       aiModelControl,
       motionControl,
       valueControl("最终音频", "audio_loudness", AUDIO_LOUDNESS, widget(node, "audio_loudness")?.value || "auto"),
     );
     if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
-      [postprocessControl, aiModelControl, motionControl].forEach((field) => {
+      [aiModelControl, motionControl].forEach((field) => {
         field.querySelector?.("select")?.setAttribute("disabled", "disabled");
       });
     }
@@ -1201,23 +1200,6 @@ function install(node) {
     }
     voice.append(audioLane);
 
-    const faceRefine = document.createElement("section");
-    faceRefine.className = "h3p-section";
-    faceRefine.innerHTML = '<div class="h3p-section-title"><span>人脸修复</span><span class="h3p-hint">可选的局部清晰度修复</span></div>';
-    const faceRefineBar = document.createElement("div");
-    faceRefineBar.className = "h3p-grid";
-    faceRefineBar.append(valueControl("人脸修复", "face_refine_mode", [
-      ["off", "关闭"],
-      ["auto", "自动"],
-    ], faceRefineMode));
-    faceRefine.append(faceRefineBar);
-    const faceRefineNote = document.createElement("div");
-    faceRefineNote.className = "h3p-spec-note";
-    faceRefineNote.textContent = faceRefineMode === "auto"
-      ? "一次修复选定 Picture 对应的一个人物；需原始单人身份参考及身份/切镜检测依赖。先检查跟踪，检测仍可能出错，不保证身份与清晰度。"
-      : "关闭时直接使用原始视频帧，不加载人脸修复模型。";
-    faceRefine.append(faceRefineNote);
-    root.append(faceRefine);
     fishPanel = document.createElement("details");
     fishPanel.className = "h3p-fish";
     fishPanel.open = false;
@@ -1315,8 +1297,44 @@ function install(node) {
   render();
 }
 
+// Migrate saved U11 graphs before ComfyUI creates their nodes. Only retire the
+// project-marked branch; independent/user-authored face workflows are untouched.
+function removeLegacyFaceBranch(graph) {
+  const nodes = graph?.nodes || [];
+  if (!nodes.some(node => node.type === NODE_CLASS)) return;
+  const branch = new Set(nodes.filter(node => node.properties?.director_plus_face_refine).map(node => node.id));
+  if (!branch.size || !Array.isArray(graph.links) || graph.links.some(link => !Array.isArray(link))) return;
+  const originals = new Map();
+  for (const node of nodes) {
+    if (!branch.has(node.id) || node.type !== "MiniMaxH3FaceRefineSwitch") continue;
+    const input = node.inputs?.find(input => input.name === "original_images");
+    const edge = graph.links.find(link => link[0] === input?.link);
+    if (edge && !branch.has(edge[1])) originals.set(node.id, edge);
+  }
+  // Unknown outbound connections cannot safely be bypassed automatically.
+  if (graph.links.some(link => branch.has(link[1]) && !branch.has(link[3]) && !originals.has(link[1]))) return;
+  graph.links = graph.links.filter(link => !branch.has(link[3])).map(link => {
+    const source = originals.get(link[1]);
+    return source ? [link[0], source[1], source[2], ...link.slice(3)] : link;
+  });
+  graph.nodes = nodes.filter(node => !branch.has(node.id));
+  for (const node of graph.nodes) {
+    (node.inputs || []).forEach((input, slot) => {
+      input.link = graph.links.find(link => link[3] === node.id && link[4] === slot)?.[0] ?? null;
+    });
+    (node.outputs || []).forEach((output, slot) => {
+      output.links = graph.links.filter(link => link[1] === node.id && link[2] === slot).map(link => link[0]);
+    });
+  }
+  graph.groups = (graph.groups || []).filter(group => group.title !== "FaceRefine 人脸修复");
+  if (graph.extra) delete graph.extra.director_plus_face_refine;
+}
+
 app.registerExtension({
   name: "MiniMaxH3.DirectorPlus",
+  beforeConfigureGraph(graphData) {
+    removeLegacyFaceBranch(graphData);
+  },
   nodeCreated(node) {
     if (node.comfyClass === NODE_CLASS) install(node);
   },

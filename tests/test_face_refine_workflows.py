@@ -6,31 +6,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_main_workflow_uses_one_lazy_face_refine_switch_before_final_output():
+def test_main_workflow_has_no_face_branch_and_preserves_output():
     workflow = json.loads(next((ROOT / "examples").glob("U11-*.json")).read_text("utf-8"))
-    by_id = {node["id"]: node for node in workflow["nodes"]}
-    switches = [node for node in workflow["nodes"] if node["type"] == "MiniMaxH3FaceRefineSwitch"]
-    assert len(switches) == 1
-    switch = switches[0]
-    sources = {}
-    for input_ in switch["inputs"]:
-        edge = next(edge for edge in workflow["links"] if edge[0] == input_["link"])
-        sources[input_["name"]] = by_id[edge[1]]["type"]
-    assert sources == {
-        "guide": "MiniMaxH3DirectorPlus",
-        "original_images": "MiniMaxH3ColorGuard",
-        "refined_images": "MiniMaxH3FaceStitch",
-    }
-    output = next(node for node in workflow["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
-    image_input = next(item for item in output["inputs"] if item["name"] == "images")
-    image_edge = next(edge for edge in workflow["links"] if edge[0] == image_input["link"])
-    assert by_id[image_edge[1]]["type"] == "MiniMaxH3FaceRefineSwitch"
-    assert not any(node["type"] in {"VHS_LoadVideoPath", "VHS_VideoCombine"} for node in workflow["nodes"])
-    branch = [node for node in workflow["nodes"] if node.get("properties", {}).get("director_plus_face_refine")]
-    assert branch
-    # PreviewImage is an independent OUTPUT_NODE. If active, it bypasses the
-    # lazy selector and runs the detector even when face_refine_mode is off.
-    assert all(node["mode"] == (2 if node["type"] == "PreviewImage" else 0) for node in branch)
+    assert_edges(workflow)
+    assert not any(n.get("properties", {}).get("director_plus_face_refine") or
+                   n["type"].startswith("MiniMaxH3Face") for n in workflow["nodes"])
+    assert not any("FaceRefine" in g.get("title", "") for g in workflow.get("groups", []))
+    by_id = {n["id"]: n for n in workflow["nodes"]}
+    output = next(n for n in workflow["nodes"] if n["type"] == "MiniMaxH3StreamingVideoCombine")
+    image = next(i for i in output["inputs"] if i["name"] == "images")
+    edge = next(e for e in workflow["links"] if e[0] == image["link"])
+    assert by_id[edge[1]]["type"] == "MiniMaxH3ColorGuard"
+    assert next(i for i in output["inputs"] if i["name"] == "audio")["link"] is not None
 
 
 def assert_edges(workflow):
@@ -91,46 +78,21 @@ def test_face_examples_preserve_audio_fps_and_sampling_recipe():
         assert scheduler["widgets_values"] == ["simple", 8, 0.4]
 
 
-def test_integration_is_repeatable_and_graph_remains_connected():
-    assert importlib.util.find_spec("tools.integrate_face_refine") is not None, "Integration tool missing"
-    from tools.integrate_face_refine import integrate
-    main = json.loads(next((ROOT / "examples").glob("U11-*.json")).read_text("utf-8"))
-    face = json.loads((ROOT / "examples/face_refine/FaceRefine-right-1080p.json").read_text("utf-8"))
-    result = integrate(main, face)
-    assert result == integrate(result, face)
-    assert_edges(result)
-    previews = [node for node in result["nodes"] if node.get("properties", {}).get(
-        "director_plus_face_refine") and node["type"] == "PreviewImage"]
-    assert previews and all(node["mode"] == 2 for node in previews)
-
-
-def test_main_refinement_preserves_director_references_and_tracks_identity():
-    workflow = json.loads(next((ROOT / "examples").glob("U11-*.json")).read_text("utf-8"))
-    by_id = {node["id"]: node for node in workflow["nodes"]}
-    context = next(node for node in workflow["nodes"] if node["type"] == "MiniMaxH3FaceRefineInputs")
-    conditioning = next(node for node in workflow["nodes"] if node["type"] == "MiniMaxH3FaceRefineConditioning")
-    tracker = next(node for node in workflow["nodes"] if node["type"] == "MiniMaxH3FaceTrackCrop")
-    for node, name, source, slot in [(context, "guide", "MiniMaxH3DirectorPlus", 0),
-                                    (conditioning, "guide", context["type"], 0),
-                                    (tracker, "identity_reference", context["type"], 1)]:
-        socket = next(item for item in node["inputs"] if item["name"] == name)
-        edge = next(edge for edge in workflow["links"] if edge[0] == socket["link"])
-        assert by_id[edge[1]]["type"] == source and edge[2] == slot
-    assert tracker["widgets_values"][10] is True
-    assert tracker["widgets_values"][17] == "auto (pyscenedetect)"
-    assert tracker["widgets_values"][19] == "by_identity"
-    assert not any(node["type"] == "ImageFromBatch" and node.get("properties", {}).get(
-        "director_plus_face_refine") for node in workflow["nodes"])
-
-
-def test_regeneration_preserves_user_identity_override():
-    from tools.integrate_face_refine import integrate
-    main = json.loads(next((ROOT / "examples").glob("U11-*.json")).read_text("utf-8"))
-    context = next(node for node in main["nodes"] if node["type"] == "MiniMaxH3FaceRefineInputs")
-    new_id = main["last_node_id"] + 1
-    main["nodes"].append({"id": new_id, "type": "LoadImage", "pos": [0, 0], "size": [300, 300],
-                          "inputs": [], "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": []}]})
-    main["links"].append([main["last_link_id"] + 1, new_id, 0, context["id"], 1, "IMAGE"])
-    result = integrate(main, {})
-    assert any(edge[1] == new_id and edge[3:5] == [context["id"], 1] for edge in result["links"])
-    assert_edges(result)
+def test_remove_face_branch_preserves_media_and_is_idempotent():
+    from tools.remove_face_refine import remove_face_refine
+    graph = {"nodes": [
+        {"id": 1, "type": "MiniMaxH3DirectorPlus", "widgets_values": ["user prompt", "reference.png"]},
+        {"id": 2, "type": "MiniMaxH3ColorGuard", "outputs": [{"links": [10]}]},
+        {"id": 3, "type": "MiniMaxH3FaceRefineSwitch", "properties": {"director_plus_face_refine": True},
+         "inputs": [{"name": "original_images", "link": 10}], "outputs": [{"links": [11]}]},
+        {"id": 4, "type": "MiniMaxH3StreamingVideoCombine", "inputs": [{"link": 11}, {"link": 12}]},
+        {"id": 5, "type": "VAEDecodeAudio", "outputs": [{"links": [12]}]},
+    ], "links": [[10, 2, 0, 3, 0, "IMAGE"], [11, 3, 0, 4, 0, "IMAGE"], [12, 5, 0, 4, 1, "AUDIO"]],
+       "groups": [{"title": "FaceRefine 人脸修复"}, {"title": "Output"}]}
+    result = remove_face_refine(graph)
+    assert len(graph["nodes"]) == 5
+    assert [n["id"] for n in result["nodes"]] == [1, 2, 4, 5]
+    assert result["links"] == [[11, 2, 0, 4, 0, "IMAGE"], [12, 5, 0, 4, 1, "AUDIO"]]
+    assert result["nodes"][0] == graph["nodes"][0]
+    assert result["groups"] == [{"title": "Output"}]
+    assert result == remove_face_refine(result)

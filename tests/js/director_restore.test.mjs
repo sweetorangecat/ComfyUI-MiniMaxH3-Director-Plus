@@ -16,9 +16,9 @@ class Element {
   append(...children) { this.children.push(...children); }
   appendChild(child) { this.append(child); }
   replaceChildren(...children) { this.children = children; }
-  setAttribute() {}
+  setAttribute(name, value) { this[name] = value; }
   addEventListener() {}
-  querySelector() { return null; }
+  querySelector(selector) { return this.children.find(child => child.tag === selector) || null; }
   querySelectorAll() { return []; }
 }
 
@@ -58,7 +58,7 @@ function installedDirector(initialValue = "off", extraWidgets = []) {
     },
   };
   extension.nodeCreated(node);
-  return { node, face, frames };
+  return { node, face, frames, extension };
 }
 
 test("rendering an empty legacy face mode writes off into the submitted widget", () => {
@@ -75,18 +75,54 @@ for (const legacyValue of [undefined, null, ""]) {
   });
 }
 
-test("restoring an enabled face mode preserves the user's selection", () => {
-  const { node, face } = installedDirector();
+test("legacy face mode is disabled and no face control is rendered", () => {
+  const { node, face } = installedDirector("auto");
   node.onConfigure({ face_refine_mode: "auto" });
-  assert.equal(face.value, "auto");
-  face.callback("auto");
-  assert.equal(face.value, "auto");
+  assert.equal(face.value, "off");
+  assert.ok(!allElements(node.root).some(el => el.dataset?.h3pValueWidget === "face_refine_mode"));
 });
 
-test("unexpected nonempty face modes remain visible to validation", () => {
-  const { node, face } = installedDirector();
-  node.onConfigure({ face_refine_mode: "not-a-mode" });
-  assert.equal(face.value, "not-a-mode");
+function allElements(root) {
+  return [root, ...(root.children || []).flatMap(allElements)];
+}
+
+for (const method of ["h3_two_stage", "vosr2", "video_sr"]) {
+  test(`smart upscale selector is enabled and includes ${method}`, () => {
+    const { node } = installedDirector("off", [
+      { name: "postprocess_mode", value: method },
+      { name: "performance_preset", value: "智能画质（自动适配）" },
+    ]);
+    const select = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "postprocess_mode");
+    assert.ok(select);
+    assert.equal(select.disabled, undefined);
+    assert.ok(select.children.some(el => el.value === method));
+  });
+}
+
+test("loading a legacy U11 removes the face branch and preserves audio and prompts", () => {
+  const { extension } = installedDirector();
+  const graph = {
+    nodes: [
+      { id: 1, type: "MiniMaxH3DirectorPlus", widgets_values: ["user prompt"] },
+      { id: 2, type: "MiniMaxH3ColorGuard", outputs: [{ links: [10] }] },
+      { id: 3, type: "MiniMaxH3FaceRefineSwitch", properties: { director_plus_face_refine: true },
+        inputs: [{ name: "original_images", link: 10 }], outputs: [{ links: [11] }] },
+      { id: 4, type: "MiniMaxH3StreamingVideoCombine", inputs: [{ name: "images", link: 11 }, { name: "audio", link: 12 }] },
+      { id: 5, type: "VAEDecodeAudio", outputs: [{ links: [12] }] },
+      { id: 6, type: "PreviewImage", properties: { director_plus_face_refine: true }, inputs: [{ link: 13 }] },
+    ],
+    links: [[10, 2, 0, 3, 0, "IMAGE"], [11, 3, 0, 4, 0, "IMAGE"], [12, 5, 0, 4, 1, "AUDIO"], [13, 3, 0, 6, 0, "IMAGE"]],
+    groups: [{ title: "FaceRefine 人脸修复" }, { title: "Output" }],
+  };
+  extension.beforeConfigureGraph(graph);
+  assert.deepEqual(graph.nodes.map(n => n.id), [1, 2, 4, 5]);
+  assert.deepEqual(JSON.parse(JSON.stringify(graph.links)), [[11, 2, 0, 4, 0, "IMAGE"], [12, 5, 0, 4, 1, "AUDIO"]]);
+  assert.deepEqual(graph.nodes[1].outputs[0].links, [11]);
+  assert.deepEqual(graph.nodes[0].widgets_values, ["user prompt"]);
+  assert.deepEqual(graph.groups, [{ title: "Output" }]);
+  const once = JSON.stringify(graph);
+  extension.beforeConfigureGraph(graph);
+  assert.equal(JSON.stringify(graph), once);
 });
 
 test("afterQueued seed update retains the native numeric callback receiver", () => {
