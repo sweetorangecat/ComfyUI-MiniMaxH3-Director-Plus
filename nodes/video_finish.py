@@ -11,13 +11,22 @@ def output_size(width, height, preset):
     short = {'480p': 480, '768p': 768, '1080p': 1080}[preset]
     if min(width, height) <= 0:
         raise ValueError('输入视频尺寸必须大于零')
-    scale = short / min(width, height)
+    scale = max(1, short / min(width, height))
     return tuple(max(2, round(v * scale / 2) * 2) for v in (width, height))
 
 
 def vosr2_input_size(width, height, target_width, target_height):
     scale = max(1, math.ceil(max(target_width / width, target_height / height)))
-    return math.ceil(target_width / scale), math.ceil(target_height / scale), scale
+    return width, height, scale
+
+
+def sr_output_size(width, height, target_width, target_height, engine):
+    """Preserve source pixels/aspect; the selected output is a lower bound."""
+    if engine == 'vosr2':
+        _, _, scale = vosr2_input_size(width, height, target_width, target_height)
+    else:
+        scale = max(1, target_width / width, target_height / height)
+    return tuple(math.ceil(v * scale / 2) * 2 for v in (width, height))
 
 
 def validate_sr_result(result, frame_count):
@@ -31,7 +40,7 @@ def validate_sr_result(result, frame_count):
 
 def _vosr2(images, width, height, seed):
     from .two_stage_assets import _comfy_node_mappings, _resolve_upscaler_callable
-    from .stream_output import _release_comfy_models_before_video_sr, _unwrap_node_result, _resize_cpu_chunk
+    from .stream_output import _release_comfy_models_before_video_sr, _unwrap_node_result
     mappings = _comfy_node_mappings()
     ids = ('TESpeedVOSR2Loader', 'TESpeedVOSR2Settings', 'TESpeedVOSR2Video')
     missing = [name for name in ids if name not in mappings]
@@ -45,9 +54,8 @@ def _vosr2(images, width, height, seed):
         vae_tile_size=1024, vae_tile_overlap=32, image_batch=1, frame_batch=2,
         dino_batch=2, temporal_cache=False, cache_threshold=0.003, cache_refresh=4,
         memory_policy='auto', color_alignment='wavelet'))
-    iw, ih, scale = vosr2_input_size(images.shape[2], images.shape[1], width, height)
-    prepared = _resize_cpu_chunk(images, iw, ih, method='lanczos')
-    return _unwrap_node_result(video(model=model, images=prepared, scale=scale, seed=int(seed),
+    _, _, scale = vosr2_input_size(images.shape[2], images.shape[1], width, height)
+    return _unwrap_node_result(video(model=model, images=images, scale=scale, seed=int(seed),
         settings=settings, frame_batch=2, temporal_cache=False, cache_threshold=0.003, cache_refresh=4))
 
 
@@ -72,6 +80,8 @@ class MiniMaxH3VideoFinish:
         if images.ndim != 4 or images.shape[0] == 0 or images.shape[-1] != 3:
             raise ValueError('需要非空 RGB 视频帧')
         width, height = output_size(images.shape[2], images.shape[1], resolution)
+        if method in {'VOSR2', 'SeedVR2'}:
+            width, height = sr_output_size(images.shape[2], images.shape[1], width, height, method.lower())
         start = time.perf_counter()
         if method == 'resize':
             result = images

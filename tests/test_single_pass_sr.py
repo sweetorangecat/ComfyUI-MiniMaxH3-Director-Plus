@@ -102,7 +102,7 @@ def test_output_vosr_dispatch_never_loads_seedvr(monkeypatch):
     monkeypatch.setattr(stream_output,'resolve_seedvr2_callables',forbidden)
     monkeypatch.setattr(video_finish,'_vosr2',fake_vosr)
     out=torch.cat(list(stream_output._iter_video_sr_frame_chunks(torch.zeros(3,72,128,3),192,108,plan={'engine':'vosr2'})))
-    assert out.shape==(3,108,192,3)
+    assert out.shape==(3,144,256,3)
     assert seen['shape'][0]==3
 
 @pytest.mark.parametrize('backend',['fl2va_model','ref2va_model'])

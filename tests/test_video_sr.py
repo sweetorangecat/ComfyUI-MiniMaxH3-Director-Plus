@@ -320,7 +320,7 @@ def test_stream_output_video_sr_routes_through_seedvr2(monkeypatch):
     output = torch.cat(chunks, dim=0)
     assert output.shape == (6, 8, 12, 3)
     assert calls["upscale"]["resolution"] == 8
-    assert calls["upscale"]["max_resolution"] == 12
+    assert calls["upscale"]["max_resolution"] == 0
     assert calls["upscale"]["batch_size"] == 9
     assert calls["upscale"]["color_correction"] == "lab"
     assert calls["dit"]["model"] == "seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors"
@@ -384,11 +384,11 @@ def test_prepare_postprocess_releases_h3_before_video_sr(monkeypatch):
     assert released == [True]
 
 
-def test_seedvr2_crops_source_and_aligned_output_without_stretching(monkeypatch):
+def test_seedvr2_preserves_source_without_cropping(monkeypatch):
     import nodes.stream_output as output
     images = torch.arange(3 * 22 * 40 * 3, dtype=torch.float32).reshape(3, 22, 40, 3)
     captured = {}
-    aligned = torch.zeros(3, 44, 80, 3)
+    aligned = torch.zeros(3, 36, 66, 3)
     def upscale(**kwargs):
         captured["source"] = kwargs["image"]
         return (aligned,)
@@ -399,6 +399,6 @@ def test_seedvr2_crops_source_and_aligned_output_without_stretching(monkeypatch)
     monkeypatch.setattr(output, "_release_comfy_models_before_video_sr", lambda: None)
     monkeypatch.setattr(output, "_resize_cpu_chunk", resize)
     result = torch.cat(list(output._iter_video_sr_frame_chunks(images, 64, 36)))
-    assert result.shape == (3, 36, 64, 3)
-    assert torch.equal(captured["source"], images[:, :, 1:39, :])
-    assert captured["resize"].shape == (3, 44, 78, 3)
+    assert result.shape == (3, 36, 66, 3)
+    assert torch.equal(captured["source"], images)
+    assert captured["resize"].shape == (3, 36, 66, 3)

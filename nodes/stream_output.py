@@ -571,10 +571,14 @@ def _iter_video_sr_frame_chunks(
     one call with a hardware-tiered plan; the upscaled tensor is yielded back
     in small CPU chunks to keep encoder feeding bounded.
     """
+    from .video_finish import sr_output_size
+    target_width, target_height = sr_output_size(
+        images.shape[2], images.shape[1], target_width, target_height,
+        (plan or {}).get("engine", "seedvr2"),
+    )
     if (plan or {}).get("engine") == "vosr2":
         from .video_finish import _vosr2, validate_sr_result
-        prepared = _center_crop_batch_to_target_aspect(images, target_width, target_height)
-        result = _vosr2(prepared, target_width, target_height, seed)
+        result = _vosr2(images, target_width, target_height, seed)
         validate_sr_result(result, len(images))
         for start in range(0, len(result), max(1, int(max_chunk_frames))):
             yield _resize_cpu_chunk(result[start:start + max(1, int(max_chunk_frames))], target_width, target_height, method="lanczos").clamp(0, 1)
@@ -588,7 +592,6 @@ def _iter_video_sr_frame_chunks(
     _release_comfy_models_before_video_sr()
     upscale_fn, dit_loader_fn, vae_loader_fn = callables
     plan = dict(plan or {})
-    images = _center_crop_batch_to_target_aspect(images, target_width, target_height)
     dit_config = _unwrap_node_result(
         dit_loader_fn(
             model=plan.get("dit_model"),
@@ -614,7 +617,7 @@ def _iter_video_sr_frame_chunks(
             vae=vae_config,
             seed=int(seed),
             resolution=int(min(target_width, target_height)),
-            max_resolution=int(max(target_width, target_height)),
+            max_resolution=0,
             batch_size=int(plan.get("batch_size", 5)),
             uniform_batch_size=False,
             temporal_overlap=int(plan.get("temporal_overlap", 0)),
@@ -1103,6 +1106,12 @@ class MiniMaxH3StreamingVideoCombine:
         target_width = int(guide.get("target_width") or source.shape[2])
         target_height = int(guide.get("target_height") or source.shape[1])
         postprocess_path = _resolve_postprocess_path(guide, source_width, source_height)
+        if postprocess_path == "video_sr":
+            from .video_finish import sr_output_size
+            target_width, target_height = sr_output_size(
+                source_width, source_height, target_width, target_height,
+                (guide.get("video_sr_plan") or {}).get("engine", "seedvr2"),
+            )
         upscale_profile = _resolve_upscale_profile(guide, postprocess_path)
         encode_quality = _resolved_encode_quality(guide, postprocess_path, quality)
         motion_smoothing = str(guide.get("motion_smoothing") or "off")
