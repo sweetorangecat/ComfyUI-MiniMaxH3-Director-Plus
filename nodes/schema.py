@@ -165,7 +165,7 @@ TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_st
 # verified final reconstruction route. Other presets still expose one
 # selectable final-output method at a time.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
-    "smart_free_1080p": ("ai_upscale", "video_sr", "vosr2", "h3_two_stage"),
+    "smart_free_1080p": ("native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage"),
     "quality_two_stage": ("video_sr", "rtx_vsr"),
     "low_vram_two_stage": ("ai_upscale",),
     "quality": POSTPROCESS_MODES,
@@ -180,7 +180,7 @@ POSTPROCESS_MODES_BY_PERFORMANCE = {
 # AI scaler. SeedVR2 is still available to compatible quality/two-stage routes,
 # but it should not redraw completed lip sync or timbre-conditioned faces.
 VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE = {
-    "smart_free_1080p": ("h3_two_stage", "vosr2", "video_sr"),
+    "smart_free_1080p": ("h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native"),
     "quality_two_stage": ("video_sr",),
     "low_vram_two_stage": ("ai_upscale",),
 }

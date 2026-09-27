@@ -109,15 +109,18 @@ def resolve_smart_1080p_plan(
         if not 4 <= seconds <= 15:
             raise RequestError("视频时长必须在 4 到 15 秒之间")
         fhd = target_preset == "1080p FHD"
-        method = postprocess_mode if postprocess_mode in {"vosr2", "video_sr"} else "vosr2"
+        method = postprocess_mode or "vosr2"
+        if fhd and method == "ai_upscale":
+            method = "vosr2"  # Migrate older Smart 1080p workflows.
+        method_name = {"vosr2": "VOSR2", "video_sr": "SeedVR2", "ai_upscale": "RealESRGAN", "lanczos": "Lanczos", "native": "原生尺寸"}.get(method, method)
         return {
             "performance_preset": "low_vram" if low_vram else ("ref_quality_native" if backend == "ref2va_model" and voice_mode == "h3_reference" else "quality_sage"),
-            "postprocess_mode": method if fhd else ("lanczos" if low_vram else "native"),
-            "ai_upscale_model": SMART_UPSCALE_MODEL,
+            "postprocess_mode": method,
+            "ai_upscale_model": SMART_LOW_VRAM_UPSCALE_MODEL if not fhd and low_vram and method == "ai_upscale" else SMART_UPSCALE_MODEL,
             "seedvr2_ready": bool(seedvr2_ready), "motion_smoothing": "off",
             "use_easycache": False, "low_vram": low_vram, "max_duration": 15,
             "two_stage_route": "bypass", "dimension_plan": None,
-            "warning": ("1080p 单采 + " + ("VOSR2" if method == "vosr2" else "SeedVR2") + " 视频超分：跳过 H3 latent 二采，保留首采音频。") if fhd else "768p 单采直出：跳过 H3 latent 二采。",
+            "warning": ("1080p 单采 + " + method_name + " 视频超分：跳过 H3 latent 二采，保留首采音频。") if fhd else "768p 首采 + " + method_name + " 输出：跳过 H3 latent 二采；低显存首采细节不足时超分不能完全恢复人脸。",
         }
     if target_preset == "480p":
         if not 4 <= seconds <= 15:

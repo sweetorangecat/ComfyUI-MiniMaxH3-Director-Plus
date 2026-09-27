@@ -928,7 +928,7 @@ class MiniMaxH3DirectorPlus:
                     ) from exc
         if postprocess_path == "video_sr" and request["postprocess_mode"] != "vosr2":
             seedvr2_report = _seedvr2_dependency_report()
-            if not seedvr2_report["ready"] and smart_mode and resolution_preset == "1080p FHD":
+            if not seedvr2_report["ready"] and smart_mode and resolution_preset in {"1080p FHD", "768p H3"}:
                 raise RequestError("SeedVR2 未就绪：" + "、".join(seedvr2_report["missing"]))
             if not seedvr2_report["ready"]:
                 # The curated UI only exposes SeedVR2 as the final-output route;

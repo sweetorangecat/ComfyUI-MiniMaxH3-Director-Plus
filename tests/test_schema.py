@@ -296,15 +296,14 @@ def test_smart_free_1080p_aliases_and_output_controls_are_locked():
     for preset in ("免费智能 1080p", "smart_free_1080p"):
         request = normalize_request({"mode": "T2VA", "performance_preset": preset})
         assert request["performance_preset"] == "smart_free_1080p"
-    assert allowed_postprocess_modes("smart_free_1080p") == ("ai_upscale", "video_sr", "vosr2", "h3_two_stage")
+    assert allowed_postprocess_modes("smart_free_1080p") == ("native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage")
     assert schema_module.allowed_motion_smoothing("smart_free_1080p", "ai_upscale") == ("off",)
 
-    with pytest.raises(RequestError, match="smart_free_1080p.*后处理模式"):
-        normalize_request({
-            "mode": "T2VA",
-            "performance_preset": "smart_free_1080p",
-            "postprocess_mode": "native",
-        })
+    assert normalize_request({
+        "mode": "T2VA",
+        "performance_preset": "smart_free_1080p",
+        "postprocess_mode": "native",
+    })["postprocess_mode"] == "native"
     with pytest.raises(RequestError, match="RIFE"):
         normalize_request({
             "mode": "T2VA",
@@ -316,7 +315,7 @@ def test_smart_free_1080p_aliases_and_output_controls_are_locked():
 def test_quality_two_stage_prefers_video_sr_and_keeps_rtx_vsr_for_legacy():
     assert allowed_postprocess_modes("quality_two_stage") == ("video_sr", "rtx_vsr")
     assert schema_module.visible_postprocess_modes("quality_two_stage") == ("video_sr",)
-    assert schema_module.visible_postprocess_modes("smart_free_1080p") == ("h3_two_stage", "vosr2", "video_sr")
+    assert schema_module.visible_postprocess_modes("smart_free_1080p") == ("h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native")
     assert schema_module.visible_postprocess_modes("low_vram_two_stage") == ("ai_upscale",)
     allowed_rtx_qualities = getattr(schema_module, "allowed_rtx_qualities", None)
     assert callable(allowed_rtx_qualities), "缺少 RTX VSR 质量兼容矩阵"

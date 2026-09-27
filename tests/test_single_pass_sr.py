@@ -20,6 +20,49 @@ def test_768p_no_second_pass():
     p=resolve_smart_1080p_plan('ref2va_model',15,32,28,two_stage_ready=True,target_preset='768p H3')
     assert p['two_stage_route']=='bypass'
 
+
+@pytest.mark.parametrize('method',['vosr2','video_sr'])
+def test_8gb_768p_preserves_selected_video_sr(method):
+    p=resolve_smart_1080p_plan('fl2va_model',10,8,7,seedvr2_ready=True,
+        target_width=1344,target_height=768,target_preset='768p H3',postprocess_mode=method)
+    assert p['performance_preset']=='low_vram'
+    assert p['two_stage_route']=='bypass'
+    assert p['postprocess_mode']==method
+
+
+@pytest.mark.parametrize('method,engine',[('vosr2','vosr2'),('video_sr','seedvr2')])
+def test_8gb_768p_director_routes_selected_video_sr(monkeypatch,method,engine):
+    from nodes import director, stream_output, two_stage_assets
+    monkeypatch.setattr(director,'_probe_vram_after_prefree',lambda:(8,7))
+    monkeypatch.setattr(director,'_cuda_memory_gb',lambda:(8,7))
+    monkeypatch.setattr(director,'_seedvr2_dependency_report',lambda:{
+        'ready':True,'missing':[],'available_dit':['seedvr2_ema_3b_fp8_e4m3fn.safetensors']})
+    monkeypatch.setattr(two_stage_assets,'_comfy_node_mappings',lambda:{n:object for n in
+        ('TESpeedVOSR2Loader','TESpeedVOSR2Settings','TESpeedVOSR2Video')})
+    guide,*_=director.MiniMaxH3DirectorPlus().build(mode='T2VA',prompt='A face in close-up.',
+        duration=10,width=1344,height=768,aspect_ratio='16:9',resolution_preset='768p H3',
+        voice_mode='none',ref_image_size='match',performance_preset='智能画质（自动适配）',
+        postprocess_mode=method,timeline_data='{}',target_dialogue='',reference_transcript='')
+    assert guide['two_stage_enabled'] is False
+    assert guide['native_width']*guide['native_height'] < 1344*768
+    assert guide['postprocess_path']=='video_sr'
+    assert stream_output._resolve_postprocess_path(guide,guide['native_width'],guide['native_height'])=='video_sr'
+    assert guide['upscale_method']==engine
+
+
+def test_8gb_768p_selected_seedvr2_requires_dependencies(monkeypatch):
+    from nodes import director
+    from nodes.schema import RequestError
+    monkeypatch.setattr(director,'_probe_vram_after_prefree',lambda:(8,7))
+    monkeypatch.setattr(director,'_cuda_memory_gb',lambda:(8,7))
+    monkeypatch.setattr(director,'_seedvr2_dependency_report',lambda:{'ready':False,
+        'missing':['SeedVR2VideoUpscaler'],'available_dit':[]})
+    with pytest.raises(RequestError,match='SeedVR2 未就绪'):
+        director.MiniMaxH3DirectorPlus().build(mode='T2VA',prompt='A face in close-up.',
+            duration=10,width=1344,height=768,aspect_ratio='16:9',resolution_preset='768p H3',
+            voice_mode='none',ref_image_size='match',performance_preset='智能画质（自动适配）',
+            postprocess_mode='video_sr',timeline_data='{}',target_dialogue='',reference_transcript='')
+
 @pytest.mark.parametrize('mode,voice',[('T2VA','none'),('REF2VA','h3_reference')])
 @pytest.mark.parametrize('method',['vosr2','video_sr'])
 @pytest.mark.parametrize('aspect,width,height',[('16:9',1920,1080),('9:16',1080,1920)])

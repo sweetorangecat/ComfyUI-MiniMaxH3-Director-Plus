@@ -211,7 +211,7 @@ def test_low_vram_smart_768p_ten_seconds_uses_tiled_trained_redraw(monkeypatch):
     assert guide["performance_preset"] == "low_vram"
     assert guide["two_stage_enabled"] is False
     assert guide["resolved_two_stage_route"] == "bypass"
-    assert guide["postprocess_path"] == "lanczos"
+    assert guide["postprocess_path"] == "ai_upscale"
     assert (guide["target_width"], guide["target_height"]) == (1344, 768)
 
 
@@ -247,7 +247,7 @@ def test_low_vram_smart_768p_ten_second_ref2va_uses_guarded_tiled_redraw(monkeyp
     assert guide["performance_preset"] == "low_vram"
     assert guide["two_stage_enabled"] is False
     assert guide["resolved_two_stage_route"] == "bypass"
-    assert guide["postprocess_path"] == "lanczos"
+    assert guide["postprocess_path"] == "ai_upscale"
     assert (guide["target_width"], guide["target_height"]) == (1344, 768)
 
 
