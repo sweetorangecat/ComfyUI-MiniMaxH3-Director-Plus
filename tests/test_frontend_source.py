@@ -155,6 +155,12 @@ def test_ui_locks_quality_two_stage_to_video_sr():
     assert "质量优先二采样已锁定 SeedVR2 视频超分" in text
 
 
+def test_ui_exposes_reference_image_size_strategy():
+    text = source()
+    assert 'valueControl("参考图尺寸", "ref_image_size"' in text
+    assert '"最大尺寸（保留人脸细节）"' in text
+
+
 def test_ui_locks_low_vram_two_stage_by_resolution_to_ai_x2_reconstruction():
     text = source()
 

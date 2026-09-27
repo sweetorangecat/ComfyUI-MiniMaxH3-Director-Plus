@@ -941,6 +941,7 @@ function install(node) {
       finalSize,
       valueControl("噪音种子", "seed", [], widget(node, "seed")?.value ?? 0, "number"),
       valueControl("种子模式", "control_after_generate", SEED_MODES, widget(node, "control_after_generate")?.value || "randomize"),
+      valueControl("参考图尺寸", "ref_image_size", [["match", "匹配生成尺寸（省显存）"], ["max", "最大尺寸（保留人脸细节）"]], widget(node, "ref_image_size")?.value || "match"),
     );
     const postprocessGrid = document.createElement("div");
     postprocessGrid.className = "h3p-grid";
