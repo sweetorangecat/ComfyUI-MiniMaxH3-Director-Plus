@@ -49,10 +49,12 @@ def test_vosr_adapter_uses_bounded_size_and_no_temporal_cache(monkeypatch):
             seen['video']=kw
             im=kw['images'];return (torch.zeros(len(im),im.shape[1]*kw['scale'],im.shape[2]*kw['scale'],3),)
     monkeypatch.setattr(two_stage_assets,'_comfy_node_mappings',lambda:{'TESpeedVOSR2Loader':Loader,'TESpeedVOSR2Settings':Settings,'TESpeedVOSR2Video':Video})
-    result=video_finish._vosr2(torch.zeros(3,72,128,3),192,108,42)
+    source=torch.zeros(3,72,128,3,dtype=torch.float16)
+    result=video_finish._vosr2(source,192,108,42)
     assert result.shape==(3,144,256,3)
     assert seen['video']['scale']==2
     assert seen['video']['images'].shape==(3,72,128,3)
+    assert seen['video']['images'].dtype==torch.float32
     assert seen['video']['temporal_cache'] is False
     assert seen['settings']['frame_batch']==2
 

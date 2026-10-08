@@ -54,6 +54,8 @@ def _vosr2(images, width, height, seed):
         vae_tile_size=1024, vae_tile_overlap=32, image_batch=1, frame_batch=2,
         dino_batch=2, temporal_cache=False, cache_threshold=0.003, cache_refresh=4,
         memory_policy='auto', color_alignment='wavelet'))
+    # H3's safe decoder can yield CPU fp16 frames; the VOSR2 Qwen VAE is fp32.
+    images = images.float()
     _, _, scale = vosr2_input_size(images.shape[2], images.shape[1], width, height)
     return _unwrap_node_result(video(model=model, images=images, scale=scale, seed=int(seed),
         settings=settings, frame_batch=2, temporal_cache=False, cache_threshold=0.003, cache_refresh=4))
