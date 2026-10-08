@@ -572,13 +572,26 @@ def _iter_video_sr_frame_chunks(
     in small CPU chunks to keep encoder feeding bounded.
     """
     from .video_finish import sr_output_size
-    target_width, target_height = sr_output_size(
-        images.shape[2], images.shape[1], target_width, target_height,
-        (plan or {}).get("engine", "seedvr2"),
-    )
-    if (plan or {}).get("engine") == "vosr2":
+    plan = dict(plan or {})
+    if plan.get("engine") == "vosr2" and plan.get("force_2x"):
+        # The QHD trial always tests a real 2x VOSR2 pass, even when the H3
+        # latent redraw already lands near the requested final dimensions.
+        sr_input_width = max(2, int(round(target_width / 4) * 2))
+        sr_input_height = max(2, int(round(target_height / 4) * 2))
+    else:
+        target_width, target_height = sr_output_size(
+            images.shape[2], images.shape[1], target_width, target_height,
+            plan.get("engine", "seedvr2"),
+        )
+        sr_input_width, sr_input_height = images.shape[2], images.shape[1]
+    if plan.get("engine") == "vosr2":
         from .video_finish import _vosr2, validate_sr_result
-        result = _vosr2(images, target_width, target_height, seed)
+        source = (
+            _resize_cpu_chunk(images, sr_input_width, sr_input_height, method="lanczos")
+            if (sr_input_width, sr_input_height) != (images.shape[2], images.shape[1])
+            else images
+        )
+        result = _vosr2(source, target_width, target_height, seed)
         validate_sr_result(result, len(images))
         for start in range(0, len(result), max(1, int(max_chunk_frames))):
             yield _resize_cpu_chunk(result[start:start + max(1, int(max_chunk_frames))], target_width, target_height, method="lanczos").clamp(0, 1)

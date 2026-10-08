@@ -245,6 +245,45 @@ def test_smart_2k_target_routes_direct_at_high_free_vram():
     assert plan["dimension_plan"]["qhd_direct"] is False
 
 
+def test_smart_2k_can_explicitly_select_vosr2_without_seedvr2():
+    plan = resolve_smart_1080p_plan(
+        "fl2va_model", 5, 32, 29,
+        seedvr2_ready=False, two_stage_ready=True,
+        target_width=2560, target_height=1440,
+        postprocess_mode="vosr2",
+    )
+
+    assert plan["performance_preset"] == "quality_two_stage"
+    assert plan["two_stage_route"] == "trained_latent_fl"
+    assert plan["postprocess_mode"] == "vosr2"
+    assert "VOSR2" in plan["warning"]
+
+
+def test_smart_4k_can_explicitly_select_vosr2_without_seedvr2():
+    plan = resolve_smart_1080p_plan(
+        "fl2va_model", 5, 32, 29,
+        seedvr2_ready=False, two_stage_ready=True,
+        target_width=3840, target_height=2160,
+        postprocess_mode="vosr2",
+    )
+
+    assert plan["performance_preset"] == "quality_two_stage"
+    assert plan["two_stage_route"] == "trained_latent_fl"
+    assert plan["postprocess_mode"] == "vosr2"
+    assert "1920×1080" in plan["warning"]
+    assert "4K" in plan["warning"]
+
+
+def test_smart_vosr2_trial_rejects_custom_targets():
+    with pytest.raises(RequestError, match="仅开放标准 2K QHD 与 4K UHD"):
+        resolve_smart_1080p_plan(
+            "fl2va_model", 5, 32, 29,
+            seedvr2_ready=True, two_stage_ready=True,
+            target_width=3000, target_height=1688,
+            postprocess_mode="vosr2",
+        )
+
+
 def test_smart_h3_reference_fhd_uses_audio_guarded_redraw_by_default(monkeypatch):
     monkeypatch.delenv("MMH3_REF_VOICE_TWO_STAGE", raising=False)
     plan = resolve_smart_1080p_plan(

@@ -17,6 +17,7 @@ def test_vosr_preserves_source_and_treats_target_as_minimum():
 def test_sr_output_size_preserves_source_aspect_and_minimum():
     from nodes.video_finish import sr_output_size
     assert sr_output_size(832,448,1344,768,'vosr2') == (1664,896)
+    assert sr_output_size(1920,1088,2560,1440,'vosr2') == (3840,2176)
     assert sr_output_size(832,448,1344,768,'seedvr2') == (1428,768)
     assert sr_output_size(1920,1080,854,480,'seedvr2') == (1920,1080)
 

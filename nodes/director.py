@@ -335,7 +335,7 @@ class MiniMaxH3DirectorPlus:
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
                 "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "智能画质（自动适配）", "tooltip": "性能预设；按显存、分辨率与时长自动选择后台链路"}),
-                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "放大方式可选 H3 二采、VOSR2、SeedVR2。选择 VOSR2/SeedVR2 时1080p使用单采加超分。"}),
+                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "放大方式可选 H3 二采、VOSR2、SeedVR2。1080p VOSR2/SeedVR2走单采超分；显式选 2K/4K 且依赖和显存满足时，VOSR2 走 H3 二采后 2x 试验路线。4K 需要至少 28GB 显存，建议先用 4–5 秒验证。"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
                 "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "auto", "tooltip": "通用 AI 超分模型；默认 auto 按实际倍率自动选择 X2/X4"}),
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
@@ -834,6 +834,10 @@ class MiniMaxH3DirectorPlus:
             if missing:
                 raise RequestError("VOSR2 节点未就绪，请安装 TE-Speed-VOSR2 并重启，或选择 SeedVR2：" + "、".join(missing))
             request["video_sr_plan"] = {"engine": "vosr2"}
+            if (requested_width, requested_height) in {
+                (2560, 1440), (1440, 2560), (3840, 2160), (2160, 3840),
+            }:
+                request["video_sr_plan"]["force_2x"] = True
             postprocess_path = "video_sr"
         elif two_stage_plan is not None and (
             two_stage_plan.get("balanced_fhd_supersample")

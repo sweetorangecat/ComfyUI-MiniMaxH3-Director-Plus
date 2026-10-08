@@ -195,6 +195,10 @@ def resolve_smart_1080p_plan(
         }
 
     if high_res_target:
+        if postprocess_mode == "vosr2" and (int(target_width), int(target_height)) not in {
+            (2560, 1440), (1440, 2560), (3840, 2160), (2160, 3840),
+        }:
+            raise RequestError("VOSR2 当前仅开放标准 2K QHD 与 4K UHD 试验路线；自定义尺寸请使用 SeedVR2")
         target_label = f"{int(target_width)}×{int(target_height)}"
         if voice_mode == "fish_lock":
             raise RequestError(
@@ -208,7 +212,7 @@ def resolve_smart_1080p_plan(
             )
         if not two_stage_ready:
             raise RequestError(
-                f"智能预设的 {target_label} 输出使用「训练型 latent 二采 + SeedVR2」链，"
+                f"智能预设的 {target_label} 输出使用「训练型 latent 二采 + 视频超分」链，"
                 "但训练型二采依赖未就绪（turbo v4 / FL 二采 LoRA、3D latent 放大节点或模型缺失）；"
                 "请按使用说明安装，或把最终目标降为 1080p。"
             )
@@ -218,7 +222,11 @@ def resolve_smart_1080p_plan(
         )
         if not dimension_plan["allowed"]:
             raise RequestError(dimension_plan["reason"])
-        if not seedvr2_ready and not dimension_plan.get("qhd_direct"):
+        if (
+            postprocess_mode != "vosr2"
+            and not seedvr2_ready
+            and not dimension_plan.get("qhd_direct")
+        ):
             raise RequestError(
                 f"智能预设的 {target_label} 输出需要 SeedVR2 视频超分完成最后一级扩散重建，"
                 "但 SeedVR2 节点或 models/SEEDVR2 权重未就绪；请安装后重试，或把最终目标降为 1080p。"
@@ -284,16 +292,22 @@ def resolve_smart_1080p_plan(
             raise RequestError("视频时长必须在 4 到 15 秒之间")
         if high_res_target:
             # 2K/4K clarity chain: the trained two-stage redraw builds the
-            # detail base, then one SeedVR2 diffusion pass reaches the final
-            # size.  Readiness was enforced above; the VRAM/duration budget
+            # detail base, then one video super-resolution pass reaches the
+            # final size. Readiness was enforced above; the VRAM/duration budget
             # gate runs in plan_two_stage_dimensions before queueing.
             preset = "quality_two_stage"
             route = "trained_latent_ref" if backend == "ref2va_model" else "trained_latent_fl"
             warning = (
                 f"已启用 {target_label} 智能画质：训练型 latent 二采；"
-                + ("2K 网格分块重绘后裁切到目标尺寸。" if dimension_plan.get("qhd_direct")
-                   else "分块重绘后由 SeedVR2 完成最终超分。")
-                + "保留请求时长；显存不足时缩小二采分块，无法运行则明确报错。"
+                + (
+                    f"分块重绘后先缩至目标尺寸一半（{int(target_width) // 2}×{int(target_height) // 2}），"
+                    f"再由 VOSR2 按 2 倍放大到 {target_label}（试验路线）。"
+                    if postprocess_mode == "vosr2"
+                    else ("2K 网格分块重绘后裁切到目标尺寸。" if dimension_plan.get("qhd_direct")
+                          else "分块重绘后由 SeedVR2 完成最终超分。")
+                )
+                + "VOSR2 会暂存整段放大帧，4K 与长片占用较多系统内存，建议先用 4–5 秒短片验证；"
+                + "保留请求时长，显存不足时缩小二采分块，无法运行则明确报错。"
             )
         # Use trained 8+4 latent redraw when the FHD budget permits.
         # The director exports FHD directly after this redraw.
@@ -324,14 +338,15 @@ def resolve_smart_1080p_plan(
     if voice_mode == "h3_reference" and route == "trained_latent_ref":
         warning = warning.replace("8 步首采", "完整首采（至 sigma=0）")
         warning += " 完成全部首采步数后再锁定音频（零噪声、零重绘遮罩、最终精确回填），增加首采耗时；音色匹配与口型仍需实际验证。"
-    postprocess_mode = (
-        "ai_upscale"
-        if low_vram
-        else ("video_sr" if seedvr2_ready else "ai_upscale")
-    )
+    if low_vram:
+        resolved_postprocess_mode = "ai_upscale"
+    elif high_res_target and postprocess_mode == "vosr2":
+        resolved_postprocess_mode = "vosr2"
+    else:
+        resolved_postprocess_mode = "video_sr" if seedvr2_ready else "ai_upscale"
     return {
         "performance_preset": preset,
-        "postprocess_mode": postprocess_mode,
+        "postprocess_mode": resolved_postprocess_mode,
         "ai_upscale_model": (
             SMART_LOW_VRAM_UPSCALE_MODEL if low_vram else SMART_UPSCALE_MODEL
         ),

@@ -91,6 +91,89 @@ def test_director_to_output_single_pass_contract(monkeypatch,mode,voice,method,a
     else:assert '3b' in guide['video_sr_plan']['dit_model']
     if voice=='h3_reference':assert len(guide['ref_audios'])==1
 
+
+def test_smart_2k_vosr2_keeps_two_stage_and_routes_without_seedvr2(monkeypatch):
+    import sys, types
+    folder_paths = types.ModuleType('folder_paths')
+    folder_paths.get_full_path = lambda *args: None
+    comfy = types.ModuleType('comfy')
+    comfy.model_management = types.ModuleType('comfy.model_management')
+    ldm = types.ModuleType('comfy.ldm')
+    common_dit = types.ModuleType('comfy.ldm.common_dit')
+    common_dit.pad_to_patch_size = lambda *args, **kwargs: None
+    extras = types.ModuleType('comfy_extras')
+    frame_interpolation = types.ModuleType('comfy_extras.nodes_frame_interpolation')
+    frame_interpolation.FrameInterpolationModelLoader = type('FrameInterpolationModelLoader', (), {})
+    monkeypatch.setitem(sys.modules, 'folder_paths', folder_paths)
+    monkeypatch.setitem(sys.modules, 'comfy', comfy)
+    monkeypatch.setitem(sys.modules, 'comfy.model_management', comfy.model_management)
+    monkeypatch.setitem(sys.modules, 'comfy.ldm', ldm)
+    monkeypatch.setitem(sys.modules, 'comfy.ldm.common_dit', common_dit)
+    monkeypatch.setitem(sys.modules, 'comfy_extras', extras)
+    monkeypatch.setitem(sys.modules, 'comfy_extras.nodes_frame_interpolation', frame_interpolation)
+    from nodes import director, stream_output, two_stage_assets
+    monkeypatch.setattr(director,'_probe_vram_after_prefree',lambda:(32,28))
+    monkeypatch.setattr(director,'_cuda_memory_gb',lambda:(32,28))
+    monkeypatch.setattr(director,'_seedvr2_dependency_report',lambda:{'ready':False,'missing':['SeedVR2'],'available_dit':[]})
+    monkeypatch.setattr(director,'_trained_two_stage_dependency_report',lambda route:{'ready':True,'missing':[],'required_assets':[]})
+    monkeypatch.setattr(director,'resolve_split_upscale_callables',lambda:(lambda:None,)*3)
+    monkeypatch.setattr(two_stage_assets,'_comfy_node_mappings',lambda:{n:object for n in ('TESpeedVOSR2Loader','TESpeedVOSR2Settings','TESpeedVOSR2Video')})
+
+    guide,*_=director.MiniMaxH3DirectorPlus().build(
+        mode='T2VA',prompt='A person walks through a courtyard.',duration=5,
+        width=2560,height=1440,aspect_ratio='16:9',resolution_preset='2K QHD',
+        voice_mode='none',ref_image_size='match',performance_preset='智能画质（自动适配）',
+        postprocess_mode='vosr2',timeline_data='{}',target_dialogue='',reference_transcript='',
+    )
+
+    assert guide['two_stage_enabled'] is True
+    assert guide['postprocess_path']=='video_sr'
+    assert guide['upscale_method']=='vosr2'
+    assert guide['video_sr_plan']=={'engine':'vosr2','force_2x':True}
+    assert stream_output._resolve_postprocess_path(guide,guide['native_width'],guide['native_height'])=='video_sr'
+
+
+def test_smart_4k_vosr2_keeps_two_stage_and_routes_without_seedvr2(monkeypatch):
+    import sys, types
+    folder_paths = types.ModuleType('folder_paths')
+    folder_paths.get_full_path = lambda *args: None
+    comfy = types.ModuleType('comfy')
+    comfy.model_management = types.ModuleType('comfy.model_management')
+    ldm = types.ModuleType('comfy.ldm')
+    common_dit = types.ModuleType('comfy.ldm.common_dit')
+    common_dit.pad_to_patch_size = lambda *args, **kwargs: None
+    extras = types.ModuleType('comfy_extras')
+    frame_interpolation = types.ModuleType('comfy_extras.nodes_frame_interpolation')
+    frame_interpolation.FrameInterpolationModelLoader = type('FrameInterpolationModelLoader', (), {})
+    monkeypatch.setitem(sys.modules, 'folder_paths', folder_paths)
+    monkeypatch.setitem(sys.modules, 'comfy', comfy)
+    monkeypatch.setitem(sys.modules, 'comfy.model_management', comfy.model_management)
+    monkeypatch.setitem(sys.modules, 'comfy.ldm', ldm)
+    monkeypatch.setitem(sys.modules, 'comfy.ldm.common_dit', common_dit)
+    monkeypatch.setitem(sys.modules, 'comfy_extras', extras)
+    monkeypatch.setitem(sys.modules, 'comfy_extras.nodes_frame_interpolation', frame_interpolation)
+    from nodes import director, stream_output, two_stage_assets
+    monkeypatch.setattr(director,'_probe_vram_after_prefree',lambda:(32,28))
+    monkeypatch.setattr(director,'_cuda_memory_gb',lambda:(32,28))
+    monkeypatch.setattr(director,'_seedvr2_dependency_report',lambda:{'ready':False,'missing':['SeedVR2'],'available_dit':[]})
+    monkeypatch.setattr(director,'_trained_two_stage_dependency_report',lambda route:{'ready':True,'missing':[],'required_assets':[]})
+    monkeypatch.setattr(director,'resolve_split_upscale_callables',lambda:(lambda:None,)*3)
+    monkeypatch.setattr(two_stage_assets,'_comfy_node_mappings',lambda:{n:object for n in ('TESpeedVOSR2Loader','TESpeedVOSR2Settings','TESpeedVOSR2Video')})
+
+    guide,*_=director.MiniMaxH3DirectorPlus().build(
+        mode='T2VA',prompt='A person walks through a courtyard.',duration=5,
+        width=3840,height=2160,aspect_ratio='16:9',resolution_preset='4K UHD',
+        voice_mode='none',ref_image_size='match',performance_preset='智能画质（自动适配）',
+        postprocess_mode='vosr2',timeline_data='{}',target_dialogue='',reference_transcript='',
+    )
+
+    assert guide['two_stage_enabled'] is True
+    assert guide['postprocess_path']=='video_sr'
+    assert guide['upscale_method']=='vosr2'
+    assert guide['video_sr_plan']=={'engine':'vosr2','force_2x':True}
+    assert guide['target_width']==3840 and guide['target_height']==2160
+    assert stream_output._resolve_postprocess_path(guide,guide['native_width'],guide['native_height'])=='video_sr'
+
 def test_output_vosr_dispatch_never_loads_seedvr(monkeypatch):
     import torch
     from nodes import stream_output,video_finish
@@ -104,6 +187,38 @@ def test_output_vosr_dispatch_never_loads_seedvr(monkeypatch):
     out=torch.cat(list(stream_output._iter_video_sr_frame_chunks(torch.zeros(3,72,128,3),192,108,plan={'engine':'vosr2'})))
     assert out.shape==(3,144,256,3)
     assert seen['shape'][0]==3
+
+
+def test_qhd_vosr_trial_resizes_input_to_half_target_for_real_2x(monkeypatch):
+    import torch
+    from nodes import stream_output,video_finish
+    seen={}
+    def fake_vosr(images,w,h,seed):
+        seen['input_shape']=tuple(images.shape)
+        seen['scale']=video_finish.vosr2_input_size(images.shape[2],images.shape[1],w,h)[2]
+        return torch.zeros(len(images),h,w,3)
+    monkeypatch.setattr(video_finish,'_vosr2',fake_vosr)
+    out=torch.cat(list(stream_output._iter_video_sr_frame_chunks(
+        torch.zeros(2,8,16,3),16,8,plan={'engine':'vosr2','force_2x':True})))
+    assert seen['input_shape']==(2,4,8,3)
+    assert seen['scale']==2
+    assert out.shape==(2,8,16,3)
+
+
+def test_4k_vosr_trial_resizes_input_to_1920x1080_for_real_2x(monkeypatch):
+    import torch
+    from nodes import stream_output,video_finish
+    seen={}
+    def fake_vosr(images,w,h,seed):
+        seen['input_shape']=tuple(images.shape)
+        seen['scale']=video_finish.vosr2_input_size(images.shape[2],images.shape[1],w,h)[2]
+        return torch.zeros(len(images),h,w,3)
+    monkeypatch.setattr(video_finish,'_vosr2',fake_vosr)
+    out=torch.cat(list(stream_output._iter_video_sr_frame_chunks(
+        torch.zeros(2,1080,1920,3),3840,2160,plan={'engine':'vosr2','force_2x':True})))
+    assert seen['input_shape']==(2,1080,1920,3)
+    assert seen['scale']==2
+    assert out.shape==(2,2160,3840,3)
 
 @pytest.mark.parametrize('backend',['fl2va_model','ref2va_model'])
 def test_user_can_select_h3_second_pass_without_video_sr(backend):
