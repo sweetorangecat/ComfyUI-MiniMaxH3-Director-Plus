@@ -146,16 +146,22 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
     "endpoint": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
     "reference": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom"),
 }
-# The public selector now shows exactly one preset per route: 智能画质（自动适配）.
-# It auto-resolves to the best verified path for the device — trained latent
-# two-stage direct 1080p (U22 8+4 recipe) when VRAM and dependencies allow,
-# otherwise 20-step SageAttention + SeedVR2/AI upscale, with a safe low-VRAM
-# policy on small cards. The broader route map above is retained for loading
-# older API payloads and saved workflows.
+# Keep the automatic workflow as the default and show the compatible sampling
+# and memory presets for each backend. Legacy aliases and custom mode remain
+# available to saved workflows/API clients without cluttering the UI.
 VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE = {
-    "t2va": ("smart_free_1080p",),
-    "endpoint": ("smart_free_1080p",),
-    "reference": ("smart_free_1080p",),
+    "t2va": (
+        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage",
+        "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage",
+    ),
+    "endpoint": (
+        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage",
+        "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage",
+    ),
+    "reference": (
+        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage",
+        "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram",
+    ),
 }
 
 TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})
@@ -234,8 +240,11 @@ def allowed_performance_presets(mode, voice_mode="none"):
 
 def visible_performance_presets(mode, voice_mode="none"):
     """Return the curated presets shown by the user-facing selector."""
-    if voice_mode != "none" or mode == "REF2VA":
-        return VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE["reference"]
+    if voice_mode not in {"none", "audio_reuse"} or mode == "REF2VA":
+        presets = VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE["reference"]
+        if voice_mode == "fish_lock":
+            return tuple(preset for preset in presets if preset not in TWO_STAGE_PERFORMANCE_PRESETS)
+        return presets
     if mode == "T2VA":
         return VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE["t2va"]
     return VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE["endpoint"]
@@ -593,6 +602,7 @@ def public_schema():
                     "REF2VA": labels_for("REF2VA"),
                     "I2VA + 音色参考": labels_for("I2VA", "h3_reference"),
                     "FL2VA + 音色参考": labels_for("FL2VA", "h3_reference"),
+                    "FL2VA + Fish S2": labels_for("FL2VA", "fish_lock"),
                     "L2VA + 音色参考": labels_for("L2VA", "h3_reference"),
                     "T2VA + 音色参考": labels_for("T2VA", "h3_reference"),
                 },

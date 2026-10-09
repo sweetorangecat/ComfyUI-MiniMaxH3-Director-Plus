@@ -123,7 +123,8 @@ def test_ui_exposes_separate_low_vram_two_stage_without_changing_layout():
     assert '"低显存", "低显存二采"' in text
     assert '"1080p FHD"' in text
     assert "低显存二采" in text
-    assert 'valueControl("最终输出", "postprocess_mode"' in text
+    assert 'valueControl("放大方式", "postprocess_mode"' in text
+    assert 'valueControl("采样方案 / 步数", "performance_preset"' in text
     assert 'valueControl("RTX VSR 质量", "rtx_quality"' in text
     assert 'valueControl("AI 超分模型", "ai_upscale_model"' in text
     assert 'postprocessMode === "ai_upscale"' in text
@@ -136,7 +137,7 @@ def test_ui_exposes_route_isolated_quality_presets():
     text = source()
     assert '"免费智能 1080p"' in text
     assert 't2va: ["智能画质（自动适配）"' in text
-    assert 'reference: ["智能画质（自动适配）"' in text
+    assert 'reference: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存"]' in text
     assert "高清快速（v4 8步）" in text
     assert "参考高清（原生20步）" in text
     assert "参考极速（官方4步）" in text
@@ -144,13 +145,15 @@ def test_ui_exposes_route_isolated_quality_presets():
     assert "ref_quality_native" in text
     assert "ref_fast_4step" in text
     assert "v4 8步仅适用于 FL/T2V 后端" in text
+    assert "身份、服装细节与参考约束可能下降" in text
+    assert 'preset = performanceOptions[0] || "稳定质量"' in text
 
 
 def test_ui_locks_quality_two_stage_to_video_sr():
     text = source()
     assert "POSTPROCESS_MODES_BY_PERFORMANCE" in text
     assert '"质量优先二采样": [["video_sr"' in text
-    assert '"智能画质（自动适配）": [["video_sr"' in text
+    assert '"智能画质（自动适配）": [["h3_two_stage"' in text
     assert "allowedPostprocessModes(preset)" in text
     assert "质量优先二采样已锁定 SeedVR2 视频超分" in text
 
@@ -187,7 +190,7 @@ def test_ui_locks_low_vram_two_stage_by_resolution_to_ai_x2_reconstruction():
 def test_ui_makes_smart_free_1080p_fully_automatic():
     text = source()
 
-    assert '"智能画质（自动适配）": [["video_sr"' in text
+    assert '"智能画质（自动适配）": [["h3_two_stage"' in text
     assert 'preset === SMART_PRESET' in text
     assert 'setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false)' in text
     assert 'const SMART_UPSCALE_MODEL = "auto"' in text
@@ -203,7 +206,7 @@ def test_ui_smart_resolution_allows_768p_through_4k():
     assert 'const SMART_RESOLUTIONS = ["480p", "768p H3", "1080p FHD", ...SMART_HIGH_RESOLUTIONS]' in text
     assert '(preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) && !SMART_RESOLUTIONS.includes(resolutionPreset)' in text
     assert '["480p", "480p（8GB 单采，4–15 秒）"]' in text
-    assert '["768p H3", "768p H3（8GB 放大输出，画质需实测）"]' in text
+    assert '["768p H3", "768p H3（8GB 单采 + 所选放大，峰值需实测）"]' in text
     assert "if (preset === SMART_PRESET) resolutionControl" not in text
     assert 'preset === "1080p FHD") return smart1080pTarget' in text
     assert 'performancePreset === SMART_PRESET' in text
@@ -271,9 +274,11 @@ def test_frontend_filters_performance_presets_by_mode_and_voice():
 
 def test_frontend_exposes_curated_performance_presets_per_route():
     text = source()
-    assert 't2va: ["智能画质（自动适配）"]' in text
-    assert 'endpoint: ["智能画质（自动适配）"]' in text
-    assert 'reference: ["智能画质（自动适配）"]' in text
+    assert 't2va: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"]' in text
+    assert 'endpoint: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"]' in text
+    assert 'reference: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存"]' in text
+    for step_hint in ("原生 20 步采样", "首采 8 步（共 12 步）", "8+4 步二采", "官方 Turbo 4 步"):
+        assert step_hint in text
 
 
 def test_ui_keeps_audio_lane_for_all_reference_compatible_modes():

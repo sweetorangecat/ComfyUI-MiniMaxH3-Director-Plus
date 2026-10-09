@@ -28,12 +28,10 @@ const PERFORMANCE_PRESET_KEYS = {
   "参考极速（官方4步）": "ref_fast_4step",
 };
 const PERFORMANCE_PRESETS_BY_ROUTE = {
-  // 每条路由只展示一个预设，按显存与依赖自动
-  // 解析为最优路线（二采直出 / 20 步 Sage + SeedVR2 / 低显存安全策略）。
-  // 其余预设仅用于兼容旧工作流与 API 载荷，不再出现在下拉框中。
-  t2va: ["智能画质（自动适配）"],
-  endpoint: ["智能画质（自动适配）"],
-  reference: ["智能画质（自动适配）"],
+  // 保留智能档作为默认；将每条后端实际支持的性能/步数路线开放给用户选择。
+  t2va: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"],
+  endpoint: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"],
+  reference: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
@@ -217,14 +215,15 @@ function allowedPerformancePresets(mode, voiceMode) {
 
 function performancePresetHint(preset) {
   if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) return "按后端、显存和时长自动选择路线；无需手动组合超分、模型和运动平滑";
-  if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 8 步（共 12 步）+ 神经 latent 放大 + 4 步低 sigma 重绘";
-  if (preset === "低显存二采") return "8GB 专用真二采：1080p 最多 6 秒，768p 最多 10 秒；阶段间自动释放显存";
+  if (preset === "稳定质量") return "原生 20 步采样，不启用 Turbo LoRA、SageAttention 或 EasyCache";
+  if (preset === "质量优先二采样") return "训练型 3D latent 二采：首采 8 步（共 12 步）+ 神经 latent 放大 + 4 步低 sigma 重绘";
+  if (preset === "低显存二采") return "8GB 专用 8+4 步二采：1080p 最多 6 秒，768p 最多 10 秒；阶段间自动释放显存";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
   if (preset === "高清快速（v4 8步）") return "v4 8步仅适用于 FL/T2V 后端：社区 v4 LoRA + simple/Euler，单采不做 latent 二采";
   if (preset === "参考高清（原生20步）") return "仅适用于 REF2VA/音色参考：原生 20 步 + SageAttention，不使用 Turbo/二采";
-  if (preset === "参考极速（官方4步）") return "仅适用于 REF2VA/音色参考：官方 Ref2VA Turbo 4 步 + 原生 Euler";
-  if (preset === "低显存") return "动态分层加载，适合显存受限设备";
-  if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
+  if (preset === "参考极速（官方4步）") return "速度优先：官方 Ref2VA Turbo 4 步 + Euler；身份、服装细节与参考约束可能下降，适合对照测试";
+  if (preset === "极速4步") return "官方 Turbo 4 步，按当前后端加载适配 LoRA；速度优先，细节/参考约束可能下降";
+  if (preset === "低显存") return "原生 20 步 + 内存高效注意力与动态分层加载，适合显存受限设备";
   return "模式与加速预设";
 }
 
@@ -805,7 +804,7 @@ function install(node) {
     const performanceOptions = allowedPerformancePresets(mode, voiceMode);
     let preset = widget(node, "performance_preset")?.value || "稳定质量";
     if (!performanceOptions.includes(preset)) {
-      preset = performanceOptions[1] || performanceOptions[0] || "稳定质量";
+      preset = performanceOptions[0] || "稳定质量";
       setWidget(node, "performance_preset", preset, false);
     }
     if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
@@ -908,7 +907,7 @@ function install(node) {
     quickGrid.className = "h3p-grid";
     quickGrid.append(
       valueControl("生成模式", "mode", MODES, mode),
-      valueControl("性能预设", "performance_preset", performanceOptions, preset),
+      valueControl("采样方案 / 步数", "performance_preset", performanceOptions, preset),
     );
     quick.append(quickGrid);
     root.append(quick);

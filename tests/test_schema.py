@@ -9,6 +9,7 @@ from nodes.schema import (
     low_vram_target_limit,
     normalize_request,
     public_schema,
+    visible_performance_presets,
 )
 
 
@@ -502,11 +503,59 @@ def test_public_schema_documents_route_performance_options():
     assert "质量优先二采样" in property_schema["enum"]
     assert "自定义" in property_schema["enum"]
     assert property_schema["allowed_by_route"]["T2VA"] == [
-        "智能画质（自动适配）"
+        "智能画质（自动适配）",
+        "稳定质量",
+        "质量优先加速",
+        "质量优先二采样",
+        "高清快速（v4 8步）",
+        "极速4步",
+        "低显存",
+        "低显存二采",
     ]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
-        "智能画质（自动适配）"
+        "智能画质（自动适配）",
+        "稳定质量",
+        "质量优先加速",
+        "质量优先二采样",
+        "参考高清（原生20步）",
+        "参考极速（官方4步）",
+        "极速4步",
+        "低显存",
     ]
+    assert property_schema["allowed_by_route"]["REF2VA"] == [
+        "智能画质（自动适配）",
+        "稳定质量",
+        "质量优先加速",
+        "质量优先二采样",
+        "参考高清（原生20步）",
+        "参考极速（官方4步）",
+        "极速4步",
+        "低显存",
+    ]
+    assert property_schema["allowed_by_route"]["T2VA + 音色参考"] == [
+        "智能画质（自动适配）",
+        "稳定质量",
+        "质量优先加速",
+        "质量优先二采样",
+        "参考高清（原生20步）",
+        "参考极速（官方4步）",
+        "极速4步",
+        "低显存",
+    ]
+    assert property_schema["allowed_by_route"]["FL2VA + Fish S2"] == [
+        "智能画质（自动适配）",
+        "稳定质量",
+        "质量优先加速",
+        "参考高清（原生20步）",
+        "参考极速（官方4步）",
+        "极速4步",
+        "低显存",
+    ]
+    assert visible_performance_presets("T2VA", "audio_reuse") == (
+        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage",
+        "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage",
+    )
+    assert "quality_two_stage" not in visible_performance_presets("FL2VA", "fish_lock")
 
 
 class TensorLikeImage:
