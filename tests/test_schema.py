@@ -469,22 +469,13 @@ def test_low_vram_rejects_forced_rife_motion_smoothing():
         })
 
 
-def test_rife_motion_smoothing_allows_vosr2_but_rejects_other_upscalers():
-    assert schema_module.allowed_motion_smoothing("ref_quality_native", "vosr2") == ("off", "rife_x2")
-    request = normalize_request({
-        "mode": "REF2VA",
-        "performance_preset": "ref_quality_native",
-        "postprocess_mode": "vosr2",
-        "motion_smoothing": "rife_x2",
-    })
-    assert request["postprocess_mode"] == "vosr2"
-    assert request["motion_smoothing"] == "rife_x2"
-
-    with pytest.raises(RequestError, match="RIFE 2x.*RTX VSR.*VOSR2"):
+def test_rife_motion_smoothing_requires_rtx_vsr_after_vosr2_regression():
+    assert schema_module.allowed_motion_smoothing("ref_quality_native", "vosr2") == ("off",)
+    with pytest.raises(RequestError, match="RIFE 2x.*RTX VSR"):
         normalize_request({
-            "mode": "T2VA",
-            "performance_preset": "稳定质量",
-            "postprocess_mode": "native",
+            "mode": "REF2VA",
+            "performance_preset": "ref_quality_native",
+            "postprocess_mode": "vosr2",
             "motion_smoothing": "rife_x2",
         })
 

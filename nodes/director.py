@@ -360,7 +360,7 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_7_file": (image_files, {"image_upload": True}),
                 "reference_image_8_file": (image_files, {"image_upload": True}),
                 "reference_image_9_file": (image_files, {"image_upload": True}),
-                "motion_smoothing": (["off", "rife_x2"], {"default": "off", "tooltip": "运动平滑：默认关闭以保留原始帧；RTX VSR 或 VOSR2 可选 RIFE 2x 输出 48 FPS；低显存与训练型二采固定关闭"}),
+                "motion_smoothing": (["off", "rife_x2"], {"default": "off", "tooltip": "运动平滑：默认关闭以保留原始帧；RIFE 2x 仅用于 RTX VSR 输出 48 FPS；VOSR2 保持原始 24 FPS"}),
                 "audio_loudness": (["auto", "original"], {"default": "auto", "tooltip": "最终音频：自动增强过小的 H3 音量，或保持原始响度"}),
                 "voice_gender": ("STRING", {"default": "auto", "tooltip": "保持参考音色的性别与音域；旧工作流错位值在 normalize_request 中自动归一化为 auto"}),
                 "face_refine_mode": (["off", "auto"], {"default": "off", "tooltip": "关闭时完全旁路；开启后修复所选 Picture 的单个人物，需原始身份图和身份/切镜检测依赖。请先检查跟踪，不保证画质提升。"}),
@@ -940,15 +940,11 @@ class MiniMaxH3DirectorPlus:
             except Exception as exc:
                 raise RequestError(str(exc)) from exc
         if request["motion_smoothing"] == "rife_x2":
-            is_vosr2_path = (
-                postprocess_path == "video_sr"
-                and (request.get("video_sr_plan") or {}).get("engine") == "vosr2"
-            )
-            if postprocess_path != "rtx_vsr" and not is_vosr2_path:
+            if postprocess_path != "rtx_vsr":
                 if request.get("motion_smoothing_requested") == "auto":
                     request["motion_smoothing"] = "off"
                 else:
-                    raise RequestError("RIFE 2x 运动平滑只能搭配实际执行的 RTX VSR 或 VOSR2 输出")
+                    raise RequestError("RIFE 2x 运动平滑只能搭配实际执行的 RTX VSR 输出")
             else:
                 try:
                     probe_rife_capability(DEFAULT_RIFE_MODEL)

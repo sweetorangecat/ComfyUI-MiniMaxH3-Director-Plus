@@ -206,7 +206,7 @@ def allowed_motion_smoothing(performance_preset, postprocess_mode):
     preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
     if (
         preset in {"smart_free_1080p", "low_vram", *TWO_STAGE_PERFORMANCE_PRESETS}
-        or postprocess_mode not in {"rtx_vsr", "vosr2"}
+        or postprocess_mode != "rtx_vsr"
     ):
         return ("off",)
     return ("off", "rife_x2")
@@ -547,7 +547,7 @@ def normalize_request(raw=None):
             raise RequestError("低显存二采固定关闭 RIFE 运动平滑，以避免增加显存峰值与重影")
         if resolved_preset == "low_vram":
             raise RequestError("低显存模式不支持 RIFE 运动平滑，请将运动平滑切换为关闭")
-        raise RequestError("RIFE 2x 运动平滑只能搭配 RTX VSR 或 VOSR2 最终输出")
+        raise RequestError("RIFE 2x 运动平滑只能搭配 RTX VSR 最终输出")
 
     return request
 
@@ -636,8 +636,7 @@ def public_schema():
                     "质量优先二采样 + RTX VSR": ["auto", "off"],
                     "低显存": ["off"],
                     "其他 RTX VSR": ["auto", "off", "rife_x2"],
-                    "非 VOSR2 / RTX VSR": ["auto", "off"],
-                    "其他 VOSR2": ["auto", "off", "rife_x2"],
+                    "非 RTX VSR": ["auto", "off"],
                 },
             },
             "audio_loudness": {

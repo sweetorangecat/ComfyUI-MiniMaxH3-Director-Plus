@@ -245,7 +245,7 @@ function allowedMotionSmoothing(preset, postprocessMode) {
   if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) return [["off", "关闭（智能锁定）"]];
   if (preset === "质量优先二采样") return [["off", "关闭（二采固定，避免重影）"]];
   if (preset === "低显存") return [["off", "关闭（低显存固定）"]];
-  if (postprocessMode !== "vosr2") {
+  if (postprocessMode !== "rtx_vsr") {
     return MOTION_SMOOTHING.filter(([value]) => value !== "rife_x2");
   }
   return MOTION_SMOOTHING;

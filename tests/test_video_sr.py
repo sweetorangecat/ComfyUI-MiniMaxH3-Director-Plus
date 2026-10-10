@@ -440,65 +440,6 @@ def test_vosr2_frame_batches_bound_memory_and_preserve_order(monkeypatch):
     assert released == [True]
 
 
-def test_vosr2_stream_interpolates_before_upscale_and_keeps_48fps_frames(monkeypatch):
-    import nodes.stream_output as stream_output
-    import nodes.video_finish as video_finish
-
-    images = torch.stack([
-        torch.full((2, 4, 3), float(index), dtype=torch.float32)
-        for index in range(3)
-    ])
-    rife_sources = []
-    batches = []
-
-    def interpolate(source, model_name, pingpong=False):
-        rife_sources.append((source.dtype, model_name, pingpong))
-        for index in range(len(source) - 1):
-            yield source[index].float()
-            yield (source[index].float() + source[index + 1].float()) / 2
-        yield source[-1].float()
-
-    def upscale_batches(
-        source,
-        target_width,
-        target_height,
-        seed,
-        max_batch_frames,
-        input_width=None,
-        input_height=None,
-    ):
-        batches.append((source.clone(), target_width, target_height, seed, max_batch_frames))
-        for start in range(0, len(source), max_batch_frames):
-            yield source[start:start + max_batch_frames].float()
-
-    monkeypatch.setattr(stream_output, "iter_rife_frames", interpolate)
-    monkeypatch.setattr(video_finish, "_iter_vosr2_video_batches", upscale_batches)
-    monkeypatch.setattr(
-        stream_output,
-        "_resize_cpu_chunk",
-        lambda chunk, width, height, method: chunk,
-    )
-
-    result = torch.cat(list(stream_output._iter_video_sr_frame_chunks(
-        images,
-        4,
-        2,
-        seed=7,
-        plan={"engine": "vosr2"},
-        motion_smoothing="rife_x2",
-        rife_model="rife_v4.26.safetensors",
-        max_chunk_frames=2,
-    )))
-
-    assert rife_sources == [(torch.float16, "rife_v4.26.safetensors", False)]
-    assert len(batches) == 1
-    interpolated = batches[0][0]
-    assert interpolated.dtype == torch.float16
-    assert torch.allclose(interpolated[:, 0, 0, 0].float(), torch.tensor([0, 0.5, 1, 1.5, 2]))
-    assert batches[0][1:] == (4, 2, 7, 2)
-    assert result.shape == (5, 2, 4, 3)
-
-
 def test_resolve_postprocess_path_accepts_video_sr():
     import nodes.stream_output as stream_output
 

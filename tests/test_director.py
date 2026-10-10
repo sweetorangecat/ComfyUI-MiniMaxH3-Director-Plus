@@ -662,36 +662,29 @@ def test_legacy_auto_motion_smoothing_stays_off_without_loading_rife(monkeypatch
     assert guide["audio_loudness"] == "auto"
 
 
-def test_director_allows_rife_with_selected_vosr2_route(monkeypatch):
-    checked = []
+def test_director_rejects_rife_with_selected_vosr2_route(monkeypatch):
     monkeypatch.setattr(
         "nodes.director.probe_rife_capability",
-        lambda model_name="rife_v4.26.safetensors": checked.append(model_name),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("RIFE probe")),
     )
 
-    guide, *_ = MiniMaxH3DirectorPlus().build(
-        mode="REF2VA",
-        prompt="人物连续地转身并向前走。",
-        duration=5,
-        width=1920,
-        height=1080,
-        voice_mode="none",
-        ref_image_size="match",
-        performance_preset="ref_quality_native",
-        postprocess_mode="vosr2",
-        motion_smoothing="rife_x2",
-        resolution_preset="1080p FHD",
-        timeline_data="{}",
-        target_dialogue="",
-        reference_transcript="",
-    )
-
-    assert checked == ["rife_v4.26.safetensors"]
-    assert guide["postprocess_mode"] == "vosr2"
-    assert guide["postprocess_path"] == "video_sr"
-    assert guide["video_sr_plan"]["engine"] == "vosr2"
-    assert guide["motion_smoothing"] == "rife_x2"
-    assert guide["output_frame_multiplier"] == 2
+    with pytest.raises(RequestError, match="RIFE 2x.*RTX VSR"):
+        MiniMaxH3DirectorPlus().build(
+            mode="REF2VA",
+            prompt="人物连续地转身并向前走。",
+            duration=5,
+            width=1920,
+            height=1080,
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="ref_quality_native",
+            postprocess_mode="vosr2",
+            motion_smoothing="rife_x2",
+            resolution_preset="1080p FHD",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
 
 
 @pytest.mark.parametrize("postprocess_mode, expected_path", [("lanczos", "lanczos"), ("ai_upscale", "ai_upscale")])
