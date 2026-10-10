@@ -812,7 +812,13 @@ def _resolve_postprocess_path(guide, source_width, source_height):
         # guide requested RTX VSR as a mode rather than a resolved path.
         target_width = int(guide.get("target_width") or source_width)
         target_height = int(guide.get("target_height") or source_height)
-        if target_width == int(source_width) and target_height == int(source_height):
+        if (
+            target_width == int(source_width)
+            and target_height == int(source_height)
+            and guide.get("postprocess_mode") not in {
+                "vosr2", "video_sr", "ai_upscale", "lanczos", "rtx_vsr"
+            }
+        ):
             return "native_bypass"
         if path == "balanced_fhd_downscale":
             return path

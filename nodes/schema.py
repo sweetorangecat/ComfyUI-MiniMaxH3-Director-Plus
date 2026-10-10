@@ -166,14 +166,12 @@ VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE = {
 
 TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})
 
-# These routes are intentionally explicit. A quality two-stage pass already
-# enlarges and redraws the H3 latent; each preset is paired with exactly one
-# verified final reconstruction route. Other presets still expose one
-# selectable final-output method at a time.
+# Each preset exposes the same explicit final-output choices. H3 latent
+# redraw remains a separate performance route and does not replace that choice.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
     "smart_free_1080p": ("native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage"),
-    "quality_two_stage": ("video_sr", "rtx_vsr"),
-    "low_vram_two_stage": ("ai_upscale",),
+    "quality_two_stage": POSTPROCESS_MODES,
+    "low_vram_two_stage": POSTPROCESS_MODES,
     "quality": POSTPROCESS_MODES,
     "quality_sage": POSTPROCESS_MODES,
     "fast_4step": POSTPROCESS_MODES,
@@ -182,13 +180,11 @@ POSTPROCESS_MODES_BY_PERFORMANCE = {
     "custom": POSTPROCESS_MODES,
 }
 
-# The user-facing selector keeps H3 reference-audio jobs on the conservative
-# AI scaler. SeedVR2 is still available to compatible quality/two-stage routes,
-# but it should not redraw completed lip sync or timbre-conditioned faces.
+# Keep the visible and accepted choices aligned across all performance routes.
 VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE = {
     "smart_free_1080p": ("h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native"),
-    "quality_two_stage": ("video_sr",),
-    "low_vram_two_stage": ("ai_upscale",),
+    "quality_two_stage": POSTPROCESS_MODES,
+    "low_vram_two_stage": POSTPROCESS_MODES,
 }
 
 RTX_QUALITIES_BY_PERFORMANCE = {
@@ -517,13 +513,11 @@ def normalize_request(raw=None):
     if request["postprocess_mode"] not in allowed_postprocess and not smart_reference_native_compat:
         if resolved_preset == "quality_two_stage":
             raise RequestError(
-                "质量优先二采样已包含 H3 latent 放大重绘，只能搭配 SeedVR2 视频超分或 RTX VSR；"
-                "请将最终输出切换为 SeedVR2 视频超分（推荐）或 RTX VSR"
+                "质量优先二采样的最终放大方式必须按选择执行；请选择有效的后处理模式"
             )
         if resolved_preset == "low_vram_two_stage":
             raise RequestError(
-                "低显存二采只能搭配 AI 自动超分的 X2 细节重建；"
-                "请将最终输出切换为 AI 自动超分"
+                "低显存二采的最终放大方式必须按选择执行；请选择有效的后处理模式"
             )
         raise RequestError(
             f"性能预设 {request['performance_preset']} 不支持后处理模式 "
@@ -611,13 +605,13 @@ def public_schema():
                 "中文名称": "最终输出后处理模式",
                 "enum": list(POSTPROCESS_MODES),
                 "default": "ai_upscale",
-                "description": "放大方式可选H3二采、VOSR2、SeedVR2。选择视频超分时1080p使用单采，选择H3二采时执行latent放大重绘。旧ai_upscale在1080p智能路线映射为VOSR2。",
+                "description": "放大方式按选择严格执行。选择 H3 二采时执行 latent 放大重绘；选择 VOSR2、SeedVR2、AI、Lanczos 或 RTX VSR 时执行对应最终输出路线。同尺寸原生输出自动跳过放大。",
                 "allowed_by_performance": {
-                    "智能画质（自动适配）": ["h3_two_stage", "vosr2", "video_sr"],
-                    "免费智能 1080p": ["h3_two_stage", "vosr2", "video_sr"],
-                    "质量优先二采样": ["video_sr"],
-                    "低显存二采": ["ai_upscale"],
-                    "其他性能预设": ["video_sr"],
+                    "智能画质（自动适配）": list(POSTPROCESS_MODES),
+                    "免费智能 1080p": list(POSTPROCESS_MODES),
+                    "质量优先二采样": list(POSTPROCESS_MODES),
+                    "低显存二采": list(POSTPROCESS_MODES),
+                    "其他性能预设": list(POSTPROCESS_MODES),
                 },
             },
             "rtx_quality": {

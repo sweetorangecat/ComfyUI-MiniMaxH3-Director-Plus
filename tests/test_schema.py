@@ -35,9 +35,9 @@ def test_schema_exposes_final_postprocess_controls():
     }
     assert schema["ai_upscale_model"]["default"] == "auto"
     assert schema["postprocess_mode"]["default"] == "ai_upscale"
-    assert schema["postprocess_mode"]["allowed_by_performance"]["智能画质（自动适配）"] == ["h3_two_stage", "vosr2", "video_sr"]
-    assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == ["video_sr"]
-    assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == ["ai_upscale"]
+    assert schema["postprocess_mode"]["allowed_by_performance"]["智能画质（自动适配）"] == list(schema_module.POSTPROCESS_MODES)
+    assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == schema["postprocess_mode"]["enum"]
+    assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == schema["postprocess_mode"]["enum"]
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
     assert schema["motion_smoothing"]["default"] == "off"
     assert schema["audio_loudness"]["enum"] == ["auto", "original"]
@@ -313,19 +313,19 @@ def test_smart_free_1080p_aliases_and_output_controls_are_locked():
         })
 
 
-def test_quality_two_stage_prefers_video_sr_and_keeps_rtx_vsr_for_legacy():
-    assert allowed_postprocess_modes("quality_two_stage") == ("video_sr", "rtx_vsr")
-    assert schema_module.visible_postprocess_modes("quality_two_stage") == ("video_sr",)
+def test_two_stage_presets_allow_explicit_postprocess_selection():
+    assert allowed_postprocess_modes("quality_two_stage") == tuple(schema_module.POSTPROCESS_MODES)
+    assert schema_module.visible_postprocess_modes("quality_two_stage") == tuple(schema_module.POSTPROCESS_MODES)
     assert schema_module.visible_postprocess_modes("smart_free_1080p") == ("h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native")
-    assert schema_module.visible_postprocess_modes("low_vram_two_stage") == ("ai_upscale",)
+    assert schema_module.visible_postprocess_modes("low_vram_two_stage") == tuple(schema_module.POSTPROCESS_MODES)
     allowed_rtx_qualities = getattr(schema_module, "allowed_rtx_qualities", None)
     assert callable(allowed_rtx_qualities), "缺少 RTX VSR 质量兼容矩阵"
     assert allowed_rtx_qualities("quality_two_stage") == ("HIGHBITRATE_ULTRA",)
     assert allowed_rtx_qualities("quality") == ("HIGH", "ULTRA")
 
 
-def test_low_vram_two_stage_only_allows_ai_x2_reconstruction_without_rife():
-    assert allowed_postprocess_modes("low_vram_two_stage") == ("ai_upscale",)
+def test_low_vram_two_stage_allows_selected_postprocess_without_rife():
+    assert allowed_postprocess_modes("low_vram_two_stage") == tuple(schema_module.POSTPROCESS_MODES)
     assert schema_module.allowed_rtx_qualities("low_vram_two_stage") == ("HIGH", "ULTRA")
     assert schema_module.allowed_motion_smoothing("low_vram_two_stage", "ai_upscale") == ("off",)
 
@@ -343,14 +343,14 @@ def test_low_vram_two_stage_only_allows_ai_x2_reconstruction_without_rife():
     assert request["motion_smoothing"] == "off"
 
 
-def test_low_vram_two_stage_rejects_non_ai_reconstruction_postprocess():
-    with pytest.raises(RequestError, match="低显存二采.*AI 自动超分"):
-        normalize_request({
+def test_low_vram_two_stage_preserves_vosr2_selection():
+    request = normalize_request({
             "mode": "T2VA",
             "duration": 4,
             "performance_preset": "低显存二采",
-            "postprocess_mode": "native",
+            "postprocess_mode": "vosr2",
         })
+    assert request["postprocess_mode"] == "vosr2"
 
 
 def test_public_schema_exposes_read_only_two_stage_execution_metadata():
@@ -366,14 +366,14 @@ def test_public_schema_exposes_read_only_two_stage_execution_metadata():
     assert resolved["required_assets"]["中文名称"] == "本次所需模型资产"
 
 
-@pytest.mark.parametrize("postprocess_mode", ["native", "lanczos", "ai_upscale"])
-def test_quality_two_stage_rejects_incompatible_postprocess(postprocess_mode):
-    with pytest.raises(RequestError, match="质量优先二采样.*RTX VSR"):
-        normalize_request({
-            "mode": "T2VA",
-            "performance_preset": "质量优先二采样",
-            "postprocess_mode": postprocess_mode,
-        })
+@pytest.mark.parametrize("postprocess_mode", ["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "rtx_vsr"])
+def test_quality_two_stage_preserves_selected_postprocess(postprocess_mode):
+    request = normalize_request({
+        "mode": "T2VA",
+        "performance_preset": "质量优先二采样",
+        "postprocess_mode": postprocess_mode,
+    })
+    assert request["postprocess_mode"] == postprocess_mode
 
 
 def test_quality_two_stage_accepts_rtx_vsr_postprocess():

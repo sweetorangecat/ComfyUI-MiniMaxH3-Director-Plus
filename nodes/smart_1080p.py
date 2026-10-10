@@ -97,7 +97,7 @@ def resolve_smart_1080p_plan(
             raise RequestError("H3 二采预算不足：" + dimensions["reason"])
         return {
             "performance_preset": "quality_two_stage",
-            "postprocess_mode": "lanczos",
+            "postprocess_mode": "h3_two_stage",
             "ai_upscale_model": SMART_UPSCALE_MODEL,
             "seedvr2_ready": bool(seedvr2_ready), "motion_smoothing": "off",
             "use_easycache": False, "low_vram": low_vram, "max_duration": 15,
@@ -110,8 +110,6 @@ def resolve_smart_1080p_plan(
             raise RequestError("视频时长必须在 4 到 15 秒之间")
         fhd = target_preset == "1080p FHD"
         method = postprocess_mode or "vosr2"
-        if fhd and method == "ai_upscale":
-            method = "vosr2"  # Migrate older Smart 1080p workflows.
         method_name = {"vosr2": "VOSR2", "video_sr": "SeedVR2", "ai_upscale": "RealESRGAN", "lanczos": "Lanczos", "native": "原生尺寸"}.get(method, method)
         return {
             "performance_preset": "low_vram" if low_vram else ("ref_quality_native" if backend == "ref2va_model" and voice_mode == "h3_reference" else "quality_sage"),
@@ -127,7 +125,7 @@ def resolve_smart_1080p_plan(
             raise RequestError("视频时长必须在 4 到 15 秒之间")
         return {
             "performance_preset": "low_vram" if low_vram else "quality_sage",
-            "postprocess_mode": "ai_upscale",
+            "postprocess_mode": postprocess_mode or "ai_upscale",
             "ai_upscale_model": SMART_LOW_VRAM_UPSCALE_MODEL if low_vram else SMART_UPSCALE_MODEL,
             "seedvr2_ready": bool(seedvr2_ready), "motion_smoothing": "off",
             "use_easycache": False, "low_vram": low_vram, "max_duration": 15,
@@ -179,7 +177,7 @@ def resolve_smart_1080p_plan(
             # costume, weakening the reference-audio result it is meant to
             # preserve.  Keep H3-reference jobs on the conservative one-pass
             # scaler even if SeedVR2 happens to be installed.
-            "postprocess_mode": "ai_upscale",
+            "postprocess_mode": postprocess_mode or "ai_upscale",
             "ai_upscale_model": SMART_UPSCALE_MODEL,
             "seedvr2_ready": bool(seedvr2_ready),
             "motion_smoothing": "off",
@@ -195,10 +193,6 @@ def resolve_smart_1080p_plan(
         }
 
     if high_res_target:
-        if postprocess_mode == "vosr2" and (int(target_width), int(target_height)) not in {
-            (2560, 1440), (1440, 2560), (3840, 2160), (2160, 3840),
-        }:
-            raise RequestError("VOSR2 当前仅开放标准 2K QHD 与 4K UHD 试验路线；自定义尺寸请使用 SeedVR2")
         target_label = f"{int(target_width)}×{int(target_height)}"
         if voice_mode == "fish_lock":
             raise RequestError(
@@ -223,7 +217,7 @@ def resolve_smart_1080p_plan(
         if not dimension_plan["allowed"]:
             raise RequestError(dimension_plan["reason"])
         if (
-            postprocess_mode != "vosr2"
+            postprocess_mode == "video_sr"
             and not seedvr2_ready
             and not dimension_plan.get("qhd_direct")
         ):
@@ -332,18 +326,10 @@ def resolve_smart_1080p_plan(
             warning = ""
         max_duration = 15
 
-    # Low-VRAM FHD runs must stay on the conservative per-frame X2 path.
-    # SeedVR2 diffusion reconstruction is the source of unstable artifacts on
-    # 8GB-class cards, even when its node and weights happen to be installed.
     if voice_mode == "h3_reference" and route == "trained_latent_ref":
         warning = warning.replace("8 步首采", "完整首采（至 sigma=0）")
         warning += " 完成全部首采步数后再锁定音频（零噪声、零重绘遮罩、最终精确回填），增加首采耗时；音色匹配与口型仍需实际验证。"
-    if low_vram:
-        resolved_postprocess_mode = "ai_upscale"
-    elif high_res_target and postprocess_mode == "vosr2":
-        resolved_postprocess_mode = "vosr2"
-    else:
-        resolved_postprocess_mode = "video_sr" if seedvr2_ready else "ai_upscale"
+    resolved_postprocess_mode = postprocess_mode or ("video_sr" if seedvr2_ready else "ai_upscale")
     return {
         "performance_preset": preset,
         "postprocess_mode": resolved_postprocess_mode,

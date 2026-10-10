@@ -11,9 +11,9 @@ def test_original_fhd_workflow_is_single_pass(backend,voice,method):
     assert p['performance_preset'] not in {'quality_two_stage','low_vram_two_stage'}
     assert p['postprocess_mode']==method
 
-def test_old_fhd_auto_selection_migrates_to_vosr2():
+def test_fhd_ai_selection_remains_ai_upscale():
     p=resolve_smart_1080p_plan('ref2va_model',15,24,23,two_stage_ready=True,target_preset='1080p FHD',postprocess_mode='ai_upscale')
-    assert p['postprocess_mode']=='vosr2'
+    assert p['postprocess_mode']=='ai_upscale'
     assert p['two_stage_route']=='bypass'
 
 def test_768p_no_second_pass():
@@ -28,6 +28,23 @@ def test_8gb_768p_preserves_selected_video_sr(method):
     assert p['performance_preset']=='low_vram'
     assert p['two_stage_route']=='bypass'
     assert p['postprocess_mode']==method
+
+
+@pytest.mark.parametrize('target_preset,width,height,total_vram,free_vram', [
+    ('480p', 854, 480, 24, 20),
+    ('768p H3', 1344, 768, 8, 7),
+    ('1080p FHD', 1920, 1080, 24, 20),
+])
+@pytest.mark.parametrize('method', ['vosr2', 'video_sr', 'ai_upscale', 'lanczos', 'native'])
+def test_smart_plan_preserves_explicit_postprocess_selection(
+    target_preset, width, height, total_vram, free_vram, method
+):
+    plan = resolve_smart_1080p_plan(
+        'fl2va_model', 5, total_vram, free_vram,
+        seedvr2_ready=True, target_width=width, target_height=height,
+        target_preset=target_preset, postprocess_mode=method,
+    )
+    assert plan['postprocess_mode'] == method
 
 
 @pytest.mark.parametrize('method,engine',[('vosr2','vosr2'),('video_sr','seedvr2')])

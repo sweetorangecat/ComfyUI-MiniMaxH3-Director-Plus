@@ -292,6 +292,19 @@ def test_generic_upscale_paths_are_preserved_for_larger_targets(path):
     assert stream_output._resolve_postprocess_path(guide, 3, 2) == path
 
 
+@pytest.mark.parametrize("method,path", [("vosr2", "video_sr"), ("video_sr", "video_sr"), ("ai_upscale", "ai_upscale"), ("lanczos", "lanczos")])
+def test_selected_upscale_is_preserved_at_equal_dimensions(method, path):
+    guide = {
+        "native_width": 3,
+        "native_height": 2,
+        "target_width": 3,
+        "target_height": 2,
+        "postprocess_path": path,
+        "postprocess_mode": method,
+    }
+    assert stream_output._resolve_postprocess_path(guide, 3, 2) == path
+
+
 def test_smart_upscale_profile_blends_ai_with_lanczos_baseline(monkeypatch):
     images = torch.full((1, 2, 2, 3), 0.2)
     monkeypatch.setattr(stream_output, "resolve_upscale_model_name", lambda *args, **kwargs: "fake.pth")

@@ -104,9 +104,9 @@ const VOICE_GENDERS = [
   ["neutral", "中性音域"],
 ];
 const POSTPROCESS_MODES_BY_PERFORMANCE = {
-  "智能画质（自动适配）": [["h3_two_stage", "H3 二采（latent 放大重绘）"], ["vosr2", "VOSR2 视频超分（单采）"], ["video_sr", "SeedVR2 视频超分（单采）"], ["ai_upscale", "RealESRGAN 逐帧超分"], ["lanczos", "Lanczos 快速放大"], ["native", "原生尺寸直出"]],
-  "质量优先二采样": [["video_sr", "SeedVR2 视频超分（最清晰，未装自动回退 AI 超分）"]],
-  "低显存二采": [["ai_upscale", "AI X2 细节重建（低显存）"]],
+  "智能画质（自动适配）": POSTPROCESS_MODES,
+  "质量优先二采样": POSTPROCESS_MODES,
+  "低显存二采": POSTPROCESS_MODES,
 };
 const RTX_QUALITIES = [
   ["HIGH", "HIGH（质量）"],
@@ -808,7 +808,7 @@ function install(node) {
       setWidget(node, "performance_preset", preset, false);
     }
     if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
-      if (!["h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native"].includes(widget(node, "postprocess_mode")?.value)) setWidget(node, "postprocess_mode", "vosr2", false);
+      if (!POSTPROCESS_MODES.some(([value]) => value === widget(node, "postprocess_mode")?.value)) setWidget(node, "postprocess_mode", "vosr2", false);
       setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false);
       setWidget(node, "motion_smoothing", "off", false);
     }
@@ -817,11 +817,7 @@ function install(node) {
     if (preset === "低显存二采" && Number(widget(node, "duration")?.value) > lowVramTwoStageMaxSeconds) {
       setWidget(node, "duration", lowVramTwoStageMaxSeconds, false);
     }
-    const postprocessOptions = allowedPostprocessModes(preset).filter(([value]) =>
-      ![SMART_PRESET, LEGACY_SMART_PRESET].includes(preset)
-      || selectedResolutionPreset === "768p H3"
-      || !["ai_upscale", "lanczos", "native"].includes(value)
-    );
+    const postprocessOptions = allowedPostprocessModes(preset);
     let postprocessMode = widget(node, "postprocess_mode")?.value || "native";
     if (!postprocessOptions.some(([value]) => value === postprocessMode)) {
       postprocessMode = postprocessOptions[0][0];
@@ -1007,10 +1003,10 @@ function install(node) {
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = `质量优先二采样已锁定 SeedVR2 视频超分（7B sharp 权重优先）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；未安装 SeedVR2 时自动回退通用 AI 超分并提示，RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
+      postprocessNote.textContent = `质量优先二采样 + ${POSTPROCESS_MODES.find(([value]) => value === postprocessMode)?.[1] || postprocessMode}：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；放大器严格按选择执行，依赖缺失时会提示。RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
       const duration = Number(widget(node, "duration")?.value) || 4;
-      postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight, duration), "AI X2")}；1080p 最长 6 秒，768p 最长 10 秒；7–10 秒 768p 使用时空分块低 sigma 重绘，并把最终逐帧重建控制在约 1.75x 内。开始前检查至少 6GB 空闲显存。`;
+      postprocessNote.textContent = `低显存二采 + ${POSTPROCESS_MODES.find(([value]) => value === postprocessMode)?.[1] || postprocessMode}：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight, duration))}；1080p 最长 6 秒，768p 最长 10 秒；7–10 秒 768p 使用时空分块低 sigma 重绘。放大器按选择执行，依赖缺失会提示；开始前检查至少 6GB 空闲显存。`;
     } else if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
       postprocessNote.textContent = postprocessMode === "h3_two_stage" ? "H3 首采 → latent 放大 → H3 二采重绘 → 输出；不叠加 VOSR2 / SeedVR2。" : resolutionPreset === "1080p FHD" ? `H3 单采 → ${postprocessMode === "vosr2" ? "VOSR2" : "SeedVR2 3B"} → 1080p；跳过 H3 二采，保留首采音频。` : "480p / 768p 单采输出；高分辨率旧档位保留原策略。";
     }

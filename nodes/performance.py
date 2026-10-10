@@ -886,11 +886,19 @@ def _reconcile_two_stage_fallback_geometry(guide):
         guide.get("requested_height") or guide.get("target_height") or native_height
     )
     postprocess_mode = str(guide.get("postprocess_mode") or "native")
-    if requested_width == native_width and requested_height == native_height:
+    if (
+        requested_width == native_width
+        and requested_height == native_height
+        and postprocess_mode == "native"
+    ):
         postprocess_path = "native_bypass"
         target_width, target_height = native_width, native_height
     elif requested_width < native_width or requested_height < native_height:
         postprocess_path = "downscale"
+        target_width, target_height = requested_width, requested_height
+    elif postprocess_mode == "vosr2":
+        postprocess_path = "video_sr"
+        guide["video_sr_plan"] = {"engine": "vosr2"}
         target_width, target_height = requested_width, requested_height
     elif postprocess_mode in {"lanczos", "ai_upscale", "video_sr", "rtx_vsr"}:
         postprocess_path = postprocess_mode
@@ -921,6 +929,8 @@ def _reconcile_two_stage_fallback_geometry(guide):
         "downscale": "cpu_bicubic",
         "native_bypass": "none",
     }[postprocess_path]
+    if postprocess_path == "video_sr" and guide.get("video_sr_plan", {}).get("engine") == "vosr2":
+        guide["upscale_method"] = "vosr2"
     guide["final_upscale_scale_x"] = target_width / native_width
     guide["final_upscale_scale_y"] = target_height / native_height
     guide["final_upscale_scale"] = max(
