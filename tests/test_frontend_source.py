@@ -98,7 +98,7 @@ def test_ui_exposes_duration_aspect_and_resolution_controls():
 
 def test_ui_exposes_one_final_output_postprocess_surface():
     text = source()
-    for label in ("最终输出", "原生尺寸直出", "Lanczos 快速放大", "AI 自动超分", "AI 细节重建（RTX VSR）", "RTX VSR 质量", "AI 超分模型"):
+    for label in ("最终输出", "VOSR2 视频超分", "SeedVR2 视频超分", "AI 超分（低显存推荐）", "AI 超分模型"):
         assert label in text
 
 
@@ -117,45 +117,40 @@ def test_ui_has_visible_workbench_status_layer_inside_director_dom():
         assert marker in text
 
 
-def test_ui_exposes_separate_low_vram_two_stage_without_changing_layout():
+def test_ui_exposes_low_vram_x2_upscale_without_changing_layout():
     text = source()
 
-    assert '"低显存", "低显存二采"' in text
+    assert 't2va: ["稳定质量", "质量优先二采样", "低显存"]' in text
     assert '"1080p FHD"' in text
-    assert "低显存二采" in text
     assert 'valueControl("放大方式", "postprocess_mode"' in text
     assert 'valueControl("采样方案 / 步数", "performance_preset"' in text
-    assert 'valueControl("RTX VSR 质量", "rtx_quality"' in text
     assert 'valueControl("AI 超分模型", "ai_upscale_model"' in text
     assert 'postprocessMode === "ai_upscale"' in text
     assert 'const aiModelOptions' in text
     assert '"postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data"' in text
-    assert "同尺寸自动旁路" in text
+    assert "AI 超分路线限定 X2 并逐帧处理" in text
 
 
 def test_ui_exposes_route_isolated_quality_presets():
     text = source()
-    assert '"免费智能 1080p"' in text
-    assert 't2va: ["智能画质（自动适配）"' in text
-    assert 'reference: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存"]' in text
-    assert "高清快速（v4 8步）" in text
+    assert 't2va: ["稳定质量", "质量优先二采样", "低显存"]' in text
+    assert 'endpoint: ["稳定质量", "质量优先二采样", "低显存"]' in text
+    assert 'reference: ["参考高清（原生20步）", "质量优先二采样", "低显存"]' in text
     assert "参考高清（原生20步）" in text
-    assert "参考极速（官方4步）" in text
-    assert "fl_quality_fast_v4" in text
     assert "ref_quality_native" in text
-    assert "ref_fast_4step" in text
-    assert "v4 8步仅适用于 FL/T2V 后端" in text
-    assert "身份、服装细节与参考约束可能下降" in text
+    assert 'const PRESETS = ["稳定质量", "质量优先二采样", "低显存"]' in text
     assert 'preset = performanceOptions[0] || "稳定质量"' in text
 
 
-def test_ui_locks_quality_two_stage_to_video_sr():
+def test_ui_exposes_only_three_explicit_upscalers():
     text = source()
-    assert "POSTPROCESS_MODES_BY_PERFORMANCE" in text
-    assert '"质量优先二采样": [["video_sr"' in text
-    assert '"智能画质（自动适配）": [["h3_two_stage"' in text
+    assert 'const POSTPROCESS_MODES = [\n  ["vosr2", "VOSR2 视频超分"]' in text
+    assert '["video_sr", "SeedVR2 视频超分"]' in text
+    assert '["ai_upscale", "AI 超分（低显存推荐）"]' in text
     assert "allowedPostprocessModes(preset)" in text
-    assert "质量优先二采样已锁定 SeedVR2 视频超分" in text
+    assert '"智能画质（自动适配）": POSTPROCESS_MODES' in text
+    assert '"质量优先二采样": POSTPROCESS_MODES' in text
+    assert '"低显存": POSTPROCESS_MODES' in text
 
 
 def test_ui_exposes_reference_image_size_strategy():
@@ -164,39 +159,22 @@ def test_ui_exposes_reference_image_size_strategy():
     assert '"最大尺寸（保留人脸细节）"' in text
 
 
-def test_ui_locks_low_vram_two_stage_by_resolution_to_ai_x2_reconstruction():
+def test_ui_filters_low_vram_ai_models_to_x2():
     text = source()
 
-    assert '"低显存二采": [["ai_upscale"' in text
-    assert 'preset === "低显存二采"' in text
-    assert 'setWidget(node, "duration", 4, false)' not in text
-    assert 'function lowVramTwoStageMaxDuration(resolutionPreset)' in text
-    assert 'resolutionPreset === "768p H3" ? 10 : 6' in text
-    assert 'Number(widget(node, "duration")?.value) > lowVramTwoStageMaxSeconds' in text
-    assert 'setWidget(node, "duration", lowVramTwoStageMaxSeconds, false)' in text
-    assert 'setWidget(node, "resolution_preset", "1080p FHD", false)' in text
-    assert "resolvedWidth * resolvedHeight > 1920 * 1080 * 1.02" in text
-    assert "function lowVramFirstStageMegapixels" in text
-    assert "LOW_VRAM_TWO_STAGE_MAX_FINAL_SCALE" in text
-    assert "lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight, duration)" in text
-    assert "低显存二采已锁定 AI X2 细节重建" in text
-    assert "1080p 最长 6 秒，768p 最长 10 秒" in text
-    assert "postprocessGrid.children[1]" in text
-    assert '"AI X2"' in text
+    assert 'preset === "低显存"' in text
+    assert 'postprocessGrid.children[0]' in text
     assert "isX2UpscaleModel" in text
-    assert 'preset !== "低显存二采" || isX2UpscaleModel(value)' in text
+    assert '!["低显存", "低显存二采"].includes(preset) || isX2UpscaleModel(value)' in text
 
 
-def test_ui_makes_smart_free_1080p_fully_automatic():
+def test_legacy_smart_preset_is_not_shown_as_a_sampling_choice():
     text = source()
 
-    assert '"智能画质（自动适配）": [["h3_two_stage"' in text
+    assert 't2va: ["稳定质量", "质量优先二采样", "低显存"]' in text
+    assert 'reference: ["参考高清（原生20步）", "质量优先二采样", "低显存"]' in text
+    assert '"智能画质（自动适配）"' in text
     assert 'preset === SMART_PRESET' in text
-    assert 'setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false)' in text
-    assert 'const SMART_UPSCALE_MODEL = "auto"' in text
-    assert '关闭（智能锁定）' in text
-    assert "按后端、显存和时长自动选择路线" in text
-    assert "无需手动组合超分、模型和运动平滑" in text
 
 
 def test_ui_smart_resolution_allows_768p_through_4k():
@@ -252,7 +230,7 @@ def test_ui_exposes_compatible_chinese_motion_smoothing_control():
     assert 'preset === "质量优先二采样"' in text
     assert '关闭（二采固定，避免重影）' in text
     assert 'preset === "低显存"' in text
-    assert 'postprocessMode !== "rtx_vsr"' in text
+    assert 'if (postprocessMode !== "vosr2")' in text
     assert '"motion_smoothing", "audio_loudness", "voice_gender"' in text
 
 
@@ -274,10 +252,10 @@ def test_frontend_filters_performance_presets_by_mode_and_voice():
 
 def test_frontend_exposes_curated_performance_presets_per_route():
     text = source()
-    assert 't2va: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"]' in text
-    assert 'endpoint: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "低显存", "低显存二采"]' in text
-    assert 'reference: ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "参考高清（原生20步）", "参考极速（官方4步）", "极速4步", "低显存"]' in text
-    for step_hint in ("原生 20 步采样", "首采 8 步（共 12 步）", "8+4 步二采", "官方 Turbo 4 步"):
+    assert 't2va: ["稳定质量", "质量优先二采样", "低显存"]' in text
+    assert 'endpoint: ["稳定质量", "质量优先二采样", "低显存"]' in text
+    assert 'reference: ["参考高清（原生20步）", "质量优先二采样", "低显存"]' in text
+    for step_hint in ("原生 20 步采样", "首采 8 步（共 12 步）", "8+4 步二采"):
         assert step_hint in text
 
 

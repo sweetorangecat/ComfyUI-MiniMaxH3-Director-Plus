@@ -151,16 +151,13 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
 # available to saved workflows/API clients without cluttering the UI.
 VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE = {
     "t2va": (
-        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage",
-        "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage",
+        "quality", "quality_two_stage", "low_vram",
     ),
     "endpoint": (
-        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage",
-        "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage",
+        "quality", "quality_two_stage", "low_vram",
     ),
     "reference": (
-        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage",
-        "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram",
+        "ref_quality_native", "quality_two_stage", "low_vram",
     ),
 }
 
@@ -180,12 +177,7 @@ POSTPROCESS_MODES_BY_PERFORMANCE = {
     "custom": POSTPROCESS_MODES,
 }
 
-# Keep the visible and accepted choices aligned across all performance routes.
-VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE = {
-    "smart_free_1080p": ("h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native"),
-    "quality_two_stage": POSTPROCESS_MODES,
-    "low_vram_two_stage": POSTPROCESS_MODES,
-}
+VISIBLE_POSTPROCESS_MODES = ("vosr2", "video_sr", "ai_upscale")
 
 RTX_QUALITIES_BY_PERFORMANCE = {
     "quality_two_stage": ("HIGHBITRATE_ULTRA",),
@@ -199,9 +191,8 @@ def allowed_postprocess_modes(performance_preset):
 
 
 def visible_postprocess_modes(performance_preset):
-    """Return the single curated final-output route shown in the selector."""
-    preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
-    return VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE.get(preset, ("video_sr",))
+    """Return the three curated final-output routes shown in the selector."""
+    return VISIBLE_POSTPROCESS_MODES
 
 
 def allowed_rtx_qualities(performance_preset):
@@ -213,7 +204,10 @@ def allowed_rtx_qualities(performance_preset):
 def allowed_motion_smoothing(performance_preset, postprocess_mode):
     """Return resolved motion-smoothing paths compatible with this route."""
     preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
-    if preset in {"smart_free_1080p", "low_vram", *TWO_STAGE_PERFORMANCE_PRESETS} or postprocess_mode != "rtx_vsr":
+    if (
+        preset in {"smart_free_1080p", "low_vram", *TWO_STAGE_PERFORMANCE_PRESETS}
+        or postprocess_mode not in {"rtx_vsr", "vosr2"}
+    ):
         return ("off",)
     return ("off", "rife_x2")
 
@@ -295,8 +289,8 @@ DEFAULT_REQUEST = {
     "reference_transcript": "",
     "fish_model_path": "s2-pro-w4a16 (auto download)",
     "ref_image_size": "match",
-    "performance_preset": "smart_free_1080p",
-    "postprocess_mode": "ai_upscale",
+    "performance_preset": "quality",
+    "postprocess_mode": "vosr2",
     "rtx_quality": "HIGH",
     "ai_upscale_model": "auto",
     "motion_smoothing": "off",
@@ -553,7 +547,7 @@ def normalize_request(raw=None):
             raise RequestError("低显存二采固定关闭 RIFE 运动平滑，以避免增加显存峰值与重影")
         if resolved_preset == "low_vram":
             raise RequestError("低显存模式不支持 RIFE 运动平滑，请将运动平滑切换为关闭")
-        raise RequestError("RIFE 2x 运动平滑只能搭配 RTX VSR 最终输出")
+        raise RequestError("RIFE 2x 运动平滑只能搭配 RTX VSR 或 VOSR2 最终输出")
 
     return request
 
@@ -589,7 +583,7 @@ def public_schema():
             "performance_preset": {
                 "中文名称": "性能预设",
                 "enum": list(USER_PERFORMANCE_PRESET_LABELS),
-                "default": "智能画质（自动适配）",
+                "default": "稳定质量",
                 "allowed_by_route": {
                     "T2VA": labels_for("T2VA"),
                     "I2VA / FL2VA / L2VA": labels_for("I2VA"),
@@ -604,14 +598,16 @@ def public_schema():
             "postprocess_mode": {
                 "中文名称": "最终输出后处理模式",
                 "enum": list(POSTPROCESS_MODES),
-                "default": "ai_upscale",
+                "default": "vosr2",
                 "description": "放大方式按选择严格执行。选择 H3 二采时执行 latent 放大重绘；选择 VOSR2、SeedVR2、AI、Lanczos 或 RTX VSR 时执行对应最终输出路线。同尺寸原生输出自动跳过放大。",
                 "allowed_by_performance": {
-                    "智能画质（自动适配）": list(POSTPROCESS_MODES),
-                    "免费智能 1080p": list(POSTPROCESS_MODES),
-                    "质量优先二采样": list(POSTPROCESS_MODES),
-                    "低显存二采": list(POSTPROCESS_MODES),
-                    "其他性能预设": list(POSTPROCESS_MODES),
+                    "智能画质（自动适配）": list(VISIBLE_POSTPROCESS_MODES),
+                    "免费智能 1080p": list(VISIBLE_POSTPROCESS_MODES),
+                    "稳定质量": list(VISIBLE_POSTPROCESS_MODES),
+                    "质量优先二采样": list(VISIBLE_POSTPROCESS_MODES),
+                    "低显存": list(VISIBLE_POSTPROCESS_MODES),
+                    "低显存二采": list(VISIBLE_POSTPROCESS_MODES),
+                    "其他性能预设": list(VISIBLE_POSTPROCESS_MODES),
                 },
             },
             "rtx_quality": {
@@ -640,7 +636,8 @@ def public_schema():
                     "质量优先二采样 + RTX VSR": ["auto", "off"],
                     "低显存": ["off"],
                     "其他 RTX VSR": ["auto", "off", "rife_x2"],
-                    "非 RTX VSR": ["auto", "off"],
+                    "非 VOSR2 / RTX VSR": ["auto", "off"],
+                    "其他 VOSR2": ["auto", "off", "rife_x2"],
                 },
             },
             "audio_loudness": {

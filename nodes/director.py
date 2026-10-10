@@ -334,8 +334,8 @@ class MiniMaxH3DirectorPlus:
                 "voice_mode": (["none", "h3_reference", "fish_lock", "audio_reuse"], {"default": "none", "tooltip": "无音色 / H3官方参考音频条件 / Fish克隆音色并生成目标对白 / 完整复用上传音频"}),
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
-                "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "智能画质（自动适配）", "tooltip": "性能预设；按显存、分辨率与时长自动选择后台链路"}),
-                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "放大方式按选择严格执行：VOSR2、SeedVR2、AI、Lanczos 或 RTX VSR；同尺寸原生输出会自动跳过放大。"}),
+                "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "稳定质量", "tooltip": "性能预设；稳定 20 步、训练型 8+4 二采或低显存 20 步动态卸载"}),
+                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage", "rtx_vsr"], {"default": "vosr2", "tooltip": "放大方式按选择严格执行：VOSR2、SeedVR2 或 AI X2；低显存可选择 AI X2 逐帧处理。"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
                 "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "auto", "tooltip": "通用 AI 超分模型；默认 auto 按实际倍率自动选择 X2/X4"}),
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
@@ -360,7 +360,7 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_7_file": (image_files, {"image_upload": True}),
                 "reference_image_8_file": (image_files, {"image_upload": True}),
                 "reference_image_9_file": (image_files, {"image_upload": True}),
-                "motion_smoothing": (["off", "rife_x2"], {"default": "off", "tooltip": "运动平滑：默认关闭以保留原始帧；需要 48 FPS 时手动启用流式 RIFE 2x；低显存模式只允许关闭"}),
+                "motion_smoothing": (["off", "rife_x2"], {"default": "off", "tooltip": "运动平滑：默认关闭以保留原始帧；RTX VSR 或 VOSR2 可选 RIFE 2x 输出 48 FPS；低显存与训练型二采固定关闭"}),
                 "audio_loudness": (["auto", "original"], {"default": "auto", "tooltip": "最终音频：自动增强过小的 H3 音量，或保持原始响度"}),
                 "voice_gender": ("STRING", {"default": "auto", "tooltip": "保持参考音色的性别与音域；旧工作流错位值在 normalize_request 中自动归一化为 auto"}),
                 "face_refine_mode": (["off", "auto"], {"default": "off", "tooltip": "关闭时完全旁路；开启后修复所选 Picture 的单个人物，需原始身份图和身份/切镜检测依赖。请先检查跟踪，不保证画质提升。"}),
@@ -399,7 +399,7 @@ class MiniMaxH3DirectorPlus:
         timeline_data,
         target_dialogue,
         reference_transcript,
-        postprocess_mode="ai_upscale",
+        postprocess_mode="vosr2",
         rtx_quality="HIGH",
         ai_upscale_model="auto",
         motion_smoothing="off",
@@ -824,10 +824,33 @@ class MiniMaxH3DirectorPlus:
         postprocess_source_height = int(
             two_stage_plan["second_stage_height"] if two_stage_plan else native_height
         )
+        target_matches_source = (
+            requested_width == postprocess_source_width
+            and requested_height == postprocess_source_height
+        )
+        target_fits_source = (
+            requested_width <= postprocess_source_width
+            and requested_height <= postprocess_source_height
+        )
+        keep_explicit_high_resolution_sr = (
+            two_stage_plan is not None
+            and resolution_preset in {"2K QHD", "4K UHD"}
+        )
         # Do not run an enlarger when the selected route already produced the
         # requested dimensions. Otherwise preserve the explicit choice exactly.
-        if request["postprocess_mode"] == "h3_two_stage":
+        if target_matches_source and not (
+            request["postprocess_mode"] == "vosr2"
+            and request["motion_smoothing"] == "rife_x2"
+        ):
             postprocess_path = "native_bypass"
+        elif (
+            target_fits_source
+            and two_stage_plan is not None
+            and resolution_preset == "1080p FHD"
+        ):
+            postprocess_path = "balanced_fhd_downscale"
+        elif target_fits_source and not keep_explicit_high_resolution_sr:
+            postprocess_path = "downscale"
         elif request["postprocess_mode"] == "vosr2":
             from .two_stage_assets import _comfy_node_mappings
             mappings = _comfy_node_mappings()
@@ -852,8 +875,6 @@ class MiniMaxH3DirectorPlus:
             postprocess_path = "balanced_fhd_downscale"
         elif two_stage_plan is not None and two_stage_plan.get("adaptive_qhd") and postprocess_mode != "h3_two_stage":
             postprocess_path = "video_sr"
-        elif requested_width < postprocess_source_width or requested_height < postprocess_source_height:
-            postprocess_path = "downscale"
         else:
             postprocess_path = "native_bypass"
         # DEBLUR_LOW was removed from the automatic quality route after the
@@ -919,11 +940,15 @@ class MiniMaxH3DirectorPlus:
             except Exception as exc:
                 raise RequestError(str(exc)) from exc
         if request["motion_smoothing"] == "rife_x2":
-            if postprocess_path != "rtx_vsr":
+            is_vosr2_path = (
+                postprocess_path == "video_sr"
+                and (request.get("video_sr_plan") or {}).get("engine") == "vosr2"
+            )
+            if postprocess_path != "rtx_vsr" and not is_vosr2_path:
                 if request.get("motion_smoothing_requested") == "auto":
                     request["motion_smoothing"] = "off"
                 else:
-                    raise RequestError("RIFE 2x 运动平滑只能搭配实际执行的 RTX VSR 输出")
+                    raise RequestError("RIFE 2x 运动平滑只能搭配实际执行的 RTX VSR 或 VOSR2 输出")
             else:
                 try:
                     probe_rife_capability(DEFAULT_RIFE_MODEL)
@@ -989,6 +1014,15 @@ class MiniMaxH3DirectorPlus:
                             f"{request['ai_upscale_model']} 会先放大到 4 倍再缩回，浪费数倍算力；"
                             "建议改用 auto 或 X2 模型（如 RealESRGAN_x2plus.pth），或切换 SeedVR2。"
                         )
+                if (
+                    request["performance_preset"] == "low_vram"
+                    and not is_x2_upscale_model_name(request["ai_upscale_model"])
+                ):
+                    raise ValueError(
+                        "低显存模式的 AI 超分只允许 X2 模型；请安装 RealESRGAN_x2plus.pth "
+                        "或选择 VOSR2 / SeedVR2。当前解析为 "
+                        f"{request['ai_upscale_model']}"
+                    )
                 if (
                     request["performance_preset"] == "low_vram_two_stage"
                     and not is_x2_upscale_model_name(request["ai_upscale_model"])

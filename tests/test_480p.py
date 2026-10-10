@@ -29,8 +29,10 @@ def test_director_keeps_480p_target(monkeypatch, aspect, expected):
     monkeypatch.setattr('nodes.director.resolve_upscale_model_name', lambda *a, **kw: 'RealESRGAN_x2plus.pth')
     guide, *_ = MiniMaxH3DirectorPlus().build(mode='T2VA', prompt='A quiet room', duration=10,
         width=expected[0], height=expected[1], aspect_ratio=aspect, resolution_preset='480p',
-        performance_preset='智能画质（自动适配）', timeline_data='{}', voice_mode='none',
+        performance_preset='低显存', postprocess_mode='ai_upscale', timeline_data='{}', voice_mode='none',
         ref_image_size='match', target_dialogue='', reference_transcript='')
     assert (guide['target_width'], guide['target_height']) == expected
+    assert guide['performance_preset'] == 'low_vram'
     assert guide['resolved_two_stage_route'] == 'bypass'
+    assert guide['ai_upscale_model'] == 'RealESRGAN_x2plus.pth'
     assert guide['native_width'] * guide['native_height'] < 854 * 480 * 1.1

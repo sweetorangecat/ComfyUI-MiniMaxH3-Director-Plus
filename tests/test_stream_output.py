@@ -331,7 +331,7 @@ def test_low_vram_smart_guide_ignores_conservative_blend_profile():
         "upscale_profile": "smart_conservative_blend_v1",
     }
 
-    assert stream_output._resolve_upscale_profile(guide, "ai_upscale") == "standard"
+    assert stream_output._resolve_upscale_profile(guide, "ai_upscale") == "low_vram"
 
 
 def test_non_smart_upscale_profile_keeps_ai_output(monkeypatch):

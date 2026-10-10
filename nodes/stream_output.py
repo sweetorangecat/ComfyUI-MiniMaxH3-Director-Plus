@@ -493,7 +493,11 @@ def _iter_ai_upscale_frame_chunks(
     )
     selected_model = resolve_upscale_model_name(model_name, scale_factor)
     target_frame_bytes = max(1, int(target_width) * int(target_height) * 3 * int(bytes_per_channel))
-    frames_per_chunk = max(1, min(4, int(max_chunk_bytes) // target_frame_bytes))
+    frames_per_chunk = (
+        1
+        if profile == "low_vram"
+        else max(1, min(4, int(max_chunk_bytes) // target_frame_bytes))
+    )
     model = None
 
     def frame_indices():
@@ -564,6 +568,9 @@ def _iter_video_sr_frame_chunks(
     seed=42,
     plan=None,
     max_chunk_frames=4,
+    motion_smoothing="off",
+    rife_model=DEFAULT_RIFE_MODEL,
+    pingpong=False,
 ):
     """Run SeedVR2 diffusion video SR once, then yield bounded CPU chunks.
 
@@ -585,7 +592,59 @@ def _iter_video_sr_frame_chunks(
         )
         sr_input_width, sr_input_height = images.shape[2], images.shape[1]
     if plan.get("engine") == "vosr2":
-        from .video_finish import _vosr2, validate_sr_result
+        from .video_finish import _iter_vosr2_video_batches, _vosr2, validate_sr_result
+        if motion_smoothing == "rife_x2":
+            source = images.detach().to(device="cpu", dtype=torch.float16).contiguous()
+            source_count = len(source) + (max(0, len(source) - 2) if pingpong else 0)
+            expected_count = smoothed_frame_count(source_count, 2)
+            interpolated = torch.empty(
+                (expected_count, int(source.shape[1]), int(source.shape[2]), 3),
+                dtype=torch.float16,
+                device="cpu",
+            )
+            produced = 0
+            rife_frames = iter_rife_frames(
+                source, model_name=rife_model, pingpong=pingpong
+            )
+            try:
+                for produced, frame in enumerate(rife_frames, start=1):
+                    if produced > expected_count:
+                        raise RifeProcessingError(
+                            "RIFE 返回的帧数超过预期，已停止 VOSR2 处理"
+                        )
+                    interpolated[produced - 1].copy_(
+                        frame.detach().to(device="cpu", dtype=torch.float16)
+                    )
+            finally:
+                close = getattr(rife_frames, "close", None)
+                if callable(close):
+                    close()
+            if produced != expected_count:
+                raise RifeProcessingError(
+                    f"RIFE 返回 {produced} 帧，但预期 {expected_count} 帧，已停止 VOSR2 处理"
+                )
+            batches = _iter_vosr2_video_batches(
+                interpolated,
+                target_width,
+                target_height,
+                seed,
+                max_batch_frames=2,
+                input_width=sr_input_width,
+                input_height=sr_input_height,
+            )
+            try:
+                for result in batches:
+                    yield _resize_cpu_chunk(
+                        result,
+                        target_width,
+                        target_height,
+                        method="lanczos",
+                    ).clamp(0, 1)
+            finally:
+                close = getattr(batches, "close", None)
+                if callable(close):
+                    close()
+            return
         source = (
             _resize_cpu_chunk(images, sr_input_width, sr_input_height, method="lanczos")
             if (sr_input_width, sr_input_height) != (images.shape[2], images.shape[1])
@@ -855,7 +914,7 @@ def _resolve_upscale_profile(guide, postprocess_path):
     if postprocess_path != "ai_upscale":
         return "standard"
     if str((guide or {}).get("performance_preset") or "") == "low_vram":
-        return "standard"
+        return "low_vram"
     requested = str((guide or {}).get("requested_performance_preset") or "")
     explicit = str((guide or {}).get("upscale_profile") or "")
     if explicit == _SMART_UPSCALE_PROFILE or requested == "smart_free_1080p":
@@ -1147,8 +1206,12 @@ class MiniMaxH3StreamingVideoCombine:
                 else "质量优先二采样"
             )
             raise ValueError(f"{preset_label}不兼容 RIFE 运动平滑，必须保留原始 24 FPS 以避免重影")
-        if motion_smoothing == "rife_x2" and postprocess_path != "rtx_vsr":
-            raise ValueError("RIFE 2x 运动平滑只能在 RTX VSR 输出链路中执行")
+        is_vosr2_path = (
+            postprocess_path == "video_sr"
+            and (guide.get("video_sr_plan") or {}).get("engine") == "vosr2"
+        )
+        if motion_smoothing == "rife_x2" and postprocess_path != "rtx_vsr" and not is_vosr2_path:
+            raise ValueError("RIFE 2x 运动平滑只能搭配 RTX VSR 或 VOSR2 最终输出")
         # Fail before creating an output path/encoder when the strict VSR
         # dependency is unavailable. The frame iterator is still responsible
         # for creating and closing the per-attempt processor.
@@ -1192,7 +1255,10 @@ class MiniMaxH3StreamingVideoCombine:
         if not ffmpeg:
             raise RuntimeError("未找到 FFmpeg，无法保存 MP4")
 
-        source_frame_count = dasiwa._encoded_frame_count(source, pingpong)
+        if motion_smoothing == "rife_x2" and pingpong:
+            source_frame_count = len(source) + max(0, len(source) - 2)
+        else:
+            source_frame_count = dasiwa._encoded_frame_count(source, pingpong)
         frame_multiplier = 2 if motion_smoothing == "rife_x2" else 1
         total_frames = smoothed_frame_count(source_frame_count, frame_multiplier)
         output_frame_rate = float(frame_rate) * frame_multiplier
@@ -1236,6 +1302,9 @@ class MiniMaxH3StreamingVideoCombine:
                     target_height,
                     seed=int(guide.get("seed", 42) or 42),
                     plan=guide.get("video_sr_plan"),
+                    motion_smoothing=motion_smoothing,
+                    rife_model=guide.get("rife_model", DEFAULT_RIFE_MODEL),
+                    pingpong=pingpong,
                 )
             elif postprocess_path == "ai_upscale":
                 chunks = _iter_ai_upscale_frame_chunks(

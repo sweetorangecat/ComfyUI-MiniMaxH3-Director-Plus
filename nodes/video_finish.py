@@ -38,7 +38,7 @@ def validate_sr_result(result, frame_count):
     return result
 
 
-def _vosr2(images, width, height, seed):
+def _load_vosr2_runtime():
     from .two_stage_assets import _comfy_node_mappings, _resolve_upscaler_callable
     from .stream_output import _release_comfy_models_before_video_sr, _unwrap_node_result
     mappings = _comfy_node_mappings()
@@ -54,11 +54,55 @@ def _vosr2(images, width, height, seed):
         vae_tile_size=1024, vae_tile_overlap=32, image_batch=1, frame_batch=2,
         dino_batch=2, temporal_cache=False, cache_threshold=0.003, cache_refresh=4,
         memory_policy='auto', color_alignment='wavelet'))
+    return model, settings, video
+
+
+def _run_vosr2_batch(model, settings, video, images, width, height, seed):
+    from .stream_output import _unwrap_node_result
+
     # H3's safe decoder can yield CPU fp16 frames; the VOSR2 Qwen VAE is fp32.
     images = images.float()
     _, _, scale = vosr2_input_size(images.shape[2], images.shape[1], width, height)
     return _unwrap_node_result(video(model=model, images=images, scale=scale, seed=int(seed),
         settings=settings, frame_batch=2, temporal_cache=False, cache_threshold=0.003, cache_refresh=4))
+
+
+def _vosr2(images, width, height, seed):
+    model, settings, video = _load_vosr2_runtime()
+    return _run_vosr2_batch(model, settings, video, images, width, height, seed)
+
+
+def _iter_vosr2_video_batches(
+    images,
+    width,
+    height,
+    seed,
+    max_batch_frames=2,
+    input_width=None,
+    input_height=None,
+):
+    """Upscale bounded frame batches and release VOSR2 when the stream ends."""
+    import torch
+    from .stream_output import _release_comfy_models_before_video_sr, _resize_cpu_chunk
+
+    model, settings, video = _load_vosr2_runtime()
+    batch_size = max(1, int(max_batch_frames))
+    input_width = int(input_width or images.shape[2])
+    input_height = int(input_height or images.shape[1])
+    try:
+        for start in range(0, len(images), batch_size):
+            batch = images[start:start + batch_size]
+            if (input_width, input_height) != (int(batch.shape[2]), int(batch.shape[1])):
+                batch = _resize_cpu_chunk(
+                    batch, input_width, input_height, method='lanczos'
+                )
+            result = _run_vosr2_batch(
+                model, settings, video, batch, width, height, seed
+            )
+            result = validate_sr_result(result, len(batch))
+            yield result.detach().to(device='cpu', dtype=torch.float32).contiguous()
+    finally:
+        _release_comfy_models_before_video_sr()
 
 
 class MiniMaxH3VideoFinish:

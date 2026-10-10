@@ -26,6 +26,7 @@ def test_two_stage_presets_remain_available_only_on_non_reference_routes():
 
 def test_schema_exposes_final_postprocess_controls():
     schema = public_schema()["properties"]
+    visible_upscalers = ["vosr2", "video_sr", "ai_upscale"]
 
     assert schema["postprocess_mode"]["enum"] == ["h3_two_stage", "vosr2", "native", "lanczos", "ai_upscale", "video_sr", "rtx_vsr"]
     assert schema["rtx_quality"]["enum"] == ["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"]
@@ -34,21 +35,22 @@ def test_schema_exposes_final_postprocess_controls():
         "其他性能预设": ["HIGH", "ULTRA"],
     }
     assert schema["ai_upscale_model"]["default"] == "auto"
-    assert schema["postprocess_mode"]["default"] == "ai_upscale"
-    assert schema["postprocess_mode"]["allowed_by_performance"]["智能画质（自动适配）"] == list(schema_module.POSTPROCESS_MODES)
-    assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == schema["postprocess_mode"]["enum"]
-    assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == schema["postprocess_mode"]["enum"]
+    assert schema["postprocess_mode"]["default"] == "vosr2"
+    assert schema["postprocess_mode"]["allowed_by_performance"]["智能画质（自动适配）"] == visible_upscalers
+    assert schema["postprocess_mode"]["allowed_by_performance"]["质量优先二采样"] == visible_upscalers
+    assert schema["postprocess_mode"]["allowed_by_performance"]["低显存二采"] == visible_upscalers
+    assert schema["postprocess_mode"]["allowed_by_performance"]["其他性能预设"] == visible_upscalers
     assert schema["motion_smoothing"]["enum"] == ["auto", "off", "rife_x2"]
     assert schema["motion_smoothing"]["default"] == "off"
     assert schema["audio_loudness"]["enum"] == ["auto", "original"]
     assert schema["audio_loudness"]["default"] == "auto"
 
 
-def test_normalize_request_defaults_to_smart_free_1080p():
+def test_normalize_request_defaults_to_stable_quality():
     request = normalize_request({"mode": "T2VA", "duration": 4})
 
-    assert request["performance_preset"] == "smart_free_1080p"
-    assert request["postprocess_mode"] == "ai_upscale"
+    assert request["performance_preset"] == "quality"
+    assert request["postprocess_mode"] == "vosr2"
     assert request["rtx_quality"] == "HIGH"
     assert request["ai_upscale_model"] == "auto"
     assert request["motion_smoothing"] == "off"
@@ -298,6 +300,7 @@ def test_smart_free_1080p_aliases_and_output_controls_are_locked():
         request = normalize_request({"mode": "T2VA", "performance_preset": preset})
         assert request["performance_preset"] == "smart_free_1080p"
     assert allowed_postprocess_modes("smart_free_1080p") == ("native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage")
+    assert schema_module.visible_postprocess_modes("smart_free_1080p") == ("vosr2", "video_sr", "ai_upscale")
     assert schema_module.allowed_motion_smoothing("smart_free_1080p", "ai_upscale") == ("off",)
 
     assert normalize_request({
@@ -315,9 +318,9 @@ def test_smart_free_1080p_aliases_and_output_controls_are_locked():
 
 def test_two_stage_presets_allow_explicit_postprocess_selection():
     assert allowed_postprocess_modes("quality_two_stage") == tuple(schema_module.POSTPROCESS_MODES)
-    assert schema_module.visible_postprocess_modes("quality_two_stage") == tuple(schema_module.POSTPROCESS_MODES)
-    assert schema_module.visible_postprocess_modes("smart_free_1080p") == ("h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native")
-    assert schema_module.visible_postprocess_modes("low_vram_two_stage") == tuple(schema_module.POSTPROCESS_MODES)
+    assert schema_module.visible_postprocess_modes("quality_two_stage") == ("vosr2", "video_sr", "ai_upscale")
+    assert schema_module.visible_postprocess_modes("smart_free_1080p") == ("vosr2", "video_sr", "ai_upscale")
+    assert schema_module.visible_postprocess_modes("low_vram_two_stage") == ("vosr2", "video_sr", "ai_upscale")
     allowed_rtx_qualities = getattr(schema_module, "allowed_rtx_qualities", None)
     assert callable(allowed_rtx_qualities), "缺少 RTX VSR 质量兼容矩阵"
     assert allowed_rtx_qualities("quality_two_stage") == ("HIGHBITRATE_ULTRA",)
@@ -326,6 +329,7 @@ def test_two_stage_presets_allow_explicit_postprocess_selection():
 
 def test_low_vram_two_stage_allows_selected_postprocess_without_rife():
     assert allowed_postprocess_modes("low_vram_two_stage") == tuple(schema_module.POSTPROCESS_MODES)
+    assert schema_module.visible_postprocess_modes("low_vram_two_stage") == ("vosr2", "video_sr", "ai_upscale")
     assert schema_module.allowed_rtx_qualities("low_vram_two_stage") == ("HIGH", "ULTRA")
     assert schema_module.allowed_motion_smoothing("low_vram_two_stage", "ai_upscale") == ("off",)
 
@@ -341,6 +345,21 @@ def test_low_vram_two_stage_allows_selected_postprocess_without_rife():
     assert request["postprocess_mode"] == "ai_upscale"
     assert request["ai_upscale_model"] == "auto"
     assert request["motion_smoothing"] == "off"
+
+
+def test_low_vram_single_pass_keeps_ai_x2_route_available():
+    request = normalize_request({
+        "mode": "T2VA",
+        "duration": 4,
+        "performance_preset": "低显存",
+        "postprocess_mode": "ai_upscale",
+        "ai_upscale_model": "RealESRGAN_x2plus.pth",
+    })
+
+    assert request["performance_preset"] == "low_vram"
+    assert request["postprocess_mode"] == "ai_upscale"
+    assert request["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+    assert schema_module.allowed_motion_smoothing("low_vram", "vosr2") == ("off",)
 
 
 def test_low_vram_two_stage_preserves_vosr2_selection():
@@ -450,12 +469,33 @@ def test_low_vram_rejects_forced_rife_motion_smoothing():
         })
 
 
-def test_rife_motion_smoothing_requires_rtx_vsr():
-    with pytest.raises(RequestError, match="RIFE 2x.*RTX VSR"):
+def test_rife_motion_smoothing_allows_vosr2_but_rejects_other_upscalers():
+    assert schema_module.allowed_motion_smoothing("ref_quality_native", "vosr2") == ("off", "rife_x2")
+    request = normalize_request({
+        "mode": "REF2VA",
+        "performance_preset": "ref_quality_native",
+        "postprocess_mode": "vosr2",
+        "motion_smoothing": "rife_x2",
+    })
+    assert request["postprocess_mode"] == "vosr2"
+    assert request["motion_smoothing"] == "rife_x2"
+
+    with pytest.raises(RequestError, match="RIFE 2x.*RTX VSR.*VOSR2"):
         normalize_request({
             "mode": "T2VA",
             "performance_preset": "稳定质量",
             "postprocess_mode": "native",
+            "motion_smoothing": "rife_x2",
+        })
+
+
+def test_low_vram_still_rejects_rife_with_vosr2():
+    assert schema_module.allowed_motion_smoothing("low_vram", "vosr2") == ("off",)
+    with pytest.raises(RequestError, match="低显存.*运动平滑"):
+        normalize_request({
+            "mode": "T2VA",
+            "performance_preset": "低显存",
+            "postprocess_mode": "vosr2",
             "motion_smoothing": "rife_x2",
         })
 
@@ -499,61 +539,41 @@ def test_public_schema_exposes_fish_model_choice():
 def test_public_schema_documents_route_performance_options():
     property_schema = public_schema()["properties"]["performance_preset"]
     assert property_schema["enum"][0] == "智能画质（自动适配）"
-    assert property_schema["default"] == "智能画质（自动适配）"
+    assert property_schema["default"] == "稳定质量"
     assert "质量优先二采样" in property_schema["enum"]
     assert "自定义" in property_schema["enum"]
     assert property_schema["allowed_by_route"]["T2VA"] == [
-        "智能画质（自动适配）",
         "稳定质量",
-        "质量优先加速",
         "质量优先二采样",
-        "高清快速（v4 8步）",
-        "极速4步",
         "低显存",
-        "低显存二采",
     ]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
-        "智能画质（自动适配）",
-        "稳定质量",
-        "质量优先加速",
-        "质量优先二采样",
         "参考高清（原生20步）",
-        "参考极速（官方4步）",
-        "极速4步",
+        "质量优先二采样",
         "低显存",
     ]
     assert property_schema["allowed_by_route"]["REF2VA"] == [
-        "智能画质（自动适配）",
-        "稳定质量",
-        "质量优先加速",
-        "质量优先二采样",
         "参考高清（原生20步）",
-        "参考极速（官方4步）",
-        "极速4步",
+        "质量优先二采样",
         "低显存",
     ]
     assert property_schema["allowed_by_route"]["T2VA + 音色参考"] == [
-        "智能画质（自动适配）",
-        "稳定质量",
-        "质量优先加速",
-        "质量优先二采样",
         "参考高清（原生20步）",
-        "参考极速（官方4步）",
-        "极速4步",
+        "质量优先二采样",
         "低显存",
     ]
     assert property_schema["allowed_by_route"]["FL2VA + Fish S2"] == [
-        "智能画质（自动适配）",
-        "稳定质量",
-        "质量优先加速",
         "参考高清（原生20步）",
-        "参考极速（官方4步）",
-        "极速4步",
         "低显存",
     ]
     assert visible_performance_presets("T2VA", "audio_reuse") == (
-        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage",
-        "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage",
+        "quality", "quality_two_stage", "low_vram",
+    )
+    assert visible_performance_presets("REF2VA", "none") == (
+        "ref_quality_native", "quality_two_stage", "low_vram",
+    )
+    assert visible_performance_presets("FL2VA", "fish_lock") == (
+        "ref_quality_native", "low_vram",
     )
     assert "quality_two_stage" not in visible_performance_presets("FL2VA", "fish_lock")
 

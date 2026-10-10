@@ -86,18 +86,16 @@ function allElements(root) {
   return [root, ...(root.children || []).flatMap(allElements)];
 }
 
-for (const method of ["h3_two_stage", "vosr2", "video_sr"]) {
-  test(`smart upscale selector is enabled and includes ${method}`, () => {
-    const { node } = installedDirector("off", [
-      { name: "postprocess_mode", value: method },
+test("upscale selector exposes only the three curated engines", () => {
+  const { node } = installedDirector("off", [
+      { name: "postprocess_mode", value: "vosr2" },
       { name: "performance_preset", value: "智能画质（自动适配）" },
     ]);
-    const select = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "postprocess_mode");
-    assert.ok(select);
-    assert.equal(select.disabled, undefined);
-    assert.ok(select.children.some(el => el.value === method));
-  });
-}
+  const select = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "postprocess_mode");
+  assert.ok(select);
+  assert.equal(select.disabled, undefined);
+  assert.deepEqual(select.children.map(el => el.value), ["vosr2", "video_sr", "ai_upscale"]);
+});
 
 test("loading a legacy U11 removes the face branch and preserves audio and prompts", () => {
   const { extension } = installedDirector();
@@ -164,7 +162,7 @@ test("smart mode retains 480p selection and synchronizes actual output dimension
   assert.equal(width.value, 854);
   assert.equal(height.value, 480);
 });
-for (const method of ["h3_two_stage", "vosr2", "video_sr"]) {
+for (const method of ["vosr2", "video_sr", "ai_upscale"]) {
   test(`smart FHD render preserves selected ${method}`, () => {
     const output = { name: "postprocess_mode", value: method };
     installedDirector("off", [output,

@@ -1,4 +1,6 @@
 import importlib
+import sys
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -114,7 +116,11 @@ def test_smoothed_frame_count_matches_two_x_timeline(source_count, expected):
 
 def test_rife_dependency_probe_reports_expected_model_path(monkeypatch):
     rife_stream = _module()
-    monkeypatch.setattr(rife_stream.folder_paths, "get_full_path", lambda category, name: None)
+    monkeypatch.setitem(
+        sys.modules,
+        "folder_paths",
+        SimpleNamespace(get_full_path=lambda category, name: None),
+    )
 
     with pytest.raises(RuntimeError, match=r"models/frame_interpolation/rife_v4\.26\.safetensors"):
         rife_stream.probe_rife_capability("rife_v4.26.safetensors")

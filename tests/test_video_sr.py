@@ -54,7 +54,7 @@ def test_video_sr_is_a_public_postprocess_mode():
     assert "video_sr" in POSTPROCESS_MODES
     assert "video_sr" in allowed_postprocess_modes("smart_free_1080p")
     assert "video_sr" in allowed_postprocess_modes("quality")
-    assert "video_sr" not in allowed_postprocess_modes("low_vram_two_stage")
+    assert "video_sr" in allowed_postprocess_modes("low_vram_two_stage")
 
 
 def test_smart_plan_prefers_video_sr_when_seedvr2_ready():
@@ -69,10 +69,64 @@ def test_smart_plan_keeps_ai_upscale_when_seedvr2_missing():
     assert plan["ai_upscale_model"] == SMART_UPSCALE_MODEL
 
 
-def test_smart_low_vram_keeps_conservative_ai_upscale_when_seedvr2_ready():
-    plan = resolve_smart_1080p_plan("ref2va_model", 4, 8, 7, seedvr2_ready=True)
+def test_low_vram_smart_route_keeps_ai_x2_when_selected():
+    plan = resolve_smart_1080p_plan(
+        "ref2va_model",
+        4,
+        8,
+        7,
+        seedvr2_ready=True,
+        target_preset="768p H3",
+        postprocess_mode="ai_upscale",
+    )
     assert plan["postprocess_mode"] == "ai_upscale"
     assert plan["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+
+
+def test_rife_helpers_import_without_comfyui_runtime():
+    import nodes.rife_stream as rife_stream
+
+    assert rife_stream.smoothed_frame_count(3, 2) == 5
+
+
+def test_low_vram_ai_upscale_uses_one_frame_batches(monkeypatch):
+    import nodes.stream_output as output
+
+    images = torch.arange(3 * 4 * 6 * 3, dtype=torch.float32).reshape(3, 4, 6, 3)
+    batch_sizes = []
+    released = []
+    model = object()
+
+    monkeypatch.setattr(output, "resolve_upscale_model_name", lambda name, scale: name)
+    monkeypatch.setattr(output, "_load_upscale_model", lambda name: model)
+    monkeypatch.setattr(
+        output,
+        "_upscale_image_with_model",
+        lambda loaded_model, batch: batch_sizes.append(len(batch)) or batch,
+    )
+    monkeypatch.setattr(output, "_resize_cpu_chunk", lambda batch, width, height, method: batch)
+    monkeypatch.setattr(output, "_release_upscale_model", lambda loaded_model: released.append(loaded_model))
+
+    chunks = list(output._iter_ai_upscale_frame_chunks(
+        images,
+        target_width=6,
+        target_height=4,
+        model_name="RealESRGAN_x2plus.pth",
+        profile="low_vram",
+        max_chunk_bytes=1024 * 1024,
+    ))
+
+    assert batch_sizes == [1, 1, 1]
+    assert len(chunks) == 3
+    assert released == [model]
+
+
+def test_low_vram_ai_upscale_resolves_to_memory_bounded_profile():
+    import nodes.stream_output as output
+
+    assert output._resolve_upscale_profile(
+        {"performance_preset": "low_vram"}, "ai_upscale"
+    ) == "low_vram"
 
 
 def test_seedvr2_plan_scales_with_hardware():
@@ -347,6 +401,102 @@ def test_stream_output_video_sr_requires_seedvr2_nodes(monkeypatch):
                 images, 12, 8, seed=42, plan=resolve_seedvr2_plan(24.0)
             )
         )
+
+
+def test_vosr2_frame_batches_bound_memory_and_preserve_order(monkeypatch):
+    import nodes.video_finish as video_finish
+
+    images = torch.arange(3 * 2 * 4 * 3, dtype=torch.float16).reshape(3, 2, 4, 3)
+    calls = []
+    released = []
+
+    def video(model, images, scale, seed, settings, frame_batch, temporal_cache,
+              cache_threshold, cache_refresh):
+        calls.append((images.clone(), scale, seed, frame_batch, temporal_cache))
+        batch = images.movedim(-1, 1).float()
+        result = torch.nn.functional.interpolate(batch, scale_factor=2, mode="nearest")
+        return (result.movedim(1, -1),)
+
+    monkeypatch.setattr(
+        video_finish,
+        "_load_vosr2_runtime",
+        lambda: ("model", "settings", video),
+    )
+    import nodes.stream_output as stream_output
+    monkeypatch.setattr(
+        stream_output,
+        "_release_comfy_models_before_video_sr",
+        lambda: released.append(True),
+    )
+
+    chunks = list(video_finish._iter_vosr2_video_batches(
+        images, 8, 4, seed=123, max_batch_frames=2
+    ))
+
+    assert [len(call[0]) for call in calls] == [2, 1]
+    assert [call[1:] for call in calls] == [(2, 123, 2, False), (2, 123, 2, False)]
+    assert torch.equal(torch.cat([call[0] for call in calls]), images.float())
+    assert torch.cat(chunks).shape == (3, 4, 8, 3)
+    assert released == [True]
+
+
+def test_vosr2_stream_interpolates_before_upscale_and_keeps_48fps_frames(monkeypatch):
+    import nodes.stream_output as stream_output
+    import nodes.video_finish as video_finish
+
+    images = torch.stack([
+        torch.full((2, 4, 3), float(index), dtype=torch.float32)
+        for index in range(3)
+    ])
+    rife_sources = []
+    batches = []
+
+    def interpolate(source, model_name, pingpong=False):
+        rife_sources.append((source.dtype, model_name, pingpong))
+        for index in range(len(source) - 1):
+            yield source[index].float()
+            yield (source[index].float() + source[index + 1].float()) / 2
+        yield source[-1].float()
+
+    def upscale_batches(
+        source,
+        target_width,
+        target_height,
+        seed,
+        max_batch_frames,
+        input_width=None,
+        input_height=None,
+    ):
+        batches.append((source.clone(), target_width, target_height, seed, max_batch_frames))
+        for start in range(0, len(source), max_batch_frames):
+            yield source[start:start + max_batch_frames].float()
+
+    monkeypatch.setattr(stream_output, "iter_rife_frames", interpolate)
+    monkeypatch.setattr(video_finish, "_iter_vosr2_video_batches", upscale_batches)
+    monkeypatch.setattr(
+        stream_output,
+        "_resize_cpu_chunk",
+        lambda chunk, width, height, method: chunk,
+    )
+
+    result = torch.cat(list(stream_output._iter_video_sr_frame_chunks(
+        images,
+        4,
+        2,
+        seed=7,
+        plan={"engine": "vosr2"},
+        motion_smoothing="rife_x2",
+        rife_model="rife_v4.26.safetensors",
+        max_chunk_frames=2,
+    )))
+
+    assert rife_sources == [(torch.float16, "rife_v4.26.safetensors", False)]
+    assert len(batches) == 1
+    interpolated = batches[0][0]
+    assert interpolated.dtype == torch.float16
+    assert torch.allclose(interpolated[:, 0, 0, 0].float(), torch.tensor([0, 0.5, 1, 1.5, 2]))
+    assert batches[0][1:] == (4, 2, 7, 2)
+    assert result.shape == (5, 2, 4, 3)
 
 
 def test_resolve_postprocess_path_accepts_video_sr():
