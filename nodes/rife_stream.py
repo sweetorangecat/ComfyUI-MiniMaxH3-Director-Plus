@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import sys
 
+import folder_paths
 import torch
 import torch.nn.functional as F
+from comfy import model_management
+from comfy.ldm.common_dit import pad_to_patch_size
+from comfy_extras.nodes_frame_interpolation import FrameInterpolationModelLoader
 
 
 DEFAULT_RIFE_MODEL = "rife_v4.26.safetensors"
@@ -22,10 +26,6 @@ def _node_output(result, index=0):
 
 def probe_rife_capability(model_name=DEFAULT_RIFE_MODEL):
     """Fail fast when the selected ComfyUI frame-interpolation model is absent."""
-    try:
-        import folder_paths
-    except ImportError as exc:
-        raise RuntimeError("当前 Python 环境没有 ComfyUI 运行时") from exc
     path = folder_paths.get_full_path("frame_interpolation", model_name)
     if not path:
         raise RuntimeError(
@@ -65,17 +65,8 @@ class RifeFrameProcessor:
 
     def __init__(self, model_name=DEFAULT_RIFE_MODEL):
         probe_rife_capability(model_name)
-        from comfy import model_management
-        from comfy_extras.nodes_frame_interpolation import FrameInterpolationModelLoader
-
         self._model_management = model_management
-        self._pad_to_patch_size = None
         self.patcher = _node_output(FrameInterpolationModelLoader.execute(model_name))
-        try:
-            from comfy.ldm.common_dit import pad_to_patch_size
-        except ImportError:
-            pad_to_patch_size = None
-        self._pad_to_patch_size = pad_to_patch_size
         self.device = self.patcher.load_device
         self.dtype = self.patcher.model_dtype()
         self.model = self.patcher.model
@@ -89,9 +80,7 @@ class RifeFrameProcessor:
             dtype=self.dtype,
         )
         if self.align > 1:
-            if self._pad_to_patch_size is None:
-                raise RuntimeError("当前 ComfyUI 不提供 RIFE 所需的 patch padding")
-            image = self._pad_to_patch_size(
+            image = pad_to_patch_size(
                 image,
                 (self.align, self.align),
                 padding_mode="reflect",

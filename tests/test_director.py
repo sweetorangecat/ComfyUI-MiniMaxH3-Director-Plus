@@ -72,14 +72,14 @@ def test_director_raw_combo_exposes_both_low_vram_presets():
     assert "低显存二采" in values
 
 
-def test_director_defaults_to_stable_quality_and_vosr2():
+def test_director_defaults_to_stable_quality_and_local_x2():
     required = MiniMaxH3DirectorPlus.INPUT_TYPES()["required"]
     assert required["performance_preset"][1]["default"] == "稳定质量"
-    assert required["postprocess_mode"][1]["default"] == "vosr2"
+    assert required["postprocess_mode"][1]["default"] == "ai_upscale"
     assert required["ai_upscale_model"][1]["default"] == "auto"
 
 
-def test_legacy_smart_free_1080p_preserves_explicit_ai_upscale(monkeypatch):
+def test_smart_free_1080p_resolves_base_backend_to_sage_and_x2(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (24.0, 20.0))
     monkeypatch.setattr("nodes.director.resolve_upscale_model_name", lambda *args, **kwargs: "RealESRGAN_x2plus.pth")
     monkeypatch.setattr(
@@ -95,10 +95,10 @@ def test_legacy_smart_free_1080p_preserves_explicit_ai_upscale(monkeypatch):
     assert guide["requested_performance_preset"] == "smart_free_1080p"
     assert guide["performance_preset"] == "quality_sage"
     assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
-    assert guide["postprocess_path"] == "ai_upscale"
-    assert guide["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+    assert guide["postprocess_path"] == "video_sr"
+    assert guide["video_sr_plan"] == {"engine": "vosr2"}
     assert guide["two_stage_enabled"] is False
-    assert guide["upscale_profile"] == "smart_conservative_blend_v1"
+    assert guide["upscale_profile"] == "standard"
 
 
 def test_low_vram_smart_fhd_uses_selected_seedvr2_when_seedvr2_is_available(monkeypatch):
@@ -327,7 +327,7 @@ def test_smart_free_1080p_portrait_preserves_exact_fhd_target(monkeypatch):
     )
 
     assert (guide["target_width"], guide["target_height"]) == (1080, 1920)
-    assert guide["upscale_profile"] == "smart_conservative_blend_v1"
+    assert guide["upscale_profile"] == "standard"
     assert guide["audio_cleanup_requested"] == "auto_gate_peak_limit"
 
 
@@ -365,8 +365,7 @@ def test_explicit_fhd_routes_to_u22_two_stage_when_ready(monkeypatch):
     )
     assert guide["performance_preset"] == "quality_two_stage"
     assert guide["resolved_two_stage_route"] == "trained_latent_fl"
-    assert guide["postprocess_path"] == "video_sr"
-    assert guide["video_sr_plan"]["dit_model"]
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
     assert (guide["first_stage_width"], guide["first_stage_height"]) == (1280, 704)
     assert (guide["second_stage_width"], guide["second_stage_height"]) == (1920, 1056)
     assert guide["two_stage_enabled"] is True
@@ -385,8 +384,7 @@ def test_explicit_reference_fhd_routes_to_u22_two_stage_when_ready(monkeypatch):
     )
     assert guide["performance_preset"] == "quality_two_stage"
     assert guide["resolved_two_stage_route"] == "trained_latent_ref"
-    assert guide["postprocess_path"] == "video_sr"
-    assert guide["video_sr_plan"]["dit_model"]
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
 
 
 def test_two_stage_prefers_full_frame_when_vram_allows(monkeypatch):
@@ -527,8 +525,7 @@ def test_smart_qhd_requires_seedvr2_for_final_detail(monkeypatch):
         MiniMaxH3DirectorPlus().build(
             mode="T2VA", prompt="test", duration=15, width=2560, height=1440,
             resolution_preset="2K QHD", voice_mode="none", ref_image_size="match",
-            performance_preset="智能画质（自动适配）", postprocess_mode="video_sr",
-            timeline_data="{}", target_dialogue="", reference_transcript="",
+            performance_preset="智能画质（自动适配）", timeline_data="{}", target_dialogue="", reference_transcript="",
         )
 
 
@@ -660,31 +657,6 @@ def test_legacy_auto_motion_smoothing_stays_off_without_loading_rife(monkeypatch
     assert guide["motion_smoothing"] == "off"
     assert guide["output_frame_multiplier"] == 1
     assert guide["audio_loudness"] == "auto"
-
-
-def test_director_rejects_rife_with_selected_vosr2_route(monkeypatch):
-    monkeypatch.setattr(
-        "nodes.director.probe_rife_capability",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("RIFE probe")),
-    )
-
-    with pytest.raises(RequestError, match="RIFE 2x.*RTX VSR"):
-        MiniMaxH3DirectorPlus().build(
-            mode="REF2VA",
-            prompt="人物连续地转身并向前走。",
-            duration=5,
-            width=1920,
-            height=1080,
-            voice_mode="none",
-            ref_image_size="match",
-            performance_preset="ref_quality_native",
-            postprocess_mode="vosr2",
-            motion_smoothing="rife_x2",
-            resolution_preset="1080p FHD",
-            timeline_data="{}",
-            target_dialogue="",
-            reference_transcript="",
-        )
 
 
 @pytest.mark.parametrize("postprocess_mode, expected_path", [("lanczos", "lanczos"), ("ai_upscale", "ai_upscale")])
@@ -1247,7 +1219,7 @@ def test_quality_two_stage_portrait_fhd_uses_balanced_downscale(monkeypatch):
     assert guide["postprocess_path"] == "balanced_fhd_downscale"
 
 
-def test_24gb_quality_two_stage_fhd_honors_selected_rtx_vsr(monkeypatch):
+def test_24gb_quality_two_stage_fhd_uses_conservative_downscale_without_vsr(monkeypatch):
     probes = []
     monkeypatch.setattr(
         "nodes.director._cuda_memory_gb", lambda: (24.0, 21.0)
@@ -1278,10 +1250,11 @@ def test_24gb_quality_two_stage_fhd_honors_selected_rtx_vsr(monkeypatch):
     assert (guide["second_stage_width"], guide["second_stage_height"]) == (1920, 1056)
     assert (guide["target_width"], guide["target_height"]) == (1920, 1080)
     assert guide["vram_safety_tier"] == "16_24gb_fhd"
-    assert guide["postprocess_path"] == "rtx_vsr"
-    assert guide["upscale_required"] is True
-    assert guide["upscale_method"] == "rtx_vsr"
-    assert probes == [(("HIGHBITRATE_ULTRA",), {"device_id": 0})]
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
+    assert guide["upscale_required"] is False
+    assert guide["upscale_method"] == "aspect_lanczos_downscale"
+    assert any("保守 FHD" in warning for warning in guide["warnings"])
+    assert probes == []
 
 
 def test_regular_rtx_vsr_uses_only_normal_probe_and_disables_deblur(monkeypatch):
@@ -1527,64 +1500,6 @@ def test_low_vram_two_stage_rejects_x4_final_model_before_h3(monkeypatch):
             performance_preset="低显存二采",
             postprocess_mode="ai_upscale",
             ai_upscale_model="RealESRGAN_x4plus.pth",
-            timeline_data="{}",
-            target_dialogue="",
-            reference_transcript="",
-        )
-
-
-def test_low_vram_single_pass_keeps_the_ai_x2_path_available(monkeypatch):
-    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
-    monkeypatch.setattr(
-        "nodes.director.resolve_upscale_model_name",
-        lambda model, scale: "RealESRGAN_x2plus.pth",
-    )
-
-    guide, *_ = MiniMaxH3DirectorPlus().build(
-        mode="T2VA",
-        prompt="镜头缓慢推进。",
-        duration=4,
-        width=1920,
-        height=1080,
-        aspect_ratio="16:9",
-        resolution_preset="1080p FHD",
-        voice_mode="none",
-        ref_image_size="match",
-        performance_preset="低显存",
-        postprocess_mode="ai_upscale",
-        ai_upscale_model="auto",
-        timeline_data="{}",
-        target_dialogue="",
-        reference_transcript="",
-    )
-
-    assert guide["performance_preset"] == "low_vram"
-    assert guide["postprocess_path"] == "ai_upscale"
-    assert guide["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
-    assert guide["motion_smoothing"] == "off"
-
-
-def test_low_vram_single_pass_rejects_x4_as_the_ai_upscale_model(monkeypatch):
-    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
-    monkeypatch.setattr(
-        "nodes.director.resolve_upscale_model_name",
-        lambda model, scale: "RealESRGAN_x4plus.pth",
-    )
-
-    with pytest.raises(RequestError, match="低显存模式的 AI 超分只允许 X2"):
-        MiniMaxH3DirectorPlus().build(
-            mode="T2VA",
-            prompt="镜头缓慢推进。",
-            duration=4,
-            width=1920,
-            height=1080,
-            aspect_ratio="16:9",
-            resolution_preset="1080p FHD",
-            voice_mode="none",
-            ref_image_size="match",
-            performance_preset="低显存",
-            postprocess_mode="ai_upscale",
-            ai_upscale_model="auto",
             timeline_data="{}",
             target_dialogue="",
             reference_transcript="",
@@ -2103,34 +2018,25 @@ def test_probe_vram_after_prefree_can_be_disabled(monkeypatch):
 @pytest.mark.parametrize("aspect,width,height", [("16:9",1920,1080), ("9:16",1080,1920)])
 @pytest.mark.parametrize("availability", ["3b", "missing", "7b_only"])
 @pytest.mark.parametrize("preset", ["质量优先二采样"])
-def test_fhd_two_stage_uses_seedvr2_only_when_target_needs_upscale(monkeypatch, vram, aspect, width, height, availability, preset):
+def test_fhd_two_stage_preserves_direct_export(monkeypatch, vram, aspect, width, height, availability, preset):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (vram, vram - 2))
     monkeypatch.setattr("nodes.director._seedvr2_dependency_report", lambda: {
         "ready": availability != "missing",
         "missing": ["SeedVR2VideoUpscaler"] if availability == "missing" else [],
         "available_dit": ["seedvr2_ema_3b_fp8_e4m3fn.safetensors"] if availability == "3b" else ["seedvr2_ema_7b_fp16.safetensors"],
     })
-    build = lambda: MiniMaxH3DirectorPlus().build(
+    guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="T2VA", prompt="镜头缓慢推进。", duration=5, width=width, height=height,
         aspect_ratio=aspect, resolution_preset="1080p FHD", voice_mode="none",
         ref_image_size="match", performance_preset=preset,
         postprocess_mode="video_sr", timeline_data="{}", target_dialogue="", reference_transcript="",
     )
-    if vram == 24.0 and availability in {"missing", "7b_only"}:
-        with pytest.raises(RequestError, match="SeedVR2"):
-            build()
-        return
-
-    guide, *_ = build()
     assert (guide["target_width"], guide["target_height"]) == (width, height)
-    if vram == 24.0:
-        assert guide["postprocess_path"] == "video_sr"
-        assert guide["video_sr_plan"]["dit_model"]
-    else:
-        assert guide["postprocess_path"] == "balanced_fhd_downscale"
-        assert guide["video_sr_required"] is False
-        assert not guide.get("video_sr_plan")
-        assert any("不执行额外的视频超分" in warning for warning in guide["warnings"])
+    assert guide["postprocess_path"] == "balanced_fhd_downscale"
+    assert guide["video_sr_required"] is False
+    assert not guide.get("video_sr_plan")
+    assert any("不执行额外的视频超分" in warning for warning in guide["warnings"])
+    assert not any("追加轻量精修" in warning for warning in guide["warnings"])
 
 
 def test_face_refine_defaults_off_and_is_exported_in_guide():

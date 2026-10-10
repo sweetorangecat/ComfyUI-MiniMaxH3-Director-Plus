@@ -493,11 +493,7 @@ def _iter_ai_upscale_frame_chunks(
     )
     selected_model = resolve_upscale_model_name(model_name, scale_factor)
     target_frame_bytes = max(1, int(target_width) * int(target_height) * 3 * int(bytes_per_channel))
-    frames_per_chunk = (
-        1
-        if profile == "low_vram"
-        else max(1, min(4, int(max_chunk_bytes) // target_frame_bytes))
-    )
+    frames_per_chunk = max(1, min(4, int(max_chunk_bytes) // target_frame_bytes))
     model = None
 
     def frame_indices():
@@ -816,13 +812,7 @@ def _resolve_postprocess_path(guide, source_width, source_height):
         # guide requested RTX VSR as a mode rather than a resolved path.
         target_width = int(guide.get("target_width") or source_width)
         target_height = int(guide.get("target_height") or source_height)
-        if (
-            target_width == int(source_width)
-            and target_height == int(source_height)
-            and guide.get("postprocess_mode") not in {
-                "vosr2", "video_sr", "ai_upscale", "lanczos", "rtx_vsr"
-            }
-        ):
+        if target_width == int(source_width) and target_height == int(source_height):
             return "native_bypass"
         if path == "balanced_fhd_downscale":
             return path
@@ -859,7 +849,7 @@ def _resolve_upscale_profile(guide, postprocess_path):
     if postprocess_path != "ai_upscale":
         return "standard"
     if str((guide or {}).get("performance_preset") or "") == "low_vram":
-        return "low_vram"
+        return "standard"
     requested = str((guide or {}).get("requested_performance_preset") or "")
     explicit = str((guide or {}).get("upscale_profile") or "")
     if explicit == _SMART_UPSCALE_PROFILE or requested == "smart_free_1080p":
@@ -1152,7 +1142,7 @@ class MiniMaxH3StreamingVideoCombine:
             )
             raise ValueError(f"{preset_label}不兼容 RIFE 运动平滑，必须保留原始 24 FPS 以避免重影")
         if motion_smoothing == "rife_x2" and postprocess_path != "rtx_vsr":
-            raise ValueError("RIFE 2x 运动平滑只能搭配 RTX VSR 最终输出")
+            raise ValueError("RIFE 2x 运动平滑只能在 RTX VSR 输出链路中执行")
         # Fail before creating an output path/encoder when the strict VSR
         # dependency is unavailable. The frame iterator is still responsible
         # for creating and closing the per-attempt processor.

@@ -21,19 +21,18 @@ const DIRECTOR_DOM_HEIGHT = 1280;
 const DIRECTOR_CONTENT_INSET = 48;
 const DIRECTOR_VIEWPORT_HEIGHT = DIRECTOR_DOM_HEIGHT;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
-const PRESETS = ["稳定质量", "质量优先二采样", "低显存"];
+const PRESETS = ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "低显存", "低显存二采", "自定义"];
 const PERFORMANCE_PRESET_KEYS = {
-  "稳定质量": "quality",
-  "质量优先二采样": "quality_two_stage",
-  "低显存": "low_vram",
   "高清快速（v4 8步）": "fl_quality_fast_v4",
   "参考高清（原生20步）": "ref_quality_native",
   "参考极速（官方4步）": "ref_fast_4step",
 };
 const PERFORMANCE_PRESETS_BY_ROUTE = {
-  t2va: ["稳定质量", "质量优先二采样", "低显存"],
-  endpoint: ["稳定质量", "质量优先二采样", "低显存"],
-  reference: ["参考高清（原生20步）", "质量优先二采样", "低显存"],
+  // 以 62b4b1b 的执行配方为基线，手动开放三档质量取向。
+  // 低显存、极速和其他历史档位仍可由旧工作流/API 加载。
+  t2va: ["稳定质量", "质量优先加速", "质量优先二采样"],
+  endpoint: ["稳定质量", "质量优先加速", "质量优先二采样"],
+  reference: ["参考高清（原生20步）", "质量优先加速", "质量优先二采样"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
@@ -91,9 +90,13 @@ const VOICE_MODES = [
 ];
 const VOICE_MODE_LABELS = {none: "不使用音色", h3_reference: "H3 原生音频参考", fish_lock: "Fish S2 克隆音色", audio_reuse: "完整复用上传音频"};
 const POSTPROCESS_MODES = [
-  ["vosr2", "VOSR2 视频超分"],
+  ["native", "原生尺寸直出"],
+  ["lanczos", "Lanczos 快速放大"],
+  ["ai_upscale", "AI 自动超分"],
   ["video_sr", "SeedVR2 视频超分"],
-  ["ai_upscale", "AI 超分（低显存推荐）"],
+  ["vosr2", "VOSR2 视频超分"],
+  ["h3_two_stage", "H3 二采"],
+  ["rtx_vsr", "AI 细节重建（RTX VSR）"],
 ];
 const VOICE_GENDERS = [
   ["auto", "自动保持样本"],
@@ -102,11 +105,9 @@ const VOICE_GENDERS = [
   ["neutral", "中性音域"],
 ];
 const POSTPROCESS_MODES_BY_PERFORMANCE = {
-  "智能画质（自动适配）": POSTPROCESS_MODES,
-  "稳定质量": POSTPROCESS_MODES,
-  "质量优先二采样": POSTPROCESS_MODES,
-  "低显存": POSTPROCESS_MODES,
-  "参考高清（原生20步）": POSTPROCESS_MODES,
+  "智能画质（自动适配）": [["h3_two_stage", "H3 二采（latent 放大重绘）"], ["vosr2", "VOSR2 视频超分（单采）"], ["video_sr", "SeedVR2 视频超分（单采）"], ["ai_upscale", "RealESRGAN 逐帧超分"], ["lanczos", "Lanczos 快速放大"], ["native", "原生尺寸直出"]],
+  "质量优先二采样": [["video_sr", "SeedVR2 视频超分（最清晰，未装自动回退 AI 超分）"]],
+  "低显存二采": [["ai_upscale", "AI X2 细节重建（低显存）"]],
 };
 const RTX_QUALITIES = [
   ["HIGH", "HIGH（质量）"],
@@ -209,21 +210,20 @@ function allowedPerformancePresets(mode, voiceMode) {
   if ((voiceMode !== "none" && voiceMode !== "audio_reuse") || mode === "REF2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.reference;
   else if (mode === "T2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.t2va;
   else presets = PERFORMANCE_PRESETS_BY_ROUTE.endpoint;
-  if (voiceMode === "fish_lock") return presets.filter((item) => !["质量优先二采样", "低显存二采"].includes(item));
+  if (voiceMode === "fish_lock") return presets.filter((item) => item !== "质量优先二采样");
   return presets;
 }
 
 function performancePresetHint(preset) {
   if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) return "按后端、显存和时长自动选择路线；无需手动组合超分、模型和运动平滑";
-  if (preset === "稳定质量") return "原生 20 步采样，不启用 Turbo LoRA、SageAttention 或 EasyCache";
-  if (preset === "质量优先二采样") return "训练型 3D latent 二采：首采 8 步（共 12 步）+ 神经 latent 放大 + 4 步低 sigma 重绘";
-  if (preset === "低显存二采") return "8GB 专用 8+4 步二采：1080p 最多 6 秒，768p 最多 10 秒；阶段间自动释放显存";
+  if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 8 步（共 12 步）+ 神经 latent 放大 + 4 步低 sigma 重绘";
+  if (preset === "低显存二采") return "8GB 专用真二采：1080p 最多 6 秒，768p 最多 10 秒；阶段间自动释放显存";
   if (preset === "质量优先加速") return "20 步 + SageAttention，关闭 Turbo/EasyCache";
   if (preset === "高清快速（v4 8步）") return "v4 8步仅适用于 FL/T2V 后端：社区 v4 LoRA + simple/Euler，单采不做 latent 二采";
   if (preset === "参考高清（原生20步）") return "仅适用于 REF2VA/音色参考：原生 20 步 + SageAttention，不使用 Turbo/二采";
-  if (preset === "参考极速（官方4步）") return "速度优先：官方 Ref2VA Turbo 4 步 + Euler；身份、服装细节与参考约束可能下降，适合对照测试";
-  if (preset === "极速4步") return "官方 Turbo 4 步，按当前后端加载适配 LoRA；速度优先，细节/参考约束可能下降";
-  if (preset === "低显存") return "原生 20 步 + 内存高效注意力与动态分层加载，适合显存受限设备";
+  if (preset === "参考极速（官方4步）") return "仅适用于 REF2VA/音色参考：官方 Ref2VA Turbo 4 步 + 原生 Euler";
+  if (preset === "低显存") return "动态分层加载，适合显存受限设备";
+  if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
   return "模式与加速预设";
 }
 
@@ -244,6 +244,7 @@ function allowedRtxQualities(performancePreset) {
 function allowedMotionSmoothing(preset, postprocessMode) {
   if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) return [["off", "关闭（智能锁定）"]];
   if (preset === "质量优先二采样") return [["off", "关闭（二采固定，避免重影）"]];
+  if (preset === "低显存二采") return [["off", "关闭（低显存二采固定）"]];
   if (preset === "低显存") return [["off", "关闭（低显存固定）"]];
   if (postprocessMode !== "rtx_vsr") {
     return MOTION_SMOOTHING.filter(([value]) => value !== "rife_x2");
@@ -807,7 +808,7 @@ function install(node) {
       setWidget(node, "performance_preset", preset, false);
     }
     if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
-      if (!POSTPROCESS_MODES.some(([value]) => value === widget(node, "postprocess_mode")?.value)) setWidget(node, "postprocess_mode", "vosr2", false);
+      if (!["h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native"].includes(widget(node, "postprocess_mode")?.value)) setWidget(node, "postprocess_mode", "vosr2", false);
       setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false);
       setWidget(node, "motion_smoothing", "off", false);
     }
@@ -816,7 +817,11 @@ function install(node) {
     if (preset === "低显存二采" && Number(widget(node, "duration")?.value) > lowVramTwoStageMaxSeconds) {
       setWidget(node, "duration", lowVramTwoStageMaxSeconds, false);
     }
-    const postprocessOptions = allowedPostprocessModes(preset);
+    const postprocessOptions = allowedPostprocessModes(preset).filter(([value]) =>
+      ![SMART_PRESET, LEGACY_SMART_PRESET].includes(preset)
+      || selectedResolutionPreset === "768p H3"
+      || !["ai_upscale", "lanczos", "native"].includes(value)
+    );
     let postprocessMode = widget(node, "postprocess_mode")?.value || "native";
     if (!postprocessOptions.some(([value]) => value === postprocessMode)) {
       postprocessMode = postprocessOptions[0][0];
@@ -902,7 +907,7 @@ function install(node) {
     quickGrid.className = "h3p-grid";
     quickGrid.append(
       valueControl("生成模式", "mode", MODES, mode),
-      valueControl("采样方案 / 步数", "performance_preset", performanceOptions, preset),
+      valueControl("性能预设", "performance_preset", performanceOptions, preset),
     );
     quick.append(quickGrid);
     root.append(quick);
@@ -944,14 +949,14 @@ function install(node) {
       aiUpscaleModel = SMART_UPSCALE_MODEL;
       setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false);
     }
-    if (["低显存", "低显存二采"].includes(preset) && aiUpscaleModel !== "auto" && !isX2UpscaleModel(aiUpscaleModel)) {
+    if (preset === "低显存二采" && aiUpscaleModel !== "auto" && !isX2UpscaleModel(aiUpscaleModel)) {
       aiUpscaleModel = "auto";
       setWidget(node, "ai_upscale_model", "auto", false);
     }
     const postprocessControl = valueControl("放大方式", "postprocess_mode", postprocessOptions, postprocessMode);
     const aiModelControlOptions = preset === SMART_PRESET
       ? [[SMART_UPSCALE_MODEL, "自动选择（按倍率选 X2/X4，智能锁定）"]]
-      : [["auto", preset === "低显存" ? "自动选择 X2（需安装 X2 模型）" : "自动选择"]];
+      : [["auto", "自动选择"]];
     const aiModelControl = postprocessMode === "ai_upscale"
       ? valueControl("AI 超分模型", "ai_upscale_model", aiModelControlOptions, aiUpscaleModel)
       : postprocessMode === "rtx_vsr"
@@ -970,7 +975,7 @@ function install(node) {
       });
     }
     if (postprocessMode === "ai_upscale") {
-      const modelField = postprocessGrid.children[0];
+      const modelField = postprocessGrid.children[1];
       const modelSelect = modelField?.querySelector("select");
       const modelWidget = widget(node, "ai_upscale_model");
       const aiModelOptions = modelWidget?.options?.values || [];
@@ -978,7 +983,7 @@ function install(node) {
         modelSelect.replaceChildren();
         const modelOptions = preset === SMART_PRESET
           ? [[SMART_UPSCALE_MODEL, "自动（按倍率选 X2/X4，智能锁定）"]]
-          : [["auto", ["低显存", "低显存二采"].includes(preset) ? "自动选择 X2（需安装 X2 模型）" : "自动选择"], ...aiModelOptions.filter((value) => value && value !== "auto" && (!["低显存", "低显存二采"].includes(preset) || isX2UpscaleModel(value))).map((value) => [value, value])];
+          : [["auto", "自动选择"], ...aiModelOptions.filter((value) => value && value !== "auto" && (preset !== "低显存二采" || isX2UpscaleModel(value))).map((value) => [value, value])];
         modelOptions.forEach(([value, display]) => {
           const option = document.createElement("option");
           option.value = value;
@@ -998,15 +1003,14 @@ function install(node) {
       ai_upscale: "AI 自动超分：使用已安装的通用超分模型逐帧重建细节；默认 auto 按实际倍率自动选择 X2/X4（≤2 倍优先 X2，避免 X4 放大再缩回的浪费），模型不存在会在生成前提示。",
       video_sr: "1080p：H3 单采后使用 SeedVR2 3B 超分，不执行 H3 二采；缺少依赖会提示。",
       vosr2: "1080p：H3 单采后使用 VOSR2 超分，不执行 H3 二采，保留首采音频。480p/768p 单采输出。",
+      rtx_vsr: "RTX VSR：目标尺寸大于 H3 原生尺寸时逐帧使用 NVIDIA RTX VSR；首次使用前请安装 nvidia-vfx、NVIDIA Broadcast SDK 与匹配驱动，导演节点会在生成前检查；同尺寸自动旁路。",
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = `质量优先二采样 + ${POSTPROCESS_MODES.find(([value]) => value === postprocessMode)?.[1] || postprocessMode}：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；放大器严格按选择执行，依赖缺失时会提示。RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
+      postprocessNote.textContent = `质量优先二采样已锁定 SeedVR2 视频超分（7B sharp 权重优先）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；未安装 SeedVR2 时自动回退通用 AI 超分并提示，RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
       const duration = Number(widget(node, "duration")?.value) || 4;
-      postprocessNote.textContent = `低显存二采 + ${POSTPROCESS_MODES.find(([value]) => value === postprocessMode)?.[1] || postprocessMode}：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight, duration))}；1080p 最长 6 秒，768p 最长 10 秒；7–10 秒 768p 使用时空分块低 sigma 重绘。放大器按选择执行，依赖缺失会提示；开始前检查至少 6GB 空闲显存。`;
-    } else if (preset === "低显存") {
-      postprocessNote.textContent = `低显存 20 步动态卸载 + ${POSTPROCESS_MODES.find(([value]) => value === postprocessMode)?.[1] || postprocessMode}。AI 超分路线限定 X2 并逐帧处理；RIFE 固定关闭，避免额外显存峰值。至少 8GB 显存的设备可先试 768p，2K/4K 与 SeedVR2/VOSR2 峰值需按显卡实测。`;
+      postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight, duration), "AI X2")}；1080p 最长 6 秒，768p 最长 10 秒；7–10 秒 768p 使用时空分块低 sigma 重绘，并把最终逐帧重建控制在约 1.75x 内。开始前检查至少 6GB 空闲显存。`;
     } else if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
       postprocessNote.textContent = postprocessMode === "h3_two_stage" ? "H3 首采 → latent 放大 → H3 二采重绘 → 输出；不叠加 VOSR2 / SeedVR2。" : resolutionPreset === "1080p FHD" ? `H3 单采 → ${postprocessMode === "vosr2" ? "VOSR2" : "SeedVR2 3B"} → 1080p；跳过 H3 二采，保留首采音频。` : "480p / 768p 单采输出；高分辨率旧档位保留原策略。";
     }

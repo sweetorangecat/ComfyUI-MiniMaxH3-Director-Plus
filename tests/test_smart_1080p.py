@@ -274,15 +274,14 @@ def test_smart_4k_can_explicitly_select_vosr2_without_seedvr2():
     assert "4K" in plan["warning"]
 
 
-def test_smart_vosr2_keeps_explicit_custom_target_selection():
-    plan = resolve_smart_1080p_plan(
-        "fl2va_model", 5, 32, 29,
-        seedvr2_ready=True, two_stage_ready=True,
-        target_width=3000, target_height=1688,
-        postprocess_mode="vosr2",
-    )
-
-    assert plan["postprocess_mode"] == "vosr2"
+def test_smart_vosr2_trial_rejects_custom_targets():
+    with pytest.raises(RequestError, match="仅开放标准 2K QHD 与 4K UHD"):
+        resolve_smart_1080p_plan(
+            "fl2va_model", 5, 32, 29,
+            seedvr2_ready=True, two_stage_ready=True,
+            target_width=3000, target_height=1688,
+            postprocess_mode="vosr2",
+        )
 
 
 def test_smart_h3_reference_fhd_uses_audio_guarded_redraw_by_default(monkeypatch):
@@ -345,7 +344,6 @@ def test_smart_4k_target_rejects_missing_seedvr2():
             "fl2va_model", 5, 32, 29,
             seedvr2_ready=False, two_stage_ready=True,
             target_width=3840, target_height=2160,
-            postprocess_mode="video_sr",
         )
 
 
@@ -397,7 +395,6 @@ def test_smart_qhd_requires_seedvr2_for_final_detail():
         resolve_smart_1080p_plan(
             "ref2va_model", 15, 32, 29, two_stage_ready=True,
             seedvr2_ready=False, target_width=2560, target_height=1440,
-            postprocess_mode="video_sr",
         )
 
 
@@ -406,7 +403,6 @@ def test_smart_fallback_qhd_still_requires_seedvr2():
         resolve_smart_1080p_plan(
             "ref2va_model", 15, 24, 21, two_stage_ready=True,
             seedvr2_ready=False, target_width=2560, target_height=1440,
-            postprocess_mode="video_sr",
         )
 
 
@@ -414,7 +410,6 @@ def test_low_vram_never_routes_fhd_to_seedvr2_even_when_available():
     plan = resolve_smart_1080p_plan(
         "ref2va_model", 5, 8, 7, seedvr2_ready=True,
         target_width=1920, target_height=1080,
-        postprocess_mode="ai_upscale",
     )
 
     assert plan["low_vram"] is True

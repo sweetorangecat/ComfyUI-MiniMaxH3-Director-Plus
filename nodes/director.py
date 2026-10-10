@@ -334,8 +334,8 @@ class MiniMaxH3DirectorPlus:
                 "voice_mode": (["none", "h3_reference", "fish_lock", "audio_reuse"], {"default": "none", "tooltip": "无音色 / H3官方参考音频条件 / Fish克隆音色并生成目标对白 / 完整复用上传音频"}),
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
-                "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "稳定质量", "tooltip": "性能预设；稳定 20 步、训练型 8+4 二采或低显存 20 步动态卸载"}),
-                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage", "rtx_vsr"], {"default": "vosr2", "tooltip": "放大方式按选择严格执行：VOSR2、SeedVR2 或 AI X2；低显存可选择 AI X2 逐帧处理。"}),
+                "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "稳定质量", "tooltip": "性能预设；稳定 20 步、质量优先加速或训练型 8+4 二采"}),
+                "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "放大方式可选 H3 二采、VOSR2、SeedVR2。1080p VOSR2/SeedVR2走单采超分；显式选 2K/4K 且依赖和显存满足时，VOSR2 走 H3 二采后 2x 试验路线。4K 需要至少 28GB 显存，建议先用 4–5 秒验证。"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
                 "ai_upscale_model": (["auto", *_available_upscale_models()], {"default": "auto", "tooltip": "通用 AI 超分模型；默认 auto 按实际倍率自动选择 X2/X4"}),
                 "timeline_data": ("STRING", {"default": "{\"version\":1,\"items\":[]}", "multiline": False}),
@@ -360,7 +360,7 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_7_file": (image_files, {"image_upload": True}),
                 "reference_image_8_file": (image_files, {"image_upload": True}),
                 "reference_image_9_file": (image_files, {"image_upload": True}),
-                "motion_smoothing": (["off", "rife_x2"], {"default": "off", "tooltip": "运动平滑：默认关闭以保留原始帧；RIFE 2x 仅用于 RTX VSR 输出 48 FPS；VOSR2 保持原始 24 FPS"}),
+                "motion_smoothing": (["off", "rife_x2"], {"default": "off", "tooltip": "运动平滑：默认关闭以保留原始帧；需要 48 FPS 时手动启用流式 RIFE 2x；低显存模式只允许关闭"}),
                 "audio_loudness": (["auto", "original"], {"default": "auto", "tooltip": "最终音频：自动增强过小的 H3 音量，或保持原始响度"}),
                 "voice_gender": ("STRING", {"default": "auto", "tooltip": "保持参考音色的性别与音域；旧工作流错位值在 normalize_request 中自动归一化为 auto"}),
                 "face_refine_mode": (["off", "auto"], {"default": "off", "tooltip": "关闭时完全旁路；开启后修复所选 Picture 的单个人物，需原始身份图和身份/切镜检测依赖。请先检查跟踪，不保证画质提升。"}),
@@ -399,7 +399,7 @@ class MiniMaxH3DirectorPlus:
         timeline_data,
         target_dialogue,
         reference_transcript,
-        postprocess_mode="vosr2",
+        postprocess_mode="ai_upscale",
         rtx_quality="HIGH",
         ai_upscale_model="auto",
         motion_smoothing="off",
@@ -673,16 +673,17 @@ class MiniMaxH3DirectorPlus:
                 request["warnings"].append(smart_plan["warning"])
             if (
                 not seedvr2_ready
-                and request["postprocess_mode"] == "video_sr"
                 and resolution_preset not in {"1080p FHD", "768p H3"}
                 and resolution_preset != "480p"
                 and not smart_plan["low_vram"]
                 and smart_plan["performance_preset"] != "quality_two_stage"
             ):
+                # The curated default final-output route is SeedVR2; make the
+                # silent smart-mode downgrade loud so users know what to install.
                 request["warnings"].append(
-                    "已选择 SeedVR2，但依赖未就绪（缺失："
+                    "SeedVR2 视频超分未就绪（缺失："
                     + "、".join(seedvr2_report["missing"])
-                    + "）；请安装 "
+                    + "），本次已自动回退为通用 AI 超分；要达到最佳清晰度请安装 "
                     "ComfyUI-SeedVR2_VideoUpscaler 节点并将 seedvr2_ema_7b/3b 与 "
                     "ema_vae_fp16.safetensors 放入 models/SEEDVR2。"
                 )
@@ -719,6 +720,7 @@ class MiniMaxH3DirectorPlus:
                 "如需启用音频保护二采，请移除此设置或设为 1。"
             )
             request["performance_preset"] = "ref_quality_native"
+            request["postprocess_mode"] = "ai_upscale"
             request["motion_smoothing"] = "off"
 
         if request["performance_preset"] == "low_vram":
@@ -824,49 +826,19 @@ class MiniMaxH3DirectorPlus:
         postprocess_source_height = int(
             two_stage_plan["second_stage_height"] if two_stage_plan else native_height
         )
-        target_matches_source = (
-            requested_width == postprocess_source_width
-            and requested_height == postprocess_source_height
-        )
-        target_fits_source = (
-            requested_width <= postprocess_source_width
-            and requested_height <= postprocess_source_height
-        )
-        keep_explicit_high_resolution_sr = (
-            two_stage_plan is not None
-            and resolution_preset in {"2K QHD", "4K UHD"}
-        )
-        # Do not run an enlarger when the selected route already produced the
-        # requested dimensions. Otherwise preserve the explicit choice exactly.
-        if target_matches_source and not (
-            request["postprocess_mode"] == "vosr2"
-            and request["motion_smoothing"] == "rife_x2"
-        ):
-            postprocess_path = "native_bypass"
-        elif (
-            target_fits_source
-            and two_stage_plan is not None
-            and resolution_preset == "1080p FHD"
-        ):
-            postprocess_path = "balanced_fhd_downscale"
-        elif target_fits_source and not keep_explicit_high_resolution_sr:
-            postprocess_path = "downscale"
-        elif request["postprocess_mode"] == "vosr2":
+        # Preserve near-FHD H3 detail without another diffusion reconstruction.
+        if request["postprocess_mode"] == "vosr2":
             from .two_stage_assets import _comfy_node_mappings
             mappings = _comfy_node_mappings()
             missing = [n for n in ("TESpeedVOSR2Loader", "TESpeedVOSR2Settings", "TESpeedVOSR2Video") if n not in mappings]
             if missing:
-                raise RequestError("VOSR2 节点未就绪（缺失：" + "、".join(missing) + "）；当前已选择 VOSR2，不能自动改用其他放大器。")
+                raise RequestError("VOSR2 节点未就绪，请安装 TE-Speed-VOSR2 并重启，或选择 SeedVR2：" + "、".join(missing))
             request["video_sr_plan"] = {"engine": "vosr2"}
             if (requested_width, requested_height) in {
                 (2560, 1440), (1440, 2560), (3840, 2160), (2160, 3840),
             }:
                 request["video_sr_plan"]["force_2x"] = True
             postprocess_path = "video_sr"
-        elif request["postprocess_mode"] == "native":
-            postprocess_path = "native_bypass"
-        elif request["postprocess_mode"] in {"lanczos", "ai_upscale", "video_sr", "rtx_vsr"}:
-            postprocess_path = request["postprocess_mode"]
         elif two_stage_plan is not None and (
             two_stage_plan.get("balanced_fhd_supersample")
             or two_stage_plan.get("conservative_fhd_supersample")
@@ -875,6 +847,12 @@ class MiniMaxH3DirectorPlus:
             postprocess_path = "balanced_fhd_downscale"
         elif two_stage_plan is not None and two_stage_plan.get("adaptive_qhd") and postprocess_mode != "h3_two_stage":
             postprocess_path = "video_sr"
+        elif requested_width == postprocess_source_width and requested_height == postprocess_source_height:
+            postprocess_path = "native_bypass"
+        elif requested_width < postprocess_source_width or requested_height < postprocess_source_height:
+            postprocess_path = "downscale"
+        elif request["postprocess_mode"] in {"lanczos", "ai_upscale", "video_sr", "rtx_vsr"}:
+            postprocess_path = request["postprocess_mode"]
         else:
             postprocess_path = "native_bypass"
         # DEBLUR_LOW was removed from the automatic quality route after the
@@ -957,21 +935,30 @@ class MiniMaxH3DirectorPlus:
             if not seedvr2_report["ready"] and smart_mode and resolution_preset in {"1080p FHD", "768p H3"}:
                 raise RequestError("SeedVR2 未就绪：" + "、".join(seedvr2_report["missing"]))
             if not seedvr2_report["ready"]:
-                raise RequestError(
-                    "SeedVR2 未就绪（缺失：" + "、".join(seedvr2_report["missing"]) +
-                    "）；当前已选择 SeedVR2，不能自动改用其他放大器。"
+                # The curated UI only exposes SeedVR2 as the final-output route;
+                # when its nodes/weights are missing, degrade to the per-frame
+                # AI upscale with a loud warning instead of killing the run.
+                postprocess_path = "ai_upscale"
+                request["postprocess_mode"] = "ai_upscale"
+                request["warnings"].append(
+                    "SeedVR2 视频超分未就绪（缺失："
+                    + "、".join(seedvr2_report["missing"])
+                    + "），本次已自动回退为通用 AI 超分；要达到最佳清晰度请安装 "
+                    "ComfyUI-SeedVR2_VideoUpscaler 节点并将 seedvr2_ema_7b/3b 与 "
+                    "ema_vae_fp16.safetensors 放入 models/SEEDVR2。"
                 )
-            total_for_sr = _cuda_memory_gb()[0]
-            request["video_sr_plan"] = (resolve_seedvr2_fhd_plan if resolution_preset == "1080p FHD" else resolve_seedvr2_plan)(
-                total_for_sr, available_dit=seedvr2_report.get("available_dit")
-            )
-            if not request["video_sr_plan"].get("dit_model"):
-                raise RequestError("1080p SeedVR2 路线需要安装 3B 权重")
-            request["warnings"].append(
-                "最终输出使用 SeedVR2 扩散视频超分："
-                f"模型 {request['video_sr_plan']['dit_model']}，"
-                f"批大小 {request['video_sr_plan']['batch_size']}。"
-            )
+            else:
+                total_for_sr = _cuda_memory_gb()[0]
+                request["video_sr_plan"] = (resolve_seedvr2_fhd_plan if resolution_preset == "1080p FHD" else resolve_seedvr2_plan)(
+                    total_for_sr, available_dit=seedvr2_report.get("available_dit")
+                )
+                if not request["video_sr_plan"].get("dit_model"):
+                    raise RequestError("1080p SeedVR2 路线需要安装 3B 权重")
+                request["warnings"].append(
+                    "最终输出使用 SeedVR2 扩散视频超分（逐帧时间一致性优于通用 AI 超分）："
+                    f"模型 {request['video_sr_plan']['dit_model']}，"
+                    f"批大小 {request['video_sr_plan']['batch_size']}。"
+                )
 
         if postprocess_path == "ai_upscale":
             try:
@@ -1010,15 +997,6 @@ class MiniMaxH3DirectorPlus:
                             f"{request['ai_upscale_model']} 会先放大到 4 倍再缩回，浪费数倍算力；"
                             "建议改用 auto 或 X2 模型（如 RealESRGAN_x2plus.pth），或切换 SeedVR2。"
                         )
-                if (
-                    request["performance_preset"] == "low_vram"
-                    and not is_x2_upscale_model_name(request["ai_upscale_model"])
-                ):
-                    raise ValueError(
-                        "低显存模式的 AI 超分只允许 X2 模型；请安装 RealESRGAN_x2plus.pth "
-                        "或选择 VOSR2 / SeedVR2。当前解析为 "
-                        f"{request['ai_upscale_model']}"
-                    )
                 if (
                     request["performance_preset"] == "low_vram_two_stage"
                     and not is_x2_upscale_model_name(request["ai_upscale_model"])
