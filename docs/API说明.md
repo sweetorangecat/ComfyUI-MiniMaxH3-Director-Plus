@@ -20,7 +20,7 @@ API 模板默认使用 `performance_preset=免费智能 1080p`、`postprocess_mo
 
 性能预设还支持 `高清快速（v4 8步）`、`参考高清（原生20步）` 和 `参考极速（官方4步）` 三个显式路由档位。前者仅出现在 FL/T2V 后端，使用 `minimax_h3_turbo_v4_step600_ema.safetensors`、LoRA strength 1.0、8 步 simple/Euler 单采；后两者仅出现在 REF2VA/H3 音色参考后端，分别是原生 20 步 + SageAttention，以及官方 Ref2VA Turbo 4 步。Fish S2 继续排除训练型 latent 二采，旧预设的默认关系保持不变。
 
-导演台和公开 schema 按生成路由展示三档手动采样：普通 T2VA/I2VA/FL2VA/L2VA 为 `稳定质量`、`质量优先加速`、`质量优先二采样`；REF2VA/音色参考将第一档替换为 `参考高清（原生20步）`。旧 API 参数和已保存节点中的其他预设仍保留兼容解析，但不会出现在普通下拉框中。`质量优先加速` 固定 20 步、只启用 SageAttention、关闭 Turbo LoRA 与 EasyCache。FL/T2VA 无音色任务仍可按显存使用 `trained_latent_fl`；`voice_mode=h3_reference` 的 `quality_two_stage` 现保留二采选择，由导演台设置 `two_stage_audio_guard=True`，二采音频零噪声、零遮罩、最终回填；不拆分视频。Fish S2 继续使用兼容的 reference 单采流程。
+导演台和公开 schema 按生成路由展示三档质量采样及低显存入口：普通 T2VA/I2VA/FL2VA/L2VA 为 `稳定质量`、`质量优先加速`、`质量优先二采样`、`低显存`；REF2VA/音色参考将第一档替换为 `参考高清（原生20步）`。旧 API 参数和已保存节点中的其他预设仍保留兼容解析，但不会出现在普通下拉框中。`质量优先加速` 固定 20 步、只启用 SageAttention、关闭 Turbo LoRA 与 EasyCache。FL/T2VA 无音色任务仍可按显存使用 `trained_latent_fl`；`voice_mode=h3_reference` 的 `quality_two_stage` 现保留二采选择，由导演台设置 `two_stage_audio_guard=True`，二采音频零噪声、零遮罩、最终回填；不拆分视频。Fish S2 继续使用兼容的 reference 单采流程。
 
 `performance_preset` 的 API 字段保持不变。依赖官方 LightX2V LoRA 的性能档位，只有在 ComfyUI 内置加载器实际新增模型补丁且 `patch_delta>0` 后才会进入采样。`POST /generate` 可能已经成功返回 `prompt_id` 并入队；官方 LoRA 会在任务执行到加速节点时验证，若验证不通过，任务会在首个 H3 采样节点前终止，调用方应从任务历史或执行错误读取原因。常见的缺文件、损坏文件和零补丁错误会包含解析后的 LoRA 文件名。上次加载失败后重新执行加速节点会再次验证，不会因旧的 `turbo_lora_applied=false` 绕过检查。
 

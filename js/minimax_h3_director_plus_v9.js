@@ -29,10 +29,10 @@ const PERFORMANCE_PRESET_KEYS = {
 };
 const PERFORMANCE_PRESETS_BY_ROUTE = {
   // 以 62b4b1b 的执行配方为基线，手动开放三档质量取向。
-  // 低显存、极速和其他历史档位仍可由旧工作流/API 加载。
-  t2va: ["稳定质量", "质量优先加速", "质量优先二采样"],
-  endpoint: ["稳定质量", "质量优先加速", "质量优先二采样"],
-  reference: ["参考高清（原生20步）", "质量优先加速", "质量优先二采样"],
+  // 额外保留低显存入口；极速和其他历史档位由旧工作流/API 加载。
+  t2va: ["稳定质量", "质量优先加速", "质量优先二采样", "低显存"],
+  endpoint: ["稳定质量", "质量优先加速", "质量优先二采样", "低显存"],
+  reference: ["参考高清（原生20步）", "质量优先加速", "质量优先二采样", "低显存"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
@@ -222,7 +222,7 @@ function performancePresetHint(preset) {
   if (preset === "高清快速（v4 8步）") return "v4 8步仅适用于 FL/T2V 后端：社区 v4 LoRA + simple/Euler，单采不做 latent 二采";
   if (preset === "参考高清（原生20步）") return "仅适用于 REF2VA/音色参考：原生 20 步 + SageAttention，不使用 Turbo/二采";
   if (preset === "参考极速（官方4步）") return "仅适用于 REF2VA/音色参考：官方 Ref2VA Turbo 4 步 + 原生 Euler";
-  if (preset === "低显存") return "动态分层加载，适合显存受限设备";
+  if (preset === "低显存") return "20 步单采 + 注意力分块与动态分层加载，按时长降低采样尺寸；8GB 建议先试 768p、4 秒";
   if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
   return "模式与加速预设";
 }

@@ -505,11 +505,13 @@ def test_public_schema_documents_route_performance_options():
         "稳定质量",
         "质量优先加速",
         "质量优先二采样",
+        "低显存",
     ]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
         "参考高清（原生20步）",
         "质量优先加速",
         "质量优先二采样",
+        "低显存",
     ]
 
 

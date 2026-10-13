@@ -147,12 +147,12 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
     "reference": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom"),
 }
 # Keep the 62b4b1b execution baseline while exposing three quality-oriented
-# choices for manual A/B tests. Low-VRAM and legacy aliases remain loadable
-# through the broader route map above.
+# choices for manual A/B tests, plus an explicit low-VRAM route for small GPUs.
+# Other legacy aliases remain loadable through the broader route map above.
 VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE = {
-    "t2va": ("quality", "quality_sage", "quality_two_stage"),
-    "endpoint": ("quality", "quality_sage", "quality_two_stage"),
-    "reference": ("ref_quality_native", "quality_sage", "quality_two_stage"),
+    "t2va": ("quality", "quality_sage", "quality_two_stage", "low_vram"),
+    "endpoint": ("quality", "quality_sage", "quality_two_stage", "low_vram"),
+    "reference": ("ref_quality_native", "quality_sage", "quality_two_stage", "low_vram"),
 }
 
 TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})

@@ -18,7 +18,17 @@ class Element {
   replaceChildren(...children) { this.children = children; }
   setAttribute(name, value) { this[name] = value; }
   addEventListener() {}
-  querySelector(selector) { return this.children.find(child => child.tag === selector) || null; }
+  set innerHTML(value) {
+    if (value.includes('class="h3p-fish-body"')) {
+      const body = new Element("div");
+      body.className = "h3p-fish-body";
+      this.append(body);
+    }
+  }
+  querySelector(selector) {
+    return this.children.find(child => selector.startsWith(".")
+      ? child.className === selector.slice(1) : child.tag === selector) || null;
+  }
   querySelectorAll() { return []; }
 }
 
@@ -59,6 +69,23 @@ function installedDirector(initialValue = "off", extraWidgets = []) {
   };
   extension.nodeCreated(node);
   return { node, face, frames, extension };
+}
+
+for (const mode of ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"]) {
+  for (const voiceMode of ["none", "h3_reference", "fish_lock", "audio_reuse"]) {
+    test(`${mode} / ${voiceMode} restores the low-VRAM selection without replacing it`, () => {
+      const preset = { name: "performance_preset", value: "低显存" };
+      const { node } = installedDirector("off", [preset,
+        { name: "voice_mode", value: voiceMode },
+        { name: "postprocess_mode", value: "ai_upscale" },
+        { name: "resolution_preset", value: "768p H3" },
+      ]);
+      node.widgets.find(item => item.name === "mode").value = mode;
+      node.widgets.find(item => item.name === "mode").callback(mode);
+      assert.equal(preset.value, "低显存");
+      assert.equal(node.widgets.find(item => item.name === "postprocess_mode").value, "ai_upscale");
+    });
+  }
 }
 
 test("rendering an empty legacy face mode writes off into the submitted widget", () => {
