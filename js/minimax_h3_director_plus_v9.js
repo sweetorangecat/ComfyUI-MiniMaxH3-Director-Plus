@@ -105,10 +105,15 @@ const VOICE_GENDERS = [
   ["neutral", "中性音域"],
 ];
 const POSTPROCESS_MODES_BY_PERFORMANCE = {
-  "智能画质（自动适配）": [["h3_two_stage", "H3 二采（latent 放大重绘）"], ["vosr2", "VOSR2 视频超分（单采）"], ["video_sr", "SeedVR2 视频超分（单采）"], ["ai_upscale", "RealESRGAN 逐帧超分"], ["lanczos", "Lanczos 快速放大"], ["native", "原生尺寸直出"]],
-  "质量优先二采样": [["video_sr", "SeedVR2 视频超分（最清晰，未装自动回退 AI 超分）"]],
   "低显存二采": [["ai_upscale", "AI X2 细节重建（低显存）"]],
 };
+const CURATED_POSTPROCESS_MODES = [
+  ["vosr2", "VOSR2 视频超分"],
+  ["video_sr", "SeedVR2 视频超分"],
+  ["ai_upscale", "通用 AI 超分（省显存）"],
+];
+const SAMPLING_METHODS = [["standard", "标准二采（默认）"], ["selflift", "SelfLift 渐进采样（实验）"]];
+const MOTION_PROFILES = [["off", "关闭（默认）"], ["continuity", "动作连续性"], ["combat", "武戏"], ["legacy", "旧版社区配置"]];
 const RTX_QUALITIES = [
   ["HIGH", "HIGH（质量）"],
   ["ULTRA", "ULTRA（更高质量）"],
@@ -228,7 +233,20 @@ function performancePresetHint(preset) {
 }
 
 function allowedPostprocessModes(preset) {
-  return POSTPROCESS_MODES_BY_PERFORMANCE[preset] || POSTPROCESS_MODES;
+  return POSTPROCESS_MODES_BY_PERFORMANCE[preset] || CURATED_POSTPROCESS_MODES;
+}
+
+function restoreSamplingOptions(node, mode, voiceMode, preset) {
+  const twoStage = preset === "质量优先二采样";
+  const method = widget(node, "sampling_method");
+  const profile = widget(node, "community_lora_profile");
+  if (method && (!SAMPLING_METHODS.some(([value]) => value === method.value)
+      || !twoStage || mode !== "REF2VA" || voiceMode !== "none")) {
+    setWidget(node, "sampling_method", "standard", false);
+  }
+  if (profile && (!MOTION_PROFILES.some(([value]) => value === profile.value) || !twoStage)) {
+    setWidget(node, "community_lora_profile", "off", false);
+  }
 }
 
 function allowedRtxQualities(performancePreset) {
@@ -778,6 +796,7 @@ function install(node) {
     "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data",
     "target_dialogue", "reference_transcript", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
     "motion_smoothing", "audio_loudness", "voice_gender", "face_refine_mode",
+    "sampling_method", "community_lora_profile",
     "first_image_file", "last_image_file", "voice_reference_audio_file", "voice_reference_audio_2_file", "voice_reference_audio_3_file",
     "reference_image_1_file", "reference_image_2_file", "reference_image_3_file", "reference_image_4_file", "reference_image_5_file",
     "reference_image_6_file", "reference_image_7_file", "reference_image_8_file", "reference_image_9_file",
@@ -807,6 +826,7 @@ function install(node) {
       preset = performanceOptions[0] || "稳定质量";
       setWidget(node, "performance_preset", preset, false);
     }
+    restoreSamplingOptions(node, mode, voiceMode, preset);
     if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
       if (!["h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native"].includes(widget(node, "postprocess_mode")?.value)) setWidget(node, "postprocess_mode", "vosr2", false);
       setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false);
@@ -817,12 +837,15 @@ function install(node) {
     if (preset === "低显存二采" && Number(widget(node, "duration")?.value) > lowVramTwoStageMaxSeconds) {
       setWidget(node, "duration", lowVramTwoStageMaxSeconds, false);
     }
-    const postprocessOptions = allowedPostprocessModes(preset).filter(([value]) =>
-      ![SMART_PRESET, LEGACY_SMART_PRESET].includes(preset)
-      || selectedResolutionPreset === "768p H3"
-      || !["ai_upscale", "lanczos", "native"].includes(value)
-    );
+    const postprocessOptions = [...allowedPostprocessModes(preset)];
     let postprocessMode = widget(node, "postprocess_mode")?.value || "native";
+    // Retain saved legacy choices without adding them to every new selector.
+    const legacy = POSTPROCESS_MODES.find(([value]) => value === postprocessMode);
+    const legacyAllowed = preset === "质量优先二采样" ? postprocessMode === "rtx_vsr"
+      : preset !== "低显存二采";
+    if (legacy && legacyAllowed && !postprocessOptions.some(([value]) => value === postprocessMode)) {
+      postprocessOptions.push(legacy);
+    }
     if (!postprocessOptions.some(([value]) => value === postprocessMode)) {
       postprocessMode = postprocessOptions[0][0];
       setWidget(node, "postprocess_mode", postprocessMode, false);
@@ -975,7 +998,7 @@ function install(node) {
       });
     }
     if (postprocessMode === "ai_upscale") {
-      const modelField = postprocessGrid.children[1];
+      const modelField = postprocessGrid.children[0];
       const modelSelect = modelField?.querySelector("select");
       const modelWidget = widget(node, "ai_upscale_model");
       const aiModelOptions = modelWidget?.options?.values || [];
@@ -995,24 +1018,43 @@ function install(node) {
     }
     specification.append(specGrid);
     specification.append(postprocessGrid);
+    if (preset === "质量优先二采样") {
+      const advanced = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "二采高级设置";
+      const controls = document.createElement("div");
+      controls.className = "h3p-grid";
+      controls.append(
+        valueControl("二采方法", "sampling_method", mode === "REF2VA" && voiceMode === "none"
+          ? SAMPLING_METHODS : SAMPLING_METHODS.slice(0, 1), widget(node, "sampling_method")?.value || "standard"),
+        valueControl("动作增强", "community_lora_profile", MOTION_PROFILES, widget(node, "community_lora_profile")?.value || "off"),
+      );
+      const note = document.createElement("div");
+      note.className = "h3p-spec-note";
+      note.textContent = "SelfLift 实验：参考图模式、不使用音色、4–5秒、最多1080p；总显存至少20GB且空闲至少18GB。动作增强默认关闭，建议分别对比。";
+      advanced.append(summary, controls, note);
+      specification.append(advanced);
+    }
     const postprocessNote = document.createElement("div");
     postprocessNote.className = "h3p-spec-note";
     const postprocessNotes = {
       native: "原生尺寸直出：保留 H3 实际生成尺寸，不进行放大。选择 2K/4K 时不会自动变成 2K/4K。",
       lanczos: "Lanczos 快速放大：使用 CPU 分块缩放，兼容性最好、速度快，但只重采样不重建 AI 细节。",
       ai_upscale: "AI 自动超分：使用已安装的通用超分模型逐帧重建细节；默认 auto 按实际倍率自动选择 X2/X4（≤2 倍优先 X2，避免 X4 放大再缩回的浪费），模型不存在会在生成前提示。",
-      video_sr: "1080p：H3 单采后使用 SeedVR2 3B 超分，不执行 H3 二采；缺少依赖会提示。",
-      vosr2: "1080p：H3 单采后使用 VOSR2 超分，不执行 H3 二采，保留首采音频。480p/768p 单采输出。",
+      video_sr: "完成所选采样后执行 SeedVR2 视频超分；缺少依赖会在生成前提示。",
+      vosr2: "完成所选采样后执行 VOSR2 视频超分，保留采样音频。",
       rtx_vsr: "RTX VSR：目标尺寸大于 H3 原生尺寸时逐帧使用 NVIDIA RTX VSR；首次使用前请安装 nvidia-vfx、NVIDIA Broadcast SDK 与匹配驱动，导演节点会在生成前检查；同尺寸自动旁路。",
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
-      postprocessNote.textContent = `质量优先二采样已锁定 SeedVR2 视频超分（7B sharp 权重优先）：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；未安装 SeedVR2 时自动回退通用 AI 超分并提示，RIFE 固定关闭以避免重影。实际尺寸仍以生成前显存检查为准。`;
+      postprocessNote.textContent = widget(node, "sampling_method")?.value === "selflift"
+        ? "SelfLift 实验使用4步小尺寸采样 + 4步目标尺寸采样，再执行所选超分；依赖缺失会停止，RIFE 固定关闭。"
+        : `标准二采完成后执行所选超分；RIFE 固定关闭。${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；实际尺寸以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
       const duration = Number(widget(node, "duration")?.value) || 4;
       postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight, duration), "AI X2")}；1080p 最长 6 秒，768p 最长 10 秒；7–10 秒 768p 使用时空分块低 sigma 重绘，并把最终逐帧重建控制在约 1.75x 内。开始前检查至少 6GB 空闲显存。`;
     } else if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
-      postprocessNote.textContent = postprocessMode === "h3_two_stage" ? "H3 首采 → latent 放大 → H3 二采重绘 → 输出；不叠加 VOSR2 / SeedVR2。" : resolutionPreset === "1080p FHD" ? `H3 单采 → ${postprocessMode === "vosr2" ? "VOSR2" : "SeedVR2 3B"} → 1080p；跳过 H3 二采，保留首采音频。` : "480p / 768p 单采输出；高分辨率旧档位保留原策略。";
+      postprocessNote.textContent = postprocessMode === "h3_two_stage" ? "H3 首采 → latent 放大 → H3 二采重绘 → 输出。" : "按显存和时长安排 H3 采样，再执行所选超分到目标尺寸，保留采样音频。";
     }
     specification.append(postprocessNote);
     if (aspect === "CUSTOM") {
@@ -1278,7 +1320,7 @@ function install(node) {
   requestAnimationFrame(bindMountedControls);
   setTimeout(bindMountedControls, 250);
 
-  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "rtx_quality", "motion_smoothing", "audio_loudness", "face_refine_mode", "aspect_ratio", "resolution_preset", "seed", "control_after_generate"].forEach((name) => {
+  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "sampling_method", "community_lora_profile", "rtx_quality", "motion_smoothing", "audio_loudness", "face_refine_mode", "aspect_ratio", "resolution_preset", "seed", "control_after_generate"].forEach((name) => {
     const item = widget(node, name);
     if (!item) return;
     const original = item.callback;
@@ -1296,6 +1338,8 @@ function install(node) {
     originalConfigure?.apply(this, args);
     // Repair synchronously: queue/save need not wait for the next DOM render.
     restoreFaceRefineDefault(this);
+    restoreSamplingOptions(this, widget(this, "mode")?.value || "FL2VA",
+      widget(this, "voice_mode")?.value || "none", widget(this, "performance_preset")?.value || "稳定质量");
     requestAnimationFrame(render);
   };
   render();

@@ -2614,7 +2614,7 @@
         "state": {
           "lastGroupId": 191,
           "lastNodeId": 2726,
-          "lastLinkId": 5945,
+          "lastLinkId": 5947,
           "lastRerouteId": 0
         },
         "revision": 0,
@@ -3024,6 +3024,13 @@
                 "shape": 7,
                 "type": "MODEL",
                 "link": 5934
+              },
+              {
+                "localized_name": "video_vae",
+                "name": "video_vae",
+                "shape": 7,
+                "type": "VAE",
+                "link": 5946
               }
             ],
             "outputs": [
@@ -3389,6 +3396,13 @@
                 "shape": 7,
                 "type": "MODEL",
                 "link": 5936
+              },
+              {
+                "localized_name": "video_vae",
+                "name": "video_vae",
+                "shape": 7,
+                "type": "VAE",
+                "link": 5947
               }
             ],
             "outputs": [
@@ -3936,7 +3950,9 @@
                   5755,
                   5863,
                   5904,
-                  5910
+                  5910,
+                  5946,
+                  5947
                 ]
               }
             ],
@@ -5440,6 +5456,22 @@
             "target_id": 2668,
             "target_slot": 6,
             "type": "MODEL"
+          },
+          {
+            "id": 5946,
+            "origin_id": 2584,
+            "origin_slot": 0,
+            "target_id": 2591,
+            "target_slot": 7,
+            "type": "VAE"
+          },
+          {
+            "id": 5947,
+            "origin_id": 2584,
+            "origin_slot": 0,
+            "target_id": 2668,
+            "target_slot": 7,
+            "type": "VAE"
           }
         ],
         "extra": {

@@ -126,6 +126,38 @@ for (const method of ["h3_two_stage", "vosr2", "video_sr"]) {
   });
 }
 
+for (const preset of ["稳定质量", "质量优先加速", "质量优先二采样", "低显存"]) {
+  test(`${preset} exposes three SR engines and preserves selected VOSR2`, () => {
+    const output = { name: "postprocess_mode", value: "vosr2" };
+    const { node } = installedDirector("off", [output,
+      { name: "performance_preset", value: preset },
+    ]);
+    const select = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "postprocess_mode");
+    assert.deepEqual(select.children.map(el => el.value), ["vosr2", "video_sr", "ai_upscale"]);
+    assert.equal(output.value, "vosr2");
+  });
+}
+
+test("SelfLift and motion profiles restore and reset when leaving two-stage", () => {
+  const method = { name: "sampling_method", value: "selflift" };
+  const profile = { name: "community_lora_profile", value: "continuity" };
+  const preset = { name: "performance_preset", value: "质量优先二采样" };
+  const { node } = installedDirector("off", [method, profile, preset,
+    { name: "voice_mode", value: "none" }, { name: "duration", value: 5 },
+  ]);
+  // Host restore can restore these before the next render.
+  node.widgets.find(el => el.name === "mode").value = "REF2VA";
+  method.value = "selflift";
+  node.widgets.find(el => el.name === "mode").callback("REF2VA");
+  assert.equal(method.value, "selflift");
+  assert.equal(profile.value, "continuity");
+  assert.ok(allElements(node.root).some(el => el.dataset?.h3pValueWidget === "sampling_method"));
+  preset.value = "低显存";
+  preset.callback("低显存");
+  assert.equal(method.value, "standard");
+  assert.equal(profile.value, "off");
+});
+
 test("loading a legacy U11 removes the face branch and preserves audio and prompts", () => {
   const { extension } = installedDirector();
   const graph = {

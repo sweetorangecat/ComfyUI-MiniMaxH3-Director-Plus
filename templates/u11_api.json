@@ -439,6 +439,10 @@
       "second_model": [
         "15",
         3
+      ],
+      "video_vae": [
+        "4",
+        0
       ]
     },
     "_meta": {

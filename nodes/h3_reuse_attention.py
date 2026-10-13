@@ -117,17 +117,26 @@ def minimax_attn_reuse_forward(self, x, rope_freqs=None, transformer_options=Non
     ]
     attention_buffer = qkv[:, :inner]
 
+    attention_kernel = optimized_attention
+    kernel_options = transformer_options
+    if transformer_options.get("minimax_force_exact_attention"):
+        from comfy.ldm.modules.attention import attention_pytorch
+        attention_kernel = attention_pytorch
+        # ComfyUI's wrapped PyTorch kernel otherwise honors inherited Sage/TST.
+        kernel_options = {key: value for key, value in transformer_options.items()
+                          if key != "optimized_attention_override"}
+
     head_start = 0
     for group_size in group_sizes:
         head_end = head_start + group_size
-        chunk = optimized_attention(
+        chunk = attention_kernel(
             q[:, head_start:head_end],
             k[:, head_start:head_end],
             v[:, head_start:head_end],
             group_size,
             mask=None,
             skip_reshape=True,
-            transformer_options=transformer_options,
+            transformer_options=kernel_options,
         ).squeeze(0)
         column_start = head_start * self.head_dim
         column_end = head_end * self.head_dim
@@ -205,6 +214,7 @@ def apply_h3_reuse_attention(
     projection_chunks=16,
     mlp_chunks=16,
     source="preset",
+    force_exact=False,
 ):
     """Clone and patch a verified MiniMax H3 model; never report a silent no-op."""
     if int(head_chunks) < 2:
@@ -224,6 +234,7 @@ def apply_h3_reuse_attention(
     transformer_options["minimax_head_chunks"] = int(head_chunks)
     transformer_options["minimax_projection_chunks"] = max(1, int(projection_chunks))
     transformer_options["minimax_mlp_chunks"] = max(1, int(mlp_chunks))
+    transformer_options["minimax_force_exact_attention"] = bool(force_exact)
     free = free_vram_bytes()
     LOGGER.info(
         "[H3 reuse attention] free_vram=%.1fGB head_chunks=%d projection_chunks=%d mlp_chunks=%d source=%s",

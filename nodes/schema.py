@@ -18,6 +18,7 @@ PUBLIC_API_KEYS = (
     "seed", "first_image", "last_image", "references", "voice_mode", "voice_reference_audio", "voice_reference_audios", "voice_reference_names",
     "voice_gender", "target_dialogue", "reference_transcript", "fish_model_path", "ref_image_size", "performance_preset",
     "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness", "face_refine_mode",
+    "sampling_method", "community_lora_profile",
 )
 
 
@@ -157,13 +158,10 @@ VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE = {
 
 TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})
 
-# These routes are intentionally explicit. A quality two-stage pass already
-# enlarges and redraws the H3 latent; each preset is paired with exactly one
-# verified final reconstruction route. Other presets still expose one
-# selectable final-output method at a time.
+# Sampling and final reconstruction are independent user choices.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
     "smart_free_1080p": ("native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage"),
-    "quality_two_stage": ("video_sr", "rtx_vsr"),
+    "quality_two_stage": ("vosr2", "video_sr", "ai_upscale", "rtx_vsr"),
     "low_vram_two_stage": ("ai_upscale",),
     "quality": POSTPROCESS_MODES,
     "quality_sage": POSTPROCESS_MODES,
@@ -173,12 +171,10 @@ POSTPROCESS_MODES_BY_PERFORMANCE = {
     "custom": POSTPROCESS_MODES,
 }
 
-# The user-facing selector keeps H3 reference-audio jobs on the conservative
-# AI scaler. SeedVR2 is still available to compatible quality/two-stage routes,
-# but it should not redraw completed lip sync or timbre-conditioned faces.
+CURATED_POSTPROCESS_MODES = ("vosr2", "video_sr", "ai_upscale")
 VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE = {
-    "smart_free_1080p": ("h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native"),
-    "quality_two_stage": ("video_sr",),
+    "smart_free_1080p": CURATED_POSTPROCESS_MODES,
+    "quality_two_stage": CURATED_POSTPROCESS_MODES,
     "low_vram_two_stage": ("ai_upscale",),
 }
 
@@ -194,9 +190,9 @@ def allowed_postprocess_modes(performance_preset):
 
 
 def visible_postprocess_modes(performance_preset):
-    """Return the single curated final-output route shown in the selector."""
+    """Return the curated final-output routes shown in the selector."""
     preset = PERFORMANCE_PRESETS.get(performance_preset, performance_preset)
-    return VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE.get(preset, ("video_sr",))
+    return VISIBLE_POSTPROCESS_MODES_BY_PERFORMANCE.get(preset, CURATED_POSTPROCESS_MODES)
 
 
 def allowed_rtx_qualities(performance_preset):
@@ -294,6 +290,8 @@ DEFAULT_REQUEST = {
     "motion_smoothing": "off",
     "audio_loudness": "auto",
     "face_refine_mode": "off",
+    "sampling_method": "standard",
+    "community_lora_profile": "off",
     "ignored_media": [],
     "postprocess": {},
     "output": {},
@@ -416,6 +414,12 @@ def normalize_request(raw=None):
         raise RequestError(f"不支持的性能预设：{request['performance_preset']}")
     request["performance_preset"] = preset
 
+    from .sampling_experiments import validate_sampling_options
+    try:
+        request.update(validate_sampling_options(request))
+    except ValueError as exc:
+        raise RequestError(str(exc)) from exc
+
     request["warnings"] = []
     shot_count = _prompt_shot_count(request.get("prompt"))
     if request["mode"] == "REF2VA" and shot_count >= 2:
@@ -505,8 +509,8 @@ def normalize_request(raw=None):
     if request["postprocess_mode"] not in allowed_postprocess and not smart_reference_native_compat:
         if resolved_preset == "quality_two_stage":
             raise RequestError(
-                "质量优先二采样已包含 H3 latent 放大重绘，只能搭配 SeedVR2 视频超分或 RTX VSR；"
-                "请将最终输出切换为 SeedVR2 视频超分（推荐）或 RTX VSR"
+                "质量优先二采样支持 VOSR2、SeedVR2、AI 自动超分或旧版 RTX VSR；"
+                "请在放大方式中选择一种超分"
             )
         if resolved_preset == "low_vram_two_stage":
             raise RequestError(
@@ -598,14 +602,22 @@ def public_schema():
                 "中文名称": "最终输出后处理模式",
                 "enum": list(POSTPROCESS_MODES),
                 "default": "ai_upscale",
-                "description": "放大方式可选H3二采、VOSR2、SeedVR2。选择视频超分时1080p使用单采，选择H3二采时执行latent放大重绘。旧ai_upscale在1080p智能路线映射为VOSR2。",
+                "description": "最终超分可选 VOSR2、SeedVR2 或通用 AI；采样与超分分别选择，所选超分会实际执行。旧版 native/Lanczos/RTX 参数仍兼容。",
                 "allowed_by_performance": {
-                    "智能画质（自动适配）": ["h3_two_stage", "vosr2", "video_sr"],
-                    "免费智能 1080p": ["h3_two_stage", "vosr2", "video_sr"],
-                    "质量优先二采样": ["video_sr"],
+                    "智能画质（自动适配）": list(CURATED_POSTPROCESS_MODES),
+                    "免费智能 1080p": list(CURATED_POSTPROCESS_MODES),
+                    "质量优先二采样": list(CURATED_POSTPROCESS_MODES),
                     "低显存二采": ["ai_upscale"],
-                    "其他性能预设": ["video_sr"],
+                    "其他性能预设": list(CURATED_POSTPROCESS_MODES),
                 },
+            },
+            "sampling_method": {
+                "中文名称": "二采方法", "enum": ["standard", "selflift"], "default": "standard",
+                "description": "SelfLift 实验仅支持质量优先二采样、REF2VA、无音色、4–5秒、24FPS和最多1080p。",
+            },
+            "community_lora_profile": {
+                "中文名称": "动作增强", "enum": ["off", "continuity", "combat", "legacy"], "default": "off",
+                "description": "仅用于质量优先二采样：关闭、动作连续性、武戏或旧版社区配置。",
             },
             "rtx_quality": {
                 "中文名称": "RTX VSR 质量",

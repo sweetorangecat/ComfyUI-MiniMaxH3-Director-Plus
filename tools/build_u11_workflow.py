@@ -824,6 +824,32 @@ def _upgrade_subgraphs(workflow):
                 sampler["inputs"][6]["link"] = second_link
                 if second_link not in exposed_inputs[second_model_slot].setdefault("linkIds", []):
                     exposed_inputs[second_model_slot]["linkIds"].append(second_link)
+        # SelfLift needs the same video VAE that created its target latent.
+        # Follow each sampler's latent source instead of guessing a loader.
+        nodes_by_id = {node["id"]: node for node in subgraph.get("nodes", [])}
+        for sampler in subgraph.get("nodes", []):
+            if sampler.get("type") != "MiniMaxH3TwoStageSampler":
+                continue
+            sockets = {item["name"]: item for item in sampler.get("inputs", [])}
+            if sockets.get("video_vae", {}).get("link") is not None:
+                continue
+            links_by_id = {_link_value(raw)[0]: _link_value(raw) for raw in subgraph.get("links", [])}
+            latent_link = links_by_id.get(sockets.get("latent_image", {}).get("link"))
+            source = nodes_by_id.get(latent_link[1], {}) if latent_link else {}
+            vae_slot = next((i for i, item in enumerate(source.get("inputs", [])) if item.get("name") == "video_vae"), None)
+            vae_link = next((link for link in links_by_id.values()
+                             if link[3] == source.get("id") and link[4] == vae_slot and link[5] == "VAE"), None)
+            if vae_link is None:
+                continue
+            if "video_vae" not in sockets:
+                sampler["inputs"].append(_socket("video_vae", "VAE"))
+            slot = next(i for i, item in enumerate(sampler["inputs"]) if item["name"] == "video_vae")
+            sampler["inputs"][slot]["link"] = next_link_id
+            subgraph["links"].append({
+                "id": next_link_id, "origin_id": vae_link[1], "origin_slot": vae_link[2],
+                "target_id": sampler["id"], "target_slot": slot, "type": "VAE",
+            })
+            next_link_id += 1
         _disable_legacy_acceleration_switches(subgraph)
         node_ids = {item.get("id") for item in subgraph.get("nodes", [])}
         subgraph["links"] = [
@@ -1072,7 +1098,7 @@ def build_api_template():
         "18": {"class_type": "RandomNoise", "inputs": {"noise_seed": 0}, "_meta": {"title": "API 随机种子"}},
         "19": {"class_type": "MiniMaxH3SamplerRouter", "inputs": {"sampler_name": "res_multistep", "guide": ["10", 0]}, "_meta": {"title": "API H3 实际采样器路由"}},
         "20": {"class_type": "MiniMaxH3SchedulerRouter", "inputs": {"model": ["15", 0], "steps": ["28", 0], "guide": ["10", 0]}, "_meta": {"title": "API 调度器"}},
-        "21": {"class_type": "MiniMaxH3TwoStageSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0], "second_model": ["15", 3]}, "_meta": {"title": "API 训练型 3D Latent 二采（自动旁路）"}},
+        "21": {"class_type": "MiniMaxH3TwoStageSampler", "inputs": {"noise": ["18", 0], "guider": ["17", 0], "sampler": ["19", 0], "sigmas": ["20", 0], "latent_image": ["16", 1], "guide": ["10", 0], "second_model": ["15", 3], "video_vae": ["4", 0]}, "_meta": {"title": "API 训练型 3D Latent 二采（自动旁路）"}},
         "22": {"class_type": "MiniMaxH3SafeVAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 安全视频 VAE 解码（GPU计算 / CPU帧缓存 FP16）"}},
         "23": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["21", 1], "vae": ["5", 0]}, "_meta": {"title": "API 音频解码"}},
         "29": {"class_type": "MiniMaxH3ColorGuard", "inputs": {"images": ["22", 0], "guide": ["10", 0], "enabled": True, "strength": 1.0}, "_meta": {"title": "曝光与色彩连续性保护"}},

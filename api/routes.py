@@ -11,10 +11,12 @@ from .template import patch_template
 
 try:
     from ..nodes.resolution import calculate_resolution
+    from ..nodes.sampling_experiments import validate_sampling_options
     from ..nodes.schema import PERFORMANCE_PRESETS, RequestError, normalize_request, public_schema
     from ..nodes.status import detect_capabilities
 except ImportError:  # Tests import this directory as a top-level package.
     from nodes.resolution import calculate_resolution
+    from nodes.sampling_experiments import validate_sampling_options
     from nodes.schema import PERFORMANCE_PRESETS, RequestError, normalize_request, public_schema
     from nodes.status import detect_capabilities
 
@@ -54,6 +56,10 @@ def prepare_generation(raw, template):
     )
     request["width"] = width
     request["height"] = height
+    try:
+        validate_sampling_options(dict(request, requested_width=width, requested_height=height))
+    except ValueError as exc:
+        raise RequestError(str(exc)) from exc
     labels = {internal: label for label, internal in PERFORMANCE_PRESETS.items() if label in PERFORMANCE_PRESETS and not label.isascii()}
     template_request = dict(request)
     template_request["performance_preset"] = labels.get(request["performance_preset"], request["performance_preset"])

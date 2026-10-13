@@ -1,0 +1,3802 @@
+{
+  "research_date": "2026-10-14",
+  "comparison_commit": "6119d50",
+  "scope": "Static JSON graph inspection and version-pinned public source review; no GPU generation or ComfyUI runtime validation",
+  "files": [
+    {
+      "name": "U30-Minimax-H3-Singularity超双采放大-AIGC特异点.json",
+      "path": "C:\\Users\\sugar\\Downloads\\U30-Minimax-H3-Singularity超双采放大-AIGC特异点.json",
+      "sha256": "37cb32a8ea7b0762d6f8f7be54ad005781fd992ac007869a35257f08fc07425b",
+      "bytes": 191114,
+      "root_nodes": 90,
+      "root_links": 83,
+      "root_node_types": {
+        "MiniMaxH3ReferenceToVideo": 1,
+        "BasicGuider": 2,
+        "KSamplerSelect": 1,
+        "RandomNoise": 1,
+        "CLIPLoader": 1,
+        "VAELoader": 2,
+        "UNETLoader": 1,
+        "MiniMaxH3MemoryEfficientSageAttentionPatch": 1,
+        "BasicScheduler": 1,
+        "MarkdownNote": 2,
+        "ResolutionSelector": 1,
+        "PrimitiveFloat": 1,
+        "ComfyMathExpression": 1,
+        "PrimitiveStringMultiline": 1,
+        "ExtendIntermediateSigmas": 1,
+        "SplitSigmas": 2,
+        "LTXVSeparateAVLatent": 2,
+        "LTXVConcatAVLatent": 1,
+        "SamplerCustomAdvanced": 3,
+        "VAEDecode": 1,
+        "VAEDecodeAudio": 1,
+        "DisableNoise": 1,
+        "Lora Loader Stack (rgthree)": 1,
+        "ModelAttentionBackend": 1,
+        "BlockSparseAttention": 1,
+        "MinimaxH3LatentUpscaler3D": 1,
+        "LoraLoaderModelOnly": 1,
+        "VHS_VideoCombine": 1,
+        "MiniMaxLowVRAMAttention": 1,
+        "MiniMaxChunkFeedForward": 1,
+        "LoadImage": 9,
+        "SetNode": 15,
+        "VHS_LoadVideo": 3,
+        "LoadAudio": 3,
+        "忽略多组孤海": 3,
+        "GetNode": 15,
+        "easy float": 1,
+        "Label (rgthree)": 3,
+        "ModelPreviewOverrideKJ": 1
+      },
+      "static_checks": {
+        "dangling_root_links": 0,
+        "mismatched_root_inputs": 0
+      },
+      "selected_root_nodes": [
+        {
+          "id": 58,
+          "type": "KSamplerSelect",
+          "mode": 0,
+          "widgets_values": [
+            "euler"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 64,
+          "type": "CLIPLoader",
+          "mode": 0,
+          "widgets_values": [
+            "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+            "minimax",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 65,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_video_vae_int8_convrot-v2.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 66,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_audio_vae_fp32.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 69,
+          "type": "UNETLoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/Minimax-h3_Singularity_ref2va_Pruned_v1.3_int8.safetensors",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 71,
+          "type": "BasicScheduler",
+          "mode": 0,
+          "widgets_values": [
+            "simple",
+            6,
+            1
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 255,
+              "origin_id": 118,
+              "origin_type": "Lora Loader Stack (rgthree)",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 94,
+          "type": "ExtendIntermediateSigmas",
+          "mode": 0,
+          "widgets_values": [
+            2,
+            1.0000000000000002,
+            0,
+            "linear"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "sigmas",
+              "link_id": 153,
+              "origin_id": 71,
+              "origin_type": "BasicScheduler",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 99,
+          "type": "SplitSigmas",
+          "mode": 0,
+          "widgets_values": [
+            2
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "sigmas",
+              "link_id": 205,
+              "origin_id": 94,
+              "origin_type": "ExtendIntermediateSigmas",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 100,
+          "type": "SplitSigmas",
+          "mode": 0,
+          "widgets_values": [
+            0
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "sigmas",
+              "link_id": 136,
+              "origin_id": 99,
+              "origin_type": "SplitSigmas",
+              "origin_slot": 1
+            }
+          ]
+        },
+        {
+          "id": 106,
+          "type": "SamplerCustomAdvanced",
+          "mode": 0,
+          "widgets_values": null,
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "noise",
+              "link_id": 178,
+              "origin_id": 114,
+              "origin_type": "DisableNoise",
+              "origin_slot": 0
+            },
+            {
+              "input": "guider",
+              "link_id": 221,
+              "origin_id": 126,
+              "origin_type": "BasicGuider",
+              "origin_slot": 0
+            },
+            {
+              "input": "sampler",
+              "link_id": 163,
+              "origin_id": 58,
+              "origin_type": "KSamplerSelect",
+              "origin_slot": 0
+            },
+            {
+              "input": "sigmas",
+              "link_id": 144,
+              "origin_id": 99,
+              "origin_type": "SplitSigmas",
+              "origin_slot": 1
+            },
+            {
+              "input": "latent_image",
+              "link_id": 214,
+              "origin_id": 105,
+              "origin_type": "LTXVConcatAVLatent",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 108,
+          "type": "SamplerCustomAdvanced",
+          "mode": 0,
+          "widgets_values": null,
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "noise",
+              "link_id": 154,
+              "origin_id": 63,
+              "origin_type": "RandomNoise",
+              "origin_slot": 0
+            },
+            {
+              "input": "guider",
+              "link_id": 157,
+              "origin_id": 57,
+              "origin_type": "BasicGuider",
+              "origin_slot": 0
+            },
+            {
+              "input": "sampler",
+              "link_id": 164,
+              "origin_id": 58,
+              "origin_type": "KSamplerSelect",
+              "origin_slot": 0
+            },
+            {
+              "input": "sigmas",
+              "link_id": 148,
+              "origin_id": 99,
+              "origin_type": "SplitSigmas",
+              "origin_slot": 0
+            },
+            {
+              "input": "latent_image",
+              "link_id": 173,
+              "origin_id": 56,
+              "origin_type": "MiniMaxH3ReferenceToVideo",
+              "origin_slot": 1
+            }
+          ]
+        },
+        {
+          "id": 124,
+          "type": "MinimaxH3LatentUpscaler3D",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+            "scale by multiplier",
+            1.5000000000000002,
+            32,
+            "cuda",
+            "bf16",
+            "cuda",
+            "fp16"
+          ],
+          "package": {
+            "aux_id": "LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler",
+            "ver": "unknown"
+          },
+          "linked_inputs": [
+            {
+              "input": "latent",
+              "link_id": 208,
+              "origin_id": 104,
+              "origin_type": "LTXVSeparateAVLatent",
+              "origin_slot": 0
+            },
+            {
+              "input": "mode.scale",
+              "link_id": 297,
+              "origin_id": 198,
+              "origin_type": "easy float",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 127,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_lms_v1.0_r64.safetensors",
+            0.30000000000000004
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 218,
+              "origin_id": 118,
+              "origin_type": "Lora Loader Stack (rgthree)",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 128,
+          "type": "SamplerCustomAdvanced",
+          "mode": 0,
+          "widgets_values": null,
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "noise",
+              "link_id": 226,
+              "origin_id": 63,
+              "origin_type": "RandomNoise",
+              "origin_slot": 0
+            },
+            {
+              "input": "guider",
+              "link_id": 225,
+              "origin_id": 57,
+              "origin_type": "BasicGuider",
+              "origin_slot": 0
+            },
+            {
+              "input": "sampler",
+              "link_id": 224,
+              "origin_id": 58,
+              "origin_type": "KSamplerSelect",
+              "origin_slot": 0
+            },
+            {
+              "input": "sigmas",
+              "link_id": 223,
+              "origin_id": 100,
+              "origin_type": "SplitSigmas",
+              "origin_slot": 0
+            },
+            {
+              "input": "latent_image",
+              "link_id": 222,
+              "origin_id": 124,
+              "origin_type": "MinimaxH3LatentUpscaler3D",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 142,
+          "type": "MiniMaxLowVRAMAttention",
+          "mode": 4,
+          "widgets_values": [
+            4
+          ],
+          "package": {
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "d3cfe21625e5170126ce06fbfcfe1d88108688c3"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 259,
+              "origin_id": 121,
+              "origin_type": "BlockSparseAttention",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 143,
+          "type": "MiniMaxChunkFeedForward",
+          "mode": 0,
+          "widgets_values": [
+            2,
+            4096
+          ],
+          "package": {
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "d3cfe21625e5170126ce06fbfcfe1d88108688c3"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 258,
+              "origin_id": 142,
+              "origin_type": "MiniMaxLowVRAMAttention",
+              "origin_slot": 0
+            }
+          ]
+        }
+      ],
+      "subgraphs": [],
+      "additional_route_controls": [
+        {
+          "id": 73,
+          "type": "ResolutionSelector",
+          "mode": 0,
+          "widgets_values": [
+            "16:9 (Widescreen)",
+            0.7000000000000001,
+            32
+          ],
+          "linked_inputs": []
+        }
+      ]
+    },
+    {
+      "name": "U31-H3动作替换迁移.json",
+      "path": "C:\\Users\\sugar\\Downloads\\U31-H3动作替换迁移.json",
+      "sha256": "bfdcf062dea2cbcfdd9acd25ec2be6baa8eed7c0549dc9075d81f145f7a2e86f",
+      "bytes": 46361,
+      "root_nodes": 34,
+      "root_links": 30,
+      "root_node_types": {
+        "ViggleTextCondLoader": 1,
+        "VHS_LoadVideo": 1,
+        "VAELoader": 1,
+        "LoadImage": 1,
+        "KSamplerSelect": 1,
+        "BasicGuider": 1,
+        "UNETLoader": 1,
+        "MiniMaxH3SigmaShift": 1,
+        "LoraLoaderModelOnly": 1,
+        "VHS_VideoCombine": 2,
+        "ModelAttentionBackend": 1,
+        "ModelPreviewOverrideKJ": 1,
+        "JWImageResizeToMegapixels": 1,
+        "ImageConcanate": 1,
+        "BasicScheduler": 1,
+        "Reroute": 4,
+        "CustomSigmas": 3,
+        "MarkdownNote": 2,
+        "ViggleAnimateConditioningWindowed": 1,
+        "ShowText|pysssss": 1,
+        "BlockSparseAttention": 1,
+        "ViggleChunkedSampler": 1,
+        "easy seed": 1,
+        "Label (rgthree)": 4
+      },
+      "static_checks": {
+        "dangling_root_links": 0,
+        "mismatched_root_inputs": 0
+      },
+      "selected_root_nodes": [
+        {
+          "id": 4,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_video_vae_int8_convrot.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.34.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 9,
+          "type": "KSamplerSelect",
+          "mode": 0,
+          "widgets_values": [
+            "euler"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.34.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 13,
+          "type": "UNETLoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_ref2va_viggle_pruned_int8_convrot.safetensors",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.34.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 16,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/viggle_animate_dmd_lora.safetensors",
+            1
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.34.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 27,
+              "origin_id": 13,
+              "origin_type": "UNETLoader",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 37,
+          "type": "BasicScheduler",
+          "mode": 0,
+          "widgets_values": [
+            "bong_tangent",
+            8,
+            1
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.34.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 73,
+              "origin_id": 54,
+              "origin_type": "BlockSparseAttention",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 40,
+          "type": "CustomSigmas",
+          "mode": 0,
+          "widgets_values": [
+            "1.0, 0.8571428571428571, 0.6, 0.0",
+            3
+          ],
+          "package": {
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "1.5.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 41,
+          "type": "CustomSigmas",
+          "mode": 0,
+          "widgets_values": [
+            "1.0, 0.9230769230769231, 0.8181818181818182, 0.6666666666666666, 0.42857142857142855, 0.0",
+            5
+          ],
+          "package": {
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "1.5.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 43,
+          "type": "CustomSigmas",
+          "mode": 0,
+          "widgets_values": [
+            "1.0, 0.9473684210526315, 0.8823529411764706, 0.8, 0.6923076923076923, 0.5454545454545454, 0.3333333333333333, 0.0",
+            7
+          ],
+          "package": {
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "1.5.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 46,
+          "type": "ViggleAnimateConditioningWindowed",
+          "mode": 0,
+          "widgets_values": [
+            0,
+            0,
+            124,
+            22,
+            "five_frame_anchor"
+          ],
+          "package": {
+            "cnr_id": "comfyui-viggle-animate-h3",
+            "ver": "f08baba10f87e21f6fd08a91de3d59d68e1f14e4"
+          },
+          "linked_inputs": [
+            {
+              "input": "cond_video",
+              "link_id": 53,
+              "origin_id": 26,
+              "origin_type": "JWImageResizeToMegapixels",
+              "origin_slot": 0
+            },
+            {
+              "input": "ref_image",
+              "link_id": 54,
+              "origin_id": 5,
+              "origin_type": "LoadImage",
+              "origin_slot": 0
+            },
+            {
+              "input": "text_cond",
+              "link_id": 55,
+              "origin_id": 2,
+              "origin_type": "ViggleTextCondLoader",
+              "origin_slot": 0
+            },
+            {
+              "input": "vae",
+              "link_id": 56,
+              "origin_id": 4,
+              "origin_type": "VAELoader",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 55,
+          "type": "ViggleChunkedSampler",
+          "mode": 0,
+          "widgets_values": [
+            42,
+            "fixed",
+            0,
+            0,
+            "Completed — final video decoded; downstream saving may follow"
+          ],
+          "package": {
+            "cnr_id": "comfyui-viggle-animate-h3",
+            "ver": "16f634e790ece904a8e5be6a325d10ffbf6d6c13"
+          },
+          "linked_inputs": [
+            {
+              "input": "guider",
+              "link_id": 74,
+              "origin_id": 11,
+              "origin_type": "BasicGuider",
+              "origin_slot": 0
+            },
+            {
+              "input": "sampler",
+              "link_id": 75,
+              "origin_id": 9,
+              "origin_type": "KSamplerSelect",
+              "origin_slot": 0
+            },
+            {
+              "input": "sigmas",
+              "link_id": 106,
+              "origin_id": 44,
+              "origin_type": "Reroute",
+              "origin_slot": 0
+            },
+            {
+              "input": "cond_set",
+              "link_id": 77,
+              "origin_id": 46,
+              "origin_type": "ViggleAnimateConditioningWindowed",
+              "origin_slot": 0
+            },
+            {
+              "input": "vae",
+              "link_id": 78,
+              "origin_id": 4,
+              "origin_type": "VAELoader",
+              "origin_slot": 0
+            },
+            {
+              "input": "seed",
+              "link_id": 84,
+              "origin_id": 56,
+              "origin_type": "easy seed",
+              "origin_slot": 0
+            }
+          ]
+        }
+      ],
+      "subgraphs": [],
+      "additional_route_controls": []
+    },
+    {
+      "name": "U32-Minimax-H3-1080P-高动态不糊-BUNNY-SelfLift.json",
+      "path": "C:\\Users\\sugar\\Downloads\\U32-Minimax-H3-1080P-高动态不糊-BUNNY-SelfLift.json",
+      "sha256": "6ef76934523b54dbd738de73ee67e12bf0a9bdedc831c7afbb020956f0604b55",
+      "bytes": 92687,
+      "root_nodes": 31,
+      "root_links": 36,
+      "root_node_types": {
+        "VAELoader": 2,
+        "CLIPLoader": 1,
+        "UNETLoader": 1,
+        "LoraLoaderBypassModelOnly": 1,
+        "MiniMaxH3AVDecodeT8": 1,
+        "PrimitiveFloat": 1,
+        "ResolutionSelector": 1,
+        "ComfyMathExpression": 1,
+        "LoraLoaderModelOnly": 3,
+        "VRAMCleanup": 1,
+        "KSamplerSelect": 1,
+        "BasicScheduler": 1,
+        "H3SigmaRefiner": 1,
+        "ConditioningZeroOut": 1,
+        "SelfLiftH3Sampler": 1,
+        "SelfLiftH3TST": 1,
+        "SolAttnMiniMax": 1,
+        "LoadImage": 4,
+        "PrimitiveStringMultiline": 1,
+        "VHS_VideoCombine": 1,
+        "MiniMaxH3AudioConditioningT8": 1,
+        "Label (rgthree)": 3,
+        "ModelPreviewOverrideKJ": 1
+      },
+      "static_checks": {
+        "dangling_root_links": 0,
+        "mismatched_root_inputs": 0
+      },
+      "selected_root_nodes": [
+        {
+          "id": 1,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_video_vae_fp16.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 2,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_audio_vae_fp32.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 3,
+          "type": "CLIPLoader",
+          "mode": 0,
+          "widgets_values": [
+            "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+            "minimax",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 4,
+          "type": "UNETLoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 5,
+          "type": "LoraLoaderBypassModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors",
+            0.7000000000000002
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 97,
+              "origin_id": 4,
+              "origin_type": "UNETLoader",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 45,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/Motion_Repair.safetensors",
+            0.25
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 129,
+              "origin_id": 83,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 47,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/Bunny_weapon_combatV1.safetensors",
+            0.8
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 131,
+              "origin_id": 85,
+              "origin_type": "SolAttnMiniMax",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 75,
+          "type": "KSamplerSelect",
+          "mode": 0,
+          "widgets_values": [
+            "euler"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 76,
+          "type": "BasicScheduler",
+          "mode": 0,
+          "widgets_values": [
+            "simple",
+            8,
+            1
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 164,
+              "origin_id": 96,
+              "origin_type": "ModelPreviewOverrideKJ",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 77,
+          "type": "H3SigmaRefiner",
+          "mode": 0,
+          "widgets_values": [
+            1,
+            0.7,
+            0,
+            "cosine"
+          ],
+          "package": {
+            "aux_id": "yichengup/ComfyUI-YCNodes-MiniMax-H3",
+            "ver": "146207295c1d2bd6b64a6552484cb6ed8be1c9ef"
+          },
+          "linked_inputs": [
+            {
+              "input": "sigmas",
+              "link_id": 116,
+              "origin_id": 76,
+              "origin_type": "BasicScheduler",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 79,
+          "type": "SelfLiftH3Sampler",
+          "mode": 0,
+          "widgets_values": [
+            683072603085675,
+            "fixed",
+            1,
+            6,
+            0.5,
+            0,
+            0.5,
+            1,
+            "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+            true,
+            2
+          ],
+          "package": {
+            "aux_id": "facok/comfyui-SelfLift",
+            "ver": "835c3cf7919410f71f414688f049c6ca497789d0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 165,
+              "origin_id": 96,
+              "origin_type": "ModelPreviewOverrideKJ",
+              "origin_slot": 0
+            },
+            {
+              "input": "positive",
+              "link_id": 153,
+              "origin_id": 90,
+              "origin_type": "MiniMaxH3AudioConditioningT8",
+              "origin_slot": 0
+            },
+            {
+              "input": "negative",
+              "link_id": 120,
+              "origin_id": 78,
+              "origin_type": "ConditioningZeroOut",
+              "origin_slot": 0
+            },
+            {
+              "input": "vae",
+              "link_id": 121,
+              "origin_id": 1,
+              "origin_type": "VAELoader",
+              "origin_slot": 0
+            },
+            {
+              "input": "latent_image",
+              "link_id": 154,
+              "origin_id": 90,
+              "origin_type": "MiniMaxH3AudioConditioningT8",
+              "origin_slot": 1
+            },
+            {
+              "input": "sampler",
+              "link_id": 123,
+              "origin_id": 75,
+              "origin_type": "KSamplerSelect",
+              "origin_slot": 0
+            },
+            {
+              "input": "sigmas",
+              "link_id": 124,
+              "origin_id": 77,
+              "origin_type": "H3SigmaRefiner",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 82,
+          "type": "SelfLiftH3TST",
+          "mode": 0,
+          "widgets_values": [
+            0.2,
+            false
+          ],
+          "package": {
+            "aux_id": "facok/comfyui-SelfLift",
+            "ver": "835c3cf7919410f71f414688f049c6ca497789d0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 98,
+              "origin_id": 5,
+              "origin_type": "LoraLoaderBypassModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 83,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/H3_Combat_V2.safetensors",
+            0.5
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.35.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 128,
+              "origin_id": 47,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        }
+      ],
+      "subgraphs": [],
+      "additional_route_controls": [
+        {
+          "id": 29,
+          "type": "ResolutionSelector",
+          "mode": 0,
+          "widgets_values": [
+            "16:9 (Widescreen)",
+            2,
+            32
+          ],
+          "linked_inputs": []
+        }
+      ]
+    },
+    {
+      "name": "U34-WORK-FISHER-9-28-MINIMAXH3-武戏高动态工作流.json",
+      "path": "C:\\Users\\sugar\\Downloads\\U34-WORK-FISHER-9-28-MINIMAXH3-武戏高动态工作流.json",
+      "sha256": "2e29dad0217d7eb3efabf7275a62308394a3239397ae3b7d1e5eaceaebe39566",
+      "bytes": 298136,
+      "root_nodes": 103,
+      "root_links": 106,
+      "root_node_types": {
+        "VAELoader": 2,
+        "CLIPLoader": 1,
+        "UNETLoader": 1,
+        "LoraLoaderBypassModelOnly": 3,
+        "MiniMaxH3AudioConditioningT8": 2,
+        "MiniMaxH3DualClockSamplerT8": 1,
+        "MiniMaxH3LearnedTwoPassParityPlanT8Advanced": 1,
+        "BasicGuider": 2,
+        "RandomNoise": 1,
+        "SamplerCustomAdvanced": 2,
+        "MiniMaxH3LearnedLatentUpscaleT8Advanced": 1,
+        "MiniMaxH3TwoPassLatentReconcileT8Advanced": 1,
+        "MiniMaxH3TwoPassDetailMixerT8Advanced": 1,
+        "MiniMaxH3AVDecodeT8": 2,
+        "VHS_VideoCombine": 2,
+        "PrimitiveFloat": 2,
+        "ResolutionSelector": 1,
+        "ComfyMathExpression": 1,
+        "MiniMaxH3MemoryEfficientSageAttentionPatch": 1,
+        "ModelAttentionBackend": 1,
+        "CR Prompt Text": 3,
+        "MiniMaxH3SemanticBridgeApplyT8": 2,
+        "MiniMaxH3SemanticBridgeConfigT8": 1,
+        "PreviewImage": 6,
+        "SetNode": 11,
+        "LoadImage": 6,
+        "LayerUtility: ImageScaleByAspectRatio V2": 6,
+        "GetNode": 24,
+        "SolAttnMiniMax": 1,
+        "LoraLoaderModelOnly": 7,
+        "MiniMaxLowVRAMAttention": 1,
+        "MiniMaxChunkFeedForward": 1,
+        "Fast Groups Bypasser (rgthree)": 1,
+        "Label (rgthree)": 3,
+        "TextConcatenator": 1
+      },
+      "static_checks": {
+        "dangling_root_links": 0,
+        "mismatched_root_inputs": 0
+      },
+      "selected_root_nodes": [
+        {
+          "id": 1,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_video_vae_fp16.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 2,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_audio_vae_fp32.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 3,
+          "type": "CLIPLoader",
+          "mode": 0,
+          "widgets_values": [
+            "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+            "minimax",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 4,
+          "type": "UNETLoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_hybrid_fl2va_ref2va_b25-49-int8.safetensors",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 5,
+          "type": "LoraLoaderBypassModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors",
+            0.7000000000000002
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 88,
+              "origin_id": 4,
+              "origin_type": "UNETLoader",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "MiniMaxH3DualClockSamplerT8",
+          "mode": 0,
+          "widgets_values": [
+            8,
+            12,
+            3,
+            "dual_clock_euler",
+            "native_flow"
+          ],
+          "package": {
+            "cnr_id": "minimax-h3-audio-T8",
+            "ver": "8b7408e4b927b07b076b48b26f43adeb0a22613a"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 190,
+              "origin_id": 148,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "av_latent",
+              "link_id": 7,
+              "origin_id": 7,
+              "origin_type": "MiniMaxH3AudioConditioningT8",
+              "origin_slot": 1
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "MiniMaxH3LearnedTwoPassParityPlanT8Advanced",
+          "mode": 0,
+          "widgets_values": [
+            9,
+            4,
+            5
+          ],
+          "package": {
+            "cnr_id": "minimax-h3-audio-T8",
+            "ver": "8b7408e4b927b07b076b48b26f43adeb0a22613a"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 8,
+              "origin_id": 8,
+              "origin_type": "MiniMaxH3DualClockSamplerT8",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "type": "SamplerCustomAdvanced",
+          "mode": 0,
+          "widgets_values": null,
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "noise",
+              "link_id": 11,
+              "origin_id": 11,
+              "origin_type": "RandomNoise",
+              "origin_slot": 0
+            },
+            {
+              "input": "guider",
+              "link_id": 12,
+              "origin_id": 10,
+              "origin_type": "BasicGuider",
+              "origin_slot": 0
+            },
+            {
+              "input": "sampler",
+              "link_id": 13,
+              "origin_id": 8,
+              "origin_type": "MiniMaxH3DualClockSamplerT8",
+              "origin_slot": 1
+            },
+            {
+              "input": "sigmas",
+              "link_id": 14,
+              "origin_id": 9,
+              "origin_type": "MiniMaxH3LearnedTwoPassParityPlanT8Advanced",
+              "origin_slot": 0
+            },
+            {
+              "input": "latent_image",
+              "link_id": 15,
+              "origin_id": 7,
+              "origin_type": "MiniMaxH3AudioConditioningT8",
+              "origin_slot": 1
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "type": "MiniMaxH3LearnedLatentUpscaleT8Advanced",
+          "mode": 0,
+          "widgets_values": [
+            "h3_upscaler_sharpness_2000steps_v0.1_fp32.safetensors",
+            "scale_by",
+            1.5000000000000002,
+            1,
+            1280,
+            704,
+            "preserve_source",
+            1.05,
+            "fp16",
+            "offload_after"
+          ],
+          "package": {
+            "cnr_id": "minimax-h3-audio-T8",
+            "ver": "8b7408e4b927b07b076b48b26f43adeb0a22613a"
+          },
+          "linked_inputs": [
+            {
+              "input": "av_latent",
+              "link_id": 16,
+              "origin_id": 12,
+              "origin_type": "SamplerCustomAdvanced",
+              "origin_slot": 1
+            }
+          ]
+        },
+        {
+          "id": 16,
+          "type": "MiniMaxH3TwoPassDetailMixerT8Advanced",
+          "mode": 0,
+          "widgets_values": [
+            12,
+            3,
+            false,
+            1,
+            "video_sigma_linear",
+            false,
+            -0.025,
+            0.7,
+            0.95,
+            "video_sigma",
+            false,
+            0.35,
+            "25",
+            0.25,
+            0.85,
+            false,
+            0.15,
+            3,
+            155914785350116,
+            "randomize"
+          ],
+          "package": {
+            "cnr_id": "minimax-h3-audio-T8",
+            "ver": "8b7408e4b927b07b076b48b26f43adeb0a22613a"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 191,
+              "origin_id": 149,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "av_latent",
+              "link_id": 27,
+              "origin_id": 15,
+              "origin_type": "MiniMaxH3TwoPassLatentReconcileT8Advanced",
+              "origin_slot": 0
+            },
+            {
+              "input": "refine_sigmas",
+              "link_id": 28,
+              "origin_id": 9,
+              "origin_type": "MiniMaxH3LearnedTwoPassParityPlanT8Advanced",
+              "origin_slot": 1
+            }
+          ]
+        },
+        {
+          "id": 19,
+          "type": "SamplerCustomAdvanced",
+          "mode": 0,
+          "widgets_values": null,
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "noise",
+              "link_id": 50,
+              "origin_id": 11,
+              "origin_type": "RandomNoise",
+              "origin_slot": 0
+            },
+            {
+              "input": "guider",
+              "link_id": 32,
+              "origin_id": 17,
+              "origin_type": "BasicGuider",
+              "origin_slot": 0
+            },
+            {
+              "input": "sampler",
+              "link_id": 33,
+              "origin_id": 16,
+              "origin_type": "MiniMaxH3TwoPassDetailMixerT8Advanced",
+              "origin_slot": 1
+            },
+            {
+              "input": "sigmas",
+              "link_id": 34,
+              "origin_id": 16,
+              "origin_type": "MiniMaxH3TwoPassDetailMixerT8Advanced",
+              "origin_slot": 2
+            },
+            {
+              "input": "latent_image",
+              "link_id": 35,
+              "origin_id": 15,
+              "origin_type": "MiniMaxH3TwoPassLatentReconcileT8Advanced",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 159,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/H3_Combat_V2.safetensors",
+            0.4900000000000001
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 245,
+              "origin_id": 155,
+              "origin_type": "SolAttnMiniMax",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 160,
+          "type": "LoraLoaderBypassModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_turbo_v4_step600_ema_DasiwaREF2VAHybridV1_0_curveproj1025_compat_v001.safetensors",
+            1.0000000000000002
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 199,
+              "origin_id": 159,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 161,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/Motion_Repair.safetensors",
+            0.25000000000000006
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 200,
+              "origin_id": 160,
+              "origin_type": "LoraLoaderBypassModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 162,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimaxH3枪斗术GunFu.safetensors",
+            0.6500000000000001
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 201,
+              "origin_id": 161,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 163,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/fafafast.safetensors",
+            5.000000000000001
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 203,
+              "origin_id": 169,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            },
+            {
+              "input": "strength_model",
+              "link_id": 237,
+              "origin_id": 177,
+              "origin_type": "PrimitiveFloat",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 164,
+          "type": "LoraLoaderBypassModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_turbo_v4_step600_ema_DasiwaREF2VAHybridV1_0_curveproj1025_compat_v001.safetensors",
+            0.8000000000000002
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 204,
+              "origin_id": 163,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 165,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/Motion_Repair.safetensors",
+            0.7000000000000002
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 209,
+              "origin_id": 164,
+              "origin_type": "LoraLoaderBypassModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 166,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimaxH3枪斗术GunFu.safetensors",
+            0.9000000000000001
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 210,
+              "origin_id": 165,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 169,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/H3_Combat_V2.safetensors",
+            0.7000000000000002
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.36.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 246,
+              "origin_id": 155,
+              "origin_type": "SolAttnMiniMax",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 178,
+          "type": "MiniMaxLowVRAMAttention",
+          "mode": 0,
+          "widgets_values": [
+            2
+          ],
+          "package": {
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "e8e88f7c88e3f6205b122f5de87e69a09fbce5ac"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 247,
+              "origin_id": 5,
+              "origin_type": "LoraLoaderBypassModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 179,
+          "type": "MiniMaxChunkFeedForward",
+          "mode": 0,
+          "widgets_values": [
+            2,
+            4096
+          ],
+          "package": {
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "e8e88f7c88e3f6205b122f5de87e69a09fbce5ac"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 240,
+              "origin_id": 178,
+              "origin_type": "MiniMaxLowVRAMAttention",
+              "origin_slot": 0
+            }
+          ]
+        }
+      ],
+      "subgraphs": [],
+      "additional_route_controls": [
+        {
+          "id": 29,
+          "type": "ResolutionSelector",
+          "mode": 0,
+          "widgets_values": [
+            "16:9 (Widescreen)",
+            0.5,
+            32
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 83,
+          "type": "MiniMaxH3SemanticBridgeApplyT8",
+          "mode": 0,
+          "widgets_values": null,
+          "linked_inputs": [
+            {
+              "input": "conditioning",
+              "link_id": 123
+            },
+            {
+              "input": "semantic_bridge",
+              "link_id": 122
+            }
+          ]
+        },
+        {
+          "id": 84,
+          "type": "MiniMaxH3SemanticBridgeConfigT8",
+          "mode": 0,
+          "widgets_values": [
+            "MiniMaxH3_SemanticBridge_v1.safetensors",
+            true,
+            0.10000000000000002,
+            "per_token",
+            "all_tokens",
+            "auto",
+            256
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 85,
+          "type": "MiniMaxH3SemanticBridgeApplyT8",
+          "mode": 0,
+          "widgets_values": null,
+          "linked_inputs": [
+            {
+              "input": "conditioning",
+              "link_id": 126
+            },
+            {
+              "input": "semantic_bridge",
+              "link_id": 125
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "U35-H3官流-最强武戏-神棍.json",
+      "path": "C:\\Users\\sugar\\Downloads\\U35-H3官流-最强武戏-神棍.json",
+      "sha256": "02eff73be25a276a01f4dc53fcb86b319dfc50f3d1f0f0e97e322e4ba37a397f",
+      "bytes": 118662,
+      "root_nodes": 38,
+      "root_links": 38,
+      "root_node_types": {
+        "ResolutionSelector": 1,
+        "VAELoader": 2,
+        "VAEDecodeAudio": 1,
+        "VAEDecode": 1,
+        "KSamplerSelect": 1,
+        "SamplerCustomAdvanced": 1,
+        "BasicGuider": 1,
+        "UNETLoader": 1,
+        "CLIPLoader": 1,
+        "RandomNoise": 1,
+        "ComfyMathExpression": 1,
+        "PrimitiveFloat": 1,
+        "MiniMaxH3ReferenceToVideo": 1,
+        "LoadImage": 6,
+        "PrimitiveStringMultiline": 1,
+        "MarkdownNote": 1,
+        "LoraLoaderModelOnly": 4,
+        "ManualSigmas": 1,
+        "VHS_VideoCombine": 1,
+        "ModelPreviewOverrideKJ": 1,
+        "ModelAttentionBackend": 1,
+        "BasicScheduler": 1,
+        "BlockSparseAttention": 1,
+        "LoadAudio": 1,
+        "VHS_LoadVideo": 1,
+        "Label (rgthree)": 3,
+        "CR Prompt Text": 1
+      },
+      "static_checks": {
+        "dangling_root_links": 0,
+        "mismatched_root_inputs": 0
+      },
+      "selected_root_nodes": [
+        {
+          "id": 119,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_video_vae_fp16.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 120,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_audio_vae_fp32.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 123,
+          "type": "KSamplerSelect",
+          "mode": 0,
+          "widgets_values": [
+            "er_sde"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 125,
+          "type": "SamplerCustomAdvanced",
+          "mode": 0,
+          "widgets_values": null,
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "noise",
+              "link_id": 253,
+              "origin_id": 129,
+              "origin_type": "RandomNoise",
+              "origin_slot": 0
+            },
+            {
+              "input": "guider",
+              "link_id": 254,
+              "origin_id": 126,
+              "origin_type": "BasicGuider",
+              "origin_slot": 0
+            },
+            {
+              "input": "sampler",
+              "link_id": 255,
+              "origin_id": 123,
+              "origin_type": "KSamplerSelect",
+              "origin_slot": 0
+            },
+            {
+              "input": "sigmas",
+              "link_id": 336,
+              "origin_id": 147,
+              "origin_type": "ManualSigmas",
+              "origin_slot": 0
+            },
+            {
+              "input": "latent_image",
+              "link_id": 271,
+              "origin_id": 136,
+              "origin_type": "MiniMaxH3ReferenceToVideo",
+              "origin_slot": 1
+            }
+          ]
+        },
+        {
+          "id": 127,
+          "type": "UNETLoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/Cobijada_H3_Hybrid_Uncensored_pruned_hybrid_int8_convrot_pruned.safetensors",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 128,
+          "type": "CLIPLoader",
+          "mode": 0,
+          "widgets_values": [
+            "qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+            "minimax",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 145,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_ref2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+            0.75
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 285,
+              "origin_id": 127,
+              "origin_type": "UNETLoader",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 147,
+          "type": "ManualSigmas",
+          "mode": 0,
+          "widgets_values": [
+            "1, .9882, .973, .9524, .9231, .878, .8, .6316, .4737, .1579, 0 "
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.34.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 160,
+          "type": "BasicScheduler",
+          "mode": 0,
+          "widgets_values": [
+            "beta",
+            30,
+            1
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.34.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 314,
+              "origin_id": 150,
+              "origin_type": "ModelPreviewOverrideKJ",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 166,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/fafafast.safetensors",
+            6
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.37.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 329,
+              "origin_id": 145,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 178,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/Motion_Repair.safetensors",
+            0.3
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.37.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 333,
+              "origin_id": 166,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 179,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/H3_Combat_V2.safetensors",
+            0.65
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.37.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 334,
+              "origin_id": 178,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        }
+      ],
+      "subgraphs": [],
+      "additional_route_controls": [
+        {
+          "id": 115,
+          "type": "ResolutionSelector",
+          "mode": 0,
+          "widgets_values": [
+            "16:9 (Widescreen)",
+            1,
+            32
+          ],
+          "linked_inputs": []
+        }
+      ]
+    },
+    {
+      "name": "U36-FeiHouEasyH3二段式采样v6.json",
+      "path": "C:\\Users\\sugar\\Downloads\\U36-FeiHouEasyH3二段式采样v6.json",
+      "sha256": "823272c9625bd36b3b26b546c4618fab86994b39f9822eedc8217bdc670beaa1",
+      "bytes": 153483,
+      "root_nodes": 75,
+      "root_links": 71,
+      "root_node_types": {
+        "VAEDecode": 2,
+        "SetNode": 15,
+        "Label (rgthree)": 8,
+        "FeiHouEasyH3RemixLoader": 1,
+        "VideoCombineV2": 3,
+        "FeiHouEasyH3ProductionPackLoader": 1,
+        "FeiHouEasyH3DurationCrop": 1,
+        "FeiHouEasyH3FaceRefine": 1,
+        "MarkdownNote": 2,
+        "LoadImage": 5,
+        "Fast Groups Bypasser (rgthree)": 3,
+        "GetNode": 15,
+        "VAEDecodeAudio": 1,
+        "ComfySwitchNodeV2": 1,
+        "SamplerCustomAdvanced": 2,
+        "FeiHouEasyH3SampleEnhancer1st": 1,
+        "FeiHouEasyH3SampleEnhancer2nd": 1,
+        "FeiHouEasyH3Setup": 1,
+        "FeiHouEasyH3Media": 1,
+        "dc602dca-2389-4deb-9ca5-edf54daafb06": 1,
+        "efd373a1-06d5-4e4e-adb5-003dc1159ef7": 1,
+        "FeiHouEasyH3LoraStack": 2,
+        "BatchImagesNode": 1,
+        "PrimitiveInt": 3,
+        "RandomSeedNoise": 1,
+        "PrimitiveBoolean": 1
+      },
+      "static_checks": {
+        "dangling_root_links": 0,
+        "mismatched_root_inputs": 0
+      },
+      "selected_root_nodes": [
+        {
+          "id": 337,
+          "type": "SamplerCustomAdvanced",
+          "mode": 0,
+          "widgets_values": null,
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.38.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "noise",
+              "link_id": 694,
+              "origin_id": 419,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "guider",
+              "link_id": 526,
+              "origin_id": 342,
+              "origin_type": "FeiHouEasyH3SampleEnhancer1st",
+              "origin_slot": 0
+            },
+            {
+              "input": "sampler",
+              "link_id": 527,
+              "origin_id": 342,
+              "origin_type": "FeiHouEasyH3SampleEnhancer1st",
+              "origin_slot": 1
+            },
+            {
+              "input": "sigmas",
+              "link_id": 528,
+              "origin_id": 342,
+              "origin_type": "FeiHouEasyH3SampleEnhancer1st",
+              "origin_slot": 2
+            },
+            {
+              "input": "latent_image",
+              "link_id": 529,
+              "origin_id": 342,
+              "origin_type": "FeiHouEasyH3SampleEnhancer1st",
+              "origin_slot": 3
+            }
+          ]
+        },
+        {
+          "id": 341,
+          "type": "SamplerCustomAdvanced",
+          "mode": 0,
+          "widgets_values": null,
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.38.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "noise",
+              "link_id": 695,
+              "origin_id": 420,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "guider",
+              "link_id": 535,
+              "origin_id": 343,
+              "origin_type": "FeiHouEasyH3SampleEnhancer2nd",
+              "origin_slot": 0
+            },
+            {
+              "input": "sampler",
+              "link_id": 536,
+              "origin_id": 343,
+              "origin_type": "FeiHouEasyH3SampleEnhancer2nd",
+              "origin_slot": 1
+            },
+            {
+              "input": "sigmas",
+              "link_id": 537,
+              "origin_id": 343,
+              "origin_type": "FeiHouEasyH3SampleEnhancer2nd",
+              "origin_slot": 2
+            },
+            {
+              "input": "latent_image",
+              "link_id": 538,
+              "origin_id": 343,
+              "origin_type": "FeiHouEasyH3SampleEnhancer2nd",
+              "origin_slot": 3
+            }
+          ]
+        },
+        {
+          "id": 342,
+          "type": "FeiHouEasyH3SampleEnhancer1st",
+          "mode": 0,
+          "widgets_values": [
+            "dual_clock_euler",
+            "simple",
+            9,
+            4,
+            1,
+            "",
+            true,
+            "BUNNY_H3_ActionLogic_Bridge_V2.safetensors",
+            0.1,
+            true
+          ],
+          "package": {
+            "cnr_id": "comfyui-feihou-easy-h3",
+            "ver": "a62b854489ee0388725ff6500f1a25b2908ea25a"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 644,
+              "origin_id": 370,
+              "origin_type": "dc602dca-2389-4deb-9ca5-edf54daafb06",
+              "origin_slot": 0
+            },
+            {
+              "input": "h3_context",
+              "link_id": 691,
+              "origin_id": 416,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "total_steps",
+              "link_id": 739,
+              "origin_id": 451,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "first_steps",
+              "link_id": 738,
+              "origin_id": 452,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 343,
+          "type": "FeiHouEasyH3SampleEnhancer2nd",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+            1.5,
+            5,
+            true
+          ],
+          "package": {
+            "cnr_id": "comfyui-feihou-easy-h3",
+            "ver": "a62b854489ee0388725ff6500f1a25b2908ea25a"
+          },
+          "linked_inputs": [
+            {
+              "input": "h3_context",
+              "link_id": 735,
+              "origin_id": 450,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "1st_latent",
+              "link_id": 719,
+              "origin_id": 441,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "model",
+              "link_id": 616,
+              "origin_id": 381,
+              "origin_type": "efd373a1-06d5-4e4e-adb5-003dc1159ef7",
+              "origin_slot": 0
+            },
+            {
+              "input": "wait_1st_video",
+              "link_id": 534,
+              "origin_id": 269,
+              "origin_type": "VideoCombineV2",
+              "origin_slot": 0
+            },
+            {
+              "input": "second_steps",
+              "link_id": 713,
+              "origin_id": 437,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            }
+          ]
+        }
+      ],
+      "subgraphs": [
+        {
+          "name": "MiniMax H3 Attentions",
+          "id": "dc602dca-2389-4deb-9ca5-edf54daafb06",
+          "nodes": 5,
+          "links": 13,
+          "node_types": {
+            "ModelAttentionBackend": 1,
+            "BlockSparseAttention": 1,
+            "MiniMaxH3MemoryEfficientSageAttentionPatch": 1,
+            "MiniMaxChunkFeedForward": 1,
+            "MiniMaxLowVRAMAttention": 1
+          }
+        },
+        {
+          "name": "MiniMax H3 Attentions",
+          "id": "efd373a1-06d5-4e4e-adb5-003dc1159ef7",
+          "nodes": 5,
+          "links": 13,
+          "node_types": {
+            "ModelAttentionBackend": 1,
+            "BlockSparseAttention": 1,
+            "MiniMaxH3MemoryEfficientSageAttentionPatch": 1,
+            "MiniMaxChunkFeedForward": 1,
+            "MiniMaxLowVRAMAttention": 1
+          }
+        }
+      ],
+      "additional_route_controls": [
+        {
+          "id": 304,
+          "type": "FeiHouEasyH3FaceRefine",
+          "mode": 4,
+          "widgets_values": [
+            true,
+            "bbox/face_yolov8m.pt",
+            "largest_face",
+            0.3,
+            8,
+            666,
+            "fixed",
+            true,
+            "768",
+            0.35,
+            2.5,
+            "不分段",
+            "euler",
+            "simple",
+            "Refine the face in this video crop. Preserve identity, expression, gaze, mouth movement, lighting and motion. Natural facial detail; no new motion or camera changes.",
+            true,
+            true,
+            true,
+            "单人",
+            3
+          ],
+          "linked_inputs": [
+            {
+              "input": "images",
+              "link_id": 444
+            },
+            {
+              "input": "model",
+              "link_id": 717
+            },
+            {
+              "input": "h3_context",
+              "link_id": 690
+            },
+            {
+              "input": "reference_face",
+              "link_id": 447
+            },
+            {
+              "input": "reference_faces",
+              "link_id": 743
+            },
+            {
+              "input": "audio",
+              "link_id": 448
+            }
+          ]
+        },
+        {
+          "id": 351,
+          "type": "FeiHouEasyH3Setup",
+          "mode": 0,
+          "widgets_values": [
+            "参考生视频",
+            "【第四段｜36-47秒｜技能⑬—⑮】\n\n承接上一段结尾：战将从虚空裂隙边缘挣扎起身，主角沿追月雷环高速突进。\n\n【技能⑬】雷弓→雷戟·雷霆突刺\n\n主角极速突进，雷弓崩解并重组为雷戟。雷戟缠绕银蓝雷霆与紫霄星屑，化作一道极光直刺战将胸口。\n\n战将挥刀格挡，主角高速变向，瞬移至战将侧后方，一记重刺刺入战将背部晶甲缝隙。银蓝雷霆流体通过戟身灌入战将体内，与暗紫虚空能量剧烈绞杀。战将跪地，暗紫能量从背部裂口如瀑布般倾泻。\n\n运镜：MS·TRACK追主角突进→MCU·PUSH急推雷霆突刺→WHIP甩镜追主角瞬移侧后→MCU·PUSH急推刺入晶甲并震屏。\n声音：雷霆突刺、晶甲碎裂、虚空能量溢出。\n碰撞等级：L2破防重击＋L4绝杀预兆。\n环境反馈：地面留下贯穿坑，焦黑和紫晶交织，暗紫能量在地面流淌。\n\n【技能⑭】神弓汇聚·单脚拉弓\n\n主角沿绝杀雷渊瞬移到混沌岛最高处。雷弓与雷戟同时化作银蓝雷霆流体，沿主角双臂缠绕，在双手之间极速压缩、共振、重组，形成巨大的万雷归一神弓。\n\n神弓由银蓝雷光、紫霄星屑、紫色晶体、金色纹路和紫色藤蔓能量构成。弓身成型时，高频雷鸣炸响，虚空气流被雷霆撕裂。\n\n主角悬浮于虚空雷渊与巨大残月之上，保持图1人物的短棕色波波头、金色蝴蝶结、白蓝紫金幻想战斗服和白金色高跟战斗鞋。\n\n她摆出高张力单脚拉弓姿势：一条腿向侧前方抬起，白金色高跟战斗鞋抵住神弓下弓臂的紫晶节点；另一条腿向后弯曲悬空；身体极度后仰，腰部形成弓形张力；一只手拉住雷霆弓弦，另一只手稳定握住弓柄。\n\n短棕色发丝、金色蝴蝶结、蓝紫色披帛、白色长袖和金色饰品在虚空乱流中狂舞。背景为残月、翻滚雷渊、暗紫星云、碎星和魔潮。\n\n特写锁定手部和弓弦，画面在黑色虚空、紫色雷光和银蓝爆光之间极速闪帧三次。弓身周围出现空间裂纹，星屑向箭尖塌缩，虚空气流被拉成丝状。\n\n运镜：大范围环绕主角→低机位仰拍神弓成型→PUSH急推弓弦→CU锁定手部和箭尖→快速后拉展示残月、雷渊和主角。\n\n【技能⑮】终焉·万雷归一\n\n主角释放巨型银蓝雷光箭矢。箭矢离弦瞬间化作巨大雷龙，雷龙缠绕紫霄雷霆与银蓝星屑，张开巨口吞噬沿途所有魔潮。\n\n雷龙在混沌岛和虚空雷渊之间高速盘旋，经过之处犁出焦黑深谷，虚空晶簇被震成齑粉，暗紫魔潮被成片卷碎，化为黑色能量和银蓝粒子。\n\n雷龙贯穿战将核心时，画面在红色核心爆光、黑色深渊和银蓝雷光之间极速闪帧三次。战将胸口暗紫核心率先炸裂，随后躯干、肩甲、头盔、巨兽颚骨和双手长刀全部崩解。\n\n大量暗紫晶甲碎块如陨石雨般飞射，断裂长刀旋转着插入岛面，碎块落地后产生二次弹跳、滚动、火星和暗紫粉尘。\n\n银蓝雷霆流体如海啸般席卷整座混沌岛，暗紫虚空流体如墨汁般在雷霆中翻滚。银蓝雷弧、暗紫星屑、晶甲碎片、尘埃和虚空水汽形成遮天蔽日的环形冲击波。\n\n运镜：MS·TRACK低机位追入雷环中心→FS·PUSH沿雷龙和爆炸冲击波急推并强震屏→PULL快速后拉展示满场残骸→MS低机位仰拍主角继续上升。\n\n46-47秒尾帧视觉收束：所有魔物清空，战将碎块和能量残骸铺满战场。雷光裂谷、游龙星斑、天崩雷坑、百裂残影、巨兽法阵、双绝雷斑、追月雷环、雷霆贯穿痕、绝杀雷渊和终结雷环全部保留。\n\n主角悬浮在清场余波上方，雷弓未收起。衣摆、短棕色发丝、金色蝴蝶结、银蓝雷光、落雷、粒子和坠落石屑继续运动，最后0.4秒自然收束，不定格、不庆祝、不离场。\n\n声音：万雷齐鸣、终焉箭矢穿透虚空、战将碎块爆裂、碎块砸落地面、余波雷声逐渐减弱。\n碰撞等级：L4绝杀＋尾帧视觉收束。\n环境反馈：满场碎块与能量刻痕永久留存，混沌岛变成焦土、紫晶和银蓝雷光交织的战场。",
+            "480P",
+            "16:9",
+            1344,
+            768,
+            "关闭",
+            10,
+            true,
+            24,
+            "首帧优先",
+            "736",
+            "按序号",
+            false,
+            "xFlow-API聚合/gpt-5.5",
+            "仅通用方案",
+            true,
+            false,
+            false
+          ],
+          "linked_inputs": [
+            {
+              "input": "h3_media",
+              "link_id": 553
+            },
+            {
+              "input": "h3_bundle",
+              "link_id": 554
+            },
+            {
+              "input": "production_shot",
+              "link_id": 736
+            }
+          ]
+        },
+        {
+          "id": 396,
+          "type": "FeiHouEasyH3LoraStack",
+          "mode": 0,
+          "widgets_values": [
+            {},
+            {
+              "type": "FeiHouEasyH3LoraHeaderWidget"
+            },
+            {
+              "on": false,
+              "lora": "minimax/minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors",
+              "strength": 0.8,
+              "bypass": true
+            },
+            {
+              "on": true,
+              "lora": "minimax/FeiHou_H3_Remix_Enhancer_v1.safetensors",
+              "strength": 1,
+              "bypass": false
+            },
+            {},
+            ""
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 397,
+          "type": "FeiHouEasyH3LoraStack",
+          "mode": 0,
+          "widgets_values": [
+            {},
+            {
+              "type": "FeiHouEasyH3LoraHeaderWidget"
+            },
+            {
+              "on": true,
+              "lora": "minimax/minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors",
+              "strength": 1,
+              "bypass": true
+            },
+            {},
+            ""
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 462,
+          "type": "PrimitiveInt",
+          "mode": 0,
+          "widgets_values": [
+            9,
+            "fixed"
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 463,
+          "type": "PrimitiveInt",
+          "mode": 0,
+          "widgets_values": [
+            4,
+            "fixed"
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 466,
+          "type": "PrimitiveInt",
+          "mode": 0,
+          "widgets_values": [
+            5,
+            "fixed"
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 470,
+          "type": "PrimitiveBoolean",
+          "mode": 0,
+          "widgets_values": [
+            false
+          ],
+          "linked_inputs": []
+        }
+      ]
+    },
+    {
+      "name": "U37-真-上下文无缝无色差长视频-SelfLift双采-惊尘573.json",
+      "path": "C:\\Users\\sugar\\Downloads\\U37-真-上下文无缝无色差长视频-SelfLift双采-惊尘573.json",
+      "sha256": "f883b99d0e7d2c395de284e5a48d1a382a4df6473ed8bcdfee3028f6b7b0028e",
+      "bytes": 159290,
+      "root_nodes": 89,
+      "root_links": 98,
+      "root_node_types": {
+        "ResolutionSelector": 1,
+        "VAELoader": 2,
+        "KSamplerSelect": 1,
+        "BasicScheduler": 1,
+        "UNETLoader": 2,
+        "CLIPLoader": 1,
+        "ComfyMathExpression": 3,
+        "PrimitiveFloat": 1,
+        "MiniMaxH3ReferenceToVideo": 1,
+        "LoadImage": 9,
+        "PrimitiveStringMultiline": 1,
+        "MarkdownNote": 1,
+        "LoadAudio": 3,
+        "PathchSageAttentionKJ": 1,
+        "LoraLoaderModelOnly": 2,
+        "MiniMaxH3MemoryEfficientSageAttentionPatch": 1,
+        "VAEDecode": 1,
+        "VAEDecodeAudio": 1,
+        "CreateVideo": 2,
+        "Note": 9,
+        "ModelAttentionBackend": 1,
+        "ExtendIntermediateSigmas": 1,
+        "MiniMaxLowVRAMAttention": 1,
+        "BlockSparseAttention": 1,
+        "SelfLiftH3Sampler": 1,
+        "ConditioningZeroOut": 1,
+        "MiniMaxH3AddGuide": 1,
+        "MiniMaxH3AudioGuideFeather": 1,
+        "Reroute": 4,
+        "LoadVideo": 1,
+        "VideoFrameSample": 2,
+        "GetVideoComponents": 3,
+        "ComfySwitchNode": 5,
+        "PrimitiveBoolean": 1,
+        "VideoTemporalCrop": 1,
+        "PrimitiveInt": 4,
+        "ColorTransfer": 1,
+        "SaveVideo": 1,
+        "easy float": 2,
+        "GetImageRangeFromBatch": 2,
+        "ImageAddNoise": 2,
+        "ImageBatchMulti": 1,
+        "VHS_LoadVideo": 3,
+        "Label (rgthree)": 4
+      },
+      "static_checks": {
+        "dangling_root_links": 0,
+        "mismatched_root_inputs": 0
+      },
+      "selected_root_nodes": [
+        {
+          "id": 119,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_video_vae_int8_convrot.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.31.1"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 120,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_audio_vae_fp32.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.31.1"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 123,
+          "type": "KSamplerSelect",
+          "mode": 0,
+          "widgets_values": [
+            "euler"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.31.1"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 124,
+          "type": "BasicScheduler",
+          "mode": 0,
+          "widgets_values": [
+            "beta",
+            8,
+            1
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.31.1"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 562,
+              "origin_id": 150,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 127,
+          "type": "UNETLoader",
+          "mode": 4,
+          "widgets_values": [
+            "minimax/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.31.1"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 128,
+          "type": "CLIPLoader",
+          "mode": 0,
+          "widgets_values": [
+            "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+            "minimax",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.31.1"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 150,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+            0.7500000000000001
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.31.1"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 451,
+              "origin_id": 228,
+              "origin_type": "ModelAttentionBackend",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 232,
+          "type": "ExtendIntermediateSigmas",
+          "mode": 0,
+          "widgets_values": [
+            2,
+            0.6500000000000001,
+            0,
+            "linear"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.32.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "sigmas",
+              "link_id": 459,
+              "origin_id": 124,
+              "origin_type": "BasicScheduler",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 233,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors",
+            0.7000000000000002
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.32.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 462,
+              "origin_id": 228,
+              "origin_type": "ModelAttentionBackend",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 236,
+          "type": "UNETLoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/DasiwaMinimaxH3_dasiwaREF2VAHybridV1.safetensors",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.31.1"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 243,
+          "type": "MiniMaxLowVRAMAttention",
+          "mode": 4,
+          "widgets_values": [
+            4
+          ],
+          "package": {
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "35e5956193769d18a13136cdedb73a36a05c73e6"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 473,
+              "origin_id": 147,
+              "origin_type": "PathchSageAttentionKJ",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 250,
+          "type": "SelfLiftH3Sampler",
+          "mode": 0,
+          "widgets_values": [
+            42,
+            "fixed",
+            1,
+            6,
+            0.5,
+            0,
+            0.5,
+            1,
+            "h3_upscaler_lms_v0.1_fp32.safetensors",
+            false,
+            true
+          ],
+          "package": {
+            "aux_id": "facok/comfyui-SelfLift",
+            "ver": "353418455f97c3ab9e35a6e27243cc2c5488307e"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 588,
+              "origin_id": 150,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            },
+            {
+              "input": "positive",
+              "link_id": 592,
+              "origin_id": 266,
+              "origin_type": "ComfySwitchNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "negative",
+              "link_id": 593,
+              "origin_id": 251,
+              "origin_type": "ConditioningZeroOut",
+              "origin_slot": 0
+            },
+            {
+              "input": "vae",
+              "link_id": 594,
+              "origin_id": 119,
+              "origin_type": "VAELoader",
+              "origin_slot": 0
+            },
+            {
+              "input": "latent_image",
+              "link_id": 595,
+              "origin_id": 136,
+              "origin_type": "MiniMaxH3ReferenceToVideo",
+              "origin_slot": 1
+            },
+            {
+              "input": "sampler",
+              "link_id": 591,
+              "origin_id": 123,
+              "origin_type": "KSamplerSelect",
+              "origin_slot": 0
+            },
+            {
+              "input": "sigmas",
+              "link_id": 590,
+              "origin_id": 124,
+              "origin_type": "BasicScheduler",
+              "origin_slot": 0
+            },
+            {
+              "input": "model_hires",
+              "link_id": 589,
+              "origin_id": 233,
+              "origin_type": "LoraLoaderModelOnly",
+              "origin_slot": 0
+            },
+            {
+              "input": "transition_step",
+              "link_id": 611,
+              "origin_id": 302,
+              "origin_type": "ComfySwitchNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "lowres_scale",
+              "link_id": 614,
+              "origin_id": 306,
+              "origin_type": "ComfySwitchNode",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 254,
+          "type": "MiniMaxH3AudioGuideFeather",
+          "mode": 0,
+          "widgets_values": [
+            12
+          ],
+          "package": {
+            "aux_id": "wjc573/ComfyUI-MiniMax-H3-Audio-Guide-Feather",
+            "ver": "043c631d6817e60a0437f1ab4c98b0c923e0e4da"
+          },
+          "linked_inputs": [
+            {
+              "input": "positive",
+              "link_id": 502,
+              "origin_id": 253,
+              "origin_type": "MiniMaxH3AddGuide",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 288,
+          "type": "ColorTransfer",
+          "mode": 0,
+          "widgets_values": [
+            "mkl_lab",
+            "target_frame",
+            0,
+            0.7500000000000001
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.38.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "image_target",
+              "link_id": 579,
+              "origin_id": 296,
+              "origin_type": "GetVideoComponents",
+              "origin_slot": 0
+            },
+            {
+              "input": "image_ref",
+              "link_id": 568,
+              "origin_id": 291,
+              "origin_type": "GetVideoComponents",
+              "origin_slot": 0
+            }
+          ]
+        }
+      ],
+      "subgraphs": [],
+      "additional_route_controls": [
+        {
+          "id": 115,
+          "type": "ResolutionSelector",
+          "mode": 0,
+          "widgets_values": [
+            "9:16 (Portrait Widescreen)",
+            2,
+            32
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 266,
+          "type": "ComfySwitchNode",
+          "mode": 0,
+          "widgets_values": [
+            false
+          ],
+          "linked_inputs": [
+            {
+              "input": "on_false",
+              "link_id": 521
+            },
+            {
+              "input": "on_true",
+              "link_id": 522
+            },
+            {
+              "input": "switch",
+              "link_id": 520
+            }
+          ]
+        },
+        {
+          "id": 267,
+          "type": "PrimitiveBoolean",
+          "mode": 0,
+          "widgets_values": [
+            true
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 269,
+          "type": "ComfySwitchNode",
+          "mode": 0,
+          "widgets_values": [
+            false
+          ],
+          "linked_inputs": [
+            {
+              "input": "on_false",
+              "link_id": 527
+            },
+            {
+              "input": "on_true",
+              "link_id": 531
+            },
+            {
+              "input": "switch",
+              "link_id": 528
+            }
+          ]
+        },
+        {
+          "id": 271,
+          "type": "PrimitiveInt",
+          "mode": 0,
+          "widgets_values": [
+            0,
+            "fixed"
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 273,
+          "type": "PrimitiveInt",
+          "mode": 0,
+          "widgets_values": [
+            1,
+            "fixed"
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 288,
+          "type": "ColorTransfer",
+          "mode": 0,
+          "widgets_values": [
+            "mkl_lab",
+            "target_frame",
+            0,
+            0.7500000000000001
+          ],
+          "linked_inputs": [
+            {
+              "input": "image_target",
+              "link_id": 579
+            },
+            {
+              "input": "image_ref",
+              "link_id": 568
+            }
+          ]
+        },
+        {
+          "id": 301,
+          "type": "ComfySwitchNode",
+          "mode": 0,
+          "widgets_values": [
+            false
+          ],
+          "linked_inputs": [
+            {
+              "input": "on_false",
+              "link_id": 601
+            },
+            {
+              "input": "on_true",
+              "link_id": 599
+            },
+            {
+              "input": "switch",
+              "link_id": 598
+            }
+          ]
+        },
+        {
+          "id": 302,
+          "type": "ComfySwitchNode",
+          "mode": 0,
+          "widgets_values": [
+            false
+          ],
+          "linked_inputs": [
+            {
+              "input": "on_false",
+              "link_id": 610
+            },
+            {
+              "input": "on_true",
+              "link_id": 609
+            },
+            {
+              "input": "switch",
+              "link_id": 616
+            }
+          ]
+        },
+        {
+          "id": 304,
+          "type": "PrimitiveInt",
+          "mode": 0,
+          "widgets_values": [
+            6,
+            "fixed"
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 305,
+          "type": "PrimitiveInt",
+          "mode": 0,
+          "widgets_values": [
+            4,
+            "fixed"
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 306,
+          "type": "ComfySwitchNode",
+          "mode": 0,
+          "widgets_values": [
+            false
+          ],
+          "linked_inputs": [
+            {
+              "input": "on_false",
+              "link_id": 613
+            },
+            {
+              "input": "on_true",
+              "link_id": 612
+            },
+            {
+              "input": "switch",
+              "link_id": 617
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "U40-万物皆可接续-最终版-阿喵喵Az.json",
+      "path": "C:\\Users\\sugar\\Downloads\\U40-万物皆可接续-最终版-阿喵喵Az.json",
+      "sha256": "bc49c6e35075440c2971bb0ae4236c44b80d3418c28b9d599776db532655df09",
+      "bytes": 377273,
+      "root_nodes": 147,
+      "root_links": 166,
+      "root_node_types": {
+        "ResolutionSelector": 1,
+        "MarkdownNote": 7,
+        "MiniMaxH3MemoryEfficientSageAttentionPatch": 1,
+        "ModelAttentionBackend": 1,
+        "LoraLoaderModelOnly": 1,
+        "SetNode": 26,
+        "GetNode": 26,
+        "MiniMaxH3ReferenceToVideo": 2,
+        "ReservedVRAMSetter": 1,
+        "easy showAnything": 1,
+        "easy cleanGpuUsed": 1,
+        "easy clearCacheAll": 1,
+        "ModelPreviewOverrideKJ": 2,
+        "UNETLoader": 1,
+        "CLIPLoader": 1,
+        "VAELoader": 2,
+        "VRGDG_VideoCompareSlider": 1,
+        "MiniMaxH3SigmaShift": 1,
+        "easy boolean": 2,
+        "1e83e52d-c4d4-4071-be6f-2ad81c64b715": 1,
+        "MiniMaxH3ContextLatentTaperNoise": 2,
+        "MiniMaxClipBinDualPicker": 1,
+        "MiniMaxClipBinDualSaver": 1,
+        "INTConstant": 2,
+        "MiniMaxH3MotionContextClipStream": 2,
+        "MiniMaxLowVRAMAttention": 1,
+        "MiniMaxChunkFeedForward": 1,
+        "FloatConstant": 1,
+        "LoadImage": 9,
+        "JWImageResizeByLongerSide": 9,
+        "Int": 1,
+        "PrimitiveStringMultiline": 2,
+        "StringConcatenate": 1,
+        "BlockSparseAttention": 1,
+        "Power Lora Loader (rgthree)": 2,
+        "VHS_LoadAudioUpload": 3,
+        "PrimitiveFloat": 1,
+        "Fast Groups Bypasser (rgthree)": 4,
+        "ComfyMathExpression": 1,
+        "BasicScheduler": 1,
+        "H3SigmaRefiner": 1,
+        "SplitSigmas": 1,
+        "80cd16e3-e91b-4ca5-acb5-314ddb262835": 1,
+        "MathExpression|pysssss": 1,
+        "Reroute": 1,
+        "LTXVSeparateAVLatent": 1,
+        "LTXVConcatAVLatent": 1,
+        "7a522690-eadb-45bc-b4b8-4fbf5b09e1a0": 1,
+        "ffae0ea9-26d3-46be-89c1-bcebac3fb809": 1,
+        "ComfySwitchNode": 1,
+        "H3 Segment Picker": 1,
+        "Seed (rgthree)": 1,
+        "CreateVideo": 2,
+        "SaveVideo": 2,
+        "MinimaxH3LatentUpscaler3D": 1,
+        "Label (rgthree)": 4
+      },
+      "static_checks": {
+        "dangling_root_links": 0,
+        "mismatched_root_inputs": 0
+      },
+      "selected_root_nodes": [
+        {
+          "id": 216,
+          "type": "LoraLoaderModelOnly",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/minimax_h3_fl2v_turbo_4step_v1.2_768p_comfyui_bf16.safetensors",
+            1
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 1446,
+              "origin_id": 581,
+              "origin_type": "UNETLoader",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 581,
+          "type": "UNETLoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax/DasiwaMinimaxH3_dasiwaHybridV2_int8.safetensors",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 582,
+          "type": "CLIPLoader",
+          "mode": 0,
+          "widgets_values": [
+            "qwen3vl_32b_minimax_h3_ultra_uncensored_heretic_int8_convrot.safetensors",
+            "minimax",
+            "default"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 583,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_video_vae_int8_convrot.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 584,
+          "type": "VAELoader",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_audio_vae_fp32.safetensors"
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": []
+        },
+        {
+          "id": 5141,
+          "type": "MiniMaxH3ContextLatentTaperNoise",
+          "mode": 0,
+          "widgets_values": [
+            "22",
+            0.7,
+            0.25,
+            4,
+            1,
+            "fixed",
+            "match_latent_std"
+          ],
+          "package": {
+            "aux_id": "beijinren/ComfyUI-H3-Context-Noise",
+            "ver": "7e5531233b42dadd19c40d86770521a36508c358"
+          },
+          "linked_inputs": [
+            {
+              "input": "context_latent",
+              "link_id": 3358,
+              "origin_id": 5763,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 5149,
+          "type": "MiniMaxH3ContextLatentTaperNoise",
+          "mode": 0,
+          "widgets_values": [
+            "22",
+            0.45,
+            0.1,
+            2,
+            1,
+            "fixed",
+            "match_latent_std"
+          ],
+          "package": {
+            "aux_id": "beijinren/ComfyUI-H3-Context-Noise",
+            "ver": "7e5531233b42dadd19c40d86770521a36508c358"
+          },
+          "linked_inputs": [
+            {
+              "input": "context_latent",
+              "link_id": 3357,
+              "origin_id": 5762,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 5358,
+          "type": "MiniMaxH3MotionContextClipStream",
+          "mode": 0,
+          "widgets_values": [
+            "22",
+            24,
+            false
+          ],
+          "package": {
+            "aux_id": "AraneaQwQ/ComfyUI-H3-ClipStream",
+            "ver": "277715cedfea771a9714995e07763cebe022c2df"
+          },
+          "linked_inputs": [
+            {
+              "input": "conditioning",
+              "link_id": 2541,
+              "origin_id": 261,
+              "origin_type": "MiniMaxH3ReferenceToVideo",
+              "origin_slot": 0
+            },
+            {
+              "input": "vae",
+              "link_id": 2540,
+              "origin_id": 240,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "latent",
+              "link_id": 2542,
+              "origin_id": 261,
+              "origin_type": "MiniMaxH3ReferenceToVideo",
+              "origin_slot": 1
+            },
+            {
+              "input": "context_latent",
+              "link_id": 2543,
+              "origin_id": 5140,
+              "origin_type": "1e83e52d-c4d4-4071-be6f-2ad81c64b715",
+              "origin_slot": 0
+            },
+            {
+              "input": "audio_vae",
+              "link_id": 2544,
+              "origin_id": 241,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 5368,
+          "type": "MiniMaxH3MotionContextClipStream",
+          "mode": 0,
+          "widgets_values": [
+            "22",
+            24,
+            false
+          ],
+          "package": {
+            "aux_id": "AraneaQwQ/ComfyUI-H3-ClipStream",
+            "ver": "277715cedfea771a9714995e07763cebe022c2df"
+          },
+          "linked_inputs": [
+            {
+              "input": "conditioning",
+              "link_id": 2878,
+              "origin_id": 5590,
+              "origin_type": "MiniMaxH3ReferenceToVideo",
+              "origin_slot": 0
+            },
+            {
+              "input": "vae",
+              "link_id": 2591,
+              "origin_id": 240,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            },
+            {
+              "input": "latent",
+              "link_id": 3299,
+              "origin_id": 5723,
+              "origin_type": "LTXVConcatAVLatent",
+              "origin_slot": 0
+            },
+            {
+              "input": "context_latent",
+              "link_id": 3303,
+              "origin_id": 5732,
+              "origin_type": "7a522690-eadb-45bc-b4b8-4fbf5b09e1a0",
+              "origin_slot": 0
+            },
+            {
+              "input": "audio_vae",
+              "link_id": 2592,
+              "origin_id": 241,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 5398,
+          "type": "MiniMaxLowVRAMAttention",
+          "mode": 0,
+          "widgets_values": [
+            2
+          ],
+          "package": {
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "57105374f47d0fbb49c9c3926fb981702e0a4b5c"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 2676,
+              "origin_id": 213,
+              "origin_type": "ModelAttentionBackend",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 5399,
+          "type": "MiniMaxChunkFeedForward",
+          "mode": 0,
+          "widgets_values": [
+            1,
+            4096
+          ],
+          "package": {
+            "cnr_id": "comfyui-kjnodes",
+            "ver": "57105374f47d0fbb49c9c3926fb981702e0a4b5c"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 2674,
+              "origin_id": 5398,
+              "origin_type": "MiniMaxLowVRAMAttention",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 5673,
+          "type": "BasicScheduler",
+          "mode": 0,
+          "widgets_values": [
+            "simple",
+            10,
+            1
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.30.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 3172,
+              "origin_id": 5526,
+              "origin_type": "BlockSparseAttention",
+              "origin_slot": 0
+            },
+            {
+              "input": "steps",
+              "link_id": 3177,
+              "origin_id": 5693,
+              "origin_type": "MathExpression|pysssss",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 5674,
+          "type": "H3SigmaRefiner",
+          "mode": 0,
+          "widgets_values": [
+            1,
+            0.7,
+            0,
+            "cosine"
+          ],
+          "package": {
+            "aux_id": "yichengup/ComfyUI-YCNodes-MiniMax-H3",
+            "ver": "146207295c1d2bd6b64a6552484cb6ed8be1c9ef"
+          },
+          "linked_inputs": [
+            {
+              "input": "sigmas",
+              "link_id": 3092,
+              "origin_id": 5673,
+              "origin_type": "BasicScheduler",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 5675,
+          "type": "SplitSigmas",
+          "mode": 0,
+          "widgets_values": [
+            5
+          ],
+          "package": {
+            "cnr_id": "comfy-core",
+            "ver": "0.33.0"
+          },
+          "linked_inputs": [
+            {
+              "input": "sigmas",
+              "link_id": 3093,
+              "origin_id": 5674,
+              "origin_type": "H3SigmaRefiner",
+              "origin_slot": 0
+            },
+            {
+              "input": "step",
+              "link_id": 3181,
+              "origin_id": 5694,
+              "origin_type": "GetNode",
+              "origin_slot": 0
+            }
+          ]
+        },
+        {
+          "id": 5783,
+          "type": "MinimaxH3LatentUpscaler3D",
+          "mode": 0,
+          "widgets_values": [
+            "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+            "scale by multiplier",
+            2,
+            32,
+            true,
+            true,
+            "cuda",
+            "bf16"
+          ],
+          "package": {
+            "aux_id": "LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler",
+            "ver": "unknown"
+          },
+          "linked_inputs": [
+            {
+              "input": "latent",
+              "link_id": 3382,
+              "origin_id": 5721,
+              "origin_type": "LTXVSeparateAVLatent",
+              "origin_slot": 0
+            }
+          ]
+        }
+      ],
+      "subgraphs": [
+        {
+          "name": "加噪判断（跳首段加噪以免报错）",
+          "id": "1e83e52d-c4d4-4071-be6f-2ad81c64b715",
+          "nodes": 4,
+          "links": 8,
+          "node_types": {
+            "easy boolean": 1,
+            "easy ifElse": 2,
+            "easy isNone": 1
+          }
+        },
+        {
+          "name": "一采",
+          "id": "80cd16e3-e91b-4ca5-acb5-314ddb262835",
+          "nodes": 7,
+          "links": 20,
+          "node_types": {
+            "BasicGuider": 1,
+            "KSamplerSelect": 1,
+            "SamplerCustomAdvanced": 1,
+            "RandomNoise": 1,
+            "VAEDecode": 1,
+            "VAEDecodeAudio": 1,
+            "MiniMaxH3MotionContextTrimClipStream": 1
+          }
+        },
+        {
+          "name": "加噪判断（跳首段加噪以免报错）",
+          "id": "7a522690-eadb-45bc-b4b8-4fbf5b09e1a0",
+          "nodes": 4,
+          "links": 8,
+          "node_types": {
+            "easy boolean": 1,
+            "easy ifElse": 2,
+            "easy isNone": 1
+          }
+        },
+        {
+          "name": "二采",
+          "id": "ffae0ea9-26d3-46be-89c1-bcebac3fb809",
+          "nodes": 11,
+          "links": 27,
+          "node_types": {
+            "Latent Size to Number": 1,
+            "MathExpression|pysssss": 2,
+            "RandomNoise": 1,
+            "MiniMaxH3TwoPassLatentReconcileT8Advanced": 1,
+            "SamplerCustomAdvanced": 1,
+            "KSamplerSelect": 1,
+            "VAEDecode": 1,
+            "VAEDecodeAudio": 1,
+            "BasicGuider": 1,
+            "MiniMaxH3MotionContextTrimClipStream": 1
+          }
+        }
+      ],
+      "additional_route_controls": [
+        {
+          "id": 115,
+          "type": "ResolutionSelector",
+          "mode": 0,
+          "widgets_values": [
+            "9:16 (Portrait Widescreen)",
+            0.5,
+            32
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 5139,
+          "type": "easy boolean",
+          "mode": 0,
+          "widgets_values": [
+            true
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 5148,
+          "type": "easy boolean",
+          "mode": 0,
+          "widgets_values": [
+            true
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 5354,
+          "type": "INTConstant",
+          "mode": 0,
+          "widgets_values": [
+            6
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 5421,
+          "type": "FloatConstant",
+          "mode": 0,
+          "widgets_values": [
+            1.5
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 5540,
+          "type": "INTConstant",
+          "mode": 0,
+          "widgets_values": [
+            4
+          ],
+          "linked_inputs": []
+        },
+        {
+          "id": 5634,
+          "type": "Power Lora Loader (rgthree)",
+          "mode": 0,
+          "widgets_values": [
+            {},
+            {
+              "type": "PowerLoraLoaderHeaderWidget"
+            },
+            {
+              "on": false,
+              "lora": "minimax/H3_Combat_V2.safetensors",
+              "strength": 0.7,
+              "strengthTwo": null
+            },
+            {
+              "on": false,
+              "lora": "MiniMax h3\\H3_speed_slider_1.1.safetensors",
+              "strength": 1.5,
+              "strengthTwo": null
+            },
+            {
+              "on": false,
+              "lora": "MiniMax h3\\minimax_h3_turbo_4ADE5A080%9F_DasiwaREF2VAHybridV1_curveproj1025_compat_v001-T8.safetensors",
+              "strength": 0.8,
+              "strengthTwo": null
+            },
+            {
+              "on": false,
+              "lora": "minimax/Motion_Repair_V2.safetensors",
+              "strength": 0.7,
+              "strengthTwo": null
+            },
+            {
+              "on": false,
+              "lora": "minimax/h3_character_swap_pro4500_1000.safetensors",
+              "strength": 1,
+              "strengthTwo": null
+            },
+            {
+              "on": false,
+              "lora": "minimax/minimax_h3_head_swap_v1.0_r32.safetensors",
+              "strength": 0.5,
+              "strengthTwo": null
+            },
+            {},
+            ""
+          ],
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 3053
+            }
+          ]
+        },
+        {
+          "id": 5636,
+          "type": "Power Lora Loader (rgthree)",
+          "mode": 0,
+          "widgets_values": [
+            {},
+            {
+              "type": "PowerLoraLoaderHeaderWidget"
+            },
+            {
+              "on": false,
+              "lora": "minimax/H3_Combat_V2.safetensors",
+              "strength": 0.49,
+              "strengthTwo": null
+            },
+            {
+              "on": false,
+              "lora": "MiniMax h3\\minimax_h3_turbo_4ADE5A080%9F_DasiwaREF2VAHybridV1_curveproj1025_compat_v001-T8.safetensors",
+              "strength": 1,
+              "strengthTwo": null
+            },
+            {
+              "on": false,
+              "lora": "minimax/Motion_Repair_V2.safetensors",
+              "strength": 0.25,
+              "strengthTwo": null
+            },
+            {
+              "on": false,
+              "lora": "minimax/h3_character_swap_pro4500_1000.safetensors",
+              "strength": 0.6,
+              "strengthTwo": null
+            },
+            {
+              "on": false,
+              "lora": "minimax/minimax_h3_head_swap_v1.0_r32.safetensors",
+              "strength": 0.4,
+              "strengthTwo": null
+            },
+            {},
+            ""
+          ],
+          "linked_inputs": [
+            {
+              "input": "model",
+              "link_id": 3057
+            }
+          ]
+        },
+        {
+          "id": 5758,
+          "type": "ComfySwitchNode",
+          "mode": 0,
+          "widgets_values": [
+            true
+          ],
+          "linked_inputs": [
+            {
+              "input": "on_false",
+              "link_id": 3349
+            },
+            {
+              "input": "on_true",
+              "link_id": 3353
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

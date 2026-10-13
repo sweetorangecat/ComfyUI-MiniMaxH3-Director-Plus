@@ -232,11 +232,11 @@ def test_second_stage_guider_keeps_ref2va_reference_geometry():
     assert ref["latent"] is ref_latent
 
 
-def test_two_stage_sampler_exposes_second_model_without_video_vae():
+def test_two_stage_sampler_exposes_second_model_and_optional_video_vae():
     inputs = MiniMaxH3TwoStageSampler.INPUT_TYPES()
     assert "guide" in inputs["optional"]
     assert "second_model" in inputs["optional"]
-    assert "video_vae" not in inputs["optional"]
+    assert inputs["optional"]["video_vae"] == ("VAE",)
     assert MiniMaxH3TwoStageSampler.RETURN_TYPES == ("LATENT", "LATENT")
 
 

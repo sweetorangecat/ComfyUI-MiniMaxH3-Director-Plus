@@ -21,6 +21,7 @@ from .schema import (
     TWO_STAGE_PERFORMANCE_PRESETS,
     allowed_performance_presets,
 )
+from .sampling_experiments import motion_lora_chain, validate_sampling_options
 from .two_stage_assets import (
     FL_STAGE1_LORA,
     FL_STAGE2_LORA,
@@ -469,12 +470,16 @@ def _apply_minimax_reuse_attention(model, guide):
     guide["minimax_projection_chunks"] = projection_chunks
     guide["minimax_mlp_chunks"] = mlp_chunks
     guide["attention_chunks_source"] = source
+    exact_options = {"force_exact": True} if guide.get("sampling_method") == "selflift" else {}
+    if exact_options:
+        guide["sampling_attention_kernel"] = "pytorch"
     return apply_h3_reuse_attention(
         model,
         head_chunks=head_chunks,
         projection_chunks=projection_chunks,
         mlp_chunks=mlp_chunks,
         source=source,
+        **exact_options,
     )
 
 
@@ -514,6 +519,8 @@ def preset_values(name, backend=None):
 def _runtime_preset_values(guide, preset):
     """Apply route-specific quality guards on top of the shared preset."""
     values = preset_values(preset, guide.get("resolved_backend"))
+    if guide.get("sampling_method", "standard") == "selflift":
+        values.update(steps=8, two_stage_split_step=4, use_sage=False, use_cache=False)
     # EasyCache is not part of the official T2VA Turbo recipe and can soften
     # fast text-only motion. Keep T2VA fast mode to Turbo + Sage only.
     if guide.get("mode") == "T2VA" and preset == "fast_4step":
@@ -572,6 +579,8 @@ class MiniMaxH3PerformancePreset:
         mode = guide.get("mode")
         voice_mode = guide.get("voice_mode", "none")
         values = _runtime_preset_values(guide, name)
+        if guide.get("sampling_method") == "selflift" and acceleration_ready is not True:
+            raise RuntimeError("SelfLift 匹配 LoRA 与精确注意力未就绪，已停止；不会旁路为 standard")
         if name in {"fast_4step", "reference_fast", "ref_fast_4step", "fl_quality_fast_v4"} and (
             guide.get("turbo_lora_applied") is False or acceleration_ready is False
         ):
@@ -591,6 +600,8 @@ class MiniMaxH3PerformancePreset:
             "low_vram_two_stage": "低显存二采：4–6 秒 FHD，按时长缩小首采网格 + RealESRGAN X2 细节重建",
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
+        if guide.get("sampling_method") == "selflift":
+            descriptions[name] = "SelfLift 短视频试验：同一 v4 模型、simple/Euler 共 8 步，0.65 倍网格前 4 步 + 目标网格后 4 步；Sage 与缓存关闭"
         if mode == "T2VA" and name == "fast_4step":
             descriptions[name] = "T2VA 极速 4 步：官方 H3 Turbo + Sage，关闭 EasyCache 以减少细节损失"
         if name == "low_vram_two_stage" and acceleration_ready is not True:
@@ -620,6 +631,10 @@ class MiniMaxH3PerformancePreset:
 
 
 def _safe_guide_preset(guide):
+    if guide.get("sampling_method") == "selflift":
+        validate_sampling_options(guide)
+        if guide.get("resolved_backend", "ref2va_model") != "ref2va_model":
+            raise ValueError("SelfLift 需要 REF2VA 后端")
     requested = guide.get("performance_preset", "quality")
     name = PRESET_LABELS.get(requested, requested)
     if name == "smart_free_1080p":
@@ -727,6 +742,10 @@ def acceleration_plan(guide):
 def scheduler_plan(guide):
     """Resolve the schedule used by the selected H3 sampling route."""
     preset, _ = _safe_guide_preset(guide)
+    if guide.get("sampling_method") == "selflift":
+        if guide.get("two_stage_enabled") is False:
+            raise RuntimeError("SelfLift 模型路线未就绪，已阻止 standard 旁路")
+        return {"scheduler": "simple", "steps": 8, "split_step": 4, "refine_reference_tail": False}
     if preset in TWO_STAGE_PERFORMANCE_PRESETS and guide.get("two_stage_enabled") is not False:
         route = resolve_two_stage_route(guide)
         if route == "trained_latent_ref":
@@ -886,7 +905,12 @@ def _reconcile_two_stage_fallback_geometry(guide):
         guide.get("requested_height") or guide.get("target_height") or native_height
     )
     postprocess_mode = str(guide.get("postprocess_mode") or "native")
-    if requested_width == native_width and requested_height == native_height:
+    if postprocess_mode in {"ai_upscale", "video_sr", "vosr2"}:
+        # A sampling fallback cannot replace the selected reconstruction engine,
+        # including when its input already equals or exceeds the final target.
+        postprocess_path = "video_sr" if postprocess_mode == "vosr2" else postprocess_mode
+        target_width, target_height = requested_width, requested_height
+    elif requested_width == native_width and requested_height == native_height:
         postprocess_path = "native_bypass"
         target_width, target_height = native_width, native_height
     elif requested_width < native_width or requested_height < native_height:
@@ -916,7 +940,7 @@ def _reconcile_two_stage_fallback_geometry(guide):
     guide["upscale_method"] = {
         "rtx_vsr": "rtx_vsr",
         "ai_upscale": "comfy_upscale_model",
-        "video_sr": "seedvr2",
+        "video_sr": "vosr2" if postprocess_mode == "vosr2" else "seedvr2",
         "lanczos": "lanczos",
         "downscale": "cpu_bicubic",
         "native_bypass": "none",
@@ -959,8 +983,9 @@ def _env_flag(name, default=False):
 def _resolve_first_registered(category, names):
     """Return the first candidate file name registered with ComfyUI."""
     for name in names:
-        if resolve_registered_model_name(category, name) is not None:
-            return name
+        resolved = resolve_registered_model_name(category, name)
+        if resolved is not None:
+            return resolved
     return None
 
 
@@ -974,15 +999,19 @@ def _apply_ref_detail_loras(model, guide):
     """
     applied = []
     chain = []
-    mode = str(guide.get("community_lora_mode") or "全部自动叠加")
-    detail_on = _env_flag("MMH3_DETAIL_LORAS", True) and mode != "全部关闭"
-    extra_on = _env_flag("MMH3_EXTRA_LORAS", True) and mode == "全部自动叠加"
-    if mode != "全部自动叠加":
-        LOGGER.info("[H3 two-stage models] 社区 LoRA 开关=%s（节点控件设置）", mode)
-    if detail_on:
-        chain.extend(REF_DETAIL_LORA_CHAIN)
-    if extra_on:
-        chain.extend(REF_EXTRA_LORA_CHAIN)
+    profile = guide.get("community_lora_profile", "legacy")
+    if profile != "legacy":
+        chain.extend(motion_lora_chain(profile))
+    else:
+        mode = str(guide.get("community_lora_mode") or "全部自动叠加")
+        detail_on = _env_flag("MMH3_DETAIL_LORAS", True) and mode != "全部关闭"
+        extra_on = _env_flag("MMH3_EXTRA_LORAS", True) and mode == "全部自动叠加"
+        if mode != "全部自动叠加":
+            LOGGER.info("[H3 two-stage models] 社区 LoRA 开关=%s（节点控件设置）", mode)
+        if detail_on:
+            chain.extend(REF_DETAIL_LORA_CHAIN)
+        if extra_on:
+            chain.extend(REF_EXTRA_LORA_CHAIN)
     for names, strength in chain:
         candidates = (names,) if isinstance(names, str) else tuple(names)
         resolved = _resolve_first_registered("loras", candidates)
@@ -999,6 +1028,7 @@ def _apply_ref_detail_loras(model, guide):
             continue
         applied.append(f"{resolved}@{strength}")
     guide["detail_loras_applied"] = applied
+    guide["community_loras_applied"] = applied
     return model
 
 
@@ -1042,6 +1072,7 @@ def _fingerprint_base_model(model):
 def _apply_two_stage_models(model, guide, plan, values):
     """Build independently patched first/second models for trained sampling."""
     original_model = model
+    selflift = guide.get("sampling_method") == "selflift"
     # U22 recipe (validated on the user's RTX 4080): the INT8 hybrid base
     # checkpoint runs KJNodes' memory-efficient SageAttention on BOTH stages
     # cleanly — it is the difference between ~48 s/it and single-digit
@@ -1050,7 +1081,7 @@ def _apply_two_stage_models(model, guide, plan, values):
     # two escape hatches remain: MMH3_SECOND_STAGE_SAGE=0 keeps Sage on the
     # composition pass but runs the low-sigma redraw with exact head-reuse
     # attention, and MMH3_TWO_STAGE_SAGE=0 disables Sage entirely.
-    guide["sage_requested"] = True
+    guide["sage_requested"] = not selflift
     guide["cache_requested"] = False
     guide["head_chunking_requested"] = True
     guide["sage_applied"] = False
@@ -1081,7 +1112,7 @@ def _apply_two_stage_models(model, guide, plan, values):
         )
     else:
         LOGGER.info("[H3 two-stage models] 未能读取底模指纹（非标准模型对象），跳过底模识别")
-    two_stage_sage = _env_flag("MMH3_TWO_STAGE_SAGE", True)
+    two_stage_sage = not selflift and _env_flag("MMH3_TWO_STAGE_SAGE", True)
     second_stage_sage = two_stage_sage and _env_flag("MMH3_SECOND_STAGE_SAGE", True)
     try:
         shared_lora = (
@@ -1162,6 +1193,8 @@ def _apply_two_stage_models(model, guide, plan, values):
         guide["head_chunking_applied"] = False
         guide["resolved_two_stage_route"] = "bypass"
         LOGGER.error("[H3 two-stage models] official LoRA application failed: %s", exc)
+        if selflift:
+            raise RuntimeError(f"SelfLift 匹配 v4 LoRA 加载失败，已停止：{exc}") from exc
         # A stale or version-mismatched official adapter must never abort the
         # whole workflow.  Return the untouched model and let the preset node
         # switch to the conservative native step count and single-pass path.
@@ -1171,6 +1204,8 @@ def _apply_two_stage_models(model, guide, plan, values):
         guide["head_chunking_applied"] = False
         guide["head_chunking_error"] = str(exc)
         LOGGER.warning("[H3 two-stage models] route setup failed: %s", exc)
+        if selflift:
+            raise RuntimeError(f"SelfLift 精确注意力或模型配置失败，已停止：{exc}") from exc
         return original_model, "训练型二采模型或精确分块补丁不可用，已在采样前安全旁路", False, original_model
 
     guide["turbo_lora_applied"] = True

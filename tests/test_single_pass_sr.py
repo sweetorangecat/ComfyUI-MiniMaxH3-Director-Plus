@@ -11,9 +11,9 @@ def test_original_fhd_workflow_is_single_pass(backend,voice,method):
     assert p['performance_preset'] not in {'quality_two_stage','low_vram_two_stage'}
     assert p['postprocess_mode']==method
 
-def test_old_fhd_auto_selection_migrates_to_vosr2():
+def test_fhd_ai_selection_preserves_explicit_engine():
     p=resolve_smart_1080p_plan('ref2va_model',15,24,23,two_stage_ready=True,target_preset='1080p FHD',postprocess_mode='ai_upscale')
-    assert p['postprocess_mode']=='vosr2'
+    assert p['postprocess_mode']=='ai_upscale'
     assert p['two_stage_route']=='bypass'
 
 def test_768p_no_second_pass():

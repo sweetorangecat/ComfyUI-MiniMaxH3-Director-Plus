@@ -110,10 +110,54 @@ def test_native_bypass_does_not_resize_or_require_vsr(monkeypatch):
     assert torch.equal(result, images)
 
 
+def test_output_reports_executed_sampling_and_selected_sr(monkeypatch):
+    executed = {
+        'sampling_actual_method': 'selflift', 'sampling_executed_steps': 8,
+        'sampling_route': 'SelfLiftH3Sampler', 'sampling_elapsed_seconds': 12.5,
+        'two_stage_first_executed_steps': 4, 'two_stage_second_executed_steps': 4,
+        'two_stage_first_sigma_count': 5, 'two_stage_second_sigma_count': 5,
+        'two_stage_second_stage_path': 'selflift',
+    }
+    monkeypatch.setattr(stream_output, 'resolve_upscale_model_name', lambda *args: 'x2.pth')
+    monkeypatch.setattr(stream_output, '_iter_ai_upscale_frame_chunks', lambda frames, *args, **kwargs: iter([frames]))
+    result = _combine(monkeypatch, dict(executed, postprocess_mode='ai_upscale',
+        target_width=16, target_height=16), torch.rand(2, 16, 16, 3), [])
+    for metadata in (result['ui'], result['ui']['images'][0], result['ui']['gifs'][0]):
+        for key, value in executed.items():
+            assert metadata[key] == value
+        assert metadata['upscale_method'] == 'comfy_upscale_model'
+
+
 def test_same_size_rtx_request_is_reported_as_native_bypass(monkeypatch):
     guide = {"native_width": 3, "native_height": 2, "target_width": 3, "target_height": 2,
              "postprocess_mode": "rtx_vsr", "upscale_required": False}
     assert stream_output._resolve_postprocess_path(guide, 3, 2) == "native_bypass"
+
+
+@pytest.mark.parametrize('engine,path', [('vosr2', 'video_sr'), ('video_sr', 'video_sr'), ('ai_upscale', 'ai_upscale')])
+@pytest.mark.parametrize('source', [(1920, 1080), (2688, 1536)])
+def test_selected_sr_runs_even_at_or_above_target_dimensions(engine, path, source):
+    guide = {'postprocess_mode': engine, 'postprocess_path': 'balanced_fhd_downscale',
+             'target_width': 1920, 'target_height': 1080}
+    assert stream_output._resolve_postprocess_path(guide, *source) == path
+
+
+@pytest.mark.parametrize('engine,expected', [('vosr2', 'vosr2'), ('video_sr', 'seedvr2')])
+def test_selected_video_engine_overrides_stale_plan_and_preserves_final_size(monkeypatch, engine, expected):
+    received = []
+    captured = []
+    def video_sr(images, width, height, **kwargs):
+        received.append((width, height, kwargs['plan']))
+        yield images[:, :height, :width]
+    monkeypatch.setattr(stream_output, '_iter_video_sr_frame_chunks', video_sr)
+    monkeypatch.setattr(stream_output, 'resolve_seedvr2_callables', lambda: (object(),) * 3)
+    _combine(monkeypatch, {'postprocess_mode': engine,
+                          'video_sr_plan': {'engine': 'seedvr2' if engine == 'vosr2' else 'vosr2'},
+                          'target_width': 8, 'target_height': 8},
+             torch.rand(2, 16, 16, 3), captured)
+    assert received[0][:2] == (8, 8)
+    assert received[0][2]['engine'] == expected
+    assert received[0][2]['preserve_target'] is True
 
 
 def test_two_stage_actual_second_size_bypasses_redundant_vsr():

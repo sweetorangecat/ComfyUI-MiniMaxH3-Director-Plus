@@ -891,7 +891,12 @@ def test_ref_two_stage_applies_u22_detail_loras_when_registered(monkeypatch):
     monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
     monkeypatch.delenv("MMH3_EXTRA_LORAS", raising=False)
     monkeypatch.setattr(
-        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
+        performance, "resolve_registered_model_name",
+        # This fixture represents a legacy installation with these four adapters.
+        lambda category, name, comfy_root=None: name if name in {
+            "wushu_spatial_physics_v2_1000_pruned.safetensors", "MysticXXX_MMH3-V1.safetensors",
+            "动作i连续性修复LORA.safetensors", "MinimaxH3真实电影质感V1.0.safetensors",
+        } else None
     )
 
     def fake_lora(model, name, strength=1.0, low_vram=False):
@@ -2052,7 +2057,12 @@ def test_ref_two_stage_community_lora_widget_switch(monkeypatch):
     monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
     monkeypatch.delenv("MMH3_EXTRA_LORAS", raising=False)
     monkeypatch.setattr(
-        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
+        performance, "resolve_registered_model_name",
+        # This fixture represents a legacy installation with these four adapters.
+        lambda category, name, comfy_root=None: name if name in {
+            "wushu_spatial_physics_v2_1000_pruned.safetensors", "MysticXXX_MMH3-V1.safetensors",
+            "动作i连续性修复LORA.safetensors", "MinimaxH3真实电影质感V1.0.safetensors",
+        } else None
     )
 
     def fake_lora(model, name, strength=1.0, low_vram=False):
@@ -2134,7 +2144,12 @@ def test_fl_two_stage_applies_detail_loras_when_registered(monkeypatch):
     monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
     monkeypatch.delenv("MMH3_EXTRA_LORAS", raising=False)
     monkeypatch.setattr(
-        performance, "resolve_registered_model_name", lambda category, name, comfy_root=None: name
+        performance, "resolve_registered_model_name",
+        # This fixture represents a legacy installation with these four adapters.
+        lambda category, name, comfy_root=None: name if name in {
+            "wushu_spatial_physics_v2_1000_pruned.safetensors", "MysticXXX_MMH3-V1.safetensors",
+            "动作i连续性修复LORA.safetensors", "MinimaxH3真实电影质感V1.0.safetensors",
+        } else None
     )
 
     def fake_lora(model, name, strength=1.0, low_vram=False):

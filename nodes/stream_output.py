@@ -579,10 +579,11 @@ def _iter_video_sr_frame_chunks(
         sr_input_width = max(2, int(round(target_width / 4) * 2))
         sr_input_height = max(2, int(round(target_height / 4) * 2))
     else:
-        target_width, target_height = sr_output_size(
-            images.shape[2], images.shape[1], target_width, target_height,
-            plan.get("engine", "seedvr2"),
-        )
+        if not plan.get("preserve_target"):
+            target_width, target_height = sr_output_size(
+                images.shape[2], images.shape[1], target_width, target_height,
+                plan.get("engine", "seedvr2"),
+            )
         sr_input_width, sr_input_height = images.shape[2], images.shape[1]
     if plan.get("engine") == "vosr2":
         from .video_finish import _vosr2, validate_sr_result
@@ -796,6 +797,9 @@ def _iter_vsr_frame_stream(
 
 def _resolve_postprocess_path(guide, source_width, source_height):
     """Resolve explicit guide paths while retaining legacy guide behavior."""
+    selected = guide.get("postprocess_mode")
+    if selected in {"vosr2", "video_sr", "ai_upscale"}:
+        return "ai_upscale" if selected == "ai_upscale" else "video_sr"
     path = guide.get("postprocess_path")
     if path in {
         "native_bypass",
@@ -1119,7 +1123,13 @@ class MiniMaxH3StreamingVideoCombine:
         target_width = int(guide.get("target_width") or source.shape[2])
         target_height = int(guide.get("target_height") or source.shape[1])
         postprocess_path = _resolve_postprocess_path(guide, source_width, source_height)
-        if postprocess_path == "video_sr":
+        if postprocess_path == "video_sr" and guide.get("postprocess_mode") in {"vosr2", "video_sr"}:
+            guide = dict(guide)
+            plan = dict(guide.get("video_sr_plan") or {})
+            plan.update(engine="vosr2" if guide["postprocess_mode"] == "vosr2" else "seedvr2",
+                        preserve_target=True)
+            guide["video_sr_plan"] = plan
+        if postprocess_path == "video_sr" and not (guide.get("video_sr_plan") or {}).get("preserve_target"):
             from .video_finish import sr_output_size
             target_width, target_height = sr_output_size(
                 source_width, source_height, target_width, target_height,
@@ -1519,6 +1529,22 @@ class MiniMaxH3StreamingVideoCombine:
             **{name: settings[2] for name, settings in dasiwa._ANIMATED_IMAGE_SETTINGS.items()},
         }
         output_mime_type = mime_types[selected_container]
+        execution = {
+            key: guide[key] for key in (
+                "sampling_actual_method", "sampling_executed_steps", "sampling_route",
+                "sampling_elapsed_seconds", "sampling_attention_kernel", "two_stage_first_executed_steps",
+                "two_stage_second_executed_steps", "two_stage_first_sigma_count",
+                "two_stage_second_sigma_count", "two_stage_second_stage_path",
+                "first_stage_width", "first_stage_height", "second_stage_width",
+                "second_stage_height", "community_lora_profile", "community_loras_applied",
+            ) if key in guide
+        }
+        execution["upscale_method"] = (
+            (guide.get("video_sr_plan") or {}).get("engine", "seedvr2")
+            if postprocess_path == "video_sr"
+            else "comfy_upscale_model" if postprocess_path == "ai_upscale"
+            else postprocess_path
+        )
         assets = [{
             "filename": os.path.basename(output_path), "subfolder": subfolder, "type": output_type,
             "format": output_mime_type, "width": target_width, "height": target_height,
@@ -1526,6 +1552,7 @@ class MiniMaxH3StreamingVideoCombine:
             "postprocess_path": postprocess_path, "encode_quality": encode_quality,
             "upscale_profile": upscale_profile,
             "color_metadata": "bt709" if bt709_tagged else "unchanged",
+            **execution,
         }]
         assets.extend({
             "filename": os.path.basename(path), "subfolder": subfolder, "type": output_type,
@@ -1533,6 +1560,7 @@ class MiniMaxH3StreamingVideoCombine:
             "postprocess_path": postprocess_path,
         } for path in frame_exports)
         ui = {
+            **execution,
             "images": assets,
             "postprocess_path": postprocess_path,
             "audio_cleanup": audio_cleanup,
@@ -1540,6 +1568,7 @@ class MiniMaxH3StreamingVideoCombine:
         }
         if not dasiwa._animated_image_settings(selected_container):
             ui["gifs"] = [{
+                **execution,
                 "filename": os.path.basename(output_path), "subfolder": subfolder, "type": output_type,
                 "format": output_mime_type, "codec": selected_codec, "bit_depth": selected_bit_depth,
                 "container": selected_container, "width": target_width, "height": target_height, "fps": output_frame_rate,

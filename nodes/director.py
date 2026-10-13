@@ -20,6 +20,7 @@ from .schema import (
     normalize_request,
 )
 from .smart_1080p import SMART_PRESET, resolve_smart_1080p_plan, smart_1080p_target
+from .sampling_experiments import plan_selflift_dimensions, selflift_dependency_report
 from .two_stage_assets import dependency_report, resolve_two_stage_route, resolve_split_upscale_callables
 from .video_sr import resolve_seedvr2_fhd_plan, resolve_seedvr2_plan, seedvr2_dependency_report
 from .voice_guard import analyze_voice_reference
@@ -126,6 +127,23 @@ def _seedvr2_dependency_report():
         mappings = {}
     comfy_root = Path(__file__).resolve().parents[3]
     return seedvr2_dependency_report(comfy_root, node_mappings=mappings)
+
+
+def _selflift_dependency_report():
+    from .two_stage_assets import (
+        _comfy_node_mappings, resolve_latent_upscaler_model, resolve_v4_turbo_lora_name,
+        V4_TURBO_LORA_CANDIDATES, LATENT_UPSCALER_MODEL_CANDIDATES,
+    )
+    upscaler = resolve_latent_upscaler_model()
+    lora = resolve_v4_turbo_lora_name()
+    report = selflift_dependency_report(_comfy_node_mappings(), upscaler[0] if upscaler else None)
+    if lora is None:
+        report["missing"].append(" 或 ".join(V4_TURBO_LORA_CANDIDATES))
+    if upscaler is None:
+        report["missing"].append(" 或 ".join(LATENT_UPSCALER_MODEL_CANDIDATES))
+    report["ready"] = not report["missing"]
+    report["required_assets"] = [item for item in (lora, upscaler[0] if upscaler else None) if item]
+    return report
 
 
 def _uploaded_files(content_types):
@@ -378,6 +396,8 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_7": ("IMAGE",),
                 "reference_image_8": ("IMAGE",),
                 "reference_image_9": ("IMAGE",),
+                "sampling_method": (["standard", "selflift"], {"default": "standard", "tooltip": "仅质量优先二采样生效；SelfLift 试验限 REF2VA、无音色、4–5 秒、24FPS、最高 FHD"}),
+                "community_lora_profile": (["off", "continuity", "combat", "legacy"], {"default": "off", "tooltip": "仅质量优先二采样：关闭、动作连续性、武戏；legacy 复用旧社区开关"}),
             },
         }
 
@@ -443,6 +463,8 @@ class MiniMaxH3DirectorPlus:
         reference_image_7_file="",
         reference_image_8_file="",
         reference_image_9_file="",
+        sampling_method="standard",
+        community_lora_profile="off",
     ):
         requested_width, requested_height = calculate_resolution(
             resolution_preset,
@@ -572,6 +594,8 @@ class MiniMaxH3DirectorPlus:
             "mode": mode,
             "prompt": prompt,
             "duration": duration,
+            "requested_width": requested_width,
+            "requested_height": requested_height,
             "aspect_ratio": aspect_ratio,
             "resolution_preset": resolution_preset,
             "custom_width": custom_width,
@@ -593,6 +617,8 @@ class MiniMaxH3DirectorPlus:
             "references": [item for item in reference_images if item is not None],
             "ref_image_size": ref_image_size,
             "performance_preset": performance_preset,
+            "sampling_method": sampling_method,
+            "community_lora_profile": community_lora_profile,
             "postprocess_mode": postprocess_mode,
             "rtx_quality": rtx_quality,
             "ai_upscale_model": ai_upscale_model,
@@ -673,6 +699,7 @@ class MiniMaxH3DirectorPlus:
                 request["warnings"].append(smart_plan["warning"])
             if (
                 not seedvr2_ready
+                and postprocess_mode not in {"ai_upscale", "vosr2"}
                 and resolution_preset not in {"1080p FHD", "768p H3"}
                 and resolution_preset != "480p"
                 and not smart_plan["low_vram"]
@@ -720,7 +747,6 @@ class MiniMaxH3DirectorPlus:
                 "如需启用音频保护二采，请移除此设置或设为 1。"
             )
             request["performance_preset"] = "ref_quality_native"
-            request["postprocess_mode"] = "ai_upscale"
             request["motion_smoothing"] = "off"
 
         if request["performance_preset"] == "low_vram":
@@ -751,7 +777,32 @@ class MiniMaxH3DirectorPlus:
         two_stage_tiled = True
         resolved_two_stage_route = "bypass"
         required_assets = []
-        if request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS:
+        selflift_upscaler_model = None
+        if request["sampling_method"] == "selflift":
+            total_vram_gb, free_vram_gb = _probe_vram_after_prefree()
+            try:
+                two_stage_plan = plan_selflift_dimensions(
+                    requested_width, requested_height, duration, total_vram_gb, free_vram_gb,
+                )
+            except ValueError as exc:
+                raise RequestError(str(exc)) from exc
+            dependencies = _selflift_dependency_report()
+            if not dependencies["ready"]:
+                raise RequestError("SelfLift 依赖缺失：" + "、".join(dependencies["missing"]))
+            selflift_upscaler_model = dependencies["upscaler_model"]
+            required_assets = list(dependencies["required_assets"])
+            resolved_two_stage_route = "trained_latent_ref"
+            # SelfLift downsizes the target template internally. Conditioning
+            # must start on the target canvas, never on its low-resolution prefix.
+            native_width = int(two_stage_plan["second_stage_width"])
+            native_height = int(two_stage_plan["second_stage_height"])
+            native_capped = (native_width, native_height) != (requested_width, requested_height)
+            two_stage_tiled = False
+            request["warnings"].append(
+                "SelfLift 短视频试验：simple/Euler 共 8 步，前 4 步使用约 0.65 倍网格，"
+                "后 4 步使用 H3 目标网格；关闭 Sage、RIFE 和空间分块。显存门槛通过不保证无 OOM。"
+            )
+        elif request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS:
             resolved_two_stage_route = resolve_two_stage_route(request)
             if smart_vram is None:
                 total_vram_gb, free_vram_gb = _probe_vram_after_prefree()
@@ -839,6 +890,8 @@ class MiniMaxH3DirectorPlus:
             }:
                 request["video_sr_plan"]["force_2x"] = True
             postprocess_path = "video_sr"
+        elif request["postprocess_mode"] in {"video_sr", "ai_upscale"}:
+            postprocess_path = request["postprocess_mode"]
         elif two_stage_plan is not None and (
             two_stage_plan.get("balanced_fhd_supersample")
             or two_stage_plan.get("conservative_fhd_supersample")
@@ -932,21 +985,8 @@ class MiniMaxH3DirectorPlus:
                     ) from exc
         if postprocess_path == "video_sr" and request["postprocess_mode"] != "vosr2":
             seedvr2_report = _seedvr2_dependency_report()
-            if not seedvr2_report["ready"] and smart_mode and resolution_preset in {"1080p FHD", "768p H3"}:
-                raise RequestError("SeedVR2 未就绪：" + "、".join(seedvr2_report["missing"]))
             if not seedvr2_report["ready"]:
-                # The curated UI only exposes SeedVR2 as the final-output route;
-                # when its nodes/weights are missing, degrade to the per-frame
-                # AI upscale with a loud warning instead of killing the run.
-                postprocess_path = "ai_upscale"
-                request["postprocess_mode"] = "ai_upscale"
-                request["warnings"].append(
-                    "SeedVR2 视频超分未就绪（缺失："
-                    + "、".join(seedvr2_report["missing"])
-                    + "），本次已自动回退为通用 AI 超分；要达到最佳清晰度请安装 "
-                    "ComfyUI-SeedVR2_VideoUpscaler 节点并将 seedvr2_ema_7b/3b 与 "
-                    "ema_vae_fp16.safetensors 放入 models/SEEDVR2。"
-                )
+                raise RequestError("SeedVR2 未就绪：" + "、".join(seedvr2_report["missing"]))
             else:
                 total_for_sr = _cuda_memory_gb()[0]
                 request["video_sr_plan"] = (resolve_seedvr2_fhd_plan if resolution_preset == "1080p FHD" else resolve_seedvr2_plan)(
@@ -1087,6 +1127,9 @@ class MiniMaxH3DirectorPlus:
             "version": 1,
             "mode": mode,
             "voice_mode": voice_mode,
+            "sampling_method": request["sampling_method"],
+            "community_lora_profile": request["community_lora_profile"],
+            "selflift_upscaler_model": selflift_upscaler_model,
             "face_refine_mode": request["face_refine_mode"],
             "voice_gender": request["voice_gender"],
             "resolved_backend": request["resolved_backend"],
@@ -1114,8 +1157,8 @@ class MiniMaxH3DirectorPlus:
                 (smart_plan or {}).get("two_stage_audio_guard", False)
                 or (two_stage_plan and voice_mode == "h3_reference")
             ),
-            "first_stage_width": int(native_width),
-            "first_stage_height": int(native_height),
+            "first_stage_width": int(two_stage_plan["first_stage_width"] if two_stage_plan else native_width),
+            "first_stage_height": int(two_stage_plan["first_stage_height"] if two_stage_plan else native_height),
             "second_stage_width": int(
                 two_stage_plan["second_stage_width"] if two_stage_plan else native_width
             ),

@@ -123,7 +123,7 @@ def test_ui_exposes_separate_low_vram_two_stage_without_changing_layout():
     assert '"低显存", "低显存二采"' in text
     assert '"1080p FHD"' in text
     assert "低显存二采" in text
-    assert 'valueControl("最终输出", "postprocess_mode"' in text
+    assert 'valueControl("放大方式", "postprocess_mode"' in text
     assert 'valueControl("RTX VSR 质量", "rtx_quality"' in text
     assert 'valueControl("AI 超分模型", "ai_upscale_model"' in text
     assert 'postprocessMode === "ai_upscale"' in text
@@ -146,13 +146,15 @@ def test_ui_exposes_route_isolated_quality_presets():
     assert "v4 8步仅适用于 FL/T2V 后端" in text
 
 
-def test_ui_locks_quality_two_stage_to_video_sr():
+def test_ui_exposes_curated_sr_for_quality_two_stage():
     text = source()
     assert "POSTPROCESS_MODES_BY_PERFORMANCE" in text
-    assert '"质量优先二采样": [["video_sr"' in text
-    assert '"智能画质（自动适配）": [["video_sr"' in text
+    assert "CURATED_POSTPROCESS_MODES" in text
+    assert '["vosr2", "VOSR2 视频超分"]' in text
+    assert '["video_sr", "SeedVR2 视频超分"]' in text
+    assert '["ai_upscale", "通用 AI 超分（省显存）"]' in text
     assert "allowedPostprocessModes(preset)" in text
-    assert "质量优先二采样已锁定 SeedVR2 视频超分" in text
+    assert "标准二采完成后执行所选超分" in text
 
 
 def test_ui_exposes_reference_image_size_strategy():
@@ -178,22 +180,22 @@ def test_ui_locks_low_vram_two_stage_by_resolution_to_ai_x2_reconstruction():
     assert "lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight, duration)" in text
     assert "低显存二采已锁定 AI X2 细节重建" in text
     assert "1080p 最长 6 秒，768p 最长 10 秒" in text
-    assert "postprocessGrid.children[1]" in text
+    assert "postprocessGrid.children[0]" in text
     assert '"AI X2"' in text
     assert "isX2UpscaleModel" in text
     assert 'preset !== "低显存二采" || isX2UpscaleModel(value)' in text
 
 
-def test_ui_makes_smart_free_1080p_fully_automatic():
+def test_ui_smart_sampling_keeps_explicit_final_sr_choice():
     text = source()
 
-    assert '"智能画质（自动适配）": [["video_sr"' in text
+    assert "return POSTPROCESS_MODES_BY_PERFORMANCE[preset] || CURATED_POSTPROCESS_MODES" in text
     assert 'preset === SMART_PRESET' in text
     assert 'setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false)' in text
     assert 'const SMART_UPSCALE_MODEL = "auto"' in text
     assert '关闭（智能锁定）' in text
     assert "按后端、显存和时长自动选择路线" in text
-    assert "无需手动组合超分、模型和运动平滑" in text
+    assert "完成所选采样后执行" in text
 
 
 def test_ui_smart_resolution_allows_768p_through_4k():
@@ -203,7 +205,7 @@ def test_ui_smart_resolution_allows_768p_through_4k():
     assert 'const SMART_RESOLUTIONS = ["480p", "768p H3", "1080p FHD", ...SMART_HIGH_RESOLUTIONS]' in text
     assert '(preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) && !SMART_RESOLUTIONS.includes(resolutionPreset)' in text
     assert '["480p", "480p（8GB 单采，4–15 秒）"]' in text
-    assert '["768p H3", "768p H3（8GB 放大输出，画质需实测）"]' in text
+    assert '["768p H3", "768p H3（8GB 单采 + 所选放大，峰值需实测）"]' in text
     assert "if (preset === SMART_PRESET) resolutionControl" not in text
     assert 'preset === "1080p FHD") return smart1080pTarget' in text
     assert 'performancePreset === SMART_PRESET' in text

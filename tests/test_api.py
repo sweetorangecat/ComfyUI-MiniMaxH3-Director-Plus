@@ -34,6 +34,33 @@ def test_schema_contains_chinese_names():
     assert schema["properties"]["voice_gender"]["中文名称"] == "音色性别约束"
 
 
+@pytest.mark.parametrize('profile', ['off', 'continuity', 'combat', 'legacy'])
+def test_api_forwards_experiment_options_to_director_and_connects_vae(profile):
+    from api.routes import load_api_template
+    from tools.build_u11_workflow import build_api_template
+    for template in (load_api_template(), build_api_template()):
+        request, prompt = prepare_generation({
+            'mode': 'REF2VA', 'voice_mode': 'none', 'duration': 5,
+            'performance_preset': 'quality_two_stage', 'sampling_method': 'selflift',
+            'community_lora_profile': profile, 'resolution_preset': '1080p FHD',
+        }, template)
+        assert request['sampling_method'] == 'selflift'
+        assert prompt['10']['inputs']['sampling_method'] == 'selflift'
+        assert prompt['10']['inputs']['community_lora_profile'] == profile
+        assert prompt['21']['inputs']['video_vae'] == ['4', 0]
+
+
+@pytest.mark.parametrize('resolution,aspect,custom', [
+    ('2.10 MP', '16:9', {}), ('1080p FHD', '1:1', {}),
+    ('480p', 'CUSTOM', {'custom_width': 10, 'custom_height': 1}),
+])
+def test_api_rejects_selflift_after_resolving_actual_canvas(resolution, aspect, custom):
+    with pytest.raises(ValueError, match='SelfLift'):
+        prepare_generation(dict(mode='REF2VA', duration=5, voice_mode='none',
+            performance_preset='quality_two_stage', sampling_method='selflift',
+            resolution_preset=resolution, aspect_ratio=aspect, **custom), BASE_TEMPLATE)
+
+
 def test_patch_template_forwards_voice_gender_to_director():
     prompt = patch_template(BASE_TEMPLATE, {
         "mode": "REF2VA",

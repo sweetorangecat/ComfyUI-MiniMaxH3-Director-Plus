@@ -9,6 +9,7 @@ import time
 import torch
 import torch.nn.functional as F
 
+from .sampling_experiments import run_selflift, validate_sampling_options
 from .two_stage_assets import (
     resolve_split_upscale_callables,
     run_trained_latent_upscaler,
@@ -551,6 +552,7 @@ class MiniMaxH3TwoStageSampler:
             "optional": {
                 "guide": ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE",),
                 "second_model": ("MODEL",),
+                "video_vae": ("VAE",),
             },
         }
 
@@ -572,15 +574,32 @@ class MiniMaxH3TwoStageSampler:
         latent_image,
         guide=None,
         second_model=None,
+        video_vae=None,
     ):
-        from comfy_extras.nodes_custom_sampler import SamplerCustomAdvanced
         from .performance import memory_policy
 
         guide = guide or {}
+        if guide.get("sampling_method", "standard") == "selflift":
+            validate_sampling_options(guide)
+            if not self._enabled(guide):
+                raise RuntimeError("SelfLift 模型路线未就绪，已阻止 standard 旁路")
+            model = getattr(guider, "model_patcher", None)
+            if model is None or second_model is not model:
+                raise ValueError("SelfLift 两阶段必须连接同一个匹配 v4 的模型")
+            with memory_policy(guide):
+                result = run_selflift(model=model, positive=_positive_conditioning(guider),
+                    vae=video_vae, sampler=sampler, sigmas=sigmas, latent=latent_image,
+                    seed=getattr(noise, "seed", None), guide=guide)
+            return result, result
+
+        from comfy_extras.nodes_custom_sampler import SamplerCustomAdvanced
+        started = time.perf_counter()
         if not self._enabled(guide):
             with memory_policy(guide):
                 result = SamplerCustomAdvanced.execute(noise, guider, sampler, sigmas, latent_image)
             guide["two_stage_status"] = "旁路"
+            guide.update(sampling_actual_method="standard", sampling_executed_steps=len(sigmas) - 1,
+                         sampling_route="native", sampling_elapsed_seconds=time.perf_counter() - started)
             return _node_output(result, 0), _node_output(result, 1)
 
         if second_model is None:
@@ -776,4 +795,8 @@ class MiniMaxH3TwoStageSampler:
             guide["two_stage_audio_lock"],
         )
         LOGGER.info("[H3 two-stage] completed output=%s", _latent_shape(final_denoised))
+        first_steps, second_steps = len(first_sigmas) - 1, len(second_sigmas) - 1
+        guide.update(sampling_actual_method="standard", sampling_executed_steps=first_steps + second_steps,
+                     sampling_route=route, sampling_elapsed_seconds=time.perf_counter() - started,
+                     two_stage_first_executed_steps=first_steps, two_stage_second_executed_steps=second_steps)
         return final_denoised, final_denoised

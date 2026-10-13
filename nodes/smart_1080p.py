@@ -83,6 +83,9 @@ def resolve_smart_1080p_plan(
 
     seconds = _duration_seconds(duration)
     low_vram = total_vram_gb <= LOW_VRAM_TOTAL_GB
+    selected_sr = postprocess_mode in {"vosr2", "video_sr", "ai_upscale"}
+    if postprocess_mode == "video_sr" and not seedvr2_ready:
+        raise RequestError("所选 SeedVR2 未就绪：节点或权重缺失；请安装后重试，或选择其他超分")
     if postprocess_mode == "h3_two_stage":
         if not 4 <= seconds <= 15:
             raise RequestError("视频时长必须在 4 到 15 秒之间")
@@ -110,8 +113,6 @@ def resolve_smart_1080p_plan(
             raise RequestError("视频时长必须在 4 到 15 秒之间")
         fhd = target_preset == "1080p FHD"
         method = postprocess_mode or "vosr2"
-        if fhd and method == "ai_upscale":
-            method = "vosr2"  # Migrate older Smart 1080p workflows.
         method_name = {"vosr2": "VOSR2", "video_sr": "SeedVR2", "ai_upscale": "RealESRGAN", "lanczos": "Lanczos", "native": "原生尺寸"}.get(method, method)
         return {
             "performance_preset": "low_vram" if low_vram else ("ref_quality_native" if backend == "ref2va_model" and voice_mode == "h3_reference" else "quality_sage"),
@@ -127,12 +128,12 @@ def resolve_smart_1080p_plan(
             raise RequestError("视频时长必须在 4 到 15 秒之间")
         return {
             "performance_preset": "low_vram" if low_vram else "quality_sage",
-            "postprocess_mode": "ai_upscale",
+            "postprocess_mode": postprocess_mode if selected_sr else "ai_upscale",
             "ai_upscale_model": SMART_LOW_VRAM_UPSCALE_MODEL if low_vram else SMART_UPSCALE_MODEL,
             "seedvr2_ready": bool(seedvr2_ready), "motion_smoothing": "off",
             "use_easycache": False, "low_vram": low_vram, "max_duration": 15,
             "two_stage_route": "bypass", "dimension_plan": None,
-            "warning": "480p 单采：保留 480p 输出目标，按时长控制采样网格，不自动执行训练型二采或 SeedVR2。4–15 秒为策略允许范围，8GB 实际峰值和画质仍需实测。",
+            "warning": "480p 单采：保留 480p 输出目标，按时长控制采样网格，再执行所选超分。4–15 秒为策略允许范围，8GB 实际峰值和画质仍需实测。",
         }
     low_vram_long_target = (
         low_vram
@@ -179,7 +180,7 @@ def resolve_smart_1080p_plan(
             # costume, weakening the reference-audio result it is meant to
             # preserve.  Keep H3-reference jobs on the conservative one-pass
             # scaler even if SeedVR2 happens to be installed.
-            "postprocess_mode": "ai_upscale",
+            "postprocess_mode": postprocess_mode if selected_sr else "ai_upscale",
             "ai_upscale_model": SMART_UPSCALE_MODEL,
             "seedvr2_ready": bool(seedvr2_ready),
             "motion_smoothing": "off",
@@ -223,7 +224,7 @@ def resolve_smart_1080p_plan(
         if not dimension_plan["allowed"]:
             raise RequestError(dimension_plan["reason"])
         if (
-            postprocess_mode != "vosr2"
+            postprocess_mode not in {"vosr2", "ai_upscale"}
             and not seedvr2_ready
             and not dimension_plan.get("qhd_direct")
         ):
@@ -303,7 +304,8 @@ def resolve_smart_1080p_plan(
                     f"分块重绘后先缩至目标尺寸一半（{int(target_width) // 2}×{int(target_height) // 2}），"
                     f"再由 VOSR2 按 2 倍放大到 {target_label}（试验路线）。"
                     if postprocess_mode == "vosr2"
-                    else ("2K 网格分块重绘后裁切到目标尺寸。" if dimension_plan.get("qhd_direct")
+                    else ("二采后执行所选超分并适配目标尺寸。" if selected_sr
+                          else "2K 网格分块重绘后裁切到目标尺寸。" if dimension_plan.get("qhd_direct")
                           else "分块重绘后由 SeedVR2 完成最终超分。")
                 )
                 + "VOSR2 会暂存整段放大帧，4K 与长片占用较多系统内存，建议先用 4–5 秒短片验证；"
@@ -338,7 +340,9 @@ def resolve_smart_1080p_plan(
     if voice_mode == "h3_reference" and route == "trained_latent_ref":
         warning = warning.replace("8 步首采", "完整首采（至 sigma=0）")
         warning += " 完成全部首采步数后再锁定音频（零噪声、零重绘遮罩、最终精确回填），增加首采耗时；音色匹配与口型仍需实际验证。"
-    if low_vram:
+    if selected_sr:
+        resolved_postprocess_mode = postprocess_mode
+    elif low_vram:
         resolved_postprocess_mode = "ai_upscale"
     elif high_res_target and postprocess_mode == "vosr2":
         resolved_postprocess_mode = "vosr2"

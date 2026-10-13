@@ -60,6 +60,34 @@ def test_attention_supports_h3_hidden_width_different_from_inner_width(monkeypat
     assert attention.projection_calls == 2
 
 
+def test_selflift_exact_kernel_ignores_process_global_sage(monkeypatch):
+    from comfy.ldm.modules import attention as kernels
+    calls = []
+    def exact(q, k, v, heads, **kwargs):
+        override = kwargs['transformer_options'].get('optimized_attention_override')
+        if override is not None:
+            return override(q, k, v, heads)
+        calls.append(heads)
+        return v.transpose(1, 2).reshape(1, v.shape[2], heads * v.shape[3])
+    monkeypatch.setattr(kernels, 'attention_pytorch', exact, raising=False)
+    monkeypatch.setattr(h3_reuse_attention, 'optimized_attention', lambda *a, **kw: pytest.fail('global Sage kernel used'))
+    original = torch.arange(30, dtype=torch.float32).reshape(5, 6)
+    options = {'minimax_head_chunks': 2, 'minimax_force_exact_attention': True,
+               'optimized_attention_override': lambda *args: pytest.fail('inherited Sage/TST override used')}
+    result = h3_reuse_attention.minimax_attn_reuse_forward(_FakeAttention(), [original.clone()],
+        transformer_options=options)
+    assert torch.equal(result, original)
+    assert calls == [2, 2]
+    assert 'optimized_attention_override' in options
+
+
+def test_exact_kernel_option_is_scoped_to_patched_model_clone():
+    model = _FakePatcher(_fake_h3_model())
+    result = h3_reuse_attention.apply_h3_reuse_attention(model, force_exact=True)
+    assert result.model_options['transformer_options']['minimax_force_exact_attention'] is True
+    assert 'minimax_force_exact_attention' not in model.model_options['transformer_options']
+
+
 class _FakeMLP:
     @staticmethod
     def fc1(value):

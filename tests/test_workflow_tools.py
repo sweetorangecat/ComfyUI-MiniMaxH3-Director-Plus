@@ -12,6 +12,26 @@ from tools.build_u11_workflow import (
 from tools.validate_workflow import WorkflowError, validate_workflow
 
 
+def test_upgrading_legacy_samplers_connects_the_conditioning_video_vae():
+    path = next(Path('examples').glob('U11-*.json'))
+    workflow = json.loads(path.read_text(encoding='utf-8'))
+    graph = next(g for g in workflow['definitions']['subgraphs']
+                 if any(n.get('id') == 2584 for n in g['nodes']))
+    removed = set()
+    for node in graph['nodes']:
+        if node.get('type') == 'MiniMaxH3TwoStageSampler':
+            node['type'] = 'SamplerCustomAdvanced'
+            removed.update(i['link'] for i in node['inputs'] if i['name'] == 'video_vae')
+            node['inputs'] = [i for i in node['inputs'] if i['name'] != 'video_vae']
+    graph['links'] = [link for link in graph['links'] if link['id'] not in removed]
+    _upgrade_subgraphs(workflow)
+    for node_id in (2591, 2668):
+        node = next(n for n in graph['nodes'] if n['id'] == node_id)
+        vae = next(i for i in node['inputs'] if i['name'] == 'video_vae')
+        link = next(link for link in graph['links'] if link['id'] == vae['link'])
+        assert (link['origin_id'], link['target_id'], link['target_slot']) == (2584, node_id, 7)
+
+
 def test_checked_in_u11_example_preserves_native_seed_control_widget_alignment():
     path = (
         Path(__file__).resolve().parents[1]
@@ -425,7 +445,7 @@ def test_api_template_scopes_low_vram_policy_around_sampling():
     assert sampler["class_type"] == "MiniMaxH3TwoStageSampler"
     assert sampler["inputs"]["guide"] == ["10", 0]
     assert sampler["inputs"]["second_model"] == ["15", 3]
-    assert "video_vae" not in sampler["inputs"]
+    assert sampler["inputs"]["video_vae"] == ["4", 0]
 
 
 def test_api_template_wires_matched_scheduler_and_second_model_automatically():
