@@ -6,6 +6,13 @@ from nodes import sampling_experiments as experiments
 
 
 def euler_sampler():
+    try:
+        from comfy.samplers import sampler_object
+    except ImportError:
+        pass
+    else:
+        return sampler_object("euler")
+
     def sample_euler():
         pass
     return types.SimpleNamespace(sampler_function=sample_euler, extra_options={})

@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -260,7 +261,7 @@ def test_quality_two_stage_passes_crf_16_to_the_encoder(monkeypatch):
 
     args, _ = encode_calls[0]
     assert args[9:11] == (16, 16)
-    assert tagged == [("ffmpeg", ".\\stream-test.mp4")]
+    assert tagged == [("ffmpeg", os.path.join(".", "stream-test.mp4"))]
 
 
 def test_h264_bt709_tagging_is_a_lossless_stream_copy(monkeypatch, tmp_path):
