@@ -17,6 +17,7 @@ LOW_VRAM_MAX_SECONDS = 6
 LOW_VRAM_MIN_FREE_GB = 6.0
 LOW_VRAM_TOTAL_GB = 16.0
 LOW_VRAM_LONG_MAX_SECONDS = 15
+LOW_VRAM_768P_TWO_STAGE_MAX_SECONDS = 10
 LOW_VRAM_LONG_MAX_PIXELS = 1344 * 768
 
 
@@ -108,7 +109,21 @@ def resolve_smart_1080p_plan(
             "dimension_plan": dimensions,
             "warning": "已选择 H3 二采：首采后放大 latent 并重绘，不叠加 VOSR2 或 SeedVR2。",
         }
-    if target_preset in {"1080p FHD", "768p H3"}:
+    # An explicit 768p target normally keeps the inexpensive single-pass
+    # route.  On low-VRAM cards, however, a ready trained redraw is the only
+    # path that can preserve enough detail for a 7–10 second clip.  Let the
+    # generic low-VRAM planner handle that case; 11–15 seconds still falls
+    # through to the guarded single-pass route below.
+    low_vram_768p_two_stage = (
+        target_preset == "768p H3"
+        and low_vram
+        and seconds <= LOW_VRAM_768P_TWO_STAGE_MAX_SECONDS
+        and bool(two_stage_ready)
+        and voice_mode in ("none", "h3_reference")
+    )
+    if target_preset == "1080p FHD" or (
+        target_preset == "768p H3" and not low_vram_768p_two_stage
+    ):
         if not 4 <= seconds <= 15:
             raise RequestError("视频时长必须在 4 到 15 秒之间")
         fhd = target_preset == "1080p FHD"

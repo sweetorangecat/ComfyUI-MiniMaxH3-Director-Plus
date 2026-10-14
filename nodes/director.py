@@ -668,7 +668,16 @@ class MiniMaxH3DirectorPlus:
             seedvr2_report = _seedvr2_dependency_report()
             seedvr2_ready = seedvr2_report.get("ready", False)
             two_stage_ready = False
-            if request["voice_mode"] != "fish_lock" and (request["postprocess_mode"] == "h3_two_stage" or resolution_preset not in {"480p", "768p H3", "1080p FHD"}):
+            low_vram_768p_two_stage_probe = (
+                resolution_preset == "768p H3"
+                and int(request["duration"]) <= 10
+                and request["voice_mode"] == "none"
+            )
+            if request["voice_mode"] != "fish_lock" and (
+                request["postprocess_mode"] == "h3_two_stage"
+                or resolution_preset not in {"480p", "768p H3", "1080p FHD"}
+                or low_vram_768p_two_stage_probe
+            ):
                 smart_two_stage_route = (
                     "trained_latent_ref"
                     if request["resolved_backend"] == "ref2va_model"

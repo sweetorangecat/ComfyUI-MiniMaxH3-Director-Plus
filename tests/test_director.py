@@ -188,6 +188,10 @@ def test_low_vram_smart_768p_allows_fifteen_seconds(monkeypatch):
 def test_low_vram_smart_768p_ten_seconds_uses_tiled_trained_redraw(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
     monkeypatch.setattr(
+        "nodes.director._trained_two_stage_dependency_report",
+        lambda route: {"ready": True, "missing": [], "required_assets": ["u22"]},
+    )
+    monkeypatch.setattr(
         "nodes.director._seedvr2_dependency_report",
         lambda: {"ready": False, "missing": ["SeedVR2VideoUpscaler"], "available_dit": []},
     )
@@ -213,9 +217,10 @@ def test_low_vram_smart_768p_ten_seconds_uses_tiled_trained_redraw(monkeypatch):
         reference_transcript="",
     )
 
-    assert guide["performance_preset"] == "low_vram"
-    assert guide["two_stage_enabled"] is False
-    assert guide["resolved_two_stage_route"] == "bypass"
+    assert guide["performance_preset"] == "low_vram_two_stage"
+    assert guide["two_stage_enabled"] is True
+    assert guide["resolved_two_stage_route"] == "trained_latent_fl"
+    assert guide["two_stage_tiled"] is True
     assert guide["postprocess_path"] == "ai_upscale"
     assert (guide["target_width"], guide["target_height"]) == (1344, 768)
 
