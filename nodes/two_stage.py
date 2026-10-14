@@ -430,6 +430,26 @@ def _positive_conditioning(guider):
     return rebuilt
 
 
+def _matched_selflift_model(guide, second_model):
+    """Accept the accelerated v4 output when a legacy graph keeps a model clone.
+
+    Older nested U11 graphs apply ``MiniMaxH3SigmaShift`` to the base model
+    before building ``BasicGuider`` while wiring the acceleration router's
+    second output to ``MiniMaxH3TwoStageSampler``.  SelfLift uses one model for
+    both passes, so the router output is the authoritative model in that
+    layout.  Keep the check strict enough to reject an arbitrary model link.
+    """
+    if second_model is None or not guide.get("two_stage_enabled"):
+        return False
+    if not guide.get("turbo_lora_applied") or not guide.get("head_chunking_applied"):
+        return False
+    if guide.get("resolved_two_stage_route") not in {"trained_latent_ref", "trained_latent_fl"}:
+        return False
+    first_lora = str(guide.get("first_lora_name") or "")
+    second_lora = str(guide.get("second_lora_name") or "")
+    return bool(first_lora and first_lora == second_lora and "v4" in first_lora.lower())
+
+
 def run_tiled_second_stage(
     split_callables,
     *,
@@ -585,7 +605,12 @@ class MiniMaxH3TwoStageSampler:
                 raise RuntimeError("SelfLift 模型路线未就绪，已阻止 standard 旁路")
             model = getattr(guider, "model_patcher", None)
             if model is None or second_model is not model:
-                raise ValueError("SelfLift 两阶段必须连接同一个匹配 v4 的模型")
+                if model is None or not _matched_selflift_model(guide, second_model):
+                    raise ValueError("SelfLift 两阶段必须连接同一个匹配 v4 的模型")
+                LOGGER.warning(
+                    "[H3 SelfLift] 兼容旧工作流：BasicGuider 保留模型副本，改用加速路由的匹配 v4 输出"
+                )
+                model = second_model
             with memory_policy(guide):
                 result = run_selflift(model=model, positive=_positive_conditioning(guider),
                     vae=video_vae, sampler=sampler, sigmas=sigmas, latent=latent_image,

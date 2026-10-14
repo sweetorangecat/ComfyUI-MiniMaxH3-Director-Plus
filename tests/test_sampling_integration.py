@@ -238,6 +238,42 @@ def test_selflift_sampler_dispatches_before_standard_bypass(monkeypatch):
     assert calls[0]["seed"] == 23 and calls[0]["positive"] == [["embedding", {}]]
 
 
+def test_selflift_uses_matched_accelerated_model_when_guider_keeps_sigma_shift_clone(monkeypatch):
+    from nodes import two_stage
+    import torch
+    calls = []
+
+    def run(**kwargs):
+        calls.append(kwargs)
+        return kwargs["latent"]
+
+    monkeypatch.setattr(two_stage, "run_selflift", run, raising=False)
+    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace())
+    guider_model = object()
+    accelerated_model = object()
+    guider = types.SimpleNamespace(
+        model_patcher=guider_model,
+        original_conds={"positive": [["embedding", {}]]},
+    )
+    guide = short_guide(
+        two_stage_enabled=True,
+        turbo_lora_applied=True,
+        head_chunking_applied=True,
+        resolved_two_stage_route="trained_latent_ref",
+        first_lora_name="minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors",
+        second_lora_name="minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors",
+    )
+    latent = {"samples": "target-av"}
+
+    result = two_stage.MiniMaxH3TwoStageSampler().execute(
+        types.SimpleNamespace(seed=23), guider, object(), torch.linspace(1, 0, 9),
+        latent, guide, second_model=accelerated_model, video_vae=object(),
+    )
+
+    assert result == (latent, latent)
+    assert calls[0]["model"] is accelerated_model
+
+
 def test_standard_bypass_records_actual_steps_route_and_time(monkeypatch):
     from nodes import two_stage
     ticks = iter((10.0, 13.0))
