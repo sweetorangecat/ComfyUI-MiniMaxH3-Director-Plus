@@ -158,6 +158,55 @@ test("SelfLift and motion profiles restore and reset when leaving two-stage", ()
   assert.equal(profile.value, "off");
 });
 
+function advancedPanel(node) {
+  return allElements(node.root).find(el => el.tag === "details"
+    && el.children.some(child => child.textContent === "二采高级设置"));
+}
+
+function directorWithAdvancedOptions() {
+  const installed = installedDirector("off", [
+    { name: "performance_preset", value: "质量优先二采样" },
+    { name: "sampling_method", value: "standard" },
+    { name: "community_lora_profile", value: "off" },
+    { name: "voice_mode", value: "none" },
+    { name: "resolution_preset", value: "1080p FHD" },
+  ]);
+  const mode = installed.node.widgets.find(item => item.name === "mode");
+  mode.value = "REF2VA";
+  mode.callback("REF2VA");
+  return installed;
+}
+
+test("advanced settings stay open across sampling, motion and output changes", () => {
+  const { node } = directorWithAdvancedOptions();
+  advancedPanel(node).open = true;
+  for (const [name, value] of [["sampling_method", "selflift"],
+    ["community_lora_profile", "combat"], ["resolution_preset", "4K UHD"]]) {
+    const item = node.widgets.find(widget => widget.name === name);
+    item.value = value;
+    item.callback(value);
+    assert.equal(advancedPanel(node).open, true, name);
+    assert.equal(item.value, value);
+  }
+  advancedPanel(node).open = false;
+  const method = node.widgets.find(widget => widget.name === "sampling_method");
+  method.callback(method.value);
+  assert.equal(advancedPanel(node).open, false);
+});
+
+test("advanced panel state belongs to each director and survives preset changes", () => {
+  const { node } = directorWithAdvancedOptions();
+  advancedPanel(node).open = true;
+  const { node: other } = directorWithAdvancedOptions();
+  assert.ok(!advancedPanel(other).open);
+  const preset = node.widgets.find(widget => widget.name === "performance_preset");
+  for (const value of ["稳定质量", "质量优先二采样"]) {
+    preset.value = value;
+    preset.callback(value);
+  }
+  assert.equal(advancedPanel(node).open, true);
+});
+
 test("loading a legacy U11 removes the face branch and preserves audio and prompts", () => {
   const { extension } = installedDirector();
   const graph = {

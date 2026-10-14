@@ -810,6 +810,8 @@ function install(node) {
   const controllerId = `h3p-${++nextControllerId}`;
   root.dataset.h3pController = controllerId;
   let fishPanel;
+  let twoStagePanel;
+  let twoStagePanelOpen = false;
 
   function render() {
     sanitizeUploadWidgets(node);
@@ -881,6 +883,10 @@ function install(node) {
       ? "ref2va_model"
       : "fl2va_model";
 
+    if (twoStagePanel) {
+      twoStagePanelOpen = twoStagePanel.open;
+      twoStagePanel = null;
+    }
     root.replaceChildren();
 
     const head = document.createElement("div");
@@ -1020,6 +1026,8 @@ function install(node) {
     specification.append(postprocessGrid);
     if (preset === "质量优先二采样") {
       const advanced = document.createElement("details");
+      advanced.open = twoStagePanelOpen;
+      twoStagePanel = advanced;
       const summary = document.createElement("summary");
       summary.textContent = "二采高级设置";
       const controls = document.createElement("div");
@@ -1031,7 +1039,7 @@ function install(node) {
       );
       const note = document.createElement("div");
       note.className = "h3p-spec-note";
-      note.textContent = "SelfLift 实验：参考图模式、不使用音色、4–5秒、最多1080p；总显存至少20GB且空闲至少18GB。动作增强默认关闭，建议分别对比。";
+      note.textContent = "SelfLift 实验：参考图模式、不使用音色、4–15秒；支持所选超分输出2K/4K，总显存至少20GB且空闲至少18GB。动作增强默认关闭，建议分别对比。";
       advanced.append(summary, controls, note);
       specification.append(advanced);
     }

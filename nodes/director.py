@@ -396,7 +396,7 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_7": ("IMAGE",),
                 "reference_image_8": ("IMAGE",),
                 "reference_image_9": ("IMAGE",),
-                "sampling_method": (["standard", "selflift"], {"default": "standard", "tooltip": "仅质量优先二采样生效；SelfLift 试验限 REF2VA、无音色、4–5 秒、24FPS、最高 FHD"}),
+                "sampling_method": (["standard", "selflift"], {"default": "standard", "tooltip": "仅质量优先二采样生效；SelfLift 实验使用 REF2VA、无音色、4–15 秒、24FPS，支持所选超分输出 2K/4K"}),
                 "community_lora_profile": (["off", "continuity", "combat", "legacy"], {"default": "off", "tooltip": "仅质量优先二采样：关闭、动作连续性、武戏；legacy 复用旧社区开关"}),
             },
         }
@@ -799,7 +799,7 @@ class MiniMaxH3DirectorPlus:
             native_capped = (native_width, native_height) != (requested_width, requested_height)
             two_stage_tiled = False
             request["warnings"].append(
-                "SelfLift 短视频试验：simple/Euler 共 8 步，前 4 步使用约 0.65 倍网格，"
+                "SelfLift 渐进采样实验：simple/Euler 共 8 步，前 4 步使用约 0.65 倍网格，"
                 "后 4 步使用 H3 目标网格；关闭 Sage、RIFE 和空间分块。显存门槛通过不保证无 OOM。"
             )
         elif request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS:

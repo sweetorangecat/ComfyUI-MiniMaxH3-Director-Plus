@@ -1,6 +1,6 @@
 # API 说明
 
-2026-10-14：新增可选 `sampling_method=standard|selflift` 与 `community_lora_profile=off|continuity|combat|legacy`，默认 `standard/off`。高级选项仅用于 `quality_two_stage`；SelfLift 限 `REF2VA`、`voice_mode=none`、4–5秒、24FPS、最高1080p，总显存至少20GB且空闲至少18GB。安装与试用见 [SelfLift短视频实验](SelfLift短视频实验.md)。运行后的输出元数据包含 `sampling_actual_method`、`sampling_executed_steps`、`sampling_route`、`sampling_elapsed_seconds`、两阶段实际步数与 `community_loras_applied`；这些不是运行前的画质或显存保证。
+2026-10-14：新增可选 `sampling_method=standard|selflift` 与 `community_lora_profile=off|continuity|combat|legacy`，默认 `standard/off`。高级选项仅用于 `quality_two_stage`；SelfLift 使用 `REF2VA`、`voice_mode=none`、4–15秒、24FPS，支持所选超分输出2K/4K，总显存至少20GB且空闲至少18GB。安装与试用见 [SelfLift短视频实验](SelfLift短视频实验.md)。运行后的输出元数据包含 `sampling_actual_method`、`sampling_executed_steps`、`sampling_route`、`sampling_elapsed_seconds`、两阶段实际步数与 `community_loras_applied`；这些不是运行前的画质或显存保证。
 
 2026-10-11：默认 `performance_preset` 显示值为 `稳定质量`，`智能画质（自动适配）` / `免费智能 1080p` / `smart_free_1080p` 继续兼容，无新增必填入参。标准 QHD 自动规划 4–15 秒路线，实际 `postprocess_path` 可为 `balanced_fhd_downscale`（复用等比裁切导出，`qhd_direct=true`）或 `video_sr`。`two_stage_tiling_required` 表示必须完整分块，`split_oom_retries` 记录二采 OOM 重试次数。预算和硬件验证边界见 [交付说明](U11清晰度增强版交付说明.md)。
 

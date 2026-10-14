@@ -53,12 +53,18 @@ def test_api_forwards_experiment_options_to_director_and_connects_vae(profile):
 @pytest.mark.parametrize('resolution,aspect,custom', [
     ('2.10 MP', '16:9', {}), ('1080p FHD', '1:1', {}),
     ('480p', 'CUSTOM', {'custom_width': 10, 'custom_height': 1}),
+    ('2K QHD', '16:9', {}), ('4K UHD', '9:16', {}),
 ])
-def test_api_rejects_selflift_after_resolving_actual_canvas(resolution, aspect, custom):
-    with pytest.raises(ValueError, match='SelfLift'):
-        prepare_generation(dict(mode='REF2VA', duration=5, voice_mode='none',
-            performance_preset='quality_two_stage', sampling_method='selflift',
-            resolution_preset=resolution, aspect_ratio=aspect, **custom), BASE_TEMPLATE)
+@pytest.mark.parametrize('duration', [5, 15])
+def test_api_preserves_selflift_duration_and_resolved_output(resolution, aspect, custom, duration):
+    request, prompt = prepare_generation(dict(mode='REF2VA', duration=duration, voice_mode='none',
+        performance_preset='quality_two_stage', sampling_method='selflift',
+        resolution_preset=resolution, aspect_ratio=aspect, **custom), BASE_TEMPLATE)
+    assert request['sampling_method'] == 'selflift'
+    assert request['duration'] == prompt['10']['inputs']['duration'] == duration
+    assert prompt['10']['inputs']['resolution_preset'] == resolution
+    assert (request['width'], request['height']) == (
+        prompt['10']['inputs']['width'], prompt['10']['inputs']['height'])
 
 
 def test_patch_template_forwards_voice_gender_to_director():

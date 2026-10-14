@@ -613,7 +613,7 @@ def public_schema():
             },
             "sampling_method": {
                 "中文名称": "二采方法", "enum": ["standard", "selflift"], "default": "standard",
-                "description": "SelfLift 实验仅支持质量优先二采样、REF2VA、无音色、4–5秒、24FPS和最多1080p。",
+                "description": "SelfLift 实验使用质量优先二采样、REF2VA、无音色、4–15秒、24FPS；支持所选超分输出2K/4K。",
             },
             "community_lora_profile": {
                 "中文名称": "动作增强", "enum": ["off", "continuity", "combat", "legacy"], "default": "off",

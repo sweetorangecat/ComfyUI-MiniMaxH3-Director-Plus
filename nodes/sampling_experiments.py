@@ -1,4 +1,4 @@
-"""Conservative short-video contracts for the installed SelfLift H3 sampler.
+"""Progressive sampling contracts for the installed SelfLift H3 sampler.
 
 This module deliberately imports neither Torch nor ComfyUI at module load time.
 The upstream node owns the progressive algorithm; this adapter only validates
@@ -37,12 +37,8 @@ def validate_sampling_options(request):
     if method == "selflift":
         if request.get("mode") != "REF2VA" or request.get("voice_mode", "none") != "none":
             raise ValueError("SelfLift 目前仅支持 REF2VA 且不使用音色条件")
-        if float(request.get("duration", 0)) not in {4.0, 5.0}:
-            raise ValueError("SelfLift 目前仅支持 4–5 秒短视频")
         if request.get("motion_smoothing", "off") not in {"off", "auto"} or float(request.get("fps", 24)) != 24:
             raise ValueError("SelfLift 目前仅支持 24FPS，不能启用 RIFE")
-        if request.get("resolution_preset") in {"2K QHD", "4K UHD"}:
-            raise ValueError("SelfLift 最终输出最高支持 1080p FHD")
         width = request.get("requested_width", request.get("width"))
         height = request.get("requested_height", request.get("height"))
         if width is not None and height is not None:
@@ -52,16 +48,14 @@ def validate_sampling_options(request):
 
 def _validate_output_dimensions(width, height):
     width, height = int(width), int(height)
-    if min(width, height) <= 0 or max(width, height) > 1920 or min(width, height) > 1080:
-        raise ValueError("SelfLift 最终输出最高支持 1920×1080（横屏或竖屏）")
+    if min(width, height) <= 0:
+        raise ValueError("SelfLift 最终输出宽高必须为正数")
     return width, height
 
 
 def plan_selflift_dimensions(width, height, duration, total, free):
     """Plan the target template and the exact upstream 0.65 even-latent prefix."""
     width, height = _validate_output_dimensions(width, height)
-    if float(duration) not in {4.0, 5.0}:
-        raise ValueError("SelfLift 目前仅支持 4–5 秒短视频")
     if not all(math.isfinite(float(value)) for value in (total, free)) or float(total) < 20 or float(free) < 18:
         raise ValueError("SelfLift 启动至少需要总显存 20GB、空闲显存 18GB")
     max_area = 1344 * 768
@@ -85,7 +79,7 @@ def plan_selflift_dimensions(width, height, duration, total, free):
         "final_scale_x": scale_x, "final_scale_y": scale_y,
         "final_scale": max(scale_x, scale_y), "max_final_vsr_scale": None,
         "vram_safety_tier": "selflift_shortvideo_experimental",
-        "quality_basis": "SelfLift 4+4 步渐进采样（短视频试验）",
+        "quality_basis": "SelfLift 4+4 步渐进采样（实验）",
     }
 
 

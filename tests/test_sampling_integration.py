@@ -71,6 +71,24 @@ def test_director_selflift_missing_dependency_stops_before_sampling(director_run
         build_director(sampling_method="selflift")
 
 
+@pytest.mark.parametrize("preset,size", [("2K QHD", (2560, 1440)), ("4K UHD", (3840, 2160))])
+@pytest.mark.parametrize("method,path", [("ai_upscale", "ai_upscale"),
+                                       ("video_sr", "video_sr"), ("vosr2", "video_sr")])
+def test_director_selflift_long_uhd_preserves_selected_sr(director_runtime, monkeypatch, preset, size, method, path):
+    from nodes import two_stage_assets
+    monkeypatch.setattr(two_stage_assets, "_comfy_node_mappings", lambda: {
+        name: object() for name in ("TESpeedVOSR2Loader", "TESpeedVOSR2Settings", "TESpeedVOSR2Video")})
+    guide = build_director(sampling_method="selflift", duration=15, resolution_preset=preset,
+                           postprocess_mode=method)
+    assert guide["length"] == director.align_frame_count(15 * 24)
+    assert (guide["requested_width"], guide["requested_height"]) == size
+    assert (guide["target_width"], guide["target_height"]) == size
+    assert guide["postprocess_mode"] == method
+    assert guide["postprocess_path"] == path
+    assert guide["width"] * guide["height"] <= 1344 * 768
+    assert guide["sampling_method"] == "selflift"
+
+
 @pytest.mark.parametrize("method", ["ai_upscale", "video_sr"])
 def test_explicit_sr_wins_over_quality_two_stage_downscale(director_runtime, method):
     guide = build_director(postprocess_mode=method)

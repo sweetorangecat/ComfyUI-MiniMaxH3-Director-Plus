@@ -24,9 +24,11 @@ def request(**changes):
                 community_lora_profile="off", **changes)
 
 
-@pytest.mark.parametrize("size", [(1920, 1080), (1080, 1920)])
-def test_selflift_uses_target_canvas_and_matches_upstream_low_grid(size):
-    plan = experiments.plan_selflift_dimensions(*size, 5, 24, 22)
+@pytest.mark.parametrize("size", [(1920, 1080), (1080, 1920), (2560, 1440),
+                                 (1440, 2560), (3840, 2160), (2160, 3840)])
+@pytest.mark.parametrize("duration", [4, 5, 10, 15])
+def test_selflift_uses_target_canvas_and_matches_upstream_low_grid(size, duration):
+    plan = experiments.plan_selflift_dimensions(*size, duration, 24, 22)
     assert plan["allowed"]
     w, h = plan["second_stage_width"], plan["second_stage_height"]
     assert w % 32 == h % 32 == 0
@@ -35,6 +37,23 @@ def test_selflift_uses_target_canvas_and_matches_upstream_low_grid(size):
     assert plan["first_stage_width"] == max(2, round(w / 16 * 0.65 / 2) * 2) * 16
     assert plan["first_stage_height"] == max(2, round(h / 16 * 0.65 / 2) * 2) * 16
     assert not plan["two_stage_tiling_required"]
+    assert plan["final_scale_x"] == size[0] / w
+    assert plan["final_scale_y"] == size[1] / h
+
+
+@pytest.mark.parametrize("preset,size", [("2K QHD", (2560, 1440)), ("4K UHD", (3840, 2160))])
+@pytest.mark.parametrize("duration", [4, 5, 10, 15])
+def test_selflift_options_accept_normal_duration_and_final_output(preset, size, duration):
+    raw = request()
+    raw.update(duration=duration, resolution_preset=preset,
+               requested_width=size[0], requested_height=size[1])
+    assert experiments.validate_sampling_options(raw)["sampling_method"] == "selflift"
+
+
+@pytest.mark.parametrize("size", [(0, 1080), (1920, 0), (-1920, 1080)])
+def test_selflift_rejects_invalid_output_dimensions(size):
+    with pytest.raises(ValueError):
+        experiments.plan_selflift_dimensions(*size, 15, 24, 22)
 
 
 @pytest.mark.parametrize("total,free", [(8, 7), (16, 15), (24, 17)])
@@ -44,10 +63,10 @@ def test_unqualified_selflift_memory_is_rejected(total, free):
 
 
 @pytest.mark.parametrize("key,value", [
-    ("mode", "T2VA"), ("voice_mode", "h3_reference"), ("duration", 15),
+    ("mode", "T2VA"), ("voice_mode", "h3_reference"),
     ("performance_preset", "low_vram"), ("sampling_method", "unknown"),
     ("community_lora_profile", "unknown"), ("motion_smoothing", "rife_x2"),
-    ("fps", 48), ("resolution_preset", "2K QHD"),
+    ("fps", 48),
 ])
 def test_invalid_experiment_does_not_silently_change_route(key, value):
     raw = request()

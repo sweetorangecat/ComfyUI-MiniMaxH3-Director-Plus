@@ -25,7 +25,7 @@ def test_curated_sr_is_selectable_on_every_visible_sampling_preset(preset, engin
     {'sampling_method': 'unknown'}, {'community_lora_profile': 'unknown'},
     {'sampling_method': 'selflift', 'performance_preset': 'low_vram'},
     {'sampling_method': 'selflift', 'mode': 'T2VA'},
-    {'sampling_method': 'selflift', 'duration': 15},
+    {'sampling_method': 'selflift', 'duration': 16},
     {'community_lora_profile': 'combat', 'performance_preset': 'quality'},
 ])
 def test_api_rejects_incompatible_experimental_settings(changes):
