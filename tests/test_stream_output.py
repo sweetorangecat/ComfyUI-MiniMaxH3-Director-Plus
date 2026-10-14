@@ -123,10 +123,34 @@ def test_output_reports_executed_sampling_and_selected_sr(monkeypatch):
     monkeypatch.setattr(stream_output, '_iter_ai_upscale_frame_chunks', lambda frames, *args, **kwargs: iter([frames]))
     result = _combine(monkeypatch, dict(executed, postprocess_mode='ai_upscale',
         target_width=16, target_height=16), torch.rand(2, 16, 16, 3), [])
-    for metadata in (result['ui'], result['ui']['images'][0], result['ui']['gifs'][0]):
+    for key, value in executed.items():
+        assert result['ui'][key] == [value]
+    assert result['ui']['images'][0]['upscale_method'] == 'comfy_upscale_model'
+    assert result['ui']['gifs'][0]['upscale_method'] == 'comfy_upscale_model'
+    for metadata in (result['ui']['images'][0], result['ui']['gifs'][0]):
         for key, value in executed.items():
             assert metadata[key] == value
-        assert metadata['upscale_method'] == 'comfy_upscale_model'
+
+
+def test_output_ui_metadata_is_expandable_by_comfyui(monkeypatch):
+    """ComfyUI flattens every top-level UI field after an output node runs."""
+    result = _combine(
+        monkeypatch,
+        {
+            "target_width": 3,
+            "target_height": 2,
+            "postprocess_path": "native_bypass",
+            "sampling_executed_steps": 8,
+        },
+        torch.rand(2, 2, 3, 3),
+        [],
+    )
+
+    # This mirrors ComfyUI's get_output_from_returns() merge step.  A scalar
+    # here causes the production `'int' object is not iterable` failure after
+    # the MP4 has already been written.
+    for value in result["ui"].values():
+        list(value)
 
 
 def test_same_size_rtx_request_is_reported_as_native_bypass(monkeypatch):
@@ -968,7 +992,7 @@ def test_downscale_path_uses_cpu_resize_without_loading_vsr(monkeypatch):
 
     output = torch.cat(captured)
     assert output.shape == (5, 4, 6, 3)
-    assert result["ui"]["postprocess_path"] == "downscale"
+    assert result["ui"]["postprocess_path"] == ["downscale"]
     assert result["result"][0].shape[0] == 0
 
 
@@ -1001,7 +1025,7 @@ def test_balanced_fhd_downscale_center_crops_then_uses_lanczos(monkeypatch):
     )
     assert output.shape == (3, 9, 16, 3)
     assert torch.equal(output, expected)
-    assert result["ui"]["postprocess_path"] == "balanced_fhd_downscale"
+    assert result["ui"]["postprocess_path"] == ["balanced_fhd_downscale"]
 
 
 def test_balanced_fhd_downscale_preserves_audio_in_single_mp4(monkeypatch):
@@ -1244,7 +1268,7 @@ def test_vsr_save_frames_use_vsr_processor_and_metadata_path(monkeypatch):
 
     assert [index for index, _ in saved] == [0, 3]
     assert all(path == "first" or path == "last" for _, path in saved)
-    assert result["ui"]["postprocess_path"] == "rtx_vsr"
+    assert result["ui"]["postprocess_path"] == ["rtx_vsr"]
     assert result["ui"]["images"][0]["postprocess_path"] == "rtx_vsr"
 
 

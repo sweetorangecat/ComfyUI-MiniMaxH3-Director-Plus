@@ -1559,13 +1559,19 @@ class MiniMaxH3StreamingVideoCombine:
             "format": "image/png", "width": target_width, "height": target_height,
             "postprocess_path": postprocess_path,
         } for path in frame_exports)
+        # ComfyUI's output merger flattens every top-level UI field with
+        # ``for item in field``.  Keep scalar metadata in one-item lists so
+        # the video can finish saving without a post-encode TypeError.
         ui = {
-            **execution,
-            "images": assets,
-            "postprocess_path": postprocess_path,
-            "audio_cleanup": audio_cleanup,
-            "audio_cleanup_reason": audio_cleanup_reason,
+            key: value if isinstance(value, list) else [value]
+            for key, value in execution.items()
         }
+        ui.update({
+            "images": assets,
+            "postprocess_path": [postprocess_path],
+            "audio_cleanup": [audio_cleanup],
+            "audio_cleanup_reason": [audio_cleanup_reason],
+        })
         if not dasiwa._animated_image_settings(selected_container):
             ui["gifs"] = [{
                 **execution,
