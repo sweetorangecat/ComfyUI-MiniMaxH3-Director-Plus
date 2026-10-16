@@ -7,6 +7,7 @@ import hashlib
 import importlib
 import importlib.util
 import logging
+import math
 import os
 import sys
 from pathlib import Path
@@ -805,6 +806,36 @@ def _apply_reference_sigma_refiner(sigmas):
     return _node_model(function(sigmas, 1, 0.7, 0.0, "cosine"))
 
 
+def _sampling_signature(model):
+    try:
+        sampling = model.get_model_object("model_sampling")
+        video_shift = float(sampling.shift)
+        audio_shift = getattr(sampling, "audio_shift", None)
+        if not math.isfinite(video_shift):
+            return None
+        return {"video_shift": video_shift, "audio_shift": float(audio_shift) if audio_shift is not None else None}
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+
+
+def validate_scheduler_model(model, sigmas):
+    """Reject an H3 router schedule produced from a different video shift.
+
+    Metadata belongs to the actual SIGMAS object, so two branches sharing one
+    guide cannot overwrite each other's schedule contract. Explicit custom sigma
+    transforms and old workflows without this metadata keep their existing path.
+    """
+    scheduled = getattr(sigmas, "_mmh3_sampling_signature", None)
+    active = _sampling_signature(model)
+    if not scheduled or not active:
+        return
+    if not math.isclose(scheduled["video_shift"], active["video_shift"], rel_tol=1e-6, abs_tol=1e-6):
+        raise ValueError(
+            f"H3 调度器 video shift={scheduled['video_shift']:g} 与引导模型 video shift={active['video_shift']:g} 不一致；"
+            "请将调度器 MODEL 输入连接到对应 Sigma Shift 节点的同一输出。尚未开始 H3 采样。"
+        )
+
+
 class MiniMaxH3SchedulerRouter:
     """Create the exact FL or Reference schedule selected by the Director."""
 
@@ -841,6 +872,11 @@ class MiniMaxH3SchedulerRouter:
         ))
         if plan["refine_reference_tail"]:
             sigmas = _apply_reference_sigma_refiner(sigmas)
+        signature = _sampling_signature(model)
+        if signature is not None:
+            sigmas._mmh3_sampling_signature = signature
+            guide["scheduler_model_sampling"] = signature
+            LOGGER.info("[H3 scheduler] video_shift=%s audio_shift=%s", signature["video_shift"], signature["audio_shift"])
         guide["scheduler_name"] = plan["scheduler"]
         guide["scheduler_sigma_count"] = len(sigmas)
         guide["two_stage_split_step"] = int(plan["split_step"])
@@ -1407,6 +1443,7 @@ class MiniMaxH3MemoryAwareSampler:
     def execute(self, noise, guider, sampler, sigmas, latent_image, guide=None):
         from comfy_extras.nodes_custom_sampler import SamplerCustomAdvanced
 
+        validate_scheduler_model(getattr(guider, "model_patcher", None), sigmas)
         with memory_policy(guide or {}):
             return SamplerCustomAdvanced.execute(noise, guider, sampler, sigmas, latent_image)
 

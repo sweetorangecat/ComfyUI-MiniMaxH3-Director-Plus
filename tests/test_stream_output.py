@@ -1663,3 +1663,67 @@ def test_encoder_retry_replays_cached_ai_upscale_frames(monkeypatch):
     assert len(encode_calls) == 2
     assert len(compute_calls) == 1
     assert len(consumed) == 4
+
+
+@pytest.mark.parametrize("source_wh,target_wh", [((704, 384), (1344, 768)), ((384, 704), (768, 1344))])
+@pytest.mark.parametrize("profile", ["standard", "smart_conservative_blend_v1"])
+def test_ai_upscale_keeps_round_features_round_when_native_grid_aspect_differs(monkeypatch, source_wh, target_wh, profile):
+    width, height = source_wh
+    target_width, target_height = target_wh
+    yy, xx = torch.meshgrid(torch.arange(height), torch.arange(width), indexing="ij")
+    circle = ((xx - width // 2).square() + (yy - height // 2).square() <= 50 ** 2).float()
+    source = circle[None, ..., None].repeat(1, 1, 1, 3)
+    original = source.clone()
+    monkeypatch.setattr(stream_output, "resolve_upscale_model_name", lambda *args: "fake.pth")
+    monkeypatch.setattr(stream_output, "_load_upscale_model", lambda name: object())
+    monkeypatch.setattr(stream_output, "_release_upscale_model", lambda model: None)
+    monkeypatch.setattr(stream_output, "_upscale_image_with_model", lambda model, frames: frames.repeat_interleave(2, 1).repeat_interleave(2, 2))
+
+    result = next(stream_output._iter_ai_upscale_frame_chunks(source, target_width, target_height, profile=profile))
+
+    assert result.shape == (1, target_height, target_width, 3)
+    occupied = torch.nonzero(result[0, ..., 0] > 0.5)
+    box = occupied.max(0).values - occupied.min(0).values + 1
+    assert float(box[1] / box[0]) == pytest.approx(1.0, abs=0.01)
+    assert torch.equal(source, original)
+
+
+@pytest.mark.parametrize("prefix", ["clip", "shot.[v1]"])
+def test_video_counter_accounts_for_audio_and_exported_frame_suffixes(tmp_path, prefix):
+    for name in [f"{prefix}_00001-audio.mp4", f"{prefix}_00003.mp4", f"{prefix}_00007-audio-first-frame.png", f"{prefix}extra_99999-audio.mp4"]:
+        (tmp_path / name).write_bytes(b"keep")
+    assert stream_output._next_video_counter(str(tmp_path), prefix, 4) == 8
+    assert stream_output._next_video_counter(str(tmp_path), prefix, 20) == 20
+
+
+def test_repeated_audio_video_outputs_keep_the_previous_file(monkeypatch, tmp_path):
+    audio = object()
+    dasiwa = _fake_dasiwa([], audio)
+    dasiwa.folder_paths = SimpleNamespace(
+        get_output_directory=lambda: str(tmp_path),
+        get_temp_directory=lambda: str(tmp_path),
+        get_save_image_path=lambda *args: (str(tmp_path), "same-prefix", 1, "", None),
+    )
+    dasiwa._output_filename = lambda name, counter, ext, has_audio: f"{name}_{counter:05}-audio.{ext.lstrip('.')}"
+    def encode(*args, **kwargs):
+        frames = torch.cat(list(args[6]()))
+        Path(args[7]).write_text(str(frames.mean().item()))
+        return "libx264"
+    dasiwa._encode_with_available_encoder = encode
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+    monkeypatch.setattr(stream_output.os, "unlink", lambda path: None)
+    options = dict(
+        guide={"target_width": 2, "target_height": 2, "postprocess_path": "native_bypass", "audio_loudness": "original"},
+        frame_rate=24., codec="H.264", container="MP4", bit_depth="8-bit", quality=20,
+        log_level="Standard", pingpong=False, save_metadata=False, filename_prefix="same-prefix",
+        save_output=True, pass_frames=False, crop_to_audio=False, audio_codec="AAC", audio_bitrate="320k",
+        save_first_frame=False, save_last_frame=False, audio=audio,
+    )
+    output = stream_output.MiniMaxH3StreamingVideoCombine()
+    output.combine(images=torch.full((2, 2, 2, 3), .25), **options)
+    first = tmp_path / "same-prefix_00001-audio.mp4"
+    original = first.read_bytes()
+    output.combine(images=torch.full((2, 2, 2, 3), .75), **options)
+    second = tmp_path / "same-prefix_00002-audio.mp4"
+    assert first.read_bytes() == original
+    assert second.read_bytes() != original

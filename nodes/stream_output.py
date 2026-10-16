@@ -6,6 +6,7 @@ import importlib
 import gc
 import logging
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -51,6 +52,21 @@ _TRAINED_TWO_STAGE_PRESETS = {
     "low_vram_two_stage",
     "低显存二采",
 }
+
+
+def _next_video_counter(output_folder, filename, counter):
+    """Include DaSiWa's -audio suffix, which the image counter cannot parse."""
+    counter = max(1, int(counter))
+    pattern = re.compile(r"^" + re.escape(os.path.normcase(filename)) + r"_(\d+)(?:[-_.]|$)")
+    try:
+        with os.scandir(output_folder) as entries:
+            for entry in entries:
+                match = pattern.match(os.path.normcase(entry.name))
+                if match and entry.is_file():
+                    counter = max(counter, int(match.group(1)) + 1)
+    except FileNotFoundError:
+        pass
+    return counter
 
 
 def _center_crop_to_target_aspect(frame, target_width, target_height):
@@ -508,6 +524,12 @@ def _iter_ai_upscale_frame_chunks(
         for start in range(0, len(indices), frames_per_chunk):
             batch_indices = indices[start:start + frames_per_chunk]
             frame_batch = images[batch_indices].detach().to(device="cpu", dtype=torch.float32)
+            # Grid rounding changes the native aspect slightly (e.g. 704x384
+            # to 1344x768). Crop before SR so faces are not squeezed and the
+            # conservative blend uses the same geometry as the AI branch.
+            frame_batch = _center_crop_batch_to_target_aspect(
+                frame_batch, target_width, target_height
+            )
             # ImageUpscaleWithModel performs its model-loading check per call.
             # Pass a bounded batch so long videos do not reload/check RRDBNet
             # once for every frame or flood the ComfyUI log.
@@ -1192,6 +1214,7 @@ class MiniMaxH3StreamingVideoCombine:
         output_folder, filename, counter, subfolder, _ = dasiwa.folder_paths.get_save_image_path(
             filename_prefix, output_dir, target_width, target_height,
         )
+        counter = _next_video_counter(output_folder, filename, counter)
         ffmpeg = dasiwa.find_ffmpeg()
         if not ffmpeg:
             raise RuntimeError("未找到 FFmpeg，无法保存 MP4")

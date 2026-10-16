@@ -596,9 +596,10 @@ class MiniMaxH3TwoStageSampler:
         second_model=None,
         video_vae=None,
     ):
-        from .performance import memory_policy
+        from .performance import memory_policy, validate_scheduler_model
 
         guide = guide or {}
+        validate_scheduler_model(getattr(guider, "model_patcher", None), sigmas)
         if guide.get("sampling_method", "standard") == "selflift":
             validate_sampling_options(guide)
             if not self._enabled(guide):

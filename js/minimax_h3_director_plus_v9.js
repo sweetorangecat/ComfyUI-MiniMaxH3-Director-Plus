@@ -436,6 +436,21 @@ function calculatedResolution(node) {
   return [snap(Math.sqrt(area * ratio[0] / ratio[1])), snap(Math.sqrt(area * ratio[1] / ratio[0]))];
 }
 
+function lowVramSamplingSize(node, targetWidth, targetHeight) {
+  const seconds = Math.max(4, Math.min(15, Number(widget(node, "duration")?.value) || 4));
+  const budgets = [[4, 1.00], [6, 0.65], [8, 0.50], [10, 0.36], [12, 0.30], [15, 0.26]];
+  const megapixels = budgets.find(([limit]) => seconds <= limit)[1];
+  const aspect = String(widget(node, "aspect_ratio")?.value || "16:9");
+  const ratio = aspect === "CUSTOM"
+    ? [Math.max(1, Number(widget(node, "custom_width")?.value) || 16), Math.max(1, Number(widget(node, "custom_height")?.value) || 9)]
+    : (ASPECTS[aspect] || ASPECTS["16:9"]);
+  const area = megapixels * 1024 * 1024;
+  const snap = (value) => Math.max(32, Math.round(value / 32) * 32);
+  const width = snap(Math.sqrt(area * ratio[0] / ratio[1]));
+  const height = snap(Math.sqrt(area * ratio[1] / ratio[0]));
+  return targetWidth * targetHeight <= width * height ? [targetWidth, targetHeight] : [width, height];
+}
+
 function syncResolution(node) {
   const [width, height] = calculatedResolution(node);
   setWidget(node, "width", width);
@@ -801,7 +816,16 @@ function install(node) {
     "reference_image_1_file", "reference_image_2_file", "reference_image_3_file", "reference_image_4_file", "reference_image_5_file",
     "reference_image_6_file", "reference_image_7_file", "reference_image_8_file", "reference_image_9_file",
   ];
-  hidden.forEach((name) => hideWidget(widget(node, name)));
+  // Server-side file-browser extensions may add input:/output: controls
+  // for each upload slot, sometimes after our nodeCreated hook has run.
+  // Collapse those helpers too, while retaining widgets and saved filenames.
+  const hideRawWidgets = () => {
+    for (const item of node.widgets || []) {
+      const names = [item.name, item.label].filter((name) => typeof name === "string");
+      if (names.some((name) => hidden.includes(name.replace(/^(?:input|output):/, "")))) hideWidget(item);
+    }
+  };
+  hideRawWidgets();
 
   const root = document.createElement("div");
   root.className = "h3p";
@@ -814,6 +838,7 @@ function install(node) {
   let twoStagePanelOpen = false;
 
   function render() {
+    hideRawWidgets();
     sanitizeUploadWidgets(node);
     const mode = widget(node, "mode")?.value || "FL2VA";
     const voiceMode = widget(node, "voice_mode")?.value || "none";
@@ -1061,6 +1086,10 @@ function install(node) {
     } else if (preset === "低显存二采") {
       const duration = Number(widget(node, "duration")?.value) || 4;
       postprocessNote.textContent = `低显存二采已锁定 AI X2 细节重建：${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend, lowVramFirstStageMegapixels(resolvedWidth, resolvedHeight, duration), "AI X2")}；1080p 最长 6 秒，768p 最长 10 秒；7–10 秒 768p 使用时空分块低 sigma 重绘，并把最终逐帧重建控制在约 1.75x 内。开始前检查至少 6GB 空闲显存。`;
+    } else if (preset === "低显存") {
+      const [sampleWidth, sampleHeight] = lowVramSamplingSize(node, resolvedWidth, resolvedHeight);
+      const seconds = Number(widget(node, "duration")?.value) || 4;
+      postprocessNote.textContent += " 当前 " + seconds + " 秒低显存：实际 H3 采样 " + sampleWidth + "×" + sampleHeight + "，输出目标 " + resolvedWidth + "×" + resolvedHeight + "；放大无法准确补回底图缺失的五官细节。输出尺寸不代表原生细节；提高源细节需使用更高原生采样尺寸，并承担相应显存与耗时。";
     } else if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
       postprocessNote.textContent = postprocessMode === "h3_two_stage" ? "H3 首采 → latent 放大 → H3 二采重绘 → 输出。" : "按显存和时长安排 H3 采样，再执行所选超分到目标尺寸，保留采样音频。";
     }
@@ -1312,6 +1341,7 @@ function install(node) {
   enforceDirectorSize(node);
   controllers.set(controllerId, { node, render });
   const bindMountedControls = () => {
+    hideRawWidgets();
     bindDomControls(domWidget?.element || domWidget?.inputEl || root, node, render);
     bindRenderedControllers();
     const mountedPrompt = root.querySelector('textarea[data-h3p-value-widget="prompt"]');

@@ -1078,7 +1078,14 @@ class MiniMaxH3DirectorPlus:
 
         if native_capped and two_stage_plan is None:
             request["warnings"].append(
-                f"H3 原生采样受官方画布上限限制为 {native_width}×{native_height}；最终目标为 {requested_width}×{requested_height}。"
+                (
+                    f"低显存模式按 {int(duration)} 秒时长主动降低 H3 原生采样尺寸为 "
+                    if request["performance_preset"] == "low_vram"
+                    else "H3 原生采样受官方画布上限及网格对齐限制为 "
+                )
+                + f"{native_width}×{native_height}；最终目标为 {requested_width}×{requested_height}。"
+                + (" 后处理放大不等于原生目标分辨率；改善细节需缩短时长或使用更高显存的采样路线。"
+                   if request["performance_preset"] == "low_vram" else "")
             )
             if postprocess_mode == "rtx_vsr" and requested_width != native_width:
                 request["warnings"][-1] += " 将在生成后通过 RTX VSR 重建。"

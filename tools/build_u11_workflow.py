@@ -11,10 +11,12 @@ import uuid
 
 try:
     from .validate_workflow import validate_workflow
+    from .sampling_links import align_h3_scheduler_models
     from .remove_face_refine import remove_face_refine
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from validate_workflow import validate_workflow
+    from sampling_links import align_h3_scheduler_models
     from remove_face_refine import remove_face_refine
 
 
@@ -860,6 +862,7 @@ def _upgrade_subgraphs(workflow):
             )
         ]
         _rebuild_socket_links(subgraph.get("nodes", []), subgraph.get("links", []))
+    align_h3_scheduler_models(workflow)
 
 
 def build_workflow(source):

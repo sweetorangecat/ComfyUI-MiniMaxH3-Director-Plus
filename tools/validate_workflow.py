@@ -6,6 +6,11 @@ import argparse
 import json
 from pathlib import Path
 
+try:
+    from .sampling_links import scope_scheduler_mismatches
+except ImportError:
+    from sampling_links import scope_scheduler_mismatches
+
 
 class WorkflowError(ValueError):
     pass
@@ -68,6 +73,14 @@ def _validate_scope(name, nodes, links, check_layout=True):
             raise WorkflowError(f"{name} 连线 {link_id} 的输入槽无效")
     if len(link_ids) != len(set(link_ids)):
         raise WorkflowError(f"{name} 存在重复连线 ID")
+
+    mismatches = scope_scheduler_mismatches(nodes, links)
+    if mismatches:
+        mismatch = mismatches[0]
+        raise WorkflowError(
+            f"{name} H3 调度器 {mismatch['scheduler_id']} 的模型与引导器不一致"
+            f"（采样节点 {mismatch['sampler_id']}）；调度器必须连接同一 Shift 后模型"
+        )
 
     if check_layout:
         visible = [node for node in nodes if _visible(node) and _rectangle(node)]

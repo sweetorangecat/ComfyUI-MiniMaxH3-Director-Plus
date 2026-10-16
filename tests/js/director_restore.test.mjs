@@ -282,3 +282,62 @@ for (const method of ["h3_two_stage", "vosr2", "video_sr"]) {
     assert.equal(output.value, method);
   });
 }
+
+
+test("15-second low-VRAM panel shows sampling size separately from final output", () => {
+  const { node } = installedDirector("off", [
+    { name: "performance_preset", value: "低显存" },
+    { name: "voice_mode", value: "none" },
+    { name: "postprocess_mode", value: "video_sr" },
+    { name: "duration", value: 15 },
+    { name: "aspect_ratio", value: "16:9" },
+    { name: "resolution_preset", value: "768p H3" },
+  ]);
+  const text = allElements(node.root).map(el => el.textContent || "").join(" ");
+  assert.ok(text.includes("实际 H3 采样 704×384"));
+  assert.ok(text.includes("输出目标 1344×768"));
+  assert.ok(text.includes("放大无法准确补回底图缺失的五官细节"));
+});
+
+
+function serverUploadHelpers() {
+  return ["first_image_file", "last_image_file",
+    ...Array.from({ length: 9 }, (_, i) => `reference_image_${i + 1}_file`)]
+    .flatMap(name => ["input", "output"].map(direction => ({
+      name: `${direction}:${name}`, value: `keep-${name}`,
+      computeSize: () => [200, 20], draw() {},
+    })));
+}
+
+test("server image helper rows collapse without dropping uploads or unrelated controls", () => {
+  const helpers = serverUploadHelpers();
+  const unrelated = { name: "input:unrelated_file", value: "custom.png", computeSize: () => [200, 20] };
+  const upload = { name: "reference_image_1_file", value: "user.png", options: { values: ["user.png"] } };
+  const { node } = installedDirector("off", [upload, unrelated, ...helpers]);
+  assert.equal(helpers.length, 22);
+  for (const helper of helpers) {
+    assert.equal(helper.hidden, true, helper.name);
+    assert.ok(helper.computeSize()[1] <= 0, helper.name);
+    assert.ok(node.widgets.includes(helper));
+    assert.ok(helper.value.startsWith("keep-"));
+  }
+  assert.equal(upload.value, "user.png");
+  assert.equal(unrelated.hidden, undefined);
+  assert.equal(unrelated.computeSize()[1], 20);
+});
+
+test("server helpers added after node creation and during restore are hidden on mount and render", () => {
+  const { node, frames } = installedDirector();
+  const late = serverUploadHelpers();
+  node.widgets.push(...late);
+  // Host extensions can create their widgets after DirectorPlus.nodeCreated.
+  const mountingFrames = frames.splice(0);
+  for (const callback of mountingFrames) callback();
+  for (const helper of late) assert.equal(helper.hidden, true, helper.name);
+  const restored = { name: "input:reference_image_9_file", value: "restored.png" };
+  node.widgets.push(restored);
+  node.onConfigure({ face_refine_mode: "off" });
+  for (const callback of frames.splice(0)) callback();
+  assert.equal(restored.hidden, true);
+  assert.equal(restored.value, "restored.png");
+});

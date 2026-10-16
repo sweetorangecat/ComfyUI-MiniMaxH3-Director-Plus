@@ -2289,8 +2289,8 @@
         "voice_mode": "h3_reference",
         "fish_model_path": "s2-pro-w4a16 (auto download)",
         "ref_image_size": "match",
-        "performance_preset": "参考高清（原生20步）",
-        "postprocess_mode": "ai_upscale",
+        "performance_preset": "智能画质（自动适配）",
+        "postprocess_mode": "vosr2",
         "rtx_quality": "HIGH",
         "ai_upscale_model": "auto",
         "timeline_data": "{\"version\":1,\"items\":[]}",
@@ -2828,8 +2828,6 @@
             "name": "model",
             "type": "MODEL",
             "linkIds": [
-              5828,
-              5855,
               5880,
               5882
             ],
@@ -4254,7 +4252,8 @@
                 "name": "MODEL",
                 "type": "MODEL",
                 "links": [
-                  5883
+                  5883,
+                  5828
                 ]
               }
             ],
@@ -4323,7 +4322,8 @@
                 "name": "MODEL",
                 "type": "MODEL",
                 "links": [
-                  5881
+                  5881,
+                  5855
                 ]
               }
             ],
@@ -5043,8 +5043,8 @@
           },
           {
             "id": 5828,
-            "origin_id": -10,
-            "origin_slot": 14,
+            "origin_id": 2692,
+            "origin_slot": 0,
             "target_id": 2590,
             "target_slot": 0,
             "type": "MODEL"
@@ -5115,8 +5115,8 @@
           },
           {
             "id": 5855,
-            "origin_id": -10,
-            "origin_slot": 14,
+            "origin_id": 2691,
+            "origin_slot": 0,
             "target_id": 2679,
             "target_slot": 0,
             "type": "MODEL"
