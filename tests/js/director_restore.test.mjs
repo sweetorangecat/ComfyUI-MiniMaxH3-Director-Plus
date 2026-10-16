@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { clearSlot, compactBoundSlots, compactSlots } from "../../js/media_slot_state.mjs";
 
 // Exercise the actual extension's install/configure/render lifecycle without
 // ComfyUI or a GPU. Only the DOM and host services are stubbed.
@@ -10,6 +11,7 @@ class Element {
     this.tag = tag;
     this.children = [];
     this.dataset = {};
+    this.listeners = {};
     this.style = { setProperty() {} };
     this.classList = { add() {}, remove() {}, toggle() {} };
   }
@@ -17,7 +19,7 @@ class Element {
   appendChild(child) { this.append(child); }
   replaceChildren(...children) { this.children = children; }
   setAttribute(name, value) { this[name] = value; }
-  addEventListener() {}
+  addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
   set innerHTML(value) {
     if (value.includes('class="h3p-fish-body"')) {
       const body = new Element("div");
@@ -32,12 +34,15 @@ class Element {
   querySelectorAll() { return []; }
 }
 
-function installedDirector(initialValue = "off", extraWidgets = []) {
+function installedDirector(initialValue = "off", extraWidgets = [], nativeWidgets = false, hostApi = {}) {
   let extension;
   const frames = [];
   const context = vm.createContext({
     app: { registerExtension(value) { extension = value; } },
-    api: {},
+    api: hostApi,
+    FormData,
+    URLSearchParams,
+    clearSlot, compactBoundSlots, compactSlots,
     document: {
       createElement: (tag) => new Element(tag),
       head: new Element("head"),
@@ -56,15 +61,17 @@ function installedDirector(initialValue = "off", extraWidgets = []) {
   const face = { name: "face_refine_mode", value: initialValue, options: { values: ["off", "auto"] } };
   const node = {
     comfyClass: "MiniMaxH3DirectorPlus",
-    widgets: [face, { name: "mode", value: "T2VA" }, ...extraWidgets],
+    widgets: nativeWidgets ? extraWidgets : [face, { name: "mode", value: "T2VA" }, ...extraWidgets],
     size: [1350, 1760],
     setSize(value) { this.size = value; },
     graph: { setDirtyCanvas() {} },
     // Simulates the host's restoration callback, before our wrapper runs.
-    onConfigure(data) { face.value = data.face_refine_mode; },
+    onConfigure(data) { if (!nativeWidgets) face.value = data.face_refine_mode; },
     addDOMWidget(name, type, element) {
       this.root = element;
-      return { element };
+      const item = { name, type, element, value: "", options: { serialize: false } };
+      if (nativeWidgets) this.widgets.push(item);
+      return item;
     },
   };
   extension.nodeCreated(node);
@@ -340,4 +347,181 @@ test("server helpers added after node creation and during restore are hidden on 
   for (const callback of frames.splice(0)) callback();
   assert.equal(restored.hidden, true);
   assert.equal(restored.value, "restored.png");
+});
+
+
+// Native frontend 1.52 saves values at widget indices, but restores them with
+// a compact cursor that skips serialize=false previews. Reproduce both sides.
+const STATE_FIELDS = [
+  "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset",
+  "custom_width", "custom_height", "seed", "control_after_generate", "voice_mode",
+  "fish_model_path", "ref_image_size", "performance_preset", "postprocess_mode",
+  "rtx_quality", "ai_upscale_model", "timeline_data", "target_dialogue", "reference_transcript",
+  "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
+  "first_image_file", "last_image_file", "voice_reference_audio_file",
+  "voice_reference_audio_2_file", "voice_reference_audio_3_file",
+  ...Array.from({ length: 9 }, (_, i) => "reference_image_" + (i + 1) + "_file"),
+  "motion_smoothing", "audio_loudness", "voice_gender", "face_refine_mode",
+  "sampling_method", "community_lora_profile",
+];
+function nativeWidgets() {
+  const values = {
+    mode: "REF2VA", prompt: "保留用户提示词 <Picture 1>", duration: 15,
+    width: 1920, height: 1080, aspect_ratio: "16:9", resolution_preset: "1080p FHD",
+    custom_width: 16, custom_height: 9, seed: 1015586840945481,
+    control_after_generate: "randomize", voice_mode: "h3_reference", fish_model_path: "w4a16",
+    ref_image_size: "max", performance_preset: "质量优先加速", postprocess_mode: "vosr2",
+    rtx_quality: "ULTRA", ai_upscale_model: "auto", motion_smoothing: "off",
+    audio_loudness: "auto", voice_gender: "auto", face_refine_mode: "off",
+    sampling_method: "standard", community_lora_profile: "off",
+    first_image_file: "input/角色.png", last_image_file: "input/衣服.png",
+    reference_image_1_file: "input/房间.png", reference_image_2_file: "input/道具.png",
+    reference_image_3_file: "input/锁.png",
+    voice_reference_audio_file: "input/南宫阙.wav", voice_reference_name_1: "南宫阙",
+    voice_reference_audio_2_file: "input/南宫婉.wav", voice_reference_name_2: "南宫婉",
+  };
+  return STATE_FIELDS.flatMap(name => {
+    const item = { name, value: values[name] ?? "", options: { values: ["", values[name] ?? ""] } };
+    return /^(first_image|last_image|reference_image_\d+)_file$/.test(name)
+      ? [item, ...["input", "output"].map(prefix => ({ name: prefix + ":" + name, serialize: false }))]
+      : [item];
+  });
+}
+function nativeSave(node, invokeHook = true) {
+  const data = { id: 2693, type: "MiniMaxH3DirectorPlus", properties: {}, widgets_values: [], widgets_values_named: {} };
+  node.widgets.forEach((item, index) => {
+    if (item.serialize === false) return;
+    const value = item.value ?? null;
+    data.widgets_values[index] = value;
+    data.widgets_values_named[item.name] = value;
+  });
+  if (invokeHook) node.onSerialize?.(data);
+  return JSON.parse(JSON.stringify(data));
+}
+function legacySave() {
+  return nativeSave({ widgets: [...nativeWidgets(), { name: "minimax_h3_director_plus_ui", value: "" }] }, false);
+}
+function nativeRestore(node, data) {
+  let cursor = 0;
+  for (const item of node.widgets) {
+    if (item.serialize !== false && cursor < data.widgets_values.length) item.value = data.widgets_values[cursor++];
+  }
+  node.onConfigure(data);
+}
+function valueOf(node, name) { return node.widgets.find(item => item.name === name)?.value; }
+function clickRemove(node, field) {
+  const button = allElements(node.root).find(el => el.dataset?.h3pRemoveFile === field);
+  assert.ok(button, "missing remove button for " + field);
+  const event = { target: { closest: () => button }, preventDefault() {}, stopPropagation() {} };
+  for (const handler of node.root.listeners.click || []) handler(event);
+}
+
+test("native sparse preview save recovers all image/audio values without shifting settings", () => {
+  const legacy = legacySave();
+  assert.equal(legacy.widgets_values.length, 67);
+  assert.equal(legacy.widgets_values[39], "input/锁.png");
+  const { node, extension } = installedDirector("off", nativeWidgets(), true);
+  extension.beforeConfigureGraph({ nodes: [legacy] });
+  nativeRestore(node, legacy);
+  for (const name of STATE_FIELDS) assert.equal(valueOf(node, name), legacy.widgets_values_named[name], name);
+  assert.equal(valueOf(node, "audio_loudness"), "auto");
+  assert.equal(valueOf(node, "voice_reference_audio_file"), "input/南宫阙.wav");
+});
+
+test("saving excludes all preview/DOM helpers and keeps exact native control order", () => {
+  const { node } = installedDirector("off", nativeWidgets(), true);
+  const saved = nativeSave(node);
+  assert.equal(saved.widgets_values.length, STATE_FIELDS.length);
+  assert.deepEqual(Object.keys(saved.widgets_values_named), STATE_FIELDS);
+  for (const [index, name] of STATE_FIELDS.entries()) assert.equal(saved.widgets_values[index], valueOf(node, name));
+  assert.equal(node.widgets.find(item => item.name === "minimax_h3_director_plus_ui").serialize, false);
+});
+
+test("removing a reloaded middle image compacts references and stays removed after save/reload", () => {
+  const { node, extension } = installedDirector("off", nativeWidgets(), true);
+  const legacy = legacySave();
+  extension.beforeConfigureGraph({ nodes: [legacy] });
+  nativeRestore(node, legacy);
+  node.widgets.find(item => item.name === "mode").callback("REF2VA");
+  clickRemove(node, "last_image_file");
+  assert.equal(valueOf(node, "last_image_file"), "input/房间.png");
+  assert.equal(valueOf(node, "reference_image_1_file"), "input/道具.png");
+  assert.equal(valueOf(node, "reference_image_2_file"), "input/锁.png");
+  assert.equal(valueOf(node, "reference_image_3_file"), "");
+  const saved = nativeSave(node);
+  const restored = installedDirector("off", nativeWidgets(), true);
+  restored.extension.beforeConfigureGraph({ nodes: [saved] });
+  nativeRestore(restored.node, saved);
+  assert.equal(valueOf(restored.node, "last_image_file"), "input/房间.png");
+  assert.equal(valueOf(restored.node, "reference_image_1_file"), "input/道具.png");
+  assert.ok(!saved.widgets_values.includes("input/衣服.png"));
+  assert.equal(valueOf(restored.node, "audio_loudness"), "auto");
+});
+
+for (const dynamic of [false, true]) {
+  test("saved image absent from " + (dynamic ? "dynamic" : "cached") + " choices remains visible and removable", () => {
+    const selected = { name: "first_image_file", value: "input/保留.png", options: { values: dynamic ? () => [""] : [""] } };
+    const { node } = installedDirector("off", [selected]);
+    node.widgets.find(item => item.name === "mode").value = "I2VA";
+    node.widgets.find(item => item.name === "mode").callback("I2VA");
+    assert.equal(selected.value, "input/保留.png");
+    const choices = typeof selected.options.values === "function" ? selected.options.values() : selected.options.values;
+    assert.ok(choices.includes(selected.value));
+    assert.ok(allElements(node.root).some(el => el.tag === "img" && el.src.includes("%E4%BF%9D%E7%95%99.png")));
+    const preview = allElements(node.root).find(el => el.tag === "img");
+    for (const handler of preview.listeners.error || []) handler();
+    assert.equal(preview.hidden, true);
+    clickRemove(node, "first_image_file");
+    assert.equal(selected.value, "");
+    assert.ok(!allElements(node.root).some(el => el.dataset?.h3pRemoveFile === "first_image_file"));
+  });
+}
+
+test("old compact controls override stale named metadata in main graph and subgraphs", () => {
+  const { extension } = installedDirector();
+  const full = legacySave();
+  const compact = STATE_FIELDS.map(name => full.widgets_values_named[name]);
+  const old = { ...full, widgets_values: compact.slice(0, 42), widgets_values_named: { ...full.widgets_values_named, first_image_file: "stale.png" } };
+  const nested = structuredClone(old);
+  nested.id = 8;
+  const other = { id: 1, type: "Other", widgets_values: [null, "untouched"], pos: [100, 200] };
+  const graph = { nodes: [old, other], definitions: { subgraphs: [{ nodes: [nested], links: [] }] } };
+  extension.beforeConfigureGraph(graph);
+  for (const data of [old, nested]) {
+    assert.equal(data.widgets_values_named.first_image_file, "input/角色.png");
+    assert.equal(data.widgets_values.length, 42);
+  }
+  assert.deepEqual(other, { id: 1, type: "Other", widgets_values: [null, "untouched"], pos: [100, 200] });
+});
+
+test("onConfigure recovers named legacy values even without graph pre-configuration hook", () => {
+  const { node } = installedDirector("off", nativeWidgets(), true);
+  nativeRestore(node, legacySave());
+  assert.equal(valueOf(node, "reference_image_1_file"), "input/房间.png");
+  assert.equal(valueOf(node, "audio_loudness"), "auto");
+  assert.equal(valueOf(node, "seed"), 1015586840945481);
+});
+
+test("replacing a restored image through upload survives another save and reload", async () => {
+  const api = { async fetchApi() { return { ok: true, async json() { return { ok: true, asset: "input/替换.png" }; } }; } };
+  const { node, extension } = installedDirector("off", nativeWidgets(), true, api);
+  const data = legacySave();
+  extension.beforeConfigureGraph({ nodes: [data] });
+  nativeRestore(node, data);
+  node.widgets.find(item => item.name === "mode").callback("REF2VA");
+  const input = allElements(node.root).find(el => el.dataset?.h3pUploadFile === "last_image_file");
+  input.files = [new Blob(["image"], { type: "image/png" })];
+  input.files[0].name = "替换.png";
+  input.closest = () => null;
+  const event = { target: { closest: selector => selector === ".h3p input[type=file]" ? input : null }, stopPropagation() {} };
+  for (const handler of node.root.listeners.change || []) handler(event);
+  await new Promise(setImmediate);
+  assert.equal(valueOf(node, "last_image_file"), "input/替换.png");
+  const restored = installedDirector("off", nativeWidgets(), true);
+  const saved = nativeSave(node);
+  restored.extension.beforeConfigureGraph({ nodes: [saved] });
+  nativeRestore(restored.node, saved);
+  assert.equal(valueOf(restored.node, "last_image_file"), "input/替换.png");
+  assert.equal(valueOf(restored.node, "first_image_file"), "input/角色.png");
+  assert.equal(valueOf(restored.node, "voice_reference_audio_file"), "input/南宫阙.wav");
 });

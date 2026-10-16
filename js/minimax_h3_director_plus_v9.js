@@ -8,6 +8,19 @@ import { api } from "../../../scripts/api.js";
 import { clearSlot, compactBoundSlots, compactSlots } from "./media_slot_state.mjs";
 
 const NODE_CLASS = "MiniMaxH3DirectorPlus";
+// Backend widget order, including the seed control added by ComfyUI.
+const DIRECTOR_WIDGET_FIELDS = [
+  "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset",
+  "custom_width", "custom_height", "seed", "control_after_generate", "voice_mode",
+  "fish_model_path", "ref_image_size", "performance_preset",
+  "postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data", "target_dialogue", "reference_transcript",
+  "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
+  "first_image_file", "last_image_file", "voice_reference_audio_file",
+  "voice_reference_audio_2_file", "voice_reference_audio_3_file",
+  ...Array.from({ length: 9 }, (_, i) => "reference_image_" + (i + 1) + "_file"),
+  "motion_smoothing", "audio_loudness", "voice_gender", "face_refine_mode",
+  "sampling_method", "community_lora_profile",
+];
 const SMART_PRESET = "智能画质（自动适配）";
 const LEGACY_SMART_PRESET = "免费智能 1080p";
 const SMART_HIGH_RESOLUTIONS = ["2K QHD", "4K UHD"];
@@ -296,12 +309,49 @@ function keepPromptAssistantReadable(anchor) {
   requestAnimationFrame(tick);
 }
 
+// Native preview widgets leave holes when serialized by index. Restore those
+// old saves from their intact named values; compact older templates remain
+// authoritative because their named metadata may predate the selected values.
+function normalizeDirectorWidgetValues(data) {
+  const raw = data?.widgets_values;
+  if (!Array.isArray(raw)) return null;
+  const named = data.widgets_values_named;
+  let values;
+  if (raw.length > DIRECTOR_WIDGET_FIELDS.length + 1
+      && DIRECTOR_WIDGET_FIELDS.every(name => Object.hasOwn(named || {}, name))) {
+    values = DIRECTOR_WIDGET_FIELDS.map(name => named[name]);
+  } else if (raw.length >= 42 && raw.length <= DIRECTOR_WIDGET_FIELDS.length + 1) {
+    // Before sampling_method/community_lora_profile, the node had 42 controls.
+    values = raw.slice(0, DIRECTOR_WIDGET_FIELDS.length);
+  } else {
+    return null;
+  }
+  data.widgets_values = values;
+  data.widgets_values_named = Object.fromEntries(values.map((value, index) => [DIRECTOR_WIDGET_FIELDS[index], value]));
+  return data.widgets_values_named;
+}
+
+function restoreDirectorGraphValues(graph) {
+  for (const data of graph?.nodes || []) {
+    if (data.type === NODE_CLASS) normalizeDirectorWidgetValues(data);
+  }
+  for (const subgraph of graph?.definitions?.subgraphs || []) restoreDirectorGraphValues(subgraph);
+}
+
+function ensureUploadOption(item, value) {
+  if (!value || !item) return;
+  const values = uploadWidgetOptions(item);
+  if (!values.includes(value)) {
+    item.options ||= {};
+    item.options.values = [...values, value];
+  }
+}
+
 function syncUploadWidget(node, widgetName, value) {
   const item = widget(node, widgetName);
   if (!item) return;
   const normalized = value || "";
-  const values = item.options?.values;
-  if (normalized && Array.isArray(values) && !values.includes(normalized)) item.options.values.push(value);
+  ensureUploadOption(item, normalized);
   item.value = normalized;
   item.callback?.(normalized);
   node.graph?.setDirtyCanvas(true, true);
@@ -330,30 +380,12 @@ function uploadWidgetOptions(item) {
   return [];
 }
 
-// A workflow saved on another machine (or saved before files left the input
-// folder) keeps stale upload filenames in hidden widgets. The current
-// frontend flags any non-empty upload widget whose value is not in the option
-// list as a missing media input and blocks the whole run — even in modes
-// like T2VA that ignore those files entirely. Clear dead references up front
-// so every mode stays runnable; fresh uploads are safe because
-// syncUploadWidget registers them into the option list immediately.
-function sanitizeUploadWidgets(node) {
-  const cleared = [];
-  UPLOAD_WIDGET_FIELDS.forEach((name) => {
+// Cached option lists are not proof that a saved input file is missing.
+// Preserve the selection and its remove control even if the preview fails.
+function restoreUploadOptions(node) {
+  for (const name of UPLOAD_WIDGET_FIELDS) {
     const item = widget(node, name);
-    if (!item) return;
-    const value = String(item.value ?? "").trim();
-    if (!value) return;
-    const options = uploadWidgetOptions(item);
-    if (!options.length || options.includes(item.value) || options.includes(value)) return;
-    const previous = item.value;
-    item.value = "";
-    cleared.push(name);
-    node.onWidgetChanged?.(name, "", previous, item);
-  });
-  if (cleared.length) {
-    node._h3pAssetNotice = `已自动清除 ${cleared.length} 个失效素材引用（文件不在 input 目录），需要时请重新上传。`;
-    node.graph?.setDirtyCanvas(true, true);
+    ensureUploadOption(item, item?.value);
   }
 }
 
@@ -806,16 +838,7 @@ function install(node) {
   bindDocumentControls();
   protectDirectorComputeSize(node);
 
-  const hidden = [
-    "mode", "prompt", "duration", "width", "height", "aspect_ratio", "resolution_preset", "custom_width", "custom_height", "seed", "control_after_generate", "voice_mode", "fish_model_path",
-    "ref_image_size", "performance_preset", "postprocess_mode", "rtx_quality", "ai_upscale_model", "timeline_data",
-    "target_dialogue", "reference_transcript", "voice_reference_name_1", "voice_reference_name_2", "voice_reference_name_3",
-    "motion_smoothing", "audio_loudness", "voice_gender", "face_refine_mode",
-    "sampling_method", "community_lora_profile",
-    "first_image_file", "last_image_file", "voice_reference_audio_file", "voice_reference_audio_2_file", "voice_reference_audio_3_file",
-    "reference_image_1_file", "reference_image_2_file", "reference_image_3_file", "reference_image_4_file", "reference_image_5_file",
-    "reference_image_6_file", "reference_image_7_file", "reference_image_8_file", "reference_image_9_file",
-  ];
+  const hidden = DIRECTOR_WIDGET_FIELDS;
   // Server-side file-browser extensions may add input:/output: controls
   // for each upload slot, sometimes after our nodeCreated hook has run.
   // Collapse those helpers too, while retaining widgets and saved filenames.
@@ -839,7 +862,7 @@ function install(node) {
 
   function render() {
     hideRawWidgets();
-    sanitizeUploadWidgets(node);
+    restoreUploadOptions(node);
     const mode = widget(node, "mode")?.value || "FL2VA";
     const voiceMode = widget(node, "voice_mode")?.value || "none";
     restoreFaceRefineDefault(node);
@@ -1333,7 +1356,10 @@ function install(node) {
     hideOnZoom: false,
     getHeight: () => DIRECTOR_VIEWPORT_HEIGHT,
   });
-  if (domWidget) domWidget.computeSize = () => [DIRECTOR_UI_WIDTH - DIRECTOR_CONTENT_INSET, DIRECTOR_VIEWPORT_HEIGHT];
+  if (domWidget) {
+    domWidget.serialize = false;
+    domWidget.computeSize = () => [DIRECTOR_UI_WIDTH - DIRECTOR_CONTENT_INSET, DIRECTOR_VIEWPORT_HEIGHT];
+  }
   if (domWidget?.element) {
     domWidget.element.style.minWidth = `${DIRECTOR_MIN_CONTENT_WIDTH}px`;
     domWidget.element.style.width = `${DIRECTOR_UI_WIDTH - DIRECTOR_CONTENT_INSET}px`;
@@ -1371,9 +1397,28 @@ function install(node) {
     };
   });
 
+  const originalSerialize = node.onSerialize;
+  node.onSerialize = function (data) {
+    originalSerialize?.call(this, data);
+    const entries = DIRECTOR_WIDGET_FIELDS.flatMap(name => {
+      const item = widget(this, name);
+      return item ? [[name, item.value ?? null]] : [];
+    });
+    data.widgets_values = entries.map(([, value]) => value);
+    data.widgets_values_named = Object.fromEntries(entries);
+  };
+
   const originalConfigure = node.onConfigure;
   node.onConfigure = function (...args) {
+    const saved = normalizeDirectorWidgetValues(args[0]);
     originalConfigure?.apply(this, args);
+    if (saved) {
+      for (const [name, value] of Object.entries(saved)) {
+        const item = widget(this, name);
+        if (item) item.value = value;
+      }
+    }
+    restoreUploadOptions(this);
     // Repair synchronously: queue/save need not wait for the next DOM render.
     restoreFaceRefineDefault(this);
     restoreSamplingOptions(this, widget(this, "mode")?.value || "FL2VA",
@@ -1419,6 +1464,7 @@ function removeLegacyFaceBranch(graph) {
 app.registerExtension({
   name: "MiniMaxH3.DirectorPlus",
   beforeConfigureGraph(graphData) {
+    restoreDirectorGraphValues(graphData);
     removeLegacyFaceBranch(graphData);
   },
   nodeCreated(node) {

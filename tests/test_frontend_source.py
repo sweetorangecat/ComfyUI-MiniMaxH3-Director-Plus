@@ -28,8 +28,8 @@ def test_upload_slots_restore_persistent_image_and_audio_previews():
 def test_upload_success_registers_new_file_in_combo_widget_before_queueing():
     text = source()
     assert "function syncUploadWidget(node, widgetName, value)" in text
-    assert "item.options?.values" in text
-    assert "item.options.values.push(value)" in text
+    assert "item?.options?.values" in text
+    assert "ensureUploadOption(item, normalized)" in text
     assert "syncUploadWidget(node, input.dataset.h3pUploadFile, result.asset)" in text
 
 
@@ -304,15 +304,15 @@ def test_ref2va_ui_maps_nine_picture_slots_without_exceeding_native_limit():
     assert '作为普通参考图 2（非尾帧）' in text
 
 
-def test_stale_upload_values_are_cleared_before_frontend_blocks_run():
+def test_saved_upload_values_are_preserved_when_option_lists_are_stale():
     text = source()
-    assert "function sanitizeUploadWidgets(node)" in text
+    assert "function restoreUploadOptions(node)" in text
     assert "UPLOAD_WIDGET_FIELDS" in text
     assert "function uploadWidgetOptions(item)" in text
-    assert 'node.onWidgetChanged?.(name, "", previous, item)' in text
-    assert "sanitizeUploadWidgets(node);" in text
-    assert "已自动清除" in text
-    assert "失效素材引用" in text
+    assert "ensureUploadOption(item, item?.value)" in text
+    assert "restoreUploadOptions(node);" in text
+    assert "sanitizeUploadWidgets" not in text
+    assert "已自动清除" not in text
 
 
 def test_ui_uses_embedded_upload_widgets_instead_of_connection_instructions():
