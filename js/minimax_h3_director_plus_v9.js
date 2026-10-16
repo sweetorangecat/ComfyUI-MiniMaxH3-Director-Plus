@@ -180,6 +180,9 @@ function widget(node, name) {
 function hideWidget(item) {
   if (!item) return;
   item.hidden = true;
+  // Vue overlays read options.hidden; canvas layout reads item.hidden.
+  item.options ||= {};
+  item.options.hidden = true;
   item.computeSize = () => [0, -4];
   item.draw = () => {};
 }
@@ -207,18 +210,27 @@ function protectDirectorComputeSize(node) {
 function setWidget(node, name, value, notify = true) {
   const item = widget(node, name);
   if (!item || item.value === value) return;
+  const previous = item.value;
   item.value = value;
   if (notify) item.callback?.(value);
+  node.onWidgetChanged?.(name, item.value, previous, item);
   node.graph?.setDirtyCanvas(true, true);
+}
+
+function restoreAudioLoudness(node) {
+  const item = widget(node, "audio_loudness");
+  // Older browser drafts can contain an empty/shifted value while the custom
+  // selector merely displays its first option. Repair the submitted value.
+  if (item && !AUDIO_LOUDNESS.some(([value]) => value === item.value)) {
+    setWidget(node, "audio_loudness", "auto", false);
+  }
 }
 
 function restoreFaceRefineDefault(node) {
   const item = widget(node, "face_refine_mode");
   // Keep the serialized slot for old workflows, but retire the face branch.
   if (item && item.value !== "off") {
-    const previous = item.value;
     setWidget(node, "face_refine_mode", "off", false);
-    node.onWidgetChanged?.("face_refine_mode", "off", previous, item);
   }
   return item?.value ?? "off";
 }
@@ -352,8 +364,10 @@ function syncUploadWidget(node, widgetName, value) {
   if (!item) return;
   const normalized = value || "";
   ensureUploadOption(item, normalized);
+  const previous = item.value;
   item.value = normalized;
   item.callback?.(normalized);
+  node.onWidgetChanged?.(widgetName, item.value, previous, item);
   node.graph?.setDirtyCanvas(true, true);
   app.graph?.setDirtyCanvas?.(true, true);
 }
@@ -863,6 +877,7 @@ function install(node) {
   function render() {
     hideRawWidgets();
     restoreUploadOptions(node);
+    restoreAudioLoudness(node);
     const mode = widget(node, "mode")?.value || "FL2VA";
     const voiceMode = widget(node, "voice_mode")?.value || "none";
     restoreFaceRefineDefault(node);
@@ -1400,6 +1415,7 @@ function install(node) {
   const originalSerialize = node.onSerialize;
   node.onSerialize = function (data) {
     originalSerialize?.call(this, data);
+    restoreAudioLoudness(this);
     const entries = DIRECTOR_WIDGET_FIELDS.flatMap(name => {
       const item = widget(this, name);
       return item ? [[name, item.value ?? null]] : [];
@@ -1415,10 +1431,15 @@ function install(node) {
     if (saved) {
       for (const [name, value] of Object.entries(saved)) {
         const item = widget(this, name);
-        if (item) item.value = value;
+        if (item) {
+          const previous = item.value;
+          item.value = value;
+          this.onWidgetChanged?.(name, item.value, previous, item);
+        }
       }
     }
     restoreUploadOptions(this);
+    restoreAudioLoudness(this);
     // Repair synchronously: queue/save need not wait for the next DOM render.
     restoreFaceRefineDefault(this);
     restoreSamplingOptions(this, widget(this, "mode")?.value || "FL2VA",

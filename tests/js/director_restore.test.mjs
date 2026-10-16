@@ -37,6 +37,7 @@ class Element {
 function installedDirector(initialValue = "off", extraWidgets = [], nativeWidgets = false, hostApi = {}) {
   let extension;
   const frames = [];
+  const changes = [];
   const context = vm.createContext({
     app: { registerExtension(value) { extension = value; } },
     api: hostApi,
@@ -65,6 +66,7 @@ function installedDirector(initialValue = "off", extraWidgets = [], nativeWidget
     size: [1350, 1760],
     setSize(value) { this.size = value; },
     graph: { setDirtyCanvas() {} },
+    onWidgetChanged(name, value, previous, item) { changes.push({ name, value, previous, item }); },
     // Simulates the host's restoration callback, before our wrapper runs.
     onConfigure(data) { if (!nativeWidgets) face.value = data.face_refine_mode; },
     addDOMWidget(name, type, element) {
@@ -75,7 +77,7 @@ function installedDirector(initialValue = "off", extraWidgets = [], nativeWidget
     },
   };
   extension.nodeCreated(node);
-  return { node, face, frames, extension };
+  return { node, face, frames, extension, changes };
 }
 
 for (const mode of ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"]) {
@@ -524,4 +526,95 @@ test("replacing a restored image through upload survives another save and reload
   assert.equal(valueOf(restored.node, "last_image_file"), "input/替换.png");
   assert.equal(valueOf(restored.node, "first_image_file"), "input/角色.png");
   assert.equal(valueOf(restored.node, "voice_reference_audio_file"), "input/南宫阙.wav");
+});
+
+test("native Vue overlay receives hidden options for controls and late upload helpers", () => {
+  const widgets = nativeWidgets();
+  const { node, frames } = installedDirector("off", widgets, true);
+  const late = serverUploadHelpers();
+  node.widgets.push(...late);
+  for (const callback of frames.splice(0)) callback();
+  for (const item of [...widgets, ...late]) {
+    if (item.name === "minimax_h3_director_plus_ui") continue;
+    // Frontend 1.52.7 extractWidgetDisplayOptions reads options.hidden.
+    // Its Vue layer does not read the canvas-only item.hidden flag.
+    assert.equal(item.options?.hidden, true, item.name);
+  }
+  const panel = node.widgets.find(item => item.name === "minimax_h3_director_plus_ui");
+  assert.notEqual(panel.options.hidden, true);
+});
+
+for (const previous of ["", null, undefined, "input/房间.png"]) {
+  test("invalid audio loudness " + String(previous) + " is repaired before queue/save and notifies host validation", () => {
+    const audio = { name: "audio_loudness", value: previous, options: { values: ["auto", "original"] } };
+    const { node, changes } = installedDirector("off", [audio]);
+    assert.equal(audio.value, "auto");
+    const change = changes.find(change => change.name === "audio_loudness");
+    assert.ok(change);
+    assert.equal(change.previous, previous);
+    assert.equal(change.value, "auto");
+    assert.equal(change.item, audio);
+    assert.equal(node.onSerialize ? nativeSave(node).widgets_values_named.audio_loudness : audio.value, "auto");
+  });
+}
+
+test("configured valid loudness is published to clear errors retained by the host", () => {
+  const { node, changes } = installedDirector("off", nativeWidgets(), true);
+  changes.length = 0;
+  const saved = nativeSave(node);
+  nativeRestore(node, saved);
+  assert.equal(valueOf(node, "audio_loudness"), "auto");
+  const change = changes.find(change => change.name === "audio_loudness");
+  assert.ok(change);
+  assert.equal(change.value, "auto");
+  assert.equal(change.previous, "auto");
+});
+
+test("loudness UI edits notify native validation without changing a valid original setting", () => {
+  const audio = { name: "audio_loudness", value: "original", options: { values: ["auto", "original"] } };
+  const { node, changes } = installedDirector("off", [audio]);
+  assert.equal(audio.value, "original");
+  const control = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "audio_loudness");
+  control.value = "auto";
+  const event = {
+    target: { closest: selector => selector === "[data-h3p-value-widget]" ? control : null },
+    stopPropagation() {},
+  };
+  for (const listener of node.root.listeners.change || []) listener(event);
+  assert.equal(audio.value, "auto");
+  const change = changes.find(change => change.name === "audio_loudness");
+  assert.ok(change);
+  assert.equal(change.previous, "original");
+  assert.equal(change.value, "auto");
+});
+
+test("removing an image notifies host input validation with the cleared filename", () => {
+  const selected = { name: "first_image_file", value: "input/原图.png", options: { values: ["", "input/原图.png"] } };
+  const { node, changes } = installedDirector("off", [selected]);
+  const mode = node.widgets.find(item => item.name === "mode");
+  mode.value = "I2VA";
+  mode.callback("I2VA");
+  clickRemove(node, "first_image_file");
+  const change = changes.find(change => change.name === "first_image_file");
+  assert.ok(change);
+  assert.equal(change.previous, "input/原图.png");
+  assert.equal(change.value, "");
+});
+
+test("compact browser draft repairs empty audio before queue while retaining all current images", () => {
+  const saved = legacySave();
+  saved.widgets_values = STATE_FIELDS.map(name => saved.widgets_values_named[name]);
+  saved.widgets_values[STATE_FIELDS.indexOf("audio_loudness")] = "";
+  saved.widgets_values_named.audio_loudness = "";
+  const { node, extension, changes } = installedDirector("off", nativeWidgets(), true);
+  extension.beforeConfigureGraph({ nodes: [saved] });
+  nativeRestore(node, saved);
+  assert.equal(valueOf(node, "audio_loudness"), "auto");
+  assert.ok(changes.some(change => change.name === "audio_loudness" && change.value === "auto"));
+  const repaired = nativeSave(node);
+  assert.equal(repaired.widgets_values_named.audio_loudness, "auto");
+  assert.equal(repaired.widgets_values[39], "auto");
+  for (const name of STATE_FIELDS.filter(name => name.endsWith("_file"))) {
+    assert.equal(valueOf(node, name), saved.widgets_values_named[name], name);
+  }
 });
