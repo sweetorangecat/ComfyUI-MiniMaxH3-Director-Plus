@@ -2272,6 +2272,8 @@
         "off",
         "auto",
         "auto",
+        "off",
+        "standard",
         "off"
       ],
       "widgets_values_named": {
@@ -2316,7 +2318,9 @@
         "motion_smoothing": "off",
         "audio_loudness": "auto",
         "voice_gender": "auto",
-        "face_refine_mode": "off"
+        "face_refine_mode": "off",
+        "sampling_method": "standard",
+        "community_lora_profile": "off"
       },
       "color": "#24353d",
       "bgcolor": "#344b55"

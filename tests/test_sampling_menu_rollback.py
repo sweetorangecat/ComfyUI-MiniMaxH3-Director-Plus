@@ -3,7 +3,7 @@ from pathlib import Path
 from nodes.schema import allowed_motion_smoothing, normalize_request, visible_performance_presets
 
 
-SOURCE = Path("js/minimax_h3_director_plus_v9.js")
+SOURCE = Path("js/minimax_h3_director_plus_v10.js")
 
 
 def test_sampling_menu_exposes_quality_routes_and_low_vram_after_62b_rollback():

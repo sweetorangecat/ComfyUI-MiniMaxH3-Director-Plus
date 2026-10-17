@@ -57,7 +57,7 @@ function installedDirector(initialValue = "off", extraWidgets = [], nativeWidget
     requestAnimationFrame: (fn) => frames.push(fn),
     setTimeout() {},
   });
-  const source = readFileSync(new URL("../../js/minimax_h3_director_plus_v9.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../js/minimax_h3_director_plus_v10.js", import.meta.url), "utf8");
   vm.runInContext(source.replace(/^import .*;\r?\n/gm, ""), context);
   const face = { name: "face_refine_mode", value: initialValue, options: { values: ["off", "auto"] } };
   const node = {
@@ -69,6 +69,7 @@ function installedDirector(initialValue = "off", extraWidgets = [], nativeWidget
     onWidgetChanged(name, value, previous, item) { changes.push({ name, value, previous, item }); },
     // Simulates the host's restoration callback, before our wrapper runs.
     onConfigure(data) { if (!nativeWidgets) face.value = data.face_refine_mode; },
+    serialize() { return nativeSave(this, false, true); },
     addDOMWidget(name, type, element) {
       this.root = element;
       const item = { name, type, element, value: "", options: { serialize: false } };
@@ -389,7 +390,10 @@ function nativeWidgets() {
       : [item];
   });
 }
-function nativeSave(node, invokeHook = true) {
+function nativeSave(node, invokeHook = true, nativeHook = false) {
+  if (invokeHook && typeof node.serialize === "function") {
+    return JSON.parse(JSON.stringify(node.serialize()));
+  }
   const data = { id: 2693, type: "MiniMaxH3DirectorPlus", properties: {}, widgets_values: [], widgets_values_named: {} };
   node.widgets.forEach((item, index) => {
     if (item.serialize === false) return;
@@ -397,7 +401,7 @@ function nativeSave(node, invokeHook = true) {
     data.widgets_values[index] = value;
     data.widgets_values_named[item.name] = value;
   });
-  if (invokeHook) node.onSerialize?.(data);
+  if (invokeHook || nativeHook) node.onSerialize?.(data);
   return JSON.parse(JSON.stringify(data));
 }
 function legacySave() {
@@ -491,7 +495,9 @@ test("old compact controls override stale named metadata in main graph and subgr
   extension.beforeConfigureGraph(graph);
   for (const data of [old, nested]) {
     assert.equal(data.widgets_values_named.first_image_file, "input/角色.png");
-    assert.equal(data.widgets_values.length, 42);
+    assert.equal(data.widgets_values.length, 44);
+    assert.equal(data.widgets_values_named.sampling_method, "standard");
+    assert.equal(data.widgets_values_named.community_lora_profile, "off");
   }
   assert.deepEqual(other, { id: 1, type: "Other", widgets_values: [null, "untouched"], pos: [100, 200] });
 });
@@ -616,5 +622,83 @@ test("compact browser draft repairs empty audio before queue while retaining all
   assert.equal(repaired.widgets_values[39], "auto");
   for (const name of STATE_FIELDS.filter(name => name.endsWith("_file"))) {
     assert.equal(valueOf(node, name), saved.widgets_values_named[name], name);
+  }
+});
+
+test("native serialize stays compact when a later extension replaces onSerialize", () => {
+  const { node } = installedDirector("off", nativeWidgets(), true);
+  let calls = 0;
+  node.onSerialize = data => {
+    calls++;
+    data.extension_metadata = { preserved: true };
+    data.widgets_values.push(null);
+    data.widgets_values_named.audio_loudness = "";
+  };
+  const saved = nativeSave(node);
+  assert.equal(calls, 1);
+  assert.equal(saved.widgets_values.length, 44);
+  assert.equal(saved.widgets_values_named.audio_loudness, "auto");
+  assert.deepEqual(saved.extension_metadata, { preserved: true });
+  const restored = installedDirector("off", nativeWidgets(), true);
+  restored.extension.beforeConfigureGraph({ nodes: [saved] });
+  nativeRestore(restored.node, saved);
+  assert.deepEqual(nativeSave(restored.node).widgets_values, saved.widgets_values);
+});
+
+for (const raw of ["", null, undefined, "invalid", "original"]) {
+  test("graph normalization repairs audio before native validation: " + String(raw), () => {
+    const { extension } = installedDirector();
+    const saved = legacySave();
+    saved.widgets_values_named.audio_loudness = raw;
+    // Native validation reads the JSON values before onConfigure can run.
+    extension.beforeConfigureGraph({ nodes: [saved] });
+    const expected = raw === "original" ? "original" : "auto";
+    assert.equal(saved.widgets_values[39], expected);
+    assert.equal(saved.widgets_values_named.audio_loudness, expected);
+    for (const field of STATE_FIELDS.filter(field => field.endsWith("_file"))) {
+      assert.equal(saved.widgets_values[STATE_FIELDS.indexOf(field)], saved.widgets_values_named[field]);
+    }
+  });
+}
+
+for (const field of ["reference_image_8_file", "reference_image_9_file"]) {
+  test("retained legacy reference is visible and removable after reload: " + field, () => {
+    const saved = legacySave();
+    saved.widgets_values_named[field] = "input/旧故事板.png";
+    const { node, extension, frames } = installedDirector("off", nativeWidgets(), true);
+    extension.beforeConfigureGraph({ nodes: [saved] });
+    nativeRestore(node, saved);
+    for (const frame of frames.splice(0)) frame();
+    assert.equal(valueOf(node, field), "input/旧故事板.png");
+    assert.ok(allElements(node.root).some(el => el.tag === "img" && el.src.includes("%E6%97%A7%E6%95%85%E4%BA%8B%E6%9D%BF.png")));
+    clickRemove(node, field);
+    const exported = nativeSave(node);
+    assert.equal(exported.widgets_values_named[field], "");
+    assert.equal(exported.widgets_values_named.first_image_file, "input/角色.png");
+    assert.equal(exported.widgets_values_named.reference_image_3_file, "input/锁.png");
+    assert.ok(!exported.widgets_values.includes("input/旧故事板.png"));
+    const restored = installedDirector("off", nativeWidgets(), true);
+    restored.extension.beforeConfigureGraph({ nodes: [exported] });
+    nativeRestore(restored.node, exported);
+    assert.equal(valueOf(restored.node, field), "");
+    assert.ok(!allElements(restored.node.root).some(el => el.dataset?.h3pRemoveFile === field));
+  });
+}
+
+test("shipped U11 example uses the current control order through two native save cycles", () => {
+  const workflow = JSON.parse(readFileSync(new URL("../../examples/U11-MiniMaxH3-导演台Plus-中文增强版-AutoDL混合底模版-清晰度增强版.json", import.meta.url), "utf8"));
+  const saved = workflow.nodes.find(node => node.type === "MiniMaxH3DirectorPlus");
+  assert.equal(saved.widgets_values.length, STATE_FIELDS.length);
+  assert.deepEqual(Object.keys(saved.widgets_values_named), STATE_FIELDS);
+  assert.deepEqual(saved.widgets_values, STATE_FIELDS.map(field => saved.widgets_values_named[field]));
+  let data = saved;
+  for (let cycle = 0; cycle < 2; cycle++) {
+    const { node, extension } = installedDirector("off", nativeWidgets(), true);
+    extension.beforeConfigureGraph({ nodes: [data] });
+    nativeRestore(node, data);
+    data = nativeSave(node);
+  }
+  for (const field of ["prompt", "seed", "control_after_generate", "audio_loudness", ...STATE_FIELDS.filter(field => field.endsWith("_file"))]) {
+    assert.equal(data.widgets_values_named[field], saved.widgets_values_named[field], field);
   }
 });

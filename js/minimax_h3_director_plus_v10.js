@@ -338,6 +338,10 @@ function normalizeDirectorWidgetValues(data) {
   } else {
     return null;
   }
+  // Repair before native combo validation, which precedes onConfigure/render.
+  if (!AUDIO_LOUDNESS.some(([value]) => value === values[39])) values[39] = "auto";
+  if (values.length < 43) values.push("standard");
+  if (values.length < 44) values.push("off");
   data.widgets_values = values;
   data.widgets_values_named = Object.fromEntries(values.map((value, index) => [DIRECTOR_WIDGET_FIELDS[index], value]));
   return data.widgets_values_named;
@@ -690,6 +694,13 @@ function removeUpload(node, widgetName, render) {
     VOICE_AUDIO_FIELDS.forEach((field, index) => syncUploadWidget(node, field, compacted.files[index]));
     [1, 2, 3].forEach((index) => syncUploadWidget(node, `voice_reference_name_${index}`, compacted.names[index]));
     node._h3pAssetNotice = "已移除该路音色参考；后续音频和角色名已前移，请检查提示词中的 <Audio N> 编号。";
+    render();
+    return;
+  }
+  if (/^reference_image_[1-9]_file$/.test(widgetName)) {
+    // Old saves may contain references outside the nine visible REF2VA slots.
+    syncUploadWidget(node, widgetName, "");
+    node._h3pAssetNotice = "已移除旧工作流保留的参考图。";
     render();
     return;
   }
@@ -1170,6 +1181,22 @@ function install(node) {
       if (["FL2VA", "L2VA"].includes(mode)) uploadGrid.append(uploadControl(node, "尾帧图片", "last_image_file", "image/*"));
     }
     director.append(uploadGrid);
+    if (mode === "REF2VA") {
+      const retainedFields = ["reference_image_8_file", "reference_image_9_file"]
+        .filter(field => widget(node, field)?.value);
+      if (retainedFields.length) {
+        const retainedHint = document.createElement("div");
+        retainedHint.className = "h3p-spec-note";
+        retainedHint.textContent = "旧工作流额外保存了以下参考图；可移除，或重新上传到上方 9 个参考图槽位。";
+        director.append(retainedHint);
+        const retainedGrid = document.createElement("div");
+        retainedGrid.className = "h3p-upload-grid";
+        for (const field of retainedFields) {
+          retainedGrid.append(uploadControl(node, "旧工作流保留的参考图", field, "image/*"));
+        }
+        director.append(retainedGrid);
+      }
+    }
     if (node._h3pAssetNotice) {
       const notice = document.createElement("div");
       notice.className = "h3p-spec-note";
@@ -1412,17 +1439,33 @@ function install(node) {
     };
   });
 
-  const originalSerialize = node.onSerialize;
-  node.onSerialize = function (data) {
-    originalSerialize?.call(this, data);
-    restoreAudioLoudness(this);
+  const writeSavedValues = (target, data) => {
+    if (!data || typeof data !== "object") return;
+    restoreAudioLoudness(target);
     const entries = DIRECTOR_WIDGET_FIELDS.flatMap(name => {
-      const item = widget(this, name);
+      const item = widget(target, name);
       return item ? [[name, item.value ?? null]] : [];
     });
     data.widgets_values = entries.map(([, value]) => value);
     data.widgets_values_named = Object.fromEntries(entries);
   };
+  const originalSerialize = node.onSerialize;
+  node.onSerialize = function (data) {
+    originalSerialize?.call(this, data);
+    writeSavedValues(this, data);
+  };
+  // A later extension can replace onSerialize. Compact the returned native
+  // serialization as well, after every hook has run, so previews cannot shift
+  // saved controls on the next load.
+  const serializeNode = node.serialize;
+  if (typeof serializeNode === "function") {
+    node.serialize = function (...args) {
+      restoreAudioLoudness(this);
+      const data = serializeNode.apply(this, args);
+      writeSavedValues(this, data);
+      return data;
+    };
+  }
 
   const originalConfigure = node.onConfigure;
   node.onConfigure = function (...args) {

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-SOURCE_PATH = Path("js/minimax_h3_director_plus_v9.js")
+SOURCE_PATH = Path("js/minimax_h3_director_plus_v10.js")
 
 
 def source():
