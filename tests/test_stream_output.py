@@ -185,6 +185,42 @@ def test_selected_video_engine_overrides_stale_plan_and_preserves_final_size(mon
     assert received[0][2]['preserve_target'] is True
 
 
+@pytest.mark.parametrize('engine,source_size,expected', [
+    ('vosr2', (1344, 768), (2688, 1536)),
+    ('vosr2', (768, 1344), (1536, 2688)),
+    ('vosr2', (2688, 1536), (2688, 1536)),
+    ('video_sr', (2688, 1536), (2688, 1536)),
+])
+def test_1080p_video_sr_keeps_larger_output_through_encoder_and_metadata(
+    monkeypatch, engine, source_size, expected,
+):
+    import nodes.video_finish as video_finish
+
+    captured, encode_calls = [], []
+    portrait = source_size[0] < source_size[1]
+    target = (1080, 1920) if portrait else (1920, 1080)
+    guide = {'postprocess_mode': engine, 'target_width': target[0],
+             'target_height': target[1], 'video_sr_plan': {'preserve_target': True}}
+    if engine == 'vosr2':
+        def upscale(images, width, height, seed):
+            assert (width, height) == expected
+            return torch.ones(1, expected[1], expected[0], 3)
+        monkeypatch.setattr(video_finish, '_vosr2', upscale)
+    else:
+        def upscale(images, width, height, **kwargs):
+            assert (width, height) == expected
+            yield torch.ones(1, height, width, 3)
+        monkeypatch.setattr(stream_output, '_iter_video_sr_frame_chunks', upscale)
+        monkeypatch.setattr(stream_output, 'resolve_seedvr2_callables', lambda: (object(),) * 3)
+    result = _combine(monkeypatch, guide,
+                      torch.rand(1, source_size[1], source_size[0], 3),
+                      captured, encode_calls=encode_calls)
+    assert captured[0].shape[1:3] == (expected[1], expected[0])
+    assert encode_calls[0][0][3:5] == expected
+    assert (result['ui']['gifs'][0]['width'], result['ui']['gifs'][0]['height']) == expected
+    assert guide['video_sr_plan'] == {'preserve_target': True}
+
+
 def test_two_stage_actual_second_size_bypasses_redundant_vsr():
     guide = {
         "native_width": 896,

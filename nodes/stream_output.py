@@ -1150,6 +1150,16 @@ class MiniMaxH3StreamingVideoCombine:
             plan = dict(guide.get("video_sr_plan") or {})
             plan.update(engine="vosr2" if guide["postprocess_mode"] == "vosr2" else "seedvr2",
                         preserve_target=True)
+            if guide.get("resolution_preset") == "1080p FHD" or sorted((target_width, target_height)) == [1080, 1920]:
+                from .video_finish import sr_output_size
+
+                # 1080p is a minimum for video SR. Resolve the larger canvas
+                # before encoding so frames, exports and metadata all agree.
+                target_width, target_height = sr_output_size(
+                    source_width, source_height, target_width, target_height,
+                    plan["engine"],
+                )
+                plan.pop("force_2x", None)
             guide["video_sr_plan"] = plan
         if postprocess_path == "video_sr" and not (guide.get("video_sr_plan") or {}).get("preserve_target"):
             from .video_finish import sr_output_size
