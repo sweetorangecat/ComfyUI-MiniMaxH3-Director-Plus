@@ -5,6 +5,8 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
+from .execution_report import attach_report, report_from
+
 
 class MiniMaxH3ColorGuard:
     """Keep generated frames close to the scene exposure without changing motion."""
@@ -121,6 +123,9 @@ class MiniMaxH3ColorGuard:
             if images.shape[-1] > 3:
                 corrected[start:end, ..., 3:] = images[start:end, ..., 3:].to(output_device)
 
+        report = report_from(images)
+        if report is not None:
+            attach_report(corrected, report)
         if fast4:
             return corrected, "极速4步已启用轻度提亮与细节恢复；未将生成第1帧当作曝光基准"
         if anchor is None:

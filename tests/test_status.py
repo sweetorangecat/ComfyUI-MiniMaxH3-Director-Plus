@@ -66,6 +66,19 @@ def test_status_summary_is_chinese(tmp_path):
     assert "模型未就绪" in summary
 
 
+def test_balanced_status_requires_exact_backend_adapter(tmp_path):
+    from nodes.sampling_recipes import BALANCED_LORAS
+    loras = tmp_path / 'models' / 'loras' / 'h3'
+    loras.mkdir(parents=True)
+    # A historical 4-step weight cannot satisfy the new recipe.
+    (loras / 'minimax_h3_ref2v_turbo_4step.safetensors').write_bytes(b'x')
+    (loras / BALANCED_LORAS['fl2va_model']).write_bytes(b'x')
+    status = detect_capabilities(tmp_path)['acceleration']['balanced_8step']
+    assert status['fl2va_model']['available'] is True
+    assert status['ref2va_model']['available'] is False
+    assert status['ref2va_model']['filename'] == BALANCED_LORAS['ref2va_model']
+
+
 def test_status_reports_rtx_vsr_dependency_state(monkeypatch, tmp_path):
     def missing(name):
         raise ModuleNotFoundError(name)

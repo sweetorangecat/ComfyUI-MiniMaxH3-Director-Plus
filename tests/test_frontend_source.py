@@ -135,8 +135,8 @@ def test_ui_exposes_separate_low_vram_two_stage_without_changing_layout():
 def test_ui_exposes_route_isolated_quality_presets():
     text = source()
     assert '"免费智能 1080p"' in text
-    assert 't2va: ["稳定质量", "质量优先加速", "质量优先二采样", "低显存"]' in text
-    assert 'reference: ["参考高清（原生20步）", "质量优先加速", "质量优先二采样", "低显存"]' in text
+    assert 't2va: ["稳定质量", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"]' in text
+    assert 'reference: ["参考高清（原生20步）", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"]' in text
     assert "高清快速（v4 8步）" in text
     assert "参考高清（原生20步）" in text
     assert "参考极速（官方4步）" in text
@@ -273,9 +273,9 @@ def test_frontend_filters_performance_presets_by_mode_and_voice():
 
 def test_frontend_exposes_curated_performance_presets_per_route():
     text = source()
-    assert 't2va: ["稳定质量", "质量优先加速", "质量优先二采样", "低显存"]' in text
-    assert 'endpoint: ["稳定质量", "质量优先加速", "质量优先二采样", "低显存"]' in text
-    assert 'reference: ["参考高清（原生20步）", "质量优先加速", "质量优先二采样", "低显存"]' in text
+    assert 't2va: ["稳定质量", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"]' in text
+    assert 'endpoint: ["稳定质量", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"]' in text
+    assert 'reference: ["参考高清（原生20步）", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"]' in text
 
 
 def test_ui_keeps_audio_lane_for_all_reference_compatible_modes():

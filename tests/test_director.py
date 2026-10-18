@@ -2098,8 +2098,13 @@ def test_face_refine_auto_is_exported_in_guide():
     assert guide["face_refine_mode"] == "auto"
 
 
-def test_explicit_ref_audio_fhd_keeps_conservative_tile_defaults(monkeypatch):
-    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (23.5, 23.1))
+@pytest.mark.parametrize("total,free,tile,chunk", [
+    (23.5, 23.1, 512, 73),
+    (32.0, 29.0, 768, 141),
+    (32.0, 20.0, 512, 73),
+])
+def test_explicit_ref_audio_fhd_uses_measured_tile_budget(monkeypatch, total, free, tile, chunk):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (total, free))
     guide, *_ = MiniMaxH3DirectorPlus().build(
         mode="REF2VA", prompt="两个人在机场走廊交接证件。", duration=15,
         width=1920, height=1080, aspect_ratio="16:9", resolution_preset="1080p FHD",
@@ -2109,8 +2114,42 @@ def test_explicit_ref_audio_fhd_keeps_conservative_tile_defaults(monkeypatch):
         voice_reference_audio=_clean_voice(),
     )
     assert guide["performance_preset"] == "quality_two_stage"
-    assert (guide["split_tile_width"], guide["split_tile_height"]) == (512, 512)
-    assert guide["split_chunk_frames"] == 73
+    assert (guide["split_tile_width"], guide["split_tile_height"]) == (tile, tile)
+    assert guide["split_chunk_frames"] == chunk
+
+
+@pytest.mark.parametrize("mode", ["T2VA", "I2VA", "L2VA", "FL2VA", "REF2VA"])
+@pytest.mark.parametrize("voice", ["none", "h3_reference"])
+def test_balanced_director_keeps_native_conditioning_and_reports_recipe(monkeypatch, mode, voice):
+    import torch
+    monkeypatch.setattr("nodes.two_stage_assets.resolve_registered_model_name", lambda category, name: name)
+    first = torch.zeros(1, 32, 32, 3) if mode in {"I2VA", "FL2VA"} else None
+    last = torch.zeros(1, 32, 32, 3) if mode in {"L2VA", "FL2VA"} else None
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode=mode, prompt='角色使用 <Audio 1> 的音色说：“你好。”' if voice != 'none' else '人物挥手。',
+        duration=5, width=1344, height=768, voice_mode=voice, ref_image_size='match',
+        performance_preset='balanced_8step', timeline_data='{}', target_dialogue='', reference_transcript='',
+        first_image=first, last_image=last, voice_reference_audio=_clean_voice() if voice != 'none' else None,
+        vosr2_profile='manual_baseline',
+    )
+    backend = 'ref2va_model' if mode == 'REF2VA' or voice != 'none' else 'fl2va_model'
+    assert guide['sampling_recipe']['backend'] == backend
+    assert guide['sampling_recipe']['steps'] == 8
+    assert not guide['two_stage_enabled']
+    assert bool(guide['ref_audios']) == (voice != 'none')
+    assert guide['vosr2_profile'] == 'manual_baseline'
+    if backend == 'fl2va_model':
+        assert guide['first_frame'] is first and guide['last_frame'] is last
+    else:
+        assert guide['first_frame'] is None and guide['last_frame'] is None
+
+
+def test_balanced_director_missing_weights_is_actionable(monkeypatch):
+    monkeypatch.setattr("nodes.two_stage_assets.resolve_registered_model_name", lambda *args: None)
+    with pytest.raises(RequestError, match='8step_v1.0_768p'):
+        MiniMaxH3DirectorPlus().build(mode='T2VA', prompt='人物挥手', duration=5,
+            width=1344, height=768, voice_mode='none', ref_image_size='match',
+            performance_preset='balanced_8step', timeline_data='{}', target_dialogue='', reference_transcript='')
 
 
 @pytest.mark.parametrize("preset,width,height", [("2K QHD", 2560, 1440), ("4K UHD", 3840, 2160)])

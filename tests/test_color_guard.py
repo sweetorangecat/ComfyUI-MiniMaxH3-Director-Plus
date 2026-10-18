@@ -66,3 +66,21 @@ def test_color_guard_offloads_large_cuda_outputs_to_system_memory():
     assert MiniMaxH3ColorGuard._requires_cpu_output(large_video_bytes, is_cuda=True)
     assert not MiniMaxH3ColorGuard._requires_cpu_output(large_video_bytes, is_cuda=False)
     assert not MiniMaxH3ColorGuard._requires_cpu_output(64 * 1024**2, is_cuda=True)
+
+
+@pytest.mark.parametrize("case", ["disabled", "no_anchor", "anchor", "fast4"])
+def test_color_guard_preserves_execution_lineage(case):
+    from nodes.execution_report import attach_report, new_report, report_from, stage_timer
+    frames = torch.full((2, 8, 8, 3), 0.2)
+    report = new_report({"mode": "T2VA"})
+    with stage_timer(report, "decode"):
+        pass
+    attach_report(frames, report)
+    guide = {"first_frame": torch.full((1, 8, 8, 3), 0.4)} if case == "anchor" else {}
+    if case == "fast4":
+        guide["performance_preset"] = "fast_4step"
+    output, _ = MiniMaxH3ColorGuard().apply(frames, guide, enabled=case != "disabled")
+    assert report_from(output) == report_from(frames)
+    if case in {"anchor", "fast4"}:
+        assert output is not frames
+        assert report_from(output) is not report_from(frames)

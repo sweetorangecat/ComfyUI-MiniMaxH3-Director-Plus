@@ -398,6 +398,7 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_9": ("IMAGE",),
                 "sampling_method": (["standard", "selflift"], {"default": "standard", "tooltip": "仅质量优先二采样生效；SelfLift 实验使用 REF2VA、无音色、4–15 秒、24FPS，支持所选超分输出 2K/4K"}),
                 "community_lora_profile": (["off", "continuity", "combat", "legacy"], {"default": "off", "tooltip": "仅质量优先二采样：关闭、动作连续性、武戏；legacy 复用旧社区开关"}),
+                "vosr2_profile": (["legacy", "manual_baseline", "experimental_32gb"], {"default": "legacy", "tooltip": "VOSR2 配置对比：旧配置、手动基线、32GB 候选（未实测加速；按实际空闲显存检查）"}),
             },
         }
 
@@ -465,6 +466,7 @@ class MiniMaxH3DirectorPlus:
         reference_image_9_file="",
         sampling_method="standard",
         community_lora_profile="off",
+        vosr2_profile="legacy",
     ):
         requested_width, requested_height = calculate_resolution(
             resolution_preset,
@@ -619,6 +621,7 @@ class MiniMaxH3DirectorPlus:
             "performance_preset": performance_preset,
             "sampling_method": sampling_method,
             "community_lora_profile": community_lora_profile,
+            "vosr2_profile": vosr2_profile,
             "postprocess_mode": postprocess_mode,
             "rtx_quality": rtx_quality,
             "ai_upscale_model": ai_upscale_model,
@@ -627,6 +630,16 @@ class MiniMaxH3DirectorPlus:
             "face_refine_mode": face_refine_mode,
             "ignored_media": ignored_media,
         })
+
+        from .sampling_recipes import balanced_recipe
+        recipe = balanced_recipe(request)
+        if recipe:
+            from .two_stage_assets import resolve_registered_model_name
+            if resolve_registered_model_name("loras", recipe["lora_name"]) is None:
+                raise RequestError("均衡高质 8 步缺少匹配权重：" + recipe["lora_name"]
+                                   + "；请放入 ComfyUI/models/loras（lightx2v/Minimax-h3-Turbo），不会替换为旧版权重。")
+            if voice_mode in {"h3_reference", "fish_lock"}:
+                request["warnings"].append("8 步音色／口型路线需与原生 20 步对比；当前保留参考音频条件，不代表声纹保真已验证。")
 
         # Voice sample quality gate: fail (or warn) before H3 sampling starts.
         # Official H3 bounds each reference clip to 2–15s; the stable timbre
@@ -783,6 +796,7 @@ class MiniMaxH3DirectorPlus:
             )
 
         two_stage_plan = None
+        split_vram = smart_vram
         two_stage_tiled = True
         resolved_two_stage_route = "bypass"
         required_assets = []
@@ -817,6 +831,11 @@ class MiniMaxH3DirectorPlus:
                 total_vram_gb, free_vram_gb = _probe_vram_after_prefree()
             else:
                 total_vram_gb, free_vram_gb = smart_vram
+            # Explicit quality two-stage requests have no smart plan, but their
+            # measured budget must still reach the tile planner. Keep the
+            # existing conservative manual profile on 24GB and smaller cards.
+            if smart_vram is None and total_vram_gb >= 28.0:
+                split_vram = (total_vram_gb, free_vram_gb)
             if total_vram_gb <= 0:
                 raise RequestError("无法读取当前 GPU 显存，已阻止训练型二采启动")
             two_stage_plan = (smart_plan or {}).get("dimension_plan") or plan_two_stage_dimensions(
@@ -1092,6 +1111,7 @@ class MiniMaxH3DirectorPlus:
 
         if (
             request["resolved_backend"] == "ref2va_model"
+            and not recipe
             and str(ref_image_size or "match") == "match"
             and final_upscale_required
             and max(
@@ -1138,7 +1158,15 @@ class MiniMaxH3DirectorPlus:
             )
 
         length = align_frame_count(int(duration) * 24)
-        split_tiles = split_tile_plan(smart_vram[1] if smart_vram else 0)
+        split_tiles = split_tile_plan(split_vram[1] if split_vram else 0)
+        if two_stage_plan is not None and two_stage_tiled:
+            LOGGER.info(
+                "[H3 director] second-stage tiles=%sx%s chunk_frames=%s temporal_overlap=%s "
+                "measured_vram_total=%.1fGB measured_vram_free=%.1fGB",
+                split_tiles["split_tile_width"], split_tiles["split_tile_height"],
+                split_tiles["split_chunk_frames"], split_tiles["split_temporal_overlap_frames"],
+                total_vram_gb, free_vram_gb,
+            )
         guide = {
             "version": 1,
             "mode": mode,
@@ -1247,6 +1275,8 @@ class MiniMaxH3DirectorPlus:
             "ref_image_size": ref_image_size,
             "first_frame": first_frame,
             "last_frame": last_frame,
+            "requested_first_frame": first_image is not None,
+            "requested_last_frame": last_image is not None,
             "ref_images": ref_images,
             "ref_videos": {},
             "ref_video_audios": {},
@@ -1267,6 +1297,8 @@ class MiniMaxH3DirectorPlus:
                 if isinstance(audio, dict) and audio.get("_director_voice_stats")
             ],
             "performance_preset": request["performance_preset"],
+            "sampling_recipe": recipe,
+            "vosr2_profile": request["vosr2_profile"],
             "requested_performance_preset": requested_performance_preset,
             "max_duration": (
                 int(smart_plan["max_duration"])
@@ -1278,6 +1310,9 @@ class MiniMaxH3DirectorPlus:
             "reference_transcript": reference_transcript,
             "ignored_media": request.get("ignored_media", []),
         }
+        from .execution_report import execution_plan
+        guide["execution_plan"] = execution_plan(guide)
+        LOGGER.info("[H3 plan] %s", json.dumps(guide["execution_plan"], ensure_ascii=False))
         LOGGER.info(
             "[H3 director] mode=%s backend=%s preset=%s first_frame=%s last_frame=%s "
             "ref_images=%d ref_audios=%d voice_bindings=%s ignored_media=%s native=%sx%s target=%sx%s postprocess=%s",

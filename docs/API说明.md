@@ -1,5 +1,7 @@
 # API 说明
 
+2026-10-18：新增可选 `performance_preset=balanced_8step`（均衡高质：768p 八步），按实际 FL2VA/REF2VA 路线选择独立的匹配 LoRA，固定 Euler/simple、强度 1、video/audio shift 6/3。所有现有模式和音色入口均可选择，保持原来的实际后端及首尾帧语义，不叠加 H3 二采。新增 `vosr2_profile`：`legacy`（默认）、`manual_baseline`、`experimental_32gb`；仅选择 VOSR2 时生效，实验档要求释放模型后实测总显存至少 30 GiB、空闲至少 24 GiB。旧请求不变；模型文件和画质验收说明见 [使用说明](使用说明.md)，对比工具见 [VOSR2配置对比](VOSR2配置对比.md)。输出的 `execution_report` 与启用元数据时保存的 `.execution.json` 包含当前执行和上游产物的阶段墙钟记录；不能把可能命中缓存的历史时间相加为本次总耗时。
+
 2026-10-14：新增可选 `sampling_method=standard|selflift` 与 `community_lora_profile=off|continuity|combat|legacy`，默认 `standard/off`。高级选项仅用于 `quality_two_stage`；SelfLift 使用 `REF2VA`、`voice_mode=none`、4–15秒、24FPS，支持所选超分输出2K/4K，总显存至少20GB且空闲至少18GB。安装与试用见 [SelfLift短视频实验](SelfLift短视频实验.md)。运行后的输出元数据包含 `sampling_actual_method`、`sampling_executed_steps`、`sampling_route`、`sampling_elapsed_seconds`、两阶段实际步数与 `community_loras_applied`；这些不是运行前的画质或显存保证。
 
 2026-10-11：默认 `performance_preset` 显示值为 `稳定质量`，`智能画质（自动适配）` / `免费智能 1080p` / `smart_free_1080p` 继续兼容，无新增必填入参。标准 QHD 自动规划 4–15 秒路线，实际 `postprocess_path` 可为 `balanced_fhd_downscale`（复用等比裁切导出，`qhd_direct=true`）或 `video_sr`。`two_stage_tiling_required` 表示必须完整分块，`split_oom_retries` 记录二采 OOM 重试次数。预算和硬件验证边界见 [交付说明](U11清晰度增强版交付说明.md)。

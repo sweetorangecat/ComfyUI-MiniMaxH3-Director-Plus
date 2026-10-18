@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import gc
+import json
 import logging
 import os
 import re
@@ -19,6 +20,7 @@ from PIL import Image
 
 from .upscale import resolve_upscale_model_name, validate_frames_for_reconstruction
 from .video_sr import resolve_seedvr2_callables
+from .execution_report import attach_report, new_report, reconstruction_diagnostics, stage_timer
 from .rtx_vsr_stream import DeblurVsrFrameProcessor, VsrFrameProcessor, load_vsr_api
 from .rife_stream import (
     DEFAULT_RIFE_MODEL,
@@ -614,8 +616,16 @@ def _iter_video_sr_frame_chunks(
             if (sr_input_width, sr_input_height) != (images.shape[2], images.shape[1])
             else images
         )
-        result = _vosr2(source, target_width, target_height, seed)
-        validate_sr_result(result, len(images))
+        profile = plan.get("vosr2_profile", "legacy")
+        report = plan.get("_execution_report") or new_report()
+        with stage_timer(report, "reconstruction", path="vosr2", profile=profile,
+                         scope="model release/load and reconstruction; excludes final resize and encoding"):
+            if profile == "legacy" and plan.get("diagnostics") is None:
+                result = _vosr2(source, target_width, target_height, seed)
+            else:
+                result = _vosr2(source, target_width, target_height, seed,
+                                profile=profile, diagnostics=plan.get("diagnostics"))
+            validate_sr_result(result, len(images))
         for start in range(0, len(result), max(1, int(max_chunk_frames))):
             yield _resize_cpu_chunk(result[start:start + max(1, int(max_chunk_frames))], target_width, target_height, method="lanczos").clamp(0, 1)
         return
@@ -625,44 +635,47 @@ def _iter_video_sr_frame_chunks(
             "缺少 SeedVR2 视频超分节点：请安装 ComfyUI-SeedVR2_VideoUpscaler，"
             "或在导演台把最终输出改为通用 AI 超分"
         )
-    _release_comfy_models_before_video_sr()
-    upscale_fn, dit_loader_fn, vae_loader_fn = callables
-    plan = dict(plan or {})
-    dit_config = _unwrap_node_result(
-        dit_loader_fn(
-            model=plan.get("dit_model"),
-            device="cuda:0",
-            offload_device=plan.get("dit_offload_device", "cpu"),
-            blocks_to_swap=int(plan.get("blocks_to_swap", 0)),
-            swap_io_components=bool(plan.get("swap_io_components", False)),
+    report = plan.get("_execution_report") or new_report()
+    with stage_timer(report, "reconstruction", path="seedvr2",
+                     scope="model release/load and reconstruction; excludes final resize and encoding"):
+        _release_comfy_models_before_video_sr()
+        upscale_fn, dit_loader_fn, vae_loader_fn = callables
+        plan = dict(plan or {})
+        dit_config = _unwrap_node_result(
+            dit_loader_fn(
+                model=plan.get("dit_model"),
+                device="cuda:0",
+                offload_device=plan.get("dit_offload_device", "cpu"),
+                blocks_to_swap=int(plan.get("blocks_to_swap", 0)),
+                swap_io_components=bool(plan.get("swap_io_components", False)),
+            )
         )
-    )
-    vae_config = _unwrap_node_result(
-        vae_loader_fn(
-            model=plan.get("vae_model"),
-            device="cuda:0",
-            offload_device="cpu",
-            encode_tiled=bool(plan.get("encode_tiled", False)),
-            decode_tiled=bool(plan.get("decode_tiled", False)),
+        vae_config = _unwrap_node_result(
+            vae_loader_fn(
+                model=plan.get("vae_model"),
+                device="cuda:0",
+                offload_device="cpu",
+                encode_tiled=bool(plan.get("encode_tiled", False)),
+                decode_tiled=bool(plan.get("decode_tiled", False)),
+            )
         )
-    )
-    result = _unwrap_node_result(
-        upscale_fn(
-            image=images.detach().to(device="cpu", dtype=torch.float32),
-            dit=dit_config,
-            vae=vae_config,
-            seed=int(seed),
-            resolution=int(min(target_width, target_height)),
-            max_resolution=0,
-            batch_size=int(plan.get("batch_size", 5)),
-            uniform_batch_size=False,
-            temporal_overlap=int(plan.get("temporal_overlap", 0)),
-            color_correction=str(plan.get("color_correction", "lab")),
-            offload_device="cpu",
+        result = _unwrap_node_result(
+            upscale_fn(
+                image=images.detach().to(device="cpu", dtype=torch.float32),
+                dit=dit_config,
+                vae=vae_config,
+                seed=int(seed),
+                resolution=int(min(target_width, target_height)),
+                max_resolution=0,
+                batch_size=int(plan.get("batch_size", 5)),
+                uniform_batch_size=False,
+                temporal_overlap=int(plan.get("temporal_overlap", 0)),
+                color_correction=str(plan.get("color_correction", "lab")),
+                offload_device="cpu",
+            )
         )
-    )
-    if not isinstance(result, torch.Tensor) or result.ndim != 4:
-        raise RuntimeError("SeedVR2 视频超分返回了无效结果")
+        if not isinstance(result, torch.Tensor) or result.ndim != 4:
+            raise RuntimeError("SeedVR2 视频超分返回了无效结果")
     step = max(1, int(max_chunk_frames))
     for start in range(0, int(result.shape[0]), step):
         yield _resize_cpu_chunk(
@@ -1111,6 +1124,44 @@ class MiniMaxH3StreamingVideoCombine:
         return float("nan")
 
     def combine(
+        self, images, guide, frame_rate, codec, container, bit_depth, quality, log_level,
+        pingpong, save_metadata, filename_prefix, save_output, pass_frames, crop_to_audio,
+        audio_codec, audio_bitrate, save_first_frame, save_last_frame, audio=None,
+        audio_override=None, prompt=None, extra_pnginfo=None,
+    ):
+        guide = dict(guide)
+        report = new_report(guide, images)
+        plan = dict(guide.get("video_sr_plan") or {})
+        plan.update(vosr2_profile=guide.get("vosr2_profile", "legacy"), diagnostics={},
+                    _execution_report=report)
+        guide["video_sr_plan"] = plan
+        with stage_timer(report, "output", includes_nested_stages=True,
+                         scope="output preparation, postprocessing, encoding, frame exports"):
+            result = self._combine(
+                images, guide, frame_rate, codec, container, bit_depth, quality, log_level,
+                pingpong, save_metadata, filename_prefix, save_output, pass_frames, crop_to_audio,
+                audio_codec, audio_bitrate, save_first_frame, save_last_frame, audio,
+                audio_override, prompt, extra_pnginfo, report,
+            )
+        diagnostics = reconstruction_diagnostics(plan["diagnostics"])
+        if diagnostics:
+            report["reconstruction"] = diagnostics
+        result["ui"]["execution_report"] = [report]
+        for key in ("images", "gifs"):
+            for asset in result["ui"].get(key, []):
+                asset["execution_report"] = report
+        output_frames, output_path = result["result"]
+        attach_report(output_frames, report)
+        if save_metadata:
+            # Encoding has finished: a sidecar can honestly include its actual
+            # duration; metadata embedded before encoding cannot know that yet.
+            report_path = str(output_path) + ".execution.json"
+            Path(report_path).write_text(json.dumps(report, ensure_ascii=False, indent=2,
+                                                   allow_nan=False), encoding="utf-8")
+            result["ui"]["execution_report_file"] = [report_path]
+        return result
+
+    def _combine(
         self,
         images,
         guide,
@@ -1134,6 +1185,7 @@ class MiniMaxH3StreamingVideoCombine:
         audio_override=None,
         prompt=None,
         extra_pnginfo=None,
+        execution_report=None,
     ):
         if images.ndim != 4 or images.shape[-1] < 3:
             raise ValueError("images 必须是 [帧数, 高, 宽, 通道] 的 IMAGE 批次")
@@ -1358,7 +1410,9 @@ class MiniMaxH3StreamingVideoCombine:
                 else:
                     replay_chunks.clear()
 
-        metadata_path = dasiwa._metadata_file(prompt, extra_pnginfo) if save_metadata else None
+        metadata_extra = dict(extra_pnginfo or {})
+        metadata_extra["h3_execution_report"] = new_report(guide, images)
+        metadata_path = dasiwa._metadata_file(prompt, metadata_extra) if save_metadata else None
         voice_mode = guide.get("voice_mode")
         reused_audio = (
             audio_override if voice_mode in {"fish_lock", "audio_reuse"} and audio_override is not None
@@ -1431,53 +1485,57 @@ class MiniMaxH3StreamingVideoCombine:
         if working_encoders is not None and original_available_encoders is not None:
             dasiwa._available_encoders = lambda _ffmpeg: set(working_encoders)
         try:
-            animated_settings = dasiwa._animated_image_settings(container)
-            if animated_settings:
-                output_path = os.path.join(output_folder, dasiwa._output_filename(filename, counter, animated_settings[0], False))
-                encoder = dasiwa._encode_animated_image(
-                    ffmpeg, container, selected_bit_depth, target_width, target_height,
-                    output_frame_rate, frame_chunks, output_path, encode_quality, report_encode_progress,
-                )
-                selected_container = container
-                selected_codec = container
-            else:
-                for selected_codec in dasiwa._codec_candidates(codec):
-                    candidates = dasiwa._auto_container_candidates(selected_codec, container) if codec == "Auto" else dasiwa._container_candidates(selected_codec, container)
-                    for selected_container in candidates:
+            encode_stage = "encoding" if postprocess_path == "native_bypass" else "postprocess_and_encoding"
+            with stage_timer(execution_report, encode_stage, path=postprocess_path,
+                             includes_nested_stages=postprocess_path == "video_sr",
+                             scope="frame conversion, encoder feeding, encode/mux and retries; overlapping wall time"):
+                animated_settings = dasiwa._animated_image_settings(container)
+                if animated_settings:
+                    output_path = os.path.join(output_folder, dasiwa._output_filename(filename, counter, animated_settings[0], False))
+                    encoder = dasiwa._encode_animated_image(
+                        ffmpeg, container, selected_bit_depth, target_width, target_height,
+                        output_frame_rate, frame_chunks, output_path, encode_quality, report_encode_progress,
+                    )
+                    selected_container = container
+                    selected_codec = container
+                else:
+                    for selected_codec in dasiwa._codec_candidates(codec):
+                        candidates = dasiwa._auto_container_candidates(selected_codec, container) if codec == "Auto" else dasiwa._container_candidates(selected_codec, container)
+                        for selected_container in candidates:
+                            output_path = os.path.join(
+                                output_folder,
+                                dasiwa._output_filename(filename, counter, dasiwa._CONTAINER_EXTENSIONS[selected_container], audio_path is not None),
+                            )
+                            try:
+                                encoder = dasiwa._encode_with_available_encoder(
+                                    ffmpeg, selected_codec, selected_bit_depth, target_width, target_height,
+                                    output_frame_rate, frame_chunks, output_path, selected_container, encode_quality, encode_quality,
+                                    metadata_path, audio_path, audio_duration, crop_to_audio,
+                                    audio_codec, audio_bitrate, report_encode_progress,
+                                )
+                                break
+                            except RuntimeError as error:
+                                attempts.append(f"{selected_codec}/{selected_container}: {error}")
+                                if isinstance(error, (_VsrProcessingError, RifeProcessingError)):
+                                    raise
+                                if codec != "Auto":
+                                    raise
+                        else:
+                            continue
+                        break
+                    else:
+                        selected_codec = "H.264"
+                        selected_container = "MP4"
                         output_path = os.path.join(
                             output_folder,
-                            dasiwa._output_filename(filename, counter, dasiwa._CONTAINER_EXTENSIONS[selected_container], audio_path is not None),
+                            dasiwa._output_filename(filename, counter, ".mp4", audio_path is not None),
                         )
-                        try:
-                            encoder = dasiwa._encode_with_available_encoder(
-                                ffmpeg, selected_codec, selected_bit_depth, target_width, target_height,
-                                output_frame_rate, frame_chunks, output_path, selected_container, encode_quality, encode_quality,
-                                metadata_path, audio_path, audio_duration, crop_to_audio,
-                                audio_codec, audio_bitrate, report_encode_progress,
-                            )
-                            break
-                        except RuntimeError as error:
-                            attempts.append(f"{selected_codec}/{selected_container}: {error}")
-                            if isinstance(error, (_VsrProcessingError, RifeProcessingError)):
-                                raise
-                            if codec != "Auto":
-                                raise
-                    else:
-                        continue
-                    break
-                else:
-                    selected_codec = "H.264"
-                    selected_container = "MP4"
-                    output_path = os.path.join(
-                        output_folder,
-                        dasiwa._output_filename(filename, counter, ".mp4", audio_path is not None),
-                    )
-                    encoder = dasiwa._encode_with_available_encoder(
-                        ffmpeg, selected_codec, selected_bit_depth, target_width, target_height,
-                        output_frame_rate, frame_chunks, output_path, selected_container, encode_quality, encode_quality,
-                        metadata_path, audio_path, audio_duration, crop_to_audio,
-                        audio_codec, audio_bitrate, report_encode_progress,
-                    )
+                        encoder = dasiwa._encode_with_available_encoder(
+                            ffmpeg, selected_codec, selected_bit_depth, target_width, target_height,
+                            output_frame_rate, frame_chunks, output_path, selected_container, encode_quality, encode_quality,
+                            metadata_path, audio_path, audio_duration, crop_to_audio,
+                            audio_codec, audio_bitrate, report_encode_progress,
+                        )
         finally:
             if original_available_encoders is not None:
                 dasiwa._available_encoders = original_available_encoders

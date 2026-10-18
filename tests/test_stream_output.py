@@ -80,8 +80,8 @@ def _combine(monkeypatch, guide, images, captured, audio=None, encode_calls=None
         quality=20,
         log_level="Standard",
         pingpong=False,
-        save_metadata=False,
-        filename_prefix="stream-test",
+        save_metadata=kwargs.get("save_metadata", False),
+        filename_prefix=kwargs.get("filename_prefix", "stream-test"),
         save_output=True,
         pass_frames=kwargs.get("pass_frames", False),
         crop_to_audio=False,
@@ -153,6 +153,72 @@ def test_output_ui_metadata_is_expandable_by_comfyui(monkeypatch):
         list(value)
 
 
+def test_output_reports_completed_stages_without_mutating_cached_guide(monkeypatch):
+    from nodes.execution_report import attach_report, new_report, stage_timer
+    guide = {"target_width": 4, "target_height": 4, "postprocess_path": "native_bypass"}
+    images = torch.rand(2, 4, 4, 3)
+    upstream = new_report(guide)
+    with stage_timer(upstream, "decode"):
+        pass
+    attach_report(images, upstream)
+    result = _combine(monkeypatch, guide, images, [])
+    report = result["ui"]["execution_report"][0]
+    stages = {stage["stage"]: stage for stage in report["stages"]}
+    assert stages["decode"]["origin"] == "upstream_artifact"
+    assert stages["encoding"]["status"] == "completed"
+    assert stages["output"]["status"] == "completed"
+    assert result["ui"]["images"][0]["execution_report"] == report
+    assert "execution_report" not in guide and "video_sr_plan" not in guide
+
+
+def test_vosr2_profile_and_diagnostics_forwarded_for_current_output(monkeypatch):
+    received = []
+    def video_sr(images, width, height, **kwargs):
+        received.append(kwargs["plan"])
+        kwargs["plan"]["diagnostics"].update(profile="manual_baseline", status="completed")
+        yield images
+    monkeypatch.setattr(stream_output, "_iter_video_sr_frame_chunks", video_sr)
+    guide = {"postprocess_mode": "vosr2", "vosr2_profile": "manual_baseline",
+             "target_width": 16, "target_height": 16,
+             "video_sr_plan": {"diagnostics": {"stale": True}}}
+    result = _combine(monkeypatch, guide, torch.rand(2, 16, 16, 3), [])
+    assert received[0]["vosr2_profile"] == "manual_baseline"
+    assert "stale" not in received[0]["diagnostics"]
+    assert guide["video_sr_plan"] == {"diagnostics": {"stale": True}}
+    assert result["ui"]["execution_report"][0]["reconstruction"]["profile"] == "manual_baseline"
+
+
+def test_completed_output_report_is_saved_as_json_sidecar(monkeypatch, tmp_path):
+    import json
+    result = _combine(monkeypatch,
+        {"target_width": 4, "target_height": 4, "postprocess_path": "native_bypass", "prompt": "PRIVATE"},
+        torch.rand(2, 4, 4, 3), [], save_metadata=True, filename_prefix=str(tmp_path / "video"))
+    report_path = Path(result["ui"]["execution_report_file"][0])
+    saved = json.loads(report_path.read_text(encoding="utf-8"))
+    assert saved == result["ui"]["execution_report"][0]
+    assert saved["stages"][-1]["stage"] == "output"
+    assert saved["stages"][-1]["status"] == "completed"
+    assert "PRIVATE" not in report_path.read_text(encoding="utf-8")
+
+
+def test_failed_encoder_reports_failure_without_writing_completed_sidecar(monkeypatch, tmp_path, caplog):
+    import logging
+    dasiwa = _fake_dasiwa([])
+    def fail(*args, **kwargs):
+        raise RuntimeError("encoder failed")
+    dasiwa._encode_with_available_encoder = fail
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+    with caplog.at_level(logging.INFO, logger="MiniMaxH3.DirectorPlus.Execution"):
+        with pytest.raises(RuntimeError, match="encoder failed"):
+            stream_output.MiniMaxH3StreamingVideoCombine().combine(
+                torch.rand(2, 4, 4, 3), {"postprocess_path": "native_bypass"},
+                24., "H.264", "MP4", "8-bit", 20, "Standard", False, True,
+                str(tmp_path / "failed"), True, False, False, "Auto", "192k", False, False)
+    assert not list(tmp_path.glob("*.execution.json"))
+    assert any('"stage": "encoding", "status": "failed"' in record.message for record in caplog.records)
+    assert any('"stage": "output", "status": "failed"' in record.message for record in caplog.records)
+
+
 def test_same_size_rtx_request_is_reported_as_native_bypass(monkeypatch):
     guide = {"native_width": 3, "native_height": 2, "target_width": 3, "target_height": 2,
              "postprocess_mode": "rtx_vsr", "upscale_required": False}
@@ -202,7 +268,7 @@ def test_1080p_video_sr_keeps_larger_output_through_encoder_and_metadata(
     guide = {'postprocess_mode': engine, 'target_width': target[0],
              'target_height': target[1], 'video_sr_plan': {'preserve_target': True}}
     if engine == 'vosr2':
-        def upscale(images, width, height, seed):
+        def upscale(images, width, height, seed, **kwargs):
             assert (width, height) == expected
             return torch.ones(1, expected[1], expected[0], 3)
         monkeypatch.setattr(video_finish, '_vosr2', upscale)

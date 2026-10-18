@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import logging
+import time
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,72 +39,162 @@ def validate_sr_result(result, frame_count):
     return result
 
 
-def _vosr2(images, width, height, seed):
+def _vosr2_cuda_device():
+    import torch
+    if not torch.cuda.is_available():
+        return None
+    try:
+        import comfy.model_management as model_management
+        device = model_management.get_torch_device()
+        return device if device.type == 'cuda' else None
+    except (ImportError, AttributeError):
+        return torch.cuda.current_device()
+
+
+def _vosr2_memory_snapshot():
+    """Device-wide free memory and this process's allocator counters, in GiB."""
+    import torch
+    try:
+        device = _vosr2_cuda_device()
+        if device is None:
+            return {'available': False}
+        free, total = torch.cuda.mem_get_info(device)
+        return {
+            'available': True, 'device': str(device),
+            'device_name': torch.cuda.get_device_name(device),
+            'free_vram_gb': free / 1024**3, 'total_vram_gb': total / 1024**3,
+            'allocated_gb': torch.cuda.memory_allocated(device) / 1024**3,
+            'reserved_gb': torch.cuda.memory_reserved(device) / 1024**3,
+            # Do not reset shared CUDA counters used by other Comfy nodes.
+            'process_peak_allocated_gb': torch.cuda.max_memory_allocated(device) / 1024**3,
+            'process_peak_reserved_gb': torch.cuda.max_memory_reserved(device) / 1024**3,
+        }
+    except Exception as exc:
+        return {'available': False, 'measurement_error': type(exc).__name__}
+
+
+def _vosr2(images, width, height, seed, profile='legacy', diagnostics=None):
     from .two_stage_assets import _comfy_node_mappings, _resolve_upscaler_callable
     from .stream_output import _release_comfy_models_before_video_sr, _unwrap_node_result
-    mappings = _comfy_node_mappings()
-    ids = ('TESpeedVOSR2Loader', 'TESpeedVOSR2Settings', 'TESpeedVOSR2Video')
-    missing = [name for name in ids if name not in mappings]
-    if missing:
-        raise RuntimeError('缺少 TE-Speed-VOSR2 节点，请安装并重启 ComfyUI：' + ', '.join(missing))
-    _release_comfy_models_before_video_sr()
-    loader, settings_node, video = [_resolve_upscaler_callable(mappings[name]) for name in ids]
-    model = _unwrap_node_result(loader(model_bundle='VOSR2', precision='auto', memory_policy='auto', torch_compile=False, vae_encode_amp=False))
-    settings = _unwrap_node_result(settings_node(
-        quality_profile='speed', tile_strategy='auto', tile_size=512, tile_overlap=32,
-        vae_tile_size=1024, vae_tile_overlap=32, image_batch=1, frame_batch=2,
-        dino_batch=2, temporal_cache=False, cache_threshold=0.003, cache_refresh=4,
-        memory_policy='auto', color_alignment='wavelet'))
-    # H3's safe decoder can yield CPU fp16 frames; the VOSR2 Qwen VAE is fp32.
-    images = images.float()
-    _, _, scale = vosr2_input_size(images.shape[2], images.shape[1], width, height)
-    return _unwrap_node_result(video(model=model, images=images, scale=scale, seed=int(seed),
-        settings=settings, frame_batch=2, temporal_cache=False, cache_threshold=0.003, cache_refresh=4))
+    from .vosr2_profiles import VOSR2_PROFILE_NAMES, resolve_vosr2_profile
+    import torch
+    report = diagnostics if diagnostics is not None else {}
+    report.clear()
+    report.update(profile=profile, status='running', seed=int(seed),
+                  input_shape=list(images.shape), requested_size=[width, height],
+                  timing_scope='model release, load, settings and VOSR2 reconstruction; excludes final resize/encoding')
+    start = time.perf_counter()
+    try:
+        if profile not in VOSR2_PROFILE_NAMES:
+            raise ValueError(f'未知 VOSR2 配置：{profile!r}')
+        mappings = _comfy_node_mappings()
+        ids = ('TESpeedVOSR2Loader', 'TESpeedVOSR2Settings', 'TESpeedVOSR2Video')
+        missing = [name for name in ids if name not in mappings]
+        if missing:
+            raise RuntimeError('缺少 TE-Speed-VOSR2 节点，请安装并重启 ComfyUI：' + ', '.join(missing))
+        _release_comfy_models_before_video_sr()
+        device = _vosr2_cuda_device()
+        if device is not None:
+            torch.cuda.synchronize(device)
+        report['memory_before'] = _vosr2_memory_snapshot()
+        config = resolve_vosr2_profile(profile,
+            free_vram_gb=report['memory_before'].get('free_vram_gb'),
+            total_vram_gb=report['memory_before'].get('total_vram_gb'))
+        report['requested_config'] = config
+        LOGGER.info('[H3 VOSR2] profile=%s settings=%s', profile, config)
+        loader, settings_node, video = [_resolve_upscaler_callable(mappings[name]) for name in ids]
+        model = _unwrap_node_result(loader(**config['loader']))
+        settings = _unwrap_node_result(settings_node(**config['settings']))
+        # Report upstream's returned scalar settings when exposed, not presumed defaults.
+        upstream = settings if isinstance(settings, dict) else vars(settings) if hasattr(settings, '__dict__') else {}
+        report['upstream_settings'] = {key: value for key, value in upstream.items()
+            if key in config['settings'] and isinstance(value, (str, int, float, bool, type(None)))
+            and not (isinstance(value, float) and not math.isfinite(value))}
+        # H3's safe decoder can yield CPU fp16 frames; the VOSR2 Qwen VAE is fp32.
+        images = images.float()
+        _, _, scale = vosr2_input_size(images.shape[2], images.shape[1], width, height)
+        report['scale'] = scale
+        result = _unwrap_node_result(video(model=model, images=images, scale=scale,
+            seed=int(seed), settings=settings, **config['video']))
+        validate_sr_result(result, images.shape[0])
+        if result.shape[2] < width or result.shape[1] < height:
+            raise RuntimeError('VOSR2 输出尺寸低于请求的最低分辨率')
+        if device is not None:
+            torch.cuda.synchronize(device)
+        report.update(status='completed', output_shape=list(result.shape))
+        return result
+    except Exception as exc:
+        report.update(status='failed', error_type=type(exc).__name__, error=str(exc)[:500])
+        raise
+    finally:
+        report['elapsed_seconds'] = round(time.perf_counter() - start, 6)
+        report['memory_after'] = _vosr2_memory_snapshot()
+        LOGGER.info('[H3 VOSR2] profile=%s status=%s elapsed=%.3fs memory=%s',
+                    profile, report['status'], report['elapsed_seconds'], report['memory_after'])
 
 
 class MiniMaxH3VideoFinish:
     @classmethod
     def INPUT_TYPES(cls):
+        from .vosr2_profiles import VOSR2_PROFILE_NAMES
         return {'required': {
             'images': ('IMAGE',),
             'resolution': (['480p', '768p', '1080p'], {'default': '1080p'}),
             'method': (['resize', 'VOSR2', 'SeedVR2'], {'default': 'VOSR2'}),
             'seed': ('INT', {'default': 42, 'min': 0, 'max': 0xffffffffffffffff}),
+        }, 'optional': {
+            'vosr2_profile': (list(VOSR2_PROFILE_NAMES), {'default': 'legacy'}),
+            'benchmark_run': ('STRING', {'default': '', 'advanced': True,
+                                        'tooltip': '对比工具的唯一运行标识，避免复用缓存计时；日常留空'}),
         }}
 
     RETURN_TYPES = ('IMAGE',)
     FUNCTION = 'finish'
     CATEGORY = 'MiniMax H3 导演台 Plus'
 
-    def finish(self, images, resolution='1080p', method='VOSR2', seed=42):
+    def finish(self, images, resolution='1080p', method='VOSR2', seed=42,
+               vosr2_profile='legacy', benchmark_run=''):
         import torch
-        import time
         from .stream_output import _resize_cpu_chunk, _iter_video_sr_frame_chunks
+        from .execution_report import attach_report, new_report, reconstruction_diagnostics, stage_timer
         if images.ndim != 4 or images.shape[0] == 0 or images.shape[-1] != 3:
             raise ValueError('需要非空 RGB 视频帧')
         width, height = output_size(images.shape[2], images.shape[1], resolution)
         if method in {'VOSR2', 'SeedVR2'}:
             width, height = sr_output_size(images.shape[2], images.shape[1], width, height, method.lower())
         start = time.perf_counter()
-        if method == 'resize':
-            result = images
-        elif method == 'VOSR2':
-            result = _vosr2(images, width, height, seed)
-        elif method == 'SeedVR2':
-            import folder_paths
-            from .video_sr import seedvr2_dependency_report, resolve_seedvr2_fhd_plan
-            report = seedvr2_dependency_report(folder_paths.base_path)
-            if not report['ready']:
-                raise RuntimeError('SeedVR2 未就绪：' + ', '.join(report['missing']))
-            total = torch.cuda.get_device_properties(0).total_memory / 1024**3 if torch.cuda.is_available() else 0
-            plan = resolve_seedvr2_fhd_plan(total, report['available_dit'])
-            if plan['dit_model'] is None:
-                raise RuntimeError('独立 1080p 路线需要 SeedVR2 3B 权重')
-            result = torch.cat(list(_iter_video_sr_frame_chunks(images, width, height, seed=seed, plan=plan)), dim=0)
-        else:
-            raise ValueError('不支持的视频处理方式：' + method)
-        validate_sr_result(result, images.shape[0])
-        chunks = [_resize_cpu_chunk(result[i:i+4], width, height, method='lanczos') for i in range(0,len(result),4)]
-        output = torch.cat(chunks).clamp(0,1)
+        diagnostics = {}
+        evidence = new_report(source=images)
+        with stage_timer(evidence, 'reconstruction', path=method, profile=vosr2_profile,
+                         includes_nested_stages=True,
+                         scope='standalone finish, including model release/load and final CPU resize'):
+            if method == 'resize':
+                result = images
+            elif method == 'VOSR2':
+                result = _vosr2(images, width, height, seed, profile=vosr2_profile, diagnostics=diagnostics)
+            elif method == 'SeedVR2':
+                import folder_paths
+                from .video_sr import seedvr2_dependency_report, resolve_seedvr2_fhd_plan
+                dependency = seedvr2_dependency_report(folder_paths.base_path)
+                if not dependency['ready']:
+                    raise RuntimeError('SeedVR2 未就绪：' + ', '.join(dependency['missing']))
+                total = torch.cuda.get_device_properties(0).total_memory / 1024**3 if torch.cuda.is_available() else 0
+                plan = resolve_seedvr2_fhd_plan(total, dependency['available_dit'])
+                if plan['dit_model'] is None:
+                    raise RuntimeError('独立 1080p 路线需要 SeedVR2 3B 权重')
+                result = torch.cat(list(_iter_video_sr_frame_chunks(images, width, height, seed=seed, plan=plan)), dim=0)
+            else:
+                raise ValueError('不支持的视频处理方式：' + method)
+            validate_sr_result(result, images.shape[0])
+            chunks = [_resize_cpu_chunk(result[i:i+4], width, height, method='lanczos') for i in range(0,len(result),4)]
+            output = torch.cat(chunks).clamp(0,1)
+        if diagnostics:
+            evidence['reconstruction'] = reconstruction_diagnostics(diagnostics)
+        attach_report(output, evidence)
         LOGGER.info('[H3 video finish] %s %s -> %sx%s, %s frames, %.1fs; no H3 second pass', method, resolution, width, height, len(output), time.perf_counter()-start)
+        if benchmark_run:
+            diagnostics.update(benchmark_run=str(benchmark_run)[:100],
+                               finish_elapsed_seconds=round(time.perf_counter()-start, 6),
+                               finished_output_shape=list(output.shape))
+            return {'ui': {'vosr2_diagnostics': [diagnostics]}, 'result': (output,)}
         return (output,)

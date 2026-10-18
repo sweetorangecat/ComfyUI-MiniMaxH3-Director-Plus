@@ -7,6 +7,8 @@ import types
 
 import torch
 
+from .execution_report import attach_report, new_report, stage_timer
+
 
 LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus")
 
@@ -51,6 +53,13 @@ class MiniMaxH3SafeVAEDecode:
     CATEGORY = "MiniMax H3 导演台 Plus"
 
     def decode(self, vae, samples):
+        report = new_report(source=samples)
+        with stage_timer(report, "decode", path="safe_video_vae_cpu_buffer"):
+            images = self._decode(vae, samples)[0]
+        attach_report(images, report)
+        return (images,)
+
+    def _decode(self, vae, samples):
         latent = samples["samples"]
         if getattr(latent, "is_nested", False):
             latent = latent.unbind()[0]

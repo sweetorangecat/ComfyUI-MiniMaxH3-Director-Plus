@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .performance import memory_policy, preset_values
+from .execution_report import attach_report, new_report, stage_timer
 
 import logging
 
@@ -119,6 +120,18 @@ class MiniMaxH3DirectorPlusGuide:
     CATEGORY = "MiniMax H3 导演台 Plus"
 
     def apply(self, clip, video_vae, audio_vae, guide, generated_voice_audio=None):
+        report = new_report(guide)
+        if guide.get("voice_mode") == "fish_lock" and generated_voice_audio is not None:
+            report["plan"]["references"]["audios"] = 1
+        LOGGER.info("[H3 execution plan] %s", report["plan"])
+        with stage_timer(report, "conditioning", path=guide.get("resolved_backend", "unknown")):
+            result = self._apply(clip, video_vae, audio_vae, guide, generated_voice_audio)
+        unpacked = getattr(result, "result", result)
+        if isinstance(unpacked, (tuple, list)) and len(unpacked) > 1:
+            attach_report(unpacked[1], report)
+        return result
+
+    def _apply(self, clip, video_vae, audio_vae, guide, generated_voice_audio=None):
         state = guide.copy()
         if state.get("voice_mode") == "fish_lock":
             if generated_voice_audio is None:

@@ -10,18 +10,21 @@ def test_sampling_menu_exposes_quality_routes_and_low_vram_after_62b_rollback():
     assert visible_performance_presets("T2VA") == (
         "quality",
         "quality_sage",
+        "balanced_8step",
         "quality_two_stage",
         "low_vram",
     )
     assert visible_performance_presets("FL2VA") == (
         "quality",
         "quality_sage",
+        "balanced_8step",
         "quality_two_stage",
         "low_vram",
     )
     assert visible_performance_presets("REF2VA") == (
         "ref_quality_native",
         "quality_sage",
+        "balanced_8step",
         "quality_two_stage",
         "low_vram",
     )
@@ -29,9 +32,9 @@ def test_sampling_menu_exposes_quality_routes_and_low_vram_after_62b_rollback():
 
 def test_frontend_sampling_menu_matches_quality_routes():
     text = SOURCE.read_text(encoding="utf-8")
-    assert 't2va: ["稳定质量", "质量优先加速", "质量优先二采样", "低显存"]' in text
-    assert 'endpoint: ["稳定质量", "质量优先加速", "质量优先二采样", "低显存"]' in text
-    assert 'reference: ["参考高清（原生20步）", "质量优先加速", "质量优先二采样", "低显存"]' in text
+    assert 't2va: ["稳定质量", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"]' in text
+    assert 'endpoint: ["稳定质量", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"]' in text
+    assert 'reference: ["参考高清（原生20步）", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"]' in text
     assert 'preset = performanceOptions[0] || "稳定质量"' in text
 
 

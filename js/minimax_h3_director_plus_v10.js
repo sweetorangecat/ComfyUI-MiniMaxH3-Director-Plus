@@ -19,7 +19,7 @@ const DIRECTOR_WIDGET_FIELDS = [
   "voice_reference_audio_2_file", "voice_reference_audio_3_file",
   ...Array.from({ length: 9 }, (_, i) => "reference_image_" + (i + 1) + "_file"),
   "motion_smoothing", "audio_loudness", "voice_gender", "face_refine_mode",
-  "sampling_method", "community_lora_profile",
+  "sampling_method", "community_lora_profile", "vosr2_profile",
 ];
 const SMART_PRESET = "智能画质（自动适配）";
 const LEGACY_SMART_PRESET = "免费智能 1080p";
@@ -34,8 +34,9 @@ const DIRECTOR_DOM_HEIGHT = 1280;
 const DIRECTOR_CONTENT_INSET = 48;
 const DIRECTOR_VIEWPORT_HEIGHT = DIRECTOR_DOM_HEIGHT;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
-const PRESETS = ["智能画质（自动适配）", "稳定质量", "质量优先加速", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "低显存", "低显存二采", "自定义"];
+const PRESETS = ["智能画质（自动适配）", "稳定质量", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "低显存", "低显存二采", "自定义"];
 const PERFORMANCE_PRESET_KEYS = {
+  "均衡高质（768p 8步）": "balanced_8step",
   "高清快速（v4 8步）": "fl_quality_fast_v4",
   "参考高清（原生20步）": "ref_quality_native",
   "参考极速（官方4步）": "ref_fast_4step",
@@ -43,9 +44,9 @@ const PERFORMANCE_PRESET_KEYS = {
 const PERFORMANCE_PRESETS_BY_ROUTE = {
   // 以 62b4b1b 的执行配方为基线，手动开放三档质量取向。
   // 额外保留低显存入口；极速和其他历史档位由旧工作流/API 加载。
-  t2va: ["稳定质量", "质量优先加速", "质量优先二采样", "低显存"],
-  endpoint: ["稳定质量", "质量优先加速", "质量优先二采样", "低显存"],
-  reference: ["参考高清（原生20步）", "质量优先加速", "质量优先二采样", "低显存"],
+  t2va: ["稳定质量", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"],
+  endpoint: ["稳定质量", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"],
+  reference: ["参考高清（原生20步）", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "低显存"],
 };
 const ASPECTS = {
   "1:1": [1, 1], "3:2": [3, 2], "2:3": [2, 3], "4:3": [4, 3], "3:4": [3, 4],
@@ -245,6 +246,7 @@ function allowedPerformancePresets(mode, voiceMode) {
 }
 
 function performancePresetHint(preset) {
+  if (preset === "均衡高质（768p 8步）") return "按模式匹配 768p 8 步单采；音色与口型需和原生质量对比";
   if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) return "按后端、显存和时长自动选择路线；无需手动组合超分、模型和运动平滑";
   if (preset === "质量优先二采样") return "训练型 3D latent 二采：匹配 LoRA 首采 8 步（共 12 步）+ 神经 latent 放大 + 4 步低 sigma 重绘";
   if (preset === "低显存二采") return "8GB 专用真二采：1080p 最多 6 秒，768p 最多 10 秒；阶段间自动释放显存";
@@ -330,7 +332,7 @@ function normalizeDirectorWidgetValues(data) {
   const named = data.widgets_values_named;
   let values;
   if (raw.length > DIRECTOR_WIDGET_FIELDS.length + 1
-      && DIRECTOR_WIDGET_FIELDS.every(name => Object.hasOwn(named || {}, name))) {
+      && DIRECTOR_WIDGET_FIELDS.slice(0, 42).every(name => Object.hasOwn(named || {}, name))) {
     values = DIRECTOR_WIDGET_FIELDS.map(name => named[name]);
   } else if (raw.length >= 42 && raw.length <= DIRECTOR_WIDGET_FIELDS.length + 1) {
     // Before sampling_method/community_lora_profile, the node had 42 controls.
@@ -342,6 +344,9 @@ function normalizeDirectorWidgetValues(data) {
   if (!AUDIO_LOUDNESS.some(([value]) => value === values[39])) values[39] = "auto";
   if (values.length < 43) values.push("standard");
   if (values.length < 44) values.push("off");
+  if (!["legacy", "manual_baseline", "experimental_32gb"].includes(values[44])) values[44] = "legacy";
+  if (!values[42]) values[42] = "standard";
+  if (!values[43]) values[43] = "off";
   data.widgets_values = values;
   data.widgets_values_named = Object.fromEntries(values.map((value, index) => [DIRECTOR_WIDGET_FIELDS[index], value]));
   return data.widgets_values_named;
@@ -1013,6 +1018,11 @@ function install(node) {
       valueControl("性能预设", "performance_preset", performanceOptions, preset),
     );
     quick.append(quickGrid);
+    const plannedRouteNote = document.createElement("div");
+    plannedRouteNote.className = "h3p-hint";
+    const referenceRoute = mode === "REF2VA" || ["h3_reference", "fish_lock"].includes(voiceMode);
+    plannedRouteNote.textContent = `计划后端：${referenceRoute ? "REF2VA" : "FL2VA"}；${referenceRoute && ["I2VA", "L2VA", "FL2VA"].includes(mode) ? "首尾图作为参考，不保证硬端点" : referenceRoute ? "多媒体参考约束" : mode === "T2VA" ? "文本生成" : "保留所选首尾帧硬约束"}。`;
+    quick.append(plannedRouteNote);
     root.append(quick);
 
     const specification = document.createElement("section");
@@ -1057,6 +1067,13 @@ function install(node) {
       setWidget(node, "ai_upscale_model", "auto", false);
     }
     const postprocessControl = valueControl("放大方式", "postprocess_mode", postprocessOptions, postprocessMode);
+    if (postprocessMode === "vosr2") {
+      postprocessGrid.append(valueControl("VOSR2 配置", "vosr2_profile", [
+        ["legacy", "旧配置（保持现有结果）"],
+        ["manual_baseline", "手动基线（用于速度对比）"],
+        ["experimental_32gb", "32GB 候选（实验，需实测）"],
+      ], widget(node, "vosr2_profile")?.value || "legacy"));
+    }
     const aiModelControlOptions = preset === SMART_PRESET
       ? [[SMART_UPSCALE_MODEL, "自动选择（按倍率选 X2/X4，智能锁定）"]]
       : [["auto", "自动选择"]];
@@ -1426,7 +1443,7 @@ function install(node) {
   requestAnimationFrame(bindMountedControls);
   setTimeout(bindMountedControls, 250);
 
-  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "sampling_method", "community_lora_profile", "rtx_quality", "motion_smoothing", "audio_loudness", "face_refine_mode", "aspect_ratio", "resolution_preset", "seed", "control_after_generate"].forEach((name) => {
+  ["mode", "voice_mode", "performance_preset", "postprocess_mode", "sampling_method", "community_lora_profile", "vosr2_profile", "rtx_quality", "motion_smoothing", "audio_loudness", "face_refine_mode", "aspect_ratio", "resolution_preset", "seed", "control_after_generate"].forEach((name) => {
     const item = widget(node, name);
     if (!item) return;
     const original = item.callback;

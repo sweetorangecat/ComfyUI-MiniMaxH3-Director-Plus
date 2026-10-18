@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
+from .sampling_recipes import BALANCED_PRESET, BALANCED_LABEL
 
 
 MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA")
@@ -18,7 +19,7 @@ PUBLIC_API_KEYS = (
     "seed", "first_image", "last_image", "references", "voice_mode", "voice_reference_audio", "voice_reference_audios", "voice_reference_names",
     "voice_gender", "target_dialogue", "reference_transcript", "fish_model_path", "ref_image_size", "performance_preset",
     "postprocess_mode", "rtx_quality", "ai_upscale_model", "motion_smoothing", "audio_loudness", "face_refine_mode",
-    "sampling_method", "community_lora_profile",
+    "sampling_method", "community_lora_profile", "vosr2_profile",
 )
 
 
@@ -73,6 +74,8 @@ def _prompt_shot_count(prompt):
 
 
 PERFORMANCE_PRESETS = {
+    BALANCED_LABEL: BALANCED_PRESET,
+    BALANCED_PRESET: BALANCED_PRESET,
     "智能画质（自动适配）": "smart_free_1080p",
     "免费智能 1080p": "smart_free_1080p",  # legacy alias
     "稳定质量": "quality",
@@ -104,6 +107,7 @@ USER_PERFORMANCE_PRESET_LABELS = (
     "智能画质（自动适配）",
     "稳定质量",
     "质量优先加速",
+    BALANCED_LABEL,
     "质量优先二采样",
     "高清快速（v4 8步）",
     "极速4步",
@@ -117,6 +121,7 @@ USER_PERFORMANCE_PRESET_LABELS = (
 )
 
 PERFORMANCE_PRESET_LABELS_BY_KEY = {
+    BALANCED_PRESET: BALANCED_LABEL,
     "smart_free_1080p": "智能画质（自动适配）",
     "quality": "稳定质量",
     "quality_sage": "质量优先加速",
@@ -147,19 +152,24 @@ PERFORMANCE_PRESETS_BY_ROUTE = {
     "endpoint": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"),
     "reference": ("smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native", "ref_fast_4step", "fast_4step", "low_vram", "custom"),
 }
+# Append the new opt-in route without changing legacy defaults or ordering.
+PERFORMANCE_PRESETS_BY_ROUTE = {
+    route: (*presets, BALANCED_PRESET) for route, presets in PERFORMANCE_PRESETS_BY_ROUTE.items()
+}
 # Keep the 62b4b1b execution baseline while exposing three quality-oriented
 # choices for manual A/B tests, plus an explicit low-VRAM route for small GPUs.
 # Other legacy aliases remain loadable through the broader route map above.
 VISIBLE_PERFORMANCE_PRESETS_BY_ROUTE = {
-    "t2va": ("quality", "quality_sage", "quality_two_stage", "low_vram"),
-    "endpoint": ("quality", "quality_sage", "quality_two_stage", "low_vram"),
-    "reference": ("ref_quality_native", "quality_sage", "quality_two_stage", "low_vram"),
+    "t2va": ("quality", "quality_sage", BALANCED_PRESET, "quality_two_stage", "low_vram"),
+    "endpoint": ("quality", "quality_sage", BALANCED_PRESET, "quality_two_stage", "low_vram"),
+    "reference": ("ref_quality_native", "quality_sage", BALANCED_PRESET, "quality_two_stage", "low_vram"),
 }
 
 TWO_STAGE_PERFORMANCE_PRESETS = frozenset({"quality_two_stage", "low_vram_two_stage"})
 
 # Sampling and final reconstruction are independent user choices.
 POSTPROCESS_MODES_BY_PERFORMANCE = {
+    BALANCED_PRESET: tuple(mode for mode in POSTPROCESS_MODES if mode != "h3_two_stage"),
     "smart_free_1080p": ("native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage"),
     "quality_two_stage": ("vosr2", "video_sr", "ai_upscale", "rtx_vsr"),
     "low_vram_two_stage": ("ai_upscale",),
@@ -292,6 +302,7 @@ DEFAULT_REQUEST = {
     "face_refine_mode": "off",
     "sampling_method": "standard",
     "community_lora_profile": "off",
+    "vosr2_profile": "legacy",
     "ignored_media": [],
     "postprocess": {},
     "output": {},
@@ -301,6 +312,9 @@ DEFAULT_REQUEST = {
 def normalize_request(raw=None):
     request = deepcopy(DEFAULT_REQUEST)
     request.update(dict(raw or {}))
+    from .vosr2_profiles import VOSR2_PROFILE_NAMES
+    if request["vosr2_profile"] not in VOSR2_PROFILE_NAMES:
+        raise RequestError(f"不支持的 VOSR2 配置：{request['vosr2_profile']}")
 
     if not isinstance(request["references"], (list, tuple)):
         raise RequestError("额外参考图必须是列表")
@@ -584,6 +598,7 @@ def public_schema():
             "reference_transcript": {"中文名称": "音色样本文本", "type": "string", "default": ""},
             "fish_model_path": {"中文名称": "Fish S2 模型", "type": "string", "default": "s2-pro-w4a16 (auto download)"},
             "ref_image_size": {"中文名称": "参考图尺寸策略", "enum": ["match", "max"], "default": "match"},
+            "vosr2_profile": {"中文名称": "VOSR2 配置", "enum": ["legacy", "manual_baseline", "experimental_32gb"], "default": "legacy"},
             "performance_preset": {
                 "中文名称": "性能预设",
                 "enum": list(USER_PERFORMANCE_PRESET_LABELS),

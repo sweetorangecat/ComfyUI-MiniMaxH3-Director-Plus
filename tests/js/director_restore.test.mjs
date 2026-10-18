@@ -365,7 +365,7 @@ const STATE_FIELDS = [
   "voice_reference_audio_2_file", "voice_reference_audio_3_file",
   ...Array.from({ length: 9 }, (_, i) => "reference_image_" + (i + 1) + "_file"),
   "motion_smoothing", "audio_loudness", "voice_gender", "face_refine_mode",
-  "sampling_method", "community_lora_profile",
+  "sampling_method", "community_lora_profile", "vosr2_profile",
 ];
 function nativeWidgets() {
   const values = {
@@ -376,7 +376,7 @@ function nativeWidgets() {
     ref_image_size: "max", performance_preset: "质量优先加速", postprocess_mode: "vosr2",
     rtx_quality: "ULTRA", ai_upscale_model: "auto", motion_smoothing: "off",
     audio_loudness: "auto", voice_gender: "auto", face_refine_mode: "off",
-    sampling_method: "standard", community_lora_profile: "off",
+    sampling_method: "standard", community_lora_profile: "off", vosr2_profile: "legacy",
     first_image_file: "input/角色.png", last_image_file: "input/衣服.png",
     reference_image_1_file: "input/房间.png", reference_image_2_file: "input/道具.png",
     reference_image_3_file: "input/锁.png",
@@ -407,6 +407,32 @@ function nativeSave(node, invokeHook = true, nativeHook = false) {
 function legacySave() {
   return nativeSave({ widgets: [...nativeWidgets(), { name: "minimax_h3_director_plus_ui", value: "" }] }, false);
 }
+
+test("old sparse saves without trailing VOSR control migrate to legacy profile", () => {
+  const old = nativeSave({ widgets: nativeWidgets().filter(item => item.name !== "vosr2_profile") }, false);
+  const { node, extension } = installedDirector("off", nativeWidgets(), true);
+  extension.beforeConfigureGraph({ nodes: [old] });
+  nativeRestore(node, old);
+  assert.equal(valueOf(node, "vosr2_profile"), "legacy");
+  assert.equal(valueOf(node, "first_image_file"), "input/角色.png");
+  assert.equal(valueOf(node, "voice_reference_audio_file"), "input/南宫阙.wav");
+});
+
+for (const voiceMode of ["none", "h3_reference", "fish_lock", "audio_reuse"]) {
+  test(`balanced eight-step survives route render with ${voiceMode}`, () => {
+    const preset = { name: "performance_preset", value: "均衡高质（768p 8步）" };
+    const { node } = installedDirector("off", [preset,
+      { name: "voice_mode", value: voiceMode }, { name: "postprocess_mode", value: "vosr2" },
+      { name: "vosr2_profile", value: "manual_baseline" },
+    ]);
+    for (const mode of ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"]) {
+      node.widgets.find(item => item.name === "mode").value = mode;
+      node.widgets.find(item => item.name === "mode").callback(mode);
+      assert.equal(preset.value, "均衡高质（768p 8步）");
+      assert.equal(valueOf(node, "vosr2_profile"), "manual_baseline");
+    }
+  });
+}
 function nativeRestore(node, data) {
   let cursor = 0;
   for (const item of node.widgets) {
@@ -424,7 +450,7 @@ function clickRemove(node, field) {
 
 test("native sparse preview save recovers all image/audio values without shifting settings", () => {
   const legacy = legacySave();
-  assert.equal(legacy.widgets_values.length, 67);
+  assert.equal(legacy.widgets_values.length, 68);
   assert.equal(legacy.widgets_values[39], "input/锁.png");
   const { node, extension } = installedDirector("off", nativeWidgets(), true);
   extension.beforeConfigureGraph({ nodes: [legacy] });
@@ -495,7 +521,7 @@ test("old compact controls override stale named metadata in main graph and subgr
   extension.beforeConfigureGraph(graph);
   for (const data of [old, nested]) {
     assert.equal(data.widgets_values_named.first_image_file, "input/角色.png");
-    assert.equal(data.widgets_values.length, 44);
+    assert.equal(data.widgets_values.length, STATE_FIELDS.length);
     assert.equal(data.widgets_values_named.sampling_method, "standard");
     assert.equal(data.widgets_values_named.community_lora_profile, "off");
   }
@@ -636,7 +662,7 @@ test("native serialize stays compact when a later extension replaces onSerialize
   };
   const saved = nativeSave(node);
   assert.equal(calls, 1);
-  assert.equal(saved.widgets_values.length, 44);
+  assert.equal(saved.widgets_values.length, STATE_FIELDS.length);
   assert.equal(saved.widgets_values_named.audio_loudness, "auto");
   assert.deepEqual(saved.extension_metadata, { preserved: true });
   const restored = installedDirector("off", nativeWidgets(), true);
@@ -688,6 +714,8 @@ for (const field of ["reference_image_8_file", "reference_image_9_file"]) {
 test("shipped U11 example uses the current control order through two native save cycles", () => {
   const workflow = JSON.parse(readFileSync(new URL("../../examples/U11-MiniMaxH3-导演台Plus-中文增强版-AutoDL混合底模版-清晰度增强版.json", import.meta.url), "utf8"));
   const saved = workflow.nodes.find(node => node.type === "MiniMaxH3DirectorPlus");
+  const { extension: migration } = installedDirector();
+  migration.beforeConfigureGraph(workflow);
   assert.equal(saved.widgets_values.length, STATE_FIELDS.length);
   assert.deepEqual(Object.keys(saved.widgets_values_named), STATE_FIELDS);
   assert.deepEqual(saved.widgets_values, STATE_FIELDS.map(field => saved.widgets_values_named[field]));

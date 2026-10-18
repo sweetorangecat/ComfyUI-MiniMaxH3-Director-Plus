@@ -48,7 +48,8 @@ def build_director(**changes):
 def test_director_appends_experiment_widgets_preserving_previous_order(monkeypatch):
     monkeypatch.setattr(director, "_uploaded_files", lambda *args: [""])
     optional = director.MiniMaxH3DirectorPlus.INPUT_TYPES()["optional"]
-    assert list(optional)[-2:] == ["sampling_method", "community_lora_profile"]
+    assert list(optional)[-3:] == ["sampling_method", "community_lora_profile", "vosr2_profile"]
+    assert optional["vosr2_profile"][1]["default"] == "legacy"
     assert optional["sampling_method"][1]["default"] == "standard"
     assert optional["community_lora_profile"][1]["default"] == "off"
 

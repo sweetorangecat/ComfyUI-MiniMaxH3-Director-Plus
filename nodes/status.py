@@ -7,6 +7,7 @@ import importlib
 from pathlib import Path
 
 from .rtx_vsr_stream import _quality_level, _runtime_guidance
+from .sampling_recipes import BALANCED_LORAS
 from .two_stage_assets import (
     FL_STAGE1_LORA,
     FL_STAGE2_LORA,
@@ -101,6 +102,11 @@ def detect_capabilities(comfy_root, node_mappings=None):
             "text_encoder": _has_matching_file(models / "text_encoders", "minimax", "h3"),
         },
         "acceleration": {
+            "balanced_8step": {
+                backend: {"filename": filename,
+                          "available": any(path.is_file() for path in loras.rglob(filename))}
+                for backend, filename in BALANCED_LORAS.items()
+            },
             "lightx2v_4step": _has_matching_file(loras, "minimax", "h3", "lightx2v"),
             "h3_turbo_4step": _has_matching_file(loras, "minimax", "h3", "turbo"),
             "gguf": "comfyui-gguf" in node_names or (models / "gguf").is_dir(),

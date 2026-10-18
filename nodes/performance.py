@@ -23,6 +23,10 @@ from .schema import (
     allowed_performance_presets,
 )
 from .sampling_experiments import motion_lora_chain, validate_sampling_options
+from .sampling_recipes import (
+    BALANCED_PRESET, BALANCED_LABEL, balanced_recipe, apply_balanced_shift,
+    prepare_balanced_guider, validate_balanced_sampling,
+)
 from .two_stage_assets import (
     FL_STAGE1_LORA,
     FL_STAGE2_LORA,
@@ -47,6 +51,8 @@ _UI_ATTENTION_CHUNK_TIERS = {
 }
 
 PRESETS = {
+    BALANCED_PRESET: {"steps": 8, "use_sage": False, "use_cache": False,
+                      "interpolate": False, "lora_strength": 1.0},
     "quality": {"steps": 20, "use_sage": False, "use_cache": False, "interpolate": False},
     # Quality-first acceleration: keep native 20-step sampling and patch only
     # SageAttention. No Turbo adapter or EasyCache is involved.
@@ -146,6 +152,7 @@ FL_V4_LORA_NAME = V4_TURBO_LORA
 REF2VA_TURBO_LORA_NAME = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
 
 PRESET_LABELS = {
+    BALANCED_LABEL: BALANCED_PRESET,
     "稳定质量": "quality",
     "质量优先加速": "quality_sage",
     "质量优先二采样": "quality_two_stage",
@@ -580,6 +587,8 @@ class MiniMaxH3PerformancePreset:
         mode = guide.get("mode")
         voice_mode = guide.get("voice_mode", "none")
         values = _runtime_preset_values(guide, name)
+        if name == BALANCED_PRESET and (acceleration_ready is False or guide.get("turbo_lora_applied") is False):
+            raise RuntimeError("均衡高质 8 步匹配 LoRA 未就绪，已停止；不会回退其他配方")
         if guide.get("sampling_method") == "selflift" and acceleration_ready is not True:
             raise RuntimeError("SelfLift 匹配 LoRA 与精确注意力未就绪，已停止；不会旁路为 standard")
         if name in {"fast_4step", "reference_fast", "ref_fast_4step", "fl_quality_fast_v4"} and (
@@ -589,6 +598,7 @@ class MiniMaxH3PerformancePreset:
             # setting behind. The native fallback uses a conservative count.
             values["steps"] = 8
         descriptions = {
+            BALANCED_PRESET: "均衡高质：匹配 FL/REF 768p LoRA，完整 8 步 Euler/simple，视频/音频 shift=6/3；单采、无缓存，音色效果需对比",
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
             "quality_two_stage": "质量优先二采样：匹配 LoRA 首采 8 步（共 12 步）+ 训练型 3D latent 放大 + 4 步低 sigma 重绘；自动保留音频 latent；REF2VA 使用社区验证的 turbo v4 配方",
@@ -700,7 +710,7 @@ def acceleration_plan(guide):
     backend = guide.get("resolved_backend", "fl2va_model")
     route = resolve_two_stage_route(guide) if preset in TWO_STAGE_PERFORMANCE_PRESETS else "bypass"
     use_two_stage = preset in TWO_STAGE_PERFORMANCE_PRESETS and route != "bypass"
-    use_turbo = preset in {"fast_4step", "fl_quality_fast_v4", "ref_fast_4step"} or use_two_stage
+    use_turbo = preset in {BALANCED_PRESET, "fast_4step", "fl_quality_fast_v4", "ref_fast_4step"} or use_two_stage
     # Official H3 Turbo graphs use ComfyUI's stock Euler sampler for every
     # backend. The legacy custom sampler is intentionally bypassed.
     use_turbo_sampler = False
@@ -718,6 +728,8 @@ def acceleration_plan(guide):
     }
     if preset == "fl_quality_fast_v4":
         plan["lora_name"] = FL_V4_LORA_NAME
+    elif preset == BALANCED_PRESET:
+        plan.update(balanced_recipe(guide))
     elif preset == "ref_quality_native":
         plan["lora_name"] = None
     if use_two_stage:
@@ -781,7 +793,7 @@ def sampler_name_for_guide(guide, requested):
     """Use the stock Euler sampler for every official Turbo contract."""
     plan = acceleration_plan(guide)
     if plan["preset"] in TWO_STAGE_PERFORMANCE_PRESETS or (
-        plan["preset"] in {"fast_4step", "fl_quality_fast_v4", "ref_fast_4step"}
+        plan["preset"] in {BALANCED_PRESET, "fast_4step", "fl_quality_fast_v4", "ref_fast_4step"}
         and plan["use_turbo_lora"]
     ):
         return "euler"
@@ -856,12 +868,13 @@ class MiniMaxH3SchedulerRouter:
         from comfy_extras.nodes_custom_sampler import BasicScheduler
 
         plan = scheduler_plan(guide)
+        model = apply_balanced_shift(model, guide)
         # A legacy REF2VA guide may carry an 8-step trained-two-stage value.
         # After normalizing it to quality_sage, use the normalized 20-step
         # schedule instead of trusting the stale connected widget value.
         resolved_steps = int(
             plan["steps"]
-            if plan["split_step"] or guide.get("two_stage_fallback")
+            if plan["split_step"] or guide.get("two_stage_fallback") or balanced_recipe(guide)
             else steps
         )
         sigmas = _node_model(BasicScheduler.execute(
@@ -878,6 +891,8 @@ class MiniMaxH3SchedulerRouter:
             guide["scheduler_model_sampling"] = signature
             LOGGER.info("[H3 scheduler] video_shift=%s audio_shift=%s", signature["video_shift"], signature["audio_shift"])
         guide["scheduler_name"] = plan["scheduler"]
+        if hasattr(sigmas, "__dict__"):
+            sigmas._h3_scheduler_name = plan["scheduler"]
         guide["scheduler_sigma_count"] = len(sigmas)
         guide["two_stage_split_step"] = int(plan["split_step"])
         resolved_route = (
@@ -903,6 +918,8 @@ def _reset_h3_acceleration_state(guide, error=None):
     guide.pop("turbo_lora_error", None)
     guide.pop("first_lora_name", None)
     guide.pop("second_lora_name", None)
+    guide.pop("first_lora_strength", None)
+    guide.pop("second_lora_strength", None)
     guide["turbo_sampler_applied"] = False
     guide["two_stage_enabled"] = False
     guide["two_stage_status"] = "旁路"
@@ -1251,6 +1268,8 @@ def _apply_two_stage_models(model, guide, plan, values):
     guide["two_stage_scale"] = _planned_two_stage_scale(guide, values)
     guide["first_lora_name"] = plan["first_lora_name"]
     guide["second_lora_name"] = plan["second_lora_name"]
+    guide["first_lora_strength"] = plan["first_lora_strength"]
+    guide["second_lora_strength"] = plan["second_lora_strength"]
     guide["resolved_two_stage_route"] = plan["route"]
     LOGGER.info(
         "[H3 two-stage models] route=%s first=%s@%.2f second=%s@%.2f sage=%s second_sage=%s detail_loras=%s head_chunks=%s scale=%.2f",
@@ -1311,11 +1330,18 @@ def _apply_acceleration(model, guide):
                 low_vram=plan["preset"] == "low_vram",
             )
             guide["turbo_lora_applied"] = True
+            if plan["preset"] == BALANCED_PRESET:
+                model = apply_balanced_shift(model, guide, installing=True)
+                guide["sampling_recipe"] = balanced_recipe(guide)
         except H3LoRAApplicationError as exc:
+            if plan["preset"] == BALANCED_PRESET:
+                raise RuntimeError(f"均衡高质 8 步 LoRA 加载失败：{exc}") from exc
             _reset_h3_acceleration_state(guide, exc)
             LOGGER.error("[H3 acceleration] official LoRA application failed: %s", exc)
             return original_model, "Turbo LoRA 与当前 H3 模型不兼容，已回退原生采样", False, original_model
         except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            if plan["preset"] == BALANCED_PRESET:
+                raise RuntimeError(f"均衡高质 8 步配方初始化失败：{exc}") from exc
             _reset_h3_acceleration_state(guide, exc)
             return original_model, "Turbo LoRA 与当前模型不兼容，已回退原生采样", False, original_model
     else:
@@ -1358,6 +1384,8 @@ def _apply_acceleration(model, guide):
         label = "REF2VA Turbo 4 步 LoRA" if plan["backend"] == "ref2va_model" else "H3 Turbo 4 步 LoRA"
         if plan["preset"] == "quality_sage":
             label = "质量优先 SageAttention"
+        elif plan["preset"] == BALANCED_PRESET:
+            label = "FL/REF 匹配的 768p 8 步配方（shift=6/3）"
         elif plan["preset"] == "fl_quality_fast_v4":
             label = "FL/T2V v4 高清快速 8 步 LoRA"
         elif plan["preset"] == "ref_quality_native":
@@ -1406,6 +1434,7 @@ class MiniMaxH3SamplerRouter:
                 MiniMaxH3TurboSampler = _turbo_class("MiniMaxH3TurboSampler")
                 result = MiniMaxH3TurboSampler().get_sampler()
                 guide["turbo_sampler_applied"] = True
+                guide["sampler_name"] = "h3_turbo"
                 return result
             except (AttributeError, ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
                 guide["turbo_sampler_applied"] = False
@@ -1416,7 +1445,11 @@ class MiniMaxH3SamplerRouter:
         sampler_name = sampler_name_for_guide(guide, sampler_name)
         import comfy.samplers
         guide.setdefault("turbo_sampler_applied", False)
-        return (comfy.samplers.sampler_object(sampler_name),)
+        sampler = comfy.samplers.sampler_object(sampler_name)
+        if hasattr(sampler, "__dict__"):
+            sampler._h3_sampler_name = sampler_name
+        guide["sampler_name"] = sampler_name
+        return (sampler,)
 
 
 class MiniMaxH3MemoryAwareSampler:
@@ -1443,9 +1476,19 @@ class MiniMaxH3MemoryAwareSampler:
     def execute(self, noise, guider, sampler, sigmas, latent_image, guide=None):
         from comfy_extras.nodes_custom_sampler import SamplerCustomAdvanced
 
+        guider = prepare_balanced_guider(guider, guide or {})
+        validate_balanced_sampling(getattr(guider, "model_patcher", None), sampler, sigmas, guide or {})
         validate_scheduler_model(getattr(guider, "model_patcher", None), sigmas)
-        with memory_policy(guide or {}):
-            return SamplerCustomAdvanced.execute(noise, guider, sampler, sigmas, latent_image)
+        from .execution_report import new_report, stage_timer, attach_report, sampling_settings
+        report = new_report(guide, latent_image)
+        report["sampling_settings"] = sampling_settings(
+            guide, model=getattr(guider, "model_patcher", None), sampler=sampler, sigmas=sigmas)
+        with stage_timer(report, "sampling", path="native", steps=len(sigmas) - 1):
+            with memory_policy(guide or {}):
+                result = SamplerCustomAdvanced.execute(noise, guider, sampler, sigmas, latent_image)
+        for output in getattr(result, "result", result):
+            attach_report(output, report)
+        return result
 
 
 class MiniMaxH3AccelerationRouter:

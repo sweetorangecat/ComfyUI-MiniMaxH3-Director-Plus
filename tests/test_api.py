@@ -34,6 +34,16 @@ def test_schema_contains_chinese_names():
     assert schema["properties"]["voice_gender"]["中文名称"] == "音色性别约束"
 
 
+def test_api_forwards_balanced_and_vosr_profile():
+    request, prompt = prepare_generation({
+        'mode': 'T2VA', 'performance_preset': 'balanced_8step',
+        'postprocess_mode': 'vosr2', 'vosr2_profile': 'manual_baseline',
+    }, BASE_TEMPLATE)
+    assert request['performance_preset'] == 'balanced_8step'
+    assert prompt['10']['inputs']['performance_preset'] == '均衡高质（768p 8步）'
+    assert prompt['10']['inputs']['vosr2_profile'] == 'manual_baseline'
+
+
 @pytest.mark.parametrize('profile', ['off', 'continuity', 'combat', 'legacy'])
 def test_api_forwards_experiment_options_to_director_and_connects_vae(profile):
     from api.routes import load_api_template

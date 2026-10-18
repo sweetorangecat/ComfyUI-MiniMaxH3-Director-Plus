@@ -51,7 +51,7 @@ def patch_template(template, request):
         "aspect_ratio", "resolution_preset", "custom_width", "custom_height",
         "ref_image_size", "performance_preset", "target_dialogue", "reference_transcript",
         "fish_model_path", "postprocess_mode", "rtx_quality", "ai_upscale_model",
-        "sampling_method", "community_lora_profile",
+        "sampling_method", "community_lora_profile", "vosr2_profile",
     )
     for name in public_controller_fields:
         if name in request:

@@ -1196,7 +1196,7 @@ def test_t2va_fast_uses_official_h3_turbo_contract():
         "resolved_backend": "fl2va_model",
     }
     assert performance.allowed_performance_presets("T2VA", "none") == (
-        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage"
+        "smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "fl_quality_fast_v4", "fast_4step", "low_vram", "low_vram_two_stage", "balanced_8step"
     )
     assert acceleration_plan(guide)["use_turbo_lora"] is True
     assert acceleration_plan(guide)["lora_name"] == performance.TURBO_LORA_NAME
@@ -2033,6 +2033,7 @@ def test_ref2va_fast_sampler_router_forces_official_euler(monkeypatch):
     monkeypatch.setitem(sys.modules, "comfy", type("Comfy", (), {"samplers": samplers})())
     monkeypatch.setitem(sys.modules, "comfy.samplers", samplers)
     assert MiniMaxH3SamplerRouter().route("res_multistep", guide) == ("euler",)
+    assert guide["sampler_name"] == "euler"
 
 
 def test_fl2va_fast_sampler_router_also_forces_official_euler(monkeypatch):

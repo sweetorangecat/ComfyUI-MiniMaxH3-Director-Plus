@@ -610,6 +610,13 @@ def test_two_stage_emits_permanent_stage_timing_and_orientation_logs(monkeypatch
             )
         )
 
+    from nodes.execution_report import report_from
+    stages = {stage["stage"]: stage for stage in report_from(result[0])["stages"]}
+    assert stages["sampling_first_pass"]["status"] == "completed"
+    assert stages["latent_upscale"]["status"] == "completed"
+    assert stages["sampling_second_pass"]["path"] == "mmh3_split_upscale"
+    assert stages["sampling"]["includes_nested_stages"] is True
+    assert stages["sampling"]["steps"] == 8
     messages = [record.message for record in caplog.records]
     assert any(message.startswith("[H3 perf] stage=first ") for message in messages)
     assert any(message.startswith("[H3 perf] stage=upscale ") for message in messages)

@@ -12,6 +12,14 @@ from nodes.schema import (
 )
 
 
+def test_vosr_profile_round_trip_and_validation():
+    for profile in ('legacy', 'manual_baseline', 'experimental_32gb'):
+        assert normalize_request({'mode': 'T2VA', 'vosr2_profile': profile})['vosr2_profile'] == profile
+    assert normalize_request({'mode': 'T2VA'})['vosr2_profile'] == 'legacy'
+    with pytest.raises(RequestError, match='VOSR2'):
+        normalize_request({'mode': 'T2VA', 'vosr2_profile': 'unknown'})
+
+
 def test_public_schema_lists_every_public_api_key():
     assert set(PUBLIC_API_KEYS) <= set(public_schema()["properties"])
 
@@ -504,12 +512,14 @@ def test_public_schema_documents_route_performance_options():
     assert property_schema["allowed_by_route"]["T2VA"] == [
         "稳定质量",
         "质量优先加速",
+        "均衡高质（768p 8步）",
         "质量优先二采样",
         "低显存",
     ]
     assert property_schema["allowed_by_route"]["I2VA + 音色参考"] == [
         "参考高清（原生20步）",
         "质量优先加速",
+        "均衡高质（768p 8步）",
         "质量优先二采样",
         "低显存",
     ]
@@ -640,7 +650,7 @@ def test_full_audio_reuse_mode_keeps_original_upload_and_does_not_route_it_to_h3
     ],
 )
 def test_allowed_performance_presets_follow_mode_and_voice(mode, voice_mode, expected):
-    assert allowed_performance_presets(mode, voice_mode) == expected
+    assert allowed_performance_presets(mode, voice_mode) == (*expected, "balanced_8step")
 
 
 def test_invalid_t2va_reference_acceleration_falls_back_with_warning():
@@ -674,6 +684,7 @@ def test_reference_routes_have_exact_safe_preset_set():
     assert allowed == {
         "smart_free_1080p", "quality", "quality_sage", "quality_two_stage", "ref_quality_native",
         "ref_fast_4step", "fast_4step", "low_vram", "custom",
+        "balanced_8step",
     }
     assert not allowed & {"low_vram_two_stage", "reference_fast", "fl_quality_fast_v4"}
 

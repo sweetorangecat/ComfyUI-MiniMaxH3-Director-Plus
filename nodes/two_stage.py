@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from .sampling_experiments import run_selflift, validate_sampling_options
+from .execution_report import attach_report, new_report, sampling_settings, stage_timer
 from .two_stage_assets import (
     resolve_split_upscale_callables,
     run_trained_latent_upscaler,
@@ -586,6 +587,24 @@ class MiniMaxH3TwoStageSampler:
         return bool((guide or {}).get("two_stage_enabled"))
 
     def execute(
+        self, noise, guider, sampler, sigmas, latent_image, guide=None,
+        second_model=None, video_vae=None,
+    ):
+        report = new_report(guide, latent_image)
+        enabled = self._enabled(guide)
+        with stage_timer(report, "sampling", path="two_stage" if enabled else "native",
+                         steps=len(sigmas) - 1, includes_nested_stages=enabled) as measurement:
+            result = self._execute(noise, guider, sampler, sigmas, latent_image, guide,
+                                   second_model, video_vae, report)
+            if guide and guide.get("sampling_executed_steps") is not None:
+                measurement["steps"] = int(guide["sampling_executed_steps"])
+            if guide and guide.get("sampling_route"):
+                measurement["path"] = str(guide["sampling_route"])[:256]
+        for output in result:
+            attach_report(output, report)
+        return result
+
+    def _execute(
         self,
         noise,
         guider,
@@ -595,10 +614,15 @@ class MiniMaxH3TwoStageSampler:
         guide=None,
         second_model=None,
         video_vae=None,
+        report=None,
     ):
         from .performance import memory_policy, validate_scheduler_model
 
         guide = guide or {}
+        if guide.get("performance_preset") in {"balanced_8step", "均衡高质（768p 8步）"}:
+            from .sampling_recipes import prepare_balanced_guider, validate_balanced_sampling
+            guider = prepare_balanced_guider(guider, guide)
+            validate_balanced_sampling(getattr(guider, "model_patcher", None), sampler, sigmas, guide)
         validate_scheduler_model(getattr(guider, "model_patcher", None), sigmas)
         if guide.get("sampling_method", "standard") == "selflift":
             validate_sampling_options(guide)
@@ -612,6 +636,7 @@ class MiniMaxH3TwoStageSampler:
                     "[H3 SelfLift] 兼容旧工作流：BasicGuider 保留模型副本，改用加速路由的匹配 v4 输出"
                 )
                 model = second_model
+            report["sampling_settings"] = sampling_settings(guide, model=model, sampler=sampler, sigmas=sigmas)
             with memory_policy(guide):
                 result = run_selflift(model=model, positive=_positive_conditioning(guider),
                     vae=video_vae, sampler=sampler, sigmas=sigmas, latent=latent_image,
@@ -621,6 +646,8 @@ class MiniMaxH3TwoStageSampler:
         from comfy_extras.nodes_custom_sampler import SamplerCustomAdvanced
         started = time.perf_counter()
         if not self._enabled(guide):
+            report["sampling_settings"] = sampling_settings(
+                guide, model=getattr(guider, "model_patcher", None), sampler=sampler, sigmas=sigmas)
             with memory_policy(guide):
                 result = SamplerCustomAdvanced.execute(noise, guider, sampler, sigmas, latent_image)
             guide["two_stage_status"] = "旁路"
@@ -678,15 +705,15 @@ class MiniMaxH3TwoStageSampler:
 
         from comfy_extras.nodes_lt import LTXVConcatAVLatent, LTXVSeparateAVLatent
 
+        report["sampling_settings"] = sampling_settings(
+            guide, model=getattr(guider, "model_patcher", None), sampler=sampler,
+            sigmas=sigmas, second_model=second_model)
         with memory_policy(guide):
             first_started = time.perf_counter()
-            first = SamplerCustomAdvanced.execute(
-                noise,
-                guider,
-                sampler,
-                first_sigmas,
-                latent_image,
-            )
+            with stage_timer(report, "sampling_first_pass", path="native", steps=len(first_sigmas) - 1):
+                first = SamplerCustomAdvanced.execute(
+                    noise, guider, sampler, first_sigmas, latent_image,
+                )
             first_denoised = _node_output(first, 1)
             _log_stage_perf("first", time.perf_counter() - first_started, _latent_shape(first_denoised))
             separated = LTXVSeparateAVLatent.execute(first_denoised)
@@ -697,7 +724,8 @@ class MiniMaxH3TwoStageSampler:
             source_audio_shape = _latent_shape(audio_latent)
             _release_between_stages()
             upscale_started = time.perf_counter()
-            upscaled_video = run_trained_latent_upscaler(video_latent, scale)
+            with stage_timer(report, "latent_upscale", path="trained_3d"):
+                upscaled_video = run_trained_latent_upscaler(video_latent, scale)
             diagnostics.save("upscaled", upscaled_video["samples"])
             _log_stage_perf(
                 "upscale",
@@ -764,16 +792,12 @@ class MiniMaxH3TwoStageSampler:
                     "[H3 two-stage] 第二阶段使用 MMH3SplitUpscale 时空分块采样，显存峰值按瓦片计"
                 )
                 second_started = time.perf_counter()
-                final_denoised = run_tiled_second_stage_with_retry(
-                    split_callables,
-                    model=second_model,
-                    guider=guider,
-                    noise=second_noise,
-                    sampler=sampler,
-                    sigmas=second_sigmas,
-                    latent=merged,
-                    guide=guide,
-                )
+                with stage_timer(report, "sampling_second_pass", path="mmh3_split_upscale", steps=len(second_sigmas) - 1):
+                    final_denoised = run_tiled_second_stage_with_retry(
+                        split_callables, model=second_model, guider=guider,
+                        noise=second_noise, sampler=sampler, sigmas=second_sigmas,
+                        latent=merged, guide=guide,
+                    )
                 _log_stage_perf(
                     "second",
                     time.perf_counter() - second_started,
@@ -788,13 +812,10 @@ class MiniMaxH3TwoStageSampler:
                 )
                 validate_second_stage_condition_shapes(second_guider, merged_video_shape)
                 second_started = time.perf_counter()
-                second = SamplerCustomAdvanced.execute(
-                    second_noise,
-                    second_guider,
-                    sampler,
-                    second_sigmas,
-                    merged,
-                )
+                with stage_timer(report, "sampling_second_pass", path="full_frame", steps=len(second_sigmas) - 1):
+                    second = SamplerCustomAdvanced.execute(
+                        second_noise, second_guider, sampler, second_sigmas, merged,
+                    )
                 _log_stage_perf(
                     "second",
                     time.perf_counter() - second_started,
