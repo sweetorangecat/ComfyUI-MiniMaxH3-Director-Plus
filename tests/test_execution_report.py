@@ -11,7 +11,8 @@ from nodes import execution_report as evidence
 
 def test_plan_reports_reference_endpoint_semantics_without_private_payloads():
     guide = dict(mode="FL2VA", resolved_backend="ref2va_model", voice_mode="h3_reference",
-                 performance_preset="balanced_8step", first_frame=torch.zeros(1), last_frame=torch.ones(1),
+                 performance_preset="low_vram", first_frame=torch.zeros(1), last_frame=torch.ones(1),
+                 requested_ref_image_size="max", ref_image_size="match",
                  prompt="PRIVATE PROMPT", ref_images={"ref_image_1": torch.zeros(1)},
                  ref_audios={"ref_audio_1": {"waveform": torch.zeros(1)}},
                  sampling_recipe={"steps": 8, "sampler_name": "euler", "scheduler": "simple",
@@ -21,6 +22,8 @@ def test_plan_reports_reference_endpoint_semantics_without_private_payloads():
     assert plan["endpoints"] == {"first": "reference_only", "last": "reference_only"}
     assert plan["references"]["images"] == 1
     assert plan["references"]["audios"] == 1
+    assert plan["requested_ref_image_size"] == "max"
+    assert plan["ref_image_size"] == "match"
     assert plan["sampling_recipe"]["steps"] == 8
     serialized = json.dumps(plan, allow_nan=False)
     assert "PRIVATE" not in serialized and "SECRET" not in serialized and "waveform" not in serialized

@@ -351,7 +351,7 @@ class MiniMaxH3DirectorPlus:
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "噪音种子；可选择固定、递增、递减或随机"}),
                 "voice_mode": (["none", "h3_reference", "fish_lock", "audio_reuse"], {"default": "none", "tooltip": "无音色 / H3官方参考音频条件 / Fish克隆音色并生成目标对白 / 完整复用上传音频"}),
                 "fish_model_path": (["s2-pro-w4a16 (auto download)", "s2-pro (auto download)"], {"default": "s2-pro-w4a16 (auto download)", "tooltip": "Fish S2 模型；量化版约需 8GB 显存"}),
-                "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略"}),
+                "ref_image_size": (["match", "max"], {"default": "match", "tooltip": "参考图尺寸策略；低显存档固定按采样尺寸编码参考图，最终输出尺寸不变"}),
                 "performance_preset": (list(USER_PERFORMANCE_PRESET_LABELS), {"default": "稳定质量", "tooltip": "性能预设；稳定 20 步、质量优先加速或训练型 8+4 二采"}),
                 "postprocess_mode": (["native", "lanczos", "ai_upscale", "video_sr", "vosr2", "h3_two_stage", "rtx_vsr"], {"default": "ai_upscale", "tooltip": "放大方式可选 H3 二采、VOSR2、SeedVR2。1080p VOSR2/SeedVR2走单采超分；显式选 2K/4K 且依赖和显存满足时，VOSR2 走 H3 二采后 2x 试验路线。4K 需要至少 28GB 显存，建议先用 4–5 秒验证。"}),
                 "rtx_quality": (["HIGH", "ULTRA", "HIGHBITRATE_ULTRA"], {"default": "HIGH", "tooltip": "RTX VSR 质量；质量优先二采样自动使用原画源最高保真档"}),
@@ -1109,9 +1109,28 @@ class MiniMaxH3DirectorPlus:
             if postprocess_mode == "rtx_vsr" and requested_width != native_width:
                 request["warnings"][-1] += " 将在生成后通过 RTX VSR 重建。"
 
+        requested_ref_image_size = str(ref_image_size or "match")
+        low_vram_references = (
+            request["performance_preset"] in {"low_vram", "low_vram_two_stage"}
+            and request["resolved_backend"] == "ref2va_model"
+        )
+        if low_vram_references:
+            # Native REF2VA's max path ignores the sampling canvas: every image
+            # can retain a 2048px short edge in both Qwen and the DiT. Dynamic
+            # weight offload does not bound those reference-token activations.
+            ref_image_size = "match"
+            if requested_ref_image_size != ref_image_size:
+                request["warnings"].append(
+                    f"低显存参考图编码已从 {requested_ref_image_size} 调整为 match："
+                    f"按 {native_width}×{native_height} 采样画布的像素面积等比缩小，"
+                    "避免多张大图在 Qwen 条件编码阶段耗尽显存；"
+                    "参考图数量、音色参考、视频时长和最终输出尺寸不变。"
+                )
+
         if (
             request["resolved_backend"] == "ref2va_model"
             and not recipe
+            and not low_vram_references
             and str(ref_image_size or "match") == "match"
             and final_upscale_required
             and max(
@@ -1273,6 +1292,7 @@ class MiniMaxH3DirectorPlus:
             }[postprocess_path],
             "length": length,
             "ref_image_size": ref_image_size,
+            "requested_ref_image_size": requested_ref_image_size,
             "first_frame": first_frame,
             "last_frame": last_frame,
             "requested_first_frame": first_image is not None,

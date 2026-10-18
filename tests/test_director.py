@@ -1997,7 +1997,60 @@ def test_max_ref_image_size_skips_upscale_dilution_warning():
         first_image=object(),
     )
 
+    assert guide["ref_image_size"] == "max"
     assert not any("参考图尺寸策略为 match" in warning for warning in guide["warnings"])
+
+
+@pytest.mark.parametrize("requested_size", ["match", "max"])
+@pytest.mark.parametrize("preset,duration,voice_mode,resolved_preset", [
+    ("低显存", 15, "none", "low_vram"),
+    ("低显存", 15, "h3_reference", "low_vram"),
+    ("低显存二采", 6, "none", "low_vram"),
+    ("低显存二采", 6, "h3_reference", "low_vram"),
+])
+def test_low_vram_bounds_reference_encoding_without_dropping_images_or_voice(
+    requested_size, preset, duration, voice_mode, resolved_preset,
+):
+    images = [object() for _ in range(4)]
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA", prompt="人物走向窗边。", duration=duration,
+        width=1344, height=768, aspect_ratio="16:9", resolution_preset="768p H3",
+        voice_mode=voice_mode, voice_reference_audio=_clean_voice() if voice_mode == "h3_reference" else None,
+        ref_image_size=requested_size, performance_preset=preset,
+        postprocess_mode="ai_upscale", timeline_data="{}", target_dialogue="",
+        reference_transcript="", first_image=images[0], last_image=images[1],
+        reference_image_1=images[2], reference_image_2=images[3],
+    )
+
+    assert guide["ref_image_size"] == "match"
+    assert guide["performance_preset"] == resolved_preset
+    assert guide["requested_ref_image_size"] == requested_size
+    assert list(guide["ref_images"].values()) == images
+    assert len(guide["ref_audios"]) == (1 if voice_mode == "h3_reference" else 0)
+    assert guide["length"] == align_frame_count(duration * 24)
+    assert (guide["target_width"], guide["target_height"]) == (1344, 768)
+    assert not any("建议把“参考图尺寸”改为" in warning for warning in guide["warnings"])
+    if requested_size == "max":
+        assert any("参考图编码" in warning and "max" in warning for warning in guide["warnings"])
+
+
+@pytest.mark.parametrize("preset,duration,resolved_preset", [
+    ("低显存", 15, "low_vram"),
+    ("低显存二采", 6, "low_vram_two_stage"),
+])
+def test_low_vram_does_not_override_fl_hard_endpoints(preset, duration, resolved_preset):
+    first, last = object(), object()
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="FL2VA", prompt="人物走向窗边。", duration=duration,
+        width=1344, height=768, aspect_ratio="16:9", resolution_preset="768p H3",
+        voice_mode="none", ref_image_size="max", performance_preset=preset,
+        postprocess_mode="ai_upscale", timeline_data="{}", target_dialogue="",
+        reference_transcript="", first_image=first, last_image=last,
+    )
+    assert guide["ref_image_size"] == "max"
+    assert guide["performance_preset"] == resolved_preset
+    assert guide["first_frame"] is first
+    assert guide["last_frame"] is last
 
 
 def test_probe_vram_after_prefree_frees_cache_and_returns_fresh_reading(monkeypatch):

@@ -1055,6 +1055,12 @@ function install(node) {
       valueControl("种子模式", "control_after_generate", SEED_MODES, widget(node, "control_after_generate")?.value || "randomize"),
       valueControl("参考图尺寸", "ref_image_size", [["match", "匹配生成尺寸（省显存）"], ["max", "最大尺寸（保留人脸细节）"]], widget(node, "ref_image_size")?.value || "match"),
     );
+    if (referenceRoute && ["低显存", "低显存二采"].includes(preset)) {
+      const referenceSizeNote = document.createElement("div");
+      referenceSizeNote.className = "h3p-hint";
+      referenceSizeNote.textContent = "低显存档的参考图实际按 match 编码：即使上方保存了 max，也会等比缩小到采样画布的像素面积，减少多图显存占用。视频时长和最终输出尺寸不变。";
+      specGrid.append(referenceSizeNote);
+    }
     const postprocessGrid = document.createElement("div");
     postprocessGrid.className = "h3p-grid";
     let aiUpscaleModel = widget(node, "ai_upscale_model")?.value || "auto";

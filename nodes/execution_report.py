@@ -31,6 +31,7 @@ _PLAN_KEYS = (
     "video_shift", "audio_shift", "two_stage_enabled",
     "resolved_two_stage_route", "first_lora_name", "second_lora_name", "vosr2_profile",
     "first_lora_strength", "second_lora_strength", "postprocess_mode", "postprocess_path",
+    "ref_image_size", "requested_ref_image_size",
 )
 _RECIPE_KEYS = (
     "id", "key", "name", "preset", "route", "backend", "adapter", "adapter_name", "lora_name",
