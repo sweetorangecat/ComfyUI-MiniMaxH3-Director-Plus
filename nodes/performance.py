@@ -483,14 +483,14 @@ def _check_h3_sage_kernels(node_class):
 def _apply_sage_attention(model, guide):
     """Apply SageAttention with an RTX 30xx-safe kernel."""
     preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
-    if preset in {"quality_sage", BALANCED_PRESET}:
+    if preset in {"quality_sage", "ref_quality_native", BALANCED_PRESET}:
         # The generic KJ override keeps full Q/K/V tensors alive and can add
         # multiple GiB of temporary memory on long H3 sequences. The H3
         # patch quantizes the packed attention path and splits independent
         # heads, preserving the math while shrinking that working set.
         try:
             sage_class = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")
-            if preset == BALANCED_PRESET:
+            if preset in {BALANCED_PRESET, "ref_quality_native"}:
                 _check_h3_sage_kernels(sage_class)
             sage_node = sage_class()
             model = _node_model(sage_node.execute(model))

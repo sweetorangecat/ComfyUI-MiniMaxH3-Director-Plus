@@ -32,3 +32,5 @@ This sample's sampling speedup is 2.30× (56.5% less time); it is not a measured
 First, middle and last frames were inspected: composition and visible texture remain comparable, with small pose/mouth differences. This is not pixel identity, a sharpness improvement, or a complete 15-second voice/lip-sync acceptance test.
 
 The compatibility backend retains its own model cache outside Comfy's model manager. The patch advertises a cleanup hook; the H3 adapter calls it after the complete reconstruction, including failures, without masking the original exception. Tests and code review cover the lifecycle. Actual post-cleanup GPU memory remains part of deployment verification.
+
+During deployment a new 15-second user job selected `ref_quality_native`; its log confirmed the generic `sageattn_qk_int8_pv_fp16_cuda` path. Extend the same H3-specific patch to this reference-quality preset and its Chinese label, retaining 20 steps and no Turbo/cache. Regression tests first reproduced both missed routes. Do not apply the eight-step measured speedup to this 20-step route.

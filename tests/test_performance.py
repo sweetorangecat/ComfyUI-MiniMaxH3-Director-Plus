@@ -1223,21 +1223,26 @@ def test_quality_priority_acceleration_keeps_native_quality_contract(mode, voice
     assert sampler_route(guide) == "native"
 
 
-def test_quality_priority_acceleration_applies_sage_without_cache_or_lora(monkeypatch):
+@pytest.mark.parametrize('preset,backend,mode', [
+    ('quality_sage', 'fl2va_model', 'T2VA'),
+    ('ref_quality_native', 'ref2va_model', 'REF2VA'),
+])
+def test_quality_priority_acceleration_applies_sage_without_cache_or_lora(monkeypatch, preset, backend, mode):
     calls = []
     monkeypatch.setattr(performance, "_apply_sage_attention", lambda model, guide: calls.append("sage") or f"{model}:sage")
     monkeypatch.setattr(performance, "_apply_easy_cache", lambda model, guide: calls.append("cache") or f"{model}:cache")
     monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda *args, **kwargs: calls.append("lora"))
 
-    guide = {"mode": "T2VA", "performance_preset": "quality_sage", "resolved_backend": "fl2va_model"}
+    guide = {"mode": mode, "performance_preset": preset, "resolved_backend": backend}
     result = MiniMaxH3AccelerationRouter().apply("model", guide)
 
     assert result[0] == "model:sage"
     assert calls == ["sage"]
     assert result[2] is True
+    assert performance.preset_values(preset)['steps'] == 20
 
 
-@pytest.mark.parametrize('preset', ['quality_sage', 'balanced_8step'])
+@pytest.mark.parametrize('preset', ['quality_sage', 'balanced_8step', 'ref_quality_native', '参考高清（原生20步）'])
 def test_quality_priority_uses_h3_memory_efficient_sage_patch(monkeypatch, preset):
     calls = []
     monkeypatch.setattr(performance, "_free_vram_bytes", lambda: None)
