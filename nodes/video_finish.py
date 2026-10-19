@@ -117,8 +117,9 @@ def _vosr2(images, width, height, seed, profile='legacy', diagnostics=None):
     report.clear()
     report.update(profile=profile, status='running', seed=int(seed),
                   input_shape=list(images.shape), requested_size=[width, height],
-                  timing_scope='model release, load, settings and VOSR2 reconstruction; excludes final resize/encoding')
+                  timing_scope='model release, load, settings, VOSR2 reconstruction and backend cleanup; excludes final resize/encoding')
     start = time.perf_counter()
+    release_backend = None
     try:
         if profile not in VOSR2_PROFILE_NAMES:
             raise ValueError(f'未知 VOSR2 配置：{profile!r}')
@@ -132,11 +133,19 @@ def _vosr2(images, width, height, seed, profile='legacy', diagnostics=None):
         if device is not None:
             torch.cuda.synchronize(device)
         report['memory_before'] = _vosr2_memory_snapshot()
+        video_class = mappings['TESpeedVOSR2Video']
+        supports_tile_batch = getattr(video_class, 'H3_TILE_BATCH_SUPPORTED', False) is True
+        report['backend_implementation'] = f'{video_class.__module__}.{video_class.__name__}'
         config = resolve_vosr2_profile(profile,
             free_vram_gb=report['memory_before'].get('free_vram_gb'),
-            total_vram_gb=report['memory_before'].get('total_vram_gb'))
+            total_vram_gb=report['memory_before'].get('total_vram_gb'),
+            supports_tile_batch=supports_tile_batch)
         report['requested_config'] = config
         LOGGER.info('[H3 VOSR2] profile=%s settings=%s', profile, config)
+        # The Linux compatibility engine owns CUDA tensors outside Comfy's
+        # model manager. Release its opt-in cache after the complete video,
+        # not between frame chunks, so the next H3 run can use that memory.
+        release_backend = getattr(video_class, 'H3_RELEASE_ENGINES', None)
         loader, settings_node, video = [_resolve_upscaler_callable(mappings[name]) for name in ids]
         model = _unwrap_node_result(loader(**config['loader']))
         settings = _unwrap_node_result(settings_node(**config['settings']))
@@ -170,6 +179,13 @@ def _vosr2(images, width, height, seed, profile='legacy', diagnostics=None):
         report.update(status='failed', error_type=type(exc).__name__, error=str(exc)[:500])
         raise
     finally:
+        if callable(release_backend):
+            try:
+                release_backend()
+                report['backend_released'] = True
+            except Exception as exc:
+                report.update(backend_released=False, backend_release_error=type(exc).__name__)
+                LOGGER.warning('[H3 VOSR2] backend cleanup failed: %s', exc)
         report['elapsed_seconds'] = round(time.perf_counter() - start, 6)
         report['memory_after'] = _vosr2_memory_snapshot()
         LOGGER.info('[H3 VOSR2] profile=%s status=%s elapsed=%.3fs memory=%s',

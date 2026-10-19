@@ -6,20 +6,23 @@ import math
 VOSR2_PROFILE_NAMES = ('legacy', 'manual_baseline', 'experimental_32gb')
 
 
-def resolve_vosr2_profile(profile='legacy', *, free_vram_gb=None, total_vram_gb=None):
+def resolve_vosr2_profile(profile='legacy', *, free_vram_gb=None, total_vram_gb=None,
+                         supports_tile_batch=False):
     """Return fresh upstream kwargs. Memory values are measured GiB, not card labels."""
     if profile not in VOSR2_PROFILE_NAMES:
         raise ValueError(f'未知 VOSR2 配置：{profile!r}；可选：{", ".join(VOSR2_PROFILE_NAMES)}')
     experimental = profile == 'experimental_32gb'
+    values = (free_vram_gb, total_vram_gb)
+    measured = all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                   and math.isfinite(v) for v in values)
+    roomy = (measured and 0 < free_vram_gb <= total_vram_gb
+             and total_vram_gb >= 30 and free_vram_gb >= 24)
     if experimental:
-        values = (free_vram_gb, total_vram_gb)
-        measured = all(isinstance(v, (int, float)) and not isinstance(v, bool)
-                       and math.isfinite(v) for v in values)
-        if (not measured or not 0 < free_vram_gb <= total_vram_gb
-                or total_vram_gb < 30 or free_vram_gb < 24):
+        if not roomy:
             raise ValueError('VOSR2 experimental_32gb 需要释放模型后实测总显存至少 30 GiB、'
                              '空闲显存至少 24 GiB；无法测量或不足时请显式选择 manual_baseline。')
     legacy = profile == 'legacy'
+    tile_batch = 4 if legacy and supports_tile_batch is True and roomy else 1
     frame_batch = 4 if experimental else 2
     policy = 'auto' if legacy else 'staged'
     return {
@@ -30,7 +33,7 @@ def resolve_vosr2_profile(profile='legacy', *, free_vram_gb=None, total_vram_gb=
         'settings': dict(quality_profile='speed' if legacy else 'manual',
                          tile_strategy='auto' if legacy else 'tiled',
                          tile_size=512, tile_overlap=32, vae_tile_size=1024,
-                         vae_tile_overlap=32, image_batch=1, frame_batch=frame_batch,
+                         vae_tile_overlap=32, image_batch=tile_batch, frame_batch=frame_batch,
                          dino_batch=frame_batch, temporal_cache=False,
                          cache_threshold=0.003, cache_refresh=4,
                          memory_policy=policy, color_alignment='wavelet'),

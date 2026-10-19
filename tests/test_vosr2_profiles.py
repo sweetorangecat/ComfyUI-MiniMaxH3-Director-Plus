@@ -63,6 +63,27 @@ def test_unknown_profile_is_rejected(profile):
         resolve_vosr2_profile(profile)
 
 
+@pytest.mark.parametrize('supported,total,free,expected', [
+    (True,32,28,4), (False,32,28,1), (True,8,7,1),
+    (True,32,20,1), (True,32,float('nan'),1), (True,None,None,1),
+    (True,32,33,1), (True,True,28,1),
+])
+def test_tile_batch_requires_supported_backend_and_measured_headroom(supported,total,free,expected):
+    from nodes.vosr2_profiles import resolve_vosr2_profile
+    result = resolve_vosr2_profile(supports_tile_batch=supported,
+                                  total_vram_gb=total,free_vram_gb=free)
+    assert result['settings']['image_batch'] == expected
+    assert result['settings']['tile_size'] == 512
+    assert result['video']['temporal_cache'] is False
+
+
+def test_explicit_manual_profile_keeps_its_comparison_settings():
+    from nodes.vosr2_profiles import resolve_vosr2_profile
+    result = resolve_vosr2_profile('manual_baseline', supports_tile_batch=True,
+                                  total_vram_gb=32,free_vram_gb=28)
+    assert result['settings']['image_batch'] == 1
+
+
 @pytest.fixture
 def vosr_adapter(monkeypatch):
     import torch
@@ -98,7 +119,51 @@ def vosr_adapter(monkeypatch):
                 images.shape[1]*kwargs['scale'],images.shape[2]*kwargs['scale'],3),)
     monkeypatch.setattr(two_stage_assets, '_comfy_node_mappings', lambda: {
         'TESpeedVOSR2Loader':Loader,'TESpeedVOSR2Settings':Settings,'TESpeedVOSR2Video':Video})
+    seen['video_class'] = Video
     return video_finish, seen
+
+
+def test_adapter_enables_batch_only_for_explicit_compatibility_capability(vosr_adapter):
+    import torch
+    module, seen = vosr_adapter
+    seen['video_class'].H3_TILE_BATCH_SUPPORTED = True
+    report = {}
+    module._vosr2(torch.zeros(2,8,12,3),18,12,42,diagnostics=report)
+    assert seen['settings']['image_batch'] == 4
+    assert seen['settings']['dino_batch'] == 2
+    assert report['requested_config']['settings']['image_batch'] == 4
+    assert report['backend_implementation'].endswith('.Video')
+
+
+@pytest.mark.parametrize('fail', [False, True])
+def test_adapter_releases_opt_in_backend_after_success_or_failure(vosr_adapter, fail):
+    import torch
+    module, seen = vosr_adapter
+    seen['fail'] = fail
+    seen['video_class'].H3_RELEASE_ENGINES = staticmethod(lambda: seen['events'].append('backend_release'))
+    report = {}
+    if fail:
+        with pytest.raises(RuntimeError, match='simulated OOM'):
+            module._vosr2(torch.zeros(2,8,12,3),18,12,42,diagnostics=report)
+    else:
+        module._vosr2(torch.zeros(2,8,12,3),18,12,42,diagnostics=report)
+    assert seen['events'][-2:] == ['backend_release', 'memory']
+    assert report['backend_released'] is True
+    assert report['status'] == ('failed' if fail else 'completed')
+
+
+def test_backend_cleanup_failure_does_not_mask_original_error(vosr_adapter):
+    import torch
+    module, seen = vosr_adapter
+    seen['fail'] = True
+    def cleanup():
+        raise ValueError('cleanup failed')
+    seen['video_class'].H3_RELEASE_ENGINES = staticmethod(cleanup)
+    report = {}
+    with pytest.raises(RuntimeError, match='simulated OOM'):
+        module._vosr2(torch.zeros(2,8,12,3),18,12,42,diagnostics=report)
+    assert report['backend_released'] is False
+    assert report['backend_release_error'] == 'ValueError'
 
 
 @pytest.mark.parametrize('profile', ['legacy','manual_baseline','experimental_32gb'])
