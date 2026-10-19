@@ -889,6 +889,8 @@ function install(node) {
   let fishPanel;
   let twoStagePanel;
   let twoStagePanelOpen = false;
+  let vosrPanel;
+  let vosrPanelOpen = false;
 
   function render() {
     hideRawWidgets();
@@ -965,6 +967,10 @@ function install(node) {
     if (twoStagePanel) {
       twoStagePanelOpen = twoStagePanel.open;
       twoStagePanel = null;
+    }
+    if (vosrPanel) {
+      vosrPanelOpen = vosrPanel.open;
+      vosrPanel = null;
     }
     root.replaceChildren();
 
@@ -1073,13 +1079,6 @@ function install(node) {
       setWidget(node, "ai_upscale_model", "auto", false);
     }
     const postprocessControl = valueControl("放大方式", "postprocess_mode", postprocessOptions, postprocessMode);
-    if (postprocessMode === "vosr2") {
-      postprocessGrid.append(valueControl("VOSR2 配置", "vosr2_profile", [
-        ["legacy", "旧配置（保持现有结果）"],
-        ["manual_baseline", "手动基线（用于速度对比）"],
-        ["experimental_32gb", "32GB 候选（实验，需实测）"],
-      ], widget(node, "vosr2_profile")?.value || "legacy"));
-    }
     const aiModelControlOptions = preset === SMART_PRESET
       ? [[SMART_UPSCALE_MODEL, "自动选择（按倍率选 X2/X4，智能锁定）"]]
       : [["auto", "自动选择"]];
@@ -1121,6 +1120,22 @@ function install(node) {
     }
     specification.append(specGrid);
     specification.append(postprocessGrid);
+    if (postprocessMode === "vosr2") {
+      const advanced = document.createElement("details");
+      advanced.open = vosrPanelOpen;
+      vosrPanel = advanced;
+      const summary = document.createElement("summary");
+      summary.textContent = "超分高级设置";
+      const controls = document.createElement("div");
+      controls.className = "h3p-grid";
+      controls.append(valueControl("VOSR2 配置", "vosr2_profile", [
+        ["legacy", "默认"],
+        ["manual_baseline", "手动基线（用于速度对比）"],
+        ["experimental_32gb", "32GB 候选（实验，需实测）"],
+      ], widget(node, "vosr2_profile")?.value || "legacy"));
+      advanced.append(summary, controls);
+      specification.append(advanced);
+    }
     if (preset === "质量优先二采样") {
       const advanced = document.createElement("details");
       advanced.open = twoStagePanelOpen;
@@ -1147,7 +1162,7 @@ function install(node) {
       lanczos: "Lanczos 快速放大：使用 CPU 分块缩放，兼容性最好、速度快，但只重采样不重建 AI 细节。",
       ai_upscale: "AI 自动超分：使用已安装的通用超分模型逐帧重建细节；默认 auto 按实际倍率自动选择 X2/X4（≤2 倍优先 X2，避免 X4 放大再缩回的浪费），模型不存在会在生成前提示。",
       video_sr: "完成所选采样后执行 SeedVR2 视频超分；缺少依赖会在生成前提示。",
-      vosr2: "完成所选采样后执行 VOSR2 视频超分，保留采样音频。",
+      vosr2: "按实际画面自动计算放大倍率，达到所选尺寸后执行 VOSR2 细节重建；保留原始比例、已有大图尺寸和音频。",
       rtx_vsr: "RTX VSR：目标尺寸大于 H3 原生尺寸时逐帧使用 NVIDIA RTX VSR；首次使用前请安装 nvidia-vfx、NVIDIA Broadcast SDK 与匹配驱动，导演节点会在生成前检查；同尺寸自动旁路。",
     };
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;

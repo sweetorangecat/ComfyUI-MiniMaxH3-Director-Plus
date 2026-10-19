@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import logging
 import time
+from fractions import Fraction
 
 LOGGER = logging.getLogger(__name__)
 
@@ -17,26 +18,60 @@ def output_size(width, height, preset):
 
 
 def vosr2_input_size(width, height, target_width, target_height):
-    scale = max(1, math.ceil(max(target_width / width, target_height / height)))
-    return width, height, scale
+    """Adapt an already aspect-resolved canvas to TE's integer-scale API.
+
+    Fractional factors are evaluated by VOSR2's native 1x restoration at the
+    required canvas, not by a larger integer SR pass followed by downsampling.
+    Resolve aspect exactly once with sr_output_size before calling this helper.
+    """
+    if min(width, height, target_width, target_height) <= 0:
+        raise ValueError('视频超分尺寸必须大于零')
+    target_width, target_height = max(width, target_width), max(height, target_height)
+    if (target_width % width == 0 and target_height % height == 0
+            and target_width // width == target_height // height):
+        return width, height, target_width // width
+    return target_width, target_height, 1
 
 
 def sr_output_size(width, height, target_width, target_height, engine):
     """Preserve source pixels/aspect; the selected output is a lower bound."""
-    if engine == 'vosr2':
-        _, _, scale = vosr2_input_size(width, height, target_width, target_height)
-    else:
-        scale = max(1, target_width / width, target_height / height)
+    if min(width, height, target_width, target_height) <= 0:
+        raise ValueError('视频超分尺寸必须大于零')
+    scale = max(Fraction(1), Fraction(target_width, width), Fraction(target_height, height))
     return tuple(math.ceil(v * scale / 2) * 2 for v in (width, height))
 
 
-def validate_sr_result(result, frame_count):
+def validate_sr_result(result, frame_count, *, check_finite=True):
     import torch
     if not isinstance(result, torch.Tensor) or result.ndim != 4 or result.shape[-1] != 3:
         raise RuntimeError('视频超分返回了无效 IMAGE 张量')
     if result.shape[0] != frame_count:
         raise RuntimeError('视频超分改变了帧数，已停止以避免音画不同步')
+    if check_finite:
+        for start in range(0, frame_count, 4):
+            if not torch.isfinite(result[start:start + 4]).all().item():
+                raise RuntimeError('视频超分返回非有限像素（NaN/Inf），已停止以避免输出损坏画面')
     return result
+
+
+def _prepare_vosr2_input(images, width, height):
+    """Keep floating-point detail and bound interpolation scratch to 64 MiB.
+
+    TE processes a whole clip in one invocation. Preallocate its input rather
+    than concatenate resized chunks, which would temporarily double host RAM.
+    """
+    import torch
+    import torch.nn.functional as F
+    if (images.shape[2], images.shape[1]) == (width, height):
+        return images.detach().to(device='cpu', dtype=torch.float32)
+    output = torch.empty((len(images), height, width, 3), device='cpu', dtype=torch.float32)
+    chunk_frames = max(1, (64 * 1024 * 1024) // (width * height * 3 * 4))
+    for start in range(0, len(images), chunk_frames):
+        chunk = images[start:start + chunk_frames].detach().to(device='cpu', dtype=torch.float32)
+        resized = F.interpolate(chunk.movedim(-1, 1), size=(height, width),
+                                mode='bicubic', align_corners=False, antialias=True)
+        output[start:start + chunk_frames].copy_(resized.movedim(1, -1).clamp(0, 1))
+    return output
 
 
 def _vosr2_cuda_device():
@@ -110,10 +145,18 @@ def _vosr2(images, width, height, seed, profile='legacy', diagnostics=None):
         report['upstream_settings'] = {key: value for key, value in upstream.items()
             if key in config['settings'] and isinstance(value, (str, int, float, bool, type(None)))
             and not (isinstance(value, float) and not math.isfinite(value))}
-        # H3's safe decoder can yield CPU fp16 frames; the VOSR2 Qwen VAE is fp32.
-        images = images.float()
-        _, _, scale = vosr2_input_size(images.shape[2], images.shape[1], width, height)
-        report['scale'] = scale
+        # width/height are resolved once by the caller; rounding aspect again
+        # would grow the canvas at each adapter boundary.
+        source_width, source_height = images.shape[2], images.shape[1]
+        input_width, input_height, scale = vosr2_input_size(source_width, source_height, width, height)
+        report.update(scale=max(input_width * scale / source_width, input_height * scale / source_height),
+                      backend_scale=scale, processing_input_size=[input_width, input_height],
+                      sizing_strategy='target_canvas_1x' if (input_width, input_height) != (source_width, source_height)
+                      else 'native_integer')
+        LOGGER.info('[H3 VOSR2] %sx%s -> %sx%s, effective_scale=%.6f backend_scale=%s strategy=%s',
+                    source_width, source_height, input_width * scale, input_height * scale,
+                    report['scale'], scale, report['sizing_strategy'])
+        images = _prepare_vosr2_input(images, input_width, input_height)
         result = _unwrap_node_result(video(model=model, images=images, scale=scale,
             seed=int(seed), settings=settings, **config['video']))
         validate_sr_result(result, images.shape[0])
@@ -185,7 +228,7 @@ class MiniMaxH3VideoFinish:
                 result = torch.cat(list(_iter_video_sr_frame_chunks(images, width, height, seed=seed, plan=plan)), dim=0)
             else:
                 raise ValueError('不支持的视频处理方式：' + method)
-            validate_sr_result(result, images.shape[0])
+            validate_sr_result(result, images.shape[0], check_finite=method != 'VOSR2')
             chunks = [_resize_cpu_chunk(result[i:i+4], width, height, method='lanczos') for i in range(0,len(result),4)]
             output = torch.cat(chunks).clamp(0,1)
         if diagnostics:

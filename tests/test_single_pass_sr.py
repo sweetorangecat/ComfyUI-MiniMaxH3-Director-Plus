@@ -129,7 +129,7 @@ def test_smart_2k_vosr2_keeps_two_stage_and_routes_without_seedvr2(monkeypatch):
     assert guide['two_stage_enabled'] is True
     assert guide['postprocess_path']=='video_sr'
     assert guide['upscale_method']=='vosr2'
-    assert guide['video_sr_plan']=={'engine':'vosr2','force_2x':True}
+    assert guide['video_sr_plan']=={'engine':'vosr2'}
     assert stream_output._resolve_postprocess_path(guide,guide['native_width'],guide['native_height'])=='video_sr'
 
 
@@ -170,7 +170,7 @@ def test_smart_4k_vosr2_keeps_two_stage_and_routes_without_seedvr2(monkeypatch):
     assert guide['two_stage_enabled'] is True
     assert guide['postprocess_path']=='video_sr'
     assert guide['upscale_method']=='vosr2'
-    assert guide['video_sr_plan']=={'engine':'vosr2','force_2x':True}
+    assert guide['video_sr_plan']=={'engine':'vosr2'}
     assert guide['target_width']==3840 and guide['target_height']==2160
     assert stream_output._resolve_postprocess_path(guide,guide['native_width'],guide['native_height'])=='video_sr'
 
@@ -185,11 +185,11 @@ def test_output_vosr_dispatch_never_loads_seedvr(monkeypatch):
     monkeypatch.setattr(stream_output,'resolve_seedvr2_callables',forbidden)
     monkeypatch.setattr(video_finish,'_vosr2',fake_vosr)
     out=torch.cat(list(stream_output._iter_video_sr_frame_chunks(torch.zeros(3,72,128,3),192,108,plan={'engine':'vosr2'})))
-    assert out.shape==(3,144,256,3)
+    assert out.shape==(3,108,192,3)
     assert seen['shape'][0]==3
 
 
-def test_qhd_vosr_trial_resizes_input_to_half_target_for_real_2x(monkeypatch):
+def test_legacy_force_2x_does_not_shrink_source(monkeypatch):
     import torch
     from nodes import stream_output,video_finish
     seen={}
@@ -200,8 +200,8 @@ def test_qhd_vosr_trial_resizes_input_to_half_target_for_real_2x(monkeypatch):
     monkeypatch.setattr(video_finish,'_vosr2',fake_vosr)
     out=torch.cat(list(stream_output._iter_video_sr_frame_chunks(
         torch.zeros(2,8,16,3),16,8,plan={'engine':'vosr2','force_2x':True})))
-    assert seen['input_shape']==(2,4,8,3)
-    assert seen['scale']==2
+    assert seen['input_shape']==(2,8,16,3)
+    assert seen['scale']==1
     assert out.shape==(2,8,16,3)
 
 

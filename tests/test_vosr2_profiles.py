@@ -115,12 +115,17 @@ def test_adapter_forwards_profile_and_measures_result(vosr_adapter, profile):
     assert all(seen['video'][key] == value for key,value in expected['video'].items())
     assert seen['video']['seed'] == 42
     assert seen['video']['images'].dtype == torch.float32
-    assert result.shape == (3,16,24,3)
+    assert result.shape == (3,12,18,3)
+    assert seen['video']['images'].shape == (3,12,18,3)
+    assert seen['video']['scale'] == 1
     assert seen['events'][:3] == ['release','memory','load']
     assert diagnostic['status'] == 'completed'
     assert diagnostic['profile'] == profile
     assert diagnostic['requested_config'] == expected
-    assert diagnostic['output_shape'] == [3,16,24,3]
+    assert diagnostic['output_shape'] == [3,12,18,3]
+    assert diagnostic['scale'] == 1.5
+    assert diagnostic['backend_scale'] == 1
+    assert diagnostic['processing_input_size'] == [18,12]
     assert diagnostic['elapsed_seconds'] >= 0
     assert diagnostic['memory_before']['free_vram_gb'] == 28
     json.dumps(diagnostic, allow_nan=False)
@@ -172,14 +177,14 @@ def test_finish_exposes_diagnostics_without_changing_image_output(vosr_adapter,m
     module, seen = vosr_adapter
     monkeypatch.setattr(module,'output_size',lambda w,h,preset:(18,12))
     result = module.MiniMaxH3VideoFinish().finish(torch.zeros(3,8,12,3),vosr2_profile='manual_baseline',benchmark_run='run-1')
-    assert result['result'][0].shape == (3,16,24,3)
+    assert result['result'][0].shape == (3,12,18,3)
     assert result['ui']['vosr2_diagnostics'][0]['profile'] == 'manual_baseline'
     inputs = module.MiniMaxH3VideoFinish.INPUT_TYPES()
     assert list(inputs['required']) == ['images','resolution','method','seed']
     assert inputs['optional']['vosr2_profile'][1]['default'] == 'legacy'
     ordinary = module.MiniMaxH3VideoFinish().finish(torch.zeros(3,8,12,3))
     assert isinstance(ordinary, tuple)
-    assert ordinary[0].shape == (3,16,24,3)
+    assert ordinary[0].shape == (3,12,18,3)
 
 
 def test_finish_preserves_source_lineage_and_adds_measured_reconstruction(vosr_adapter,monkeypatch):

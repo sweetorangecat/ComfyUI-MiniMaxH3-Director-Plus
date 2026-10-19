@@ -258,10 +258,10 @@ def reconstruction_diagnostics(source):
     if not isinstance(source, dict):
         return {}
     result = _scalars(source, (
-        "profile", "status", "seed", "scale", "elapsed_seconds", "wall_seconds",
+        "profile", "status", "seed", "scale", "backend_scale", "sizing_strategy", "elapsed_seconds", "wall_seconds",
         "timing_scope", "error_type", "frame_count", "seconds",
     ))
-    for key in ("input_shape", "output_shape", "requested_size"):
+    for key in ("input_shape", "output_shape", "requested_size", "processing_input_size"):
         value = source.get(key)
         if isinstance(value, (list, tuple)) and all(isinstance(item, int) for item in value[:8]):
             result[key] = list(value[:8])

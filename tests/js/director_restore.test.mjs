@@ -173,6 +173,23 @@ function advancedPanel(node) {
     && el.children.some(child => child.textContent === "二采高级设置"));
 }
 
+test("VOSR tuning is collapsed by default and preserves saved values", () => {
+  const profile = { name: "vosr2_profile", value: "manual_baseline" };
+  const { node } = installedDirector("off", [profile,
+    { name: "performance_preset", value: "均衡高质（768p 8步）" },
+    { name: "postprocess_mode", value: "vosr2" },
+    { name: "resolution_preset", value: "1080p FHD" },
+  ]);
+  const panel = () => allElements(node.root).find(el => el.tag === "details"
+    && el.children.some(child => child.textContent === "超分高级设置"));
+  assert.equal(panel().open, false);
+  assert.ok(allElements(panel()).some(el => el.dataset?.h3pValueWidget === "vosr2_profile"));
+  assert.equal(profile.value, "manual_baseline");
+  panel().open = true;
+  profile.callback(profile.value);
+  assert.equal(panel().open, true);
+});
+
 function directorWithAdvancedOptions() {
   const installed = installedDirector("off", [
     { name: "performance_preset", value: "质量优先二采样" },

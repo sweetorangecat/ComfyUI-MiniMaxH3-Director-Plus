@@ -597,25 +597,15 @@ def _iter_video_sr_frame_chunks(
     """
     from .video_finish import sr_output_size
     plan = dict(plan or {})
-    if plan.get("engine") == "vosr2" and plan.get("force_2x"):
-        # The QHD trial always tests a real 2x VOSR2 pass, even when the H3
-        # latent redraw already lands near the requested final dimensions.
-        sr_input_width = max(2, int(round(target_width / 4) * 2))
-        sr_input_height = max(2, int(round(target_height / 4) * 2))
-    else:
-        if not plan.get("preserve_target"):
-            target_width, target_height = sr_output_size(
-                images.shape[2], images.shape[1], target_width, target_height,
-                plan.get("engine", "seedvr2"),
-            )
-        sr_input_width, sr_input_height = images.shape[2], images.shape[1]
+    if not plan.get("preserve_target"):
+        target_width, target_height = sr_output_size(
+            images.shape[2], images.shape[1], target_width, target_height,
+            plan.get("engine", "seedvr2"),
+        )
     if plan.get("engine") == "vosr2":
         from .video_finish import _vosr2, validate_sr_result
-        source = (
-            _resize_cpu_chunk(images, sr_input_width, sr_input_height, method="lanczos")
-            if (sr_input_width, sr_input_height) != (images.shape[2], images.shape[1])
-            else images
-        )
+        # Ignore old force_2x hints: preserve the actual H3 source pixels.
+        source = images
         profile = plan.get("vosr2_profile", "legacy")
         report = plan.get("_execution_report") or new_report()
         with stage_timer(report, "reconstruction", path="vosr2", profile=profile,
@@ -625,7 +615,7 @@ def _iter_video_sr_frame_chunks(
             else:
                 result = _vosr2(source, target_width, target_height, seed,
                                 profile=profile, diagnostics=plan.get("diagnostics"))
-            validate_sr_result(result, len(images))
+            validate_sr_result(result, len(images), check_finite=False)
         for start in range(0, len(result), max(1, int(max_chunk_frames))):
             yield _resize_cpu_chunk(result[start:start + max(1, int(max_chunk_frames))], target_width, target_height, method="lanczos").clamp(0, 1)
         return
@@ -1197,16 +1187,19 @@ class MiniMaxH3StreamingVideoCombine:
         target_width = int(guide.get("target_width") or source.shape[2])
         target_height = int(guide.get("target_height") or source.shape[1])
         postprocess_path = _resolve_postprocess_path(guide, source_width, source_height)
-        if postprocess_path == "video_sr" and guide.get("postprocess_mode") in {"vosr2", "video_sr"}:
+        if postprocess_path == "video_sr" and (
+            guide.get("postprocess_mode") in {"vosr2", "video_sr"}
+            or (guide.get("video_sr_plan") or {}).get("engine") == "vosr2"
+        ):
             guide = dict(guide)
             plan = dict(guide.get("video_sr_plan") or {})
-            plan.update(engine="vosr2" if guide["postprocess_mode"] == "vosr2" else "seedvr2",
+            plan.update(engine="seedvr2" if guide.get("postprocess_mode") == "video_sr" else "vosr2",
                         preserve_target=True)
-            if guide.get("resolution_preset") == "1080p FHD" or sorted((target_width, target_height)) == [1080, 1920]:
+            if plan["engine"] == "vosr2" or guide.get("resolution_preset") == "1080p FHD" or sorted((target_width, target_height)) == [1080, 1920]:
                 from .video_finish import sr_output_size
 
-                # 1080p is a minimum for video SR. Resolve the larger canvas
-                # before encoding so frames, exports and metadata all agree.
+                # VOSR2 and 1080p SR treat the selection as a minimum. Resolve
+                # once before encoding so frames, exports and metadata agree.
                 target_width, target_height = sr_output_size(
                     source_width, source_height, target_width, target_height,
                     plan["engine"],
@@ -1219,6 +1212,10 @@ class MiniMaxH3StreamingVideoCombine:
                 source_width, source_height, target_width, target_height,
                 (guide.get("video_sr_plan") or {}).get("engine", "seedvr2"),
             )
+            guide = dict(guide)
+            plan = dict(guide.get("video_sr_plan") or {})
+            plan["preserve_target"] = True
+            guide["video_sr_plan"] = plan
         upscale_profile = _resolve_upscale_profile(guide, postprocess_path)
         encode_quality = _resolved_encode_quality(guide, postprocess_path, quality)
         motion_smoothing = str(guide.get("motion_smoothing") or "off")

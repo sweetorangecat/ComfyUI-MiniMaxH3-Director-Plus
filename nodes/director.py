@@ -913,10 +913,6 @@ class MiniMaxH3DirectorPlus:
             if missing:
                 raise RequestError("VOSR2 节点未就绪，请安装 TE-Speed-VOSR2 并重启，或选择 SeedVR2：" + "、".join(missing))
             request["video_sr_plan"] = {"engine": "vosr2"}
-            if (requested_width, requested_height) in {
-                (2560, 1440), (1440, 2560), (3840, 2160), (2160, 3840),
-            }:
-                request["video_sr_plan"]["force_2x"] = True
             postprocess_path = "video_sr"
         elif request["postprocess_mode"] in {"video_sr", "ai_upscale"}:
             postprocess_path = request["postprocess_mode"]

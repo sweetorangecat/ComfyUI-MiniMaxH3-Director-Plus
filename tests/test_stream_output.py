@@ -246,14 +246,14 @@ def test_selected_video_engine_overrides_stale_plan_and_preserves_final_size(mon
                           'video_sr_plan': {'engine': 'seedvr2' if engine == 'vosr2' else 'vosr2'},
                           'target_width': 8, 'target_height': 8},
              torch.rand(2, 16, 16, 3), captured)
-    assert received[0][:2] == (8, 8)
+    assert received[0][:2] == ((16, 16) if engine == 'vosr2' else (8, 8))
     assert received[0][2]['engine'] == expected
     assert received[0][2]['preserve_target'] is True
 
 
 @pytest.mark.parametrize('engine,source_size,expected', [
-    ('vosr2', (1344, 768), (2688, 1536)),
-    ('vosr2', (768, 1344), (1536, 2688)),
+    ('vosr2', (1344, 768), (1920, 1098)),
+    ('vosr2', (768, 1344), (1098, 1920)),
     ('vosr2', (2688, 1536), (2688, 1536)),
     ('video_sr', (2688, 1536), (2688, 1536)),
 ])
@@ -298,6 +298,31 @@ def test_two_stage_actual_second_size_bypasses_redundant_vsr():
         "postprocess_path": "rtx_vsr",
     }
     assert stream_output._resolve_postprocess_path(guide, 1344, 768) == "native_bypass"
+
+
+@pytest.mark.parametrize('legacy_flags', [{}, {'preserve_target': True},
+                                        {'force_2x': True}, {'preserve_target': True, 'force_2x': True}])
+@pytest.mark.parametrize('source,expected', [((1344, 768), (1920, 1098)),
+                                            ((2688, 1536), (2688, 1536))])
+def test_legacy_vosr2_guide_resolves_canvas_once_before_encoding(monkeypatch, legacy_flags, source, expected):
+    import nodes.video_finish as video_finish
+
+    captured, encode_calls = [], []
+    guide = {'postprocess_path': 'video_sr', 'video_sr_required': True,
+             'video_sr_plan': {'engine': 'vosr2', **legacy_flags},
+             'target_width': 1920, 'target_height': 1080}
+
+    def upscale(images, width, height, seed, **kwargs):
+        assert (width, height) == expected
+        return torch.ones(1, height, width, 3)
+
+    monkeypatch.setattr(video_finish, '_vosr2', upscale)
+    result = _combine(monkeypatch, guide, torch.rand(1, source[1], source[0], 3),
+                      captured, encode_calls=encode_calls)
+    assert captured[0].shape[1:3] == (expected[1], expected[0])
+    assert encode_calls[0][0][3:5] == expected
+    assert (result['ui']['gifs'][0]['width'], result['ui']['gifs'][0]['height']) == expected
+    assert guide['video_sr_plan'] == {'engine': 'vosr2', **legacy_flags}
 
 
 def test_prepare_postprocess_releases_h3_before_vsr(monkeypatch):
