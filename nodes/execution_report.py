@@ -32,6 +32,7 @@ _PLAN_KEYS = (
     "resolved_two_stage_route", "first_lora_name", "second_lora_name", "vosr2_profile",
     "first_lora_strength", "second_lora_strength", "postprocess_mode", "postprocess_path",
     "ref_image_size", "requested_ref_image_size",
+    "sage_requested", "sage_applied", "sage_error", "attention_backend", "minimax_head_chunks",
 )
 _RECIPE_KEYS = (
     "id", "key", "name", "preset", "route", "backend", "adapter", "adapter_name", "lora_name",
@@ -259,7 +260,8 @@ def reconstruction_diagnostics(source):
         return {}
     result = _scalars(source, (
         "profile", "status", "seed", "scale", "backend_scale", "sizing_strategy", "elapsed_seconds", "wall_seconds",
-        "timing_scope", "error_type", "frame_count", "seconds",
+        "timing_scope", "error_type", "frame_count", "seconds", "backend_implementation",
+        "backend_released", "backend_release_error",
     ))
     for key in ("input_shape", "output_shape", "requested_size", "processing_input_size"):
         value = source.get(key)

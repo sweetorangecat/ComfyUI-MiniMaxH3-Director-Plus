@@ -25,7 +25,7 @@ def balanced_recipe(guide):
         "lora_name": BALANCED_LORAS[backend], "lora_strength": 1.0,
         "steps": 8, "sampler": "euler", "scheduler": "simple",
         "video_shift": 6.0, "audio_shift": 3.0,
-        "use_cache": False, "use_sage": False, "two_stage": False,
+        "use_cache": False, "use_sage": True, "two_stage": False,
     }
 
 

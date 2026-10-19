@@ -1237,9 +1237,11 @@ def test_quality_priority_acceleration_applies_sage_without_cache_or_lora(monkey
     assert result[2] is True
 
 
-def test_quality_priority_uses_h3_memory_efficient_sage_patch(monkeypatch):
+@pytest.mark.parametrize('preset', ['quality_sage', 'balanced_8step'])
+def test_quality_priority_uses_h3_memory_efficient_sage_patch(monkeypatch, preset):
     calls = []
     monkeypatch.setattr(performance, "_free_vram_bytes", lambda: None)
+    monkeypatch.setattr(performance, "_check_h3_sage_kernels", lambda cls: None, raising=False)
 
     class MemoryEfficientSage:
         @staticmethod
@@ -1258,7 +1260,7 @@ def test_quality_priority_uses_h3_memory_efficient_sage_patch(monkeypatch):
 
     result = performance._apply_sage_attention(
         "model",
-        {"performance_preset": "quality_sage"},
+        {"performance_preset": preset},
     )
 
     assert result == "model:h3sage:chunks"

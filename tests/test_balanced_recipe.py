@@ -131,3 +131,58 @@ def test_balanced_scheduler_ignores_stale_step_widget_and_normalizes_model(recip
 def test_legacy_quality_keeps_twenty_steps():
     assert performance.preset_values('quality_sage')['steps'] == 20
     assert not performance.acceleration_plan({'performance_preset': 'quality_sage'})['use_turbo_lora']
+
+
+@pytest.mark.parametrize('backend', ['fl2va_model', 'ref2va_model'])
+def test_balanced_sage_preserves_matched_sampling_contract(recipe_runtime, monkeypatch, backend):
+    sampler, schedule = recipe_runtime
+    seen = []
+    def patch(model, guide):
+        seen.append(model.model_options['mmh3_recipe_id'])
+        return model.clone()
+    monkeypatch.setattr(performance, '_apply_sage_attention', patch)
+    guide = {'performance_preset': 'balanced_8step', 'resolved_backend': backend}
+    model, _, ready, _ = performance.MiniMaxH3AccelerationRouter().apply(Model(), guide)
+    assert seen == [f'lightx2v-768p-8step-v1/{backend}']
+    assert ready and guide['sage_applied']
+    assert guide['sampling_recipe']['use_sage']
+    from nodes.sampling_recipes import validate_balanced_sampling
+    validate_balanced_sampling(model, sampler, schedule(model.sampling, 8), guide)
+
+
+def test_balanced_missing_sage_keeps_lora_and_eight_step_schedule(recipe_runtime, monkeypatch):
+    sampler, schedule = recipe_runtime
+    def unavailable(model, guide):
+        raise ImportError('test Sage unavailable')
+    monkeypatch.setattr(performance, '_apply_sage_attention', unavailable)
+    guide = {'performance_preset': 'balanced_8step', 'resolved_backend': 'ref2va_model'}
+    model, message, ready, second = performance.MiniMaxH3AccelerationRouter().apply(Model(), guide)
+    assert ready and model is second
+    assert guide['sage_requested'] and not guide['sage_applied']
+    assert 'test Sage unavailable' in guide['sage_error']
+    assert 'SageAttention' in message
+    assert guide['turbo_lora_applied']
+    from nodes.sampling_recipes import validate_balanced_sampling
+    validate_balanced_sampling(model, sampler, schedule(model.sampling, 8), guide)
+
+
+def test_incomplete_sage_install_is_rejected_before_sampling(recipe_runtime, monkeypatch):
+    module = types.ModuleType('incomplete_h3_sage')
+    module._cuda_archs = ['sm120']
+    module._qattn_sm89 = None
+    module.sageplus_sm89_available = False
+    module.per_warp_int8_cuda = lambda *args: None
+    module.per_channel_fp8 = lambda *args: None
+    module._ck = object()
+    class Patch:
+        @staticmethod
+        def execute(model):
+            pytest.fail('incomplete kernel must be rejected before applying patch')
+    Patch.__module__ = module.__name__
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    monkeypatch.setattr(performance, '_kj_ltx_class', lambda name: Patch)
+    guide = {'performance_preset': 'balanced_8step', 'resolved_backend': 'ref2va_model'}
+    model, _, ready, _ = performance.MiniMaxH3AccelerationRouter().apply(Model(), guide)
+    assert ready and guide['attention_backend'] == 'native_fallback'
+    assert 'sm120' in guide['sage_error']
+    assert model.model_options['mmh3_recipe_id'].endswith('/ref2va_model')

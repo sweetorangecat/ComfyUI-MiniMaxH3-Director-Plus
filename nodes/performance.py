@@ -51,7 +51,7 @@ _UI_ATTENTION_CHUNK_TIERS = {
 }
 
 PRESETS = {
-    BALANCED_PRESET: {"steps": 8, "use_sage": False, "use_cache": False,
+    BALANCED_PRESET: {"steps": 8, "use_sage": True, "use_cache": False,
                       "interpolate": False, "lora_strength": 1.0},
     "quality": {"steps": 20, "use_sage": False, "use_cache": False, "interpolate": False},
     # Quality-first acceleration: keep native 20-step sampling and patch only
@@ -445,21 +445,62 @@ def _resolve_attention_chunks(guide, forced_tier=None):
     return (head, projection, mlp), source
 
 
+def _check_h3_sage_kernels(node_class):
+    """Reject known incomplete KJ/Sage installs before the first H3 step.
+
+    KJ's execute checks architecture discovery but some Sage wheels import
+    successfully without the compiled attention module used by that GPU.
+    """
+    module = sys.modules.get(node_class.__module__)
+    arches = getattr(module, "_cuda_archs", None)
+    arch = arches[0] if arches else "unknown"
+    plus = bool(getattr(module, "sageplus_sm89_available", False))
+    quantizers = ["_per_thread_int8_i64"]
+    if arch in {"sm80", "sm86"}:
+        kernel, entry = "_qattn_sm80", "qk_int8_sv_f16_accum_f32_attn"
+    elif arch == "sm75":
+        kernel, entry = None, None
+        quantizers = ["per_block_int8_triton", "attn_false"]
+    elif arch in {"sm89", "sm90", "sm120", "sm121"}:
+        kernel = "_qattn_sm90" if arch == "sm90" else "_qattn_sm89"
+        entry = "qk_int8_sv_f8_accum_f32_fuse_v_scale_attn_inst_buf"
+        if arch != "sm90" and plus:
+            entry = "qk_int8_sv_f8_accum_f16_fuse_v_scale_attn_inst_buf"
+        elif arch in {"sm120", "sm121"}:
+            entry = "qk_int8_sv_f8_accum_f32_fuse_v_scale_attn"
+        if arch in {"sm120", "sm121"}:
+            quantizers = ["per_warp_int8_cuda"]
+        quantizers.append("per_channel_fp8")
+    else:
+        raise RuntimeError(f"H3 SageAttention 内核未支持或未识别 GPU 架构 {arch}")
+    missing = [name for name in quantizers if not callable(getattr(module, name, None))]
+    if kernel and not callable(getattr(getattr(module, kernel, None), entry, None)):
+        missing.append(f"{kernel}.{entry}")
+    if missing:
+        raise RuntimeError(f"H3 SageAttention {arch} 缺少运行内核: {', '.join(missing)}")
+
+
 def _apply_sage_attention(model, guide):
     """Apply SageAttention with an RTX 30xx-safe kernel."""
     preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
-    if preset == "quality_sage":
+    if preset in {"quality_sage", BALANCED_PRESET}:
         # The generic KJ override keeps full Q/K/V tensors alive and can add
         # multiple GiB of temporary memory on long H3 sequences. The H3
         # patch quantizes the packed attention path and splits independent
         # heads, preserving the math while shrinking that working set.
         try:
-            sage_node = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")()
+            sage_class = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")
+            if preset == BALANCED_PRESET:
+                _check_h3_sage_kernels(sage_class)
+            sage_node = sage_class()
             model = _node_model(sage_node.execute(model))
             chunks, _source = _resolve_attention_chunks(guide)
             chunks = chunks[0]
             chunk_node = _kj_minimax_class("MiniMaxLowVRAMAttention")()
-            return _node_model(chunk_node.execute(model, chunks))
+            patched = _node_model(chunk_node.execute(model, chunks))
+            guide["attention_backend"] = "h3_sage"
+            guide["minimax_head_chunks"] = chunks
+            return patched
         except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
             raise RuntimeError(f"H3 内存高效 SageAttention 不可用: {exc}") from exc
 
@@ -598,7 +639,7 @@ class MiniMaxH3PerformancePreset:
             # setting behind. The native fallback uses a conservative count.
             values["steps"] = 8
         descriptions = {
-            BALANCED_PRESET: "均衡高质：匹配 FL/REF 768p LoRA，完整 8 步 Euler/simple，视频/音频 shift=6/3；单采、无缓存，音色效果需对比",
+            BALANCED_PRESET: "均衡高质：匹配 FL/REF 768p LoRA，完整 8 步 Euler/simple，视频/音频 shift=6/3；H3 SageAttention、单采、无缓存",
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
             "quality_two_stage": "质量优先二采样：匹配 LoRA 首采 8 步（共 12 步）+ 训练型 3D latent 放大 + 4 步低 sigma 重绘；自动保留音频 latent；REF2VA 使用社区验证的 turbo v4 配方",
@@ -1144,6 +1185,7 @@ def _apply_two_stage_models(model, guide, plan, values):
     guide["detail_loras_applied"] = []
     guide.pop("sage_error", None)
     guide.pop("head_chunking_error", None)
+    guide.pop("attention_backend", None)
     guide["minimax_head_chunks"] = int(values.get("minimax_head_chunks", 8))
     base_table_sha = _fingerprint_base_model(original_model)
     guide["base_table_sha"] = base_table_sha
@@ -1317,6 +1359,7 @@ def _apply_acceleration(model, guide):
     guide.pop("sage_error", None)
     guide.pop("easycache_error", None)
     guide.pop("head_chunking_error", None)
+    guide.pop("attention_backend", None)
 
     original_model = model
     if plan["preset"] in TWO_STAGE_PERFORMANCE_PRESETS and plan.get("route") != "bypass":
@@ -1354,6 +1397,11 @@ def _apply_acceleration(model, guide):
         except (ImportError, AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
             guide["sage_error"] = str(exc)
             LOGGER.warning("[H3 acceleration] SageAttention unavailable: %s", exc)
+            if plan["preset"] == BALANCED_PRESET:
+                # The adapter and schedule define the eight-step model. An
+                # optional attention patch must never discard that adapter.
+                guide["attention_backend"] = "native_fallback"
+                return model, "H3 SageAttention 不可用，保留匹配 LoRA 的完整 8 步原生注意力采样", True, model
             return original_model, "SageAttention 加速失败，已回退原生模型", False, original_model
 
     if head_chunking_requested:

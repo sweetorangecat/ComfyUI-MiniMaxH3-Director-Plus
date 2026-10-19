@@ -34,6 +34,20 @@ def test_fl_endpoints_are_hard_constraints():
     assert plan["endpoints"] == {"first": "hard_anchor", "last": "absent"}
 
 
+def test_attention_evidence_distinguishes_requested_and_applied_after_fallback():
+    guide = dict(sage_requested=True, sage_applied=False,
+                 attention_backend='native_fallback', sage_error='Sage unavailable',
+                 sampling_recipe={'use_sage': True})
+    inherited = evidence.new_report(guide)
+    assert inherited['plan']['sage_requested']
+    assert inherited['plan']['sage_applied'] is False
+    current = evidence.new_report(dict(guide, sage_applied=True,
+                                      attention_backend='h3_sage', minimax_head_chunks=2),
+                                  {evidence.REPORT_KEY: inherited})
+    assert current['current_plan']['attention_backend'] == 'h3_sage'
+    assert current['current_plan']['minimax_head_chunks'] == 2
+
+
 def test_reference_route_records_requested_endpoints_after_director_moves_images():
     plan = evidence.execution_plan(dict(resolved_backend="ref2va_model", first_frame=None,
                                        requested_first_frame=True, requested_last_frame=True))
