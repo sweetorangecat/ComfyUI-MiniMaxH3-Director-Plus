@@ -480,6 +480,42 @@ def _check_h3_sage_kernels(node_class):
         raise RuntimeError(f"H3 SageAttention {arch} 缺少运行内核: {', '.join(missing)}")
 
 
+def _h3_sage_arch(node_class):
+    """Return the CUDA architecture exposed by the loaded Sage module."""
+    module = sys.modules.get(getattr(node_class, "__module__", ""))
+    arches = getattr(module, "_cuda_archs", None)
+    return arches[0] if arches else None
+
+
+def _apply_h3_blackwell_safe_attention(model, guide, chunks):
+    """Use a safe dense backend on SM120/121 instead of Sage FP8-PV.
+
+    SageAttention's automatic Blackwell path dispatches H3 to an FP8-PV CUDA
+    kernel.  That kernel silently corrupts long packed H3 sequences.  Comfy
+    Kitchen INT8 attention keeps the Q/K quantization speedup while retaining
+    the full-precision value path; PyTorch SDPA is the explicit fallback when
+    Kitchen is unavailable.
+    """
+    import comfy.ldm.modules.attention as attention_module
+
+    backend = "comfy_kitchen_int8"
+    attention = attention_module.get_attention_function(backend, None)
+    if attention is None:
+        backend = "pytorch"
+        attention = attention_module.get_attention_function(backend, None)
+    if attention is None:
+        raise RuntimeError("H3 Blackwell 安全注意力后端不可用（Comfy Kitchen/PyTorch 均缺失）")
+
+    safe_model = model.clone()
+    safe_model.set_model_optimized_attention(attention)
+    chunk_node = _kj_minimax_class("MiniMaxLowVRAMAttention")()
+    patched = _node_model(chunk_node.execute(safe_model, chunks))
+    guide["attention_backend"] = "h3_kitchen" if backend == "comfy_kitchen_int8" else "pytorch_safe"
+    guide["sage_disabled_reason"] = "sm120/121 H3 长序列禁用 Sage FP8-PV，避免叠影"
+    guide["minimax_head_chunks"] = chunks
+    return patched
+
+
 def _apply_sage_attention(model, guide):
     """Apply SageAttention with an RTX 30xx-safe kernel."""
     preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
@@ -490,12 +526,16 @@ def _apply_sage_attention(model, guide):
         # heads, preserving the math while shrinking that working set.
         try:
             sage_class = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")
+            arch = _h3_sage_arch(sage_class)
             if preset in {BALANCED_PRESET, "ref_quality_native"}:
                 _check_h3_sage_kernels(sage_class)
-            sage_node = sage_class()
-            model = _node_model(sage_node.execute(model))
+            if arch in {"sm120", "sm121"}:
+                chunks, _source = _resolve_attention_chunks(guide)
+                return _apply_h3_blackwell_safe_attention(model, guide, chunks[0])
             chunks, _source = _resolve_attention_chunks(guide)
             chunks = chunks[0]
+            sage_node = sage_class()
+            model = _node_model(sage_node.execute(model))
             chunk_node = _kj_minimax_class("MiniMaxLowVRAMAttention")()
             patched = _node_model(chunk_node.execute(model, chunks))
             guide["attention_backend"] = "h3_sage"

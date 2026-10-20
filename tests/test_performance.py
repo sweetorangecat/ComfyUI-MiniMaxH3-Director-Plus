@@ -1275,6 +1275,34 @@ def test_quality_priority_uses_h3_memory_efficient_sage_patch(monkeypatch, prese
     ]
 
 
+def test_blackwell_h3_uses_safe_attention_backend_instead_of_sage(monkeypatch):
+    calls = []
+
+    class MemoryEfficientSage:
+        __module__ = "test_performance"
+
+    class SafeBackend:
+        def __call__(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(performance, "_kj_ltx_class", lambda name: MemoryEfficientSage)
+    monkeypatch.setattr(performance, "_h3_sage_arch", lambda cls: "sm120")
+    monkeypatch.setattr(performance, "_check_h3_sage_kernels", lambda cls: None)
+    monkeypatch.setattr(
+        performance,
+        "_apply_h3_blackwell_safe_attention",
+        lambda model, guide, chunks: calls.append((model, chunks)) or f"{model}:safe",
+    )
+
+    result = performance._apply_sage_attention(
+        "model",
+        {"performance_preset": "balanced_8step"},
+    )
+
+    assert result == "model:safe"
+    assert calls == [("model", 16)]
+
+
 def test_exact_low_vram_attention_uses_internal_reuse_patch(monkeypatch):
     calls = []
     monkeypatch.setattr(performance, "_free_vram_bytes", lambda: 8 * 1024**3)
