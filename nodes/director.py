@@ -211,7 +211,7 @@ def _sanitize_h3_composite_refs(prompt, first_image, references, first_image_sou
     refs = list(references or [])
     has_five_view = any(marker in text for marker in ("五视图", "five-view", "five view", "5-view"))
     if has_five_view and first is not None:
-        cropped = _crop_reference_tensor(first, 1 / 3, 0.88)
+        cropped = _crop_reference_tensor(first, 0.30, 0.88)
         if cropped is not first:
             first = cropped
             notes.append("五视图已取左侧主身份 panel，避免其他视角被生成成半透明人物")

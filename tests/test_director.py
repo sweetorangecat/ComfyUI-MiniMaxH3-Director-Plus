@@ -93,7 +93,7 @@ def test_five_view_identity_sheet_is_cropped_to_the_left_identity_panel():
         ["storyboard"],
     )
 
-    assert tuple(cropped.shape) == (1, 1802, 1024, 3)
+    assert tuple(cropped.shape) == (1, 1802, 922, 3)
     assert references == ["storyboard"]
     assert notes and "五视图" in notes[0]
 
