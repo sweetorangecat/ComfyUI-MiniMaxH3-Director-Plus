@@ -396,6 +396,34 @@ def _positive_int(value):
     return parsed if parsed > 0 else None
 
 
+def _apply_minimax_ffn_chunking(model, guide, chunks=2, seq_threshold=4096):
+    """Chunk H3's row-independent SwiGLU when the runtime supports it.
+
+    The reference workflow pairs Comfy Kitchen attention with KJNodes'
+    ``MiniMaxChunkFeedForward``.  This is a memory guard for long packed H3
+    sequences: it does not change the model weights or the sampling recipe,
+    and the node keeps the fused linear path for quantized checkpoints.  The
+    exact reuse-attention route already owns an equivalent MLP patch, so its
+    callers do not need this second wrapper.
+    """
+    if not hasattr(model, "clone") or not callable(getattr(model, "get_model_object", None)):
+        return model
+    chunks = _positive_int(chunks) or 2
+    seq_threshold = _positive_int(seq_threshold) or 4096
+    try:
+        node_class = _kj_minimax_class("MiniMaxChunkFeedForward")
+        patched = _node_model(node_class().execute(model, chunks, seq_threshold))
+    except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        guide["mlp_chunking_error"] = str(exc)
+        LOGGER.warning("[H3 acceleration] MiniMax MLP 分块不可用，保留原始 MLP: %s", exc)
+        return model
+    if patched is not model:
+        guide["mlp_chunking_applied"] = True
+        guide["minimax_mlp_chunks"] = chunks
+        guide["minimax_mlp_seq_threshold"] = seq_threshold
+    return patched
+
+
 def _resolve_attention_chunks(guide, forced_tier=None):
     """Resolve UI/env/auto/preset chunk values without mutating the guide."""
     preset = PRESET_LABELS.get(
@@ -510,6 +538,7 @@ def _apply_h3_blackwell_safe_attention(model, guide, chunks):
     safe_model.set_model_optimized_attention(attention)
     chunk_node = _kj_minimax_class("MiniMaxLowVRAMAttention")()
     patched = _node_model(chunk_node.execute(safe_model, chunks))
+    patched = _apply_minimax_ffn_chunking(patched, guide)
     guide["attention_backend"] = "h3_kitchen" if backend == "comfy_kitchen_int8" else "pytorch_safe"
     guide["sage_disabled_reason"] = "sm120/121 H3 长序列禁用 Sage FP8-PV，避免叠影"
     guide["minimax_head_chunks"] = chunks
@@ -538,6 +567,7 @@ def _apply_sage_attention(model, guide):
             model = _node_model(sage_node.execute(model))
             chunk_node = _kj_minimax_class("MiniMaxLowVRAMAttention")()
             patched = _node_model(chunk_node.execute(model, chunks))
+            patched = _apply_minimax_ffn_chunking(patched, guide)
             guide["attention_backend"] = "h3_sage"
             guide["minimax_head_chunks"] = chunks
             return patched
@@ -1007,6 +1037,9 @@ def _reset_h3_acceleration_state(guide, error=None):
     guide.pop("two_stage_fallback", None)
     guide["two_stage_split_step"] = 0
     guide["two_stage_scale"] = 1.0
+    guide["mlp_chunking_applied"] = False
+    guide.pop("mlp_chunking_error", None)
+    guide.pop("minimax_mlp_seq_threshold", None)
     if error is not None:
         guide["turbo_lora_applied"] = False
         guide["turbo_lora_error"] = str(error)
@@ -1222,9 +1255,12 @@ def _apply_two_stage_models(model, guide, plan, values):
     guide["second_stage_sage_applied"] = False
     guide["easycache_applied"] = False
     guide["head_chunking_applied"] = False
+    guide["mlp_chunking_applied"] = False
     guide["detail_loras_applied"] = []
     guide.pop("sage_error", None)
     guide.pop("head_chunking_error", None)
+    guide.pop("mlp_chunking_error", None)
+    guide.pop("minimax_mlp_seq_threshold", None)
     guide.pop("attention_backend", None)
     guide["minimax_head_chunks"] = int(values.get("minimax_head_chunks", 8))
     base_table_sha = _fingerprint_base_model(original_model)
@@ -1291,6 +1327,7 @@ def _apply_two_stage_models(model, guide, plan, values):
             try:
                 sage_node = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")()
                 first_model = _node_model(sage_node.execute(first_model))
+                first_model = _apply_minimax_ffn_chunking(first_model, guide)
                 guide["sage_applied"] = True
             except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
                 guide["sage_error"] = str(exc)
@@ -1310,6 +1347,7 @@ def _apply_two_stage_models(model, guide, plan, values):
                         second_model = first_model
                     else:
                         second_model = _node_model(sage_node.execute(second_model))
+                        second_model = _apply_minimax_ffn_chunking(second_model, guide)
                     guide["second_stage_sage_applied"] = True
                 else:
                     try:
@@ -1322,6 +1360,7 @@ def _apply_two_stage_models(model, guide, plan, values):
                             exc,
                         )
                         second_model = _node_model(sage_node.execute(second_model))
+                        second_model = _apply_minimax_ffn_chunking(second_model, guide)
                         guide["second_stage_sage_applied"] = True
     except H3LoRAApplicationError as exc:
         _reset_h3_acceleration_state(guide, exc)
@@ -1396,9 +1435,12 @@ def _apply_acceleration(model, guide):
     guide["second_stage_sage_applied"] = False
     guide["easycache_applied"] = False
     guide["head_chunking_applied"] = False
+    guide["mlp_chunking_applied"] = False
     guide.pop("sage_error", None)
     guide.pop("easycache_error", None)
     guide.pop("head_chunking_error", None)
+    guide.pop("mlp_chunking_error", None)
+    guide.pop("minimax_mlp_seq_threshold", None)
     guide.pop("attention_backend", None)
 
     original_model = model

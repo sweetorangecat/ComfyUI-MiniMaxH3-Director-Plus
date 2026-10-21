@@ -173,6 +173,51 @@ def load_uploaded_image(filename):
         raise RequestError(f"无法加载导演台图片“{filename}”：{exc}") from exc
 
 
+def _crop_reference_tensor(image, width_fraction, height_fraction):
+    """Crop a composite reference to its first visual panel.
+
+    H3 receives image references as scene evidence. A five-view identity sheet
+    is useful to a human, but sending the whole sheet lets the model render
+    the other visible poses as translucent extra people. The crop keeps the
+    first panel and leaves ordinary IMAGE objects untouched.
+    """
+    shape = getattr(image, "shape", ())
+    if len(shape) != 4:
+        return image
+    try:
+        height, width = int(shape[1]), int(shape[2])
+        crop_width = max(32, min(width, round(width * float(width_fraction))))
+        crop_height = max(32, min(height, round(height * float(height_fraction))))
+        if crop_width >= width and crop_height >= height:
+            return image
+        return image[:, :crop_height, :crop_width, :]
+    except (IndexError, TypeError, ValueError):
+        return image
+
+
+def _sanitize_h3_composite_refs(prompt, first_image, references, first_image_source=""):
+    """Return H3-safe image refs and a record of automatic sheet handling.
+
+    A multi-view identity sheet is a human-facing layout, not a single visual
+    reference.  H3 can treat the other visible poses as additional people and
+    produce a translucent duplicate.  The Director's five-view convention
+    keeps the identity portrait in the left panel, so only that panel is sent
+    to H3.  Storyboards stay intact: their temporal information is valuable
+    and the prompt already tells H3 to read them as sequential evidence.
+    """
+    text = f"{prompt or ''} {first_image_source or ''}".lower()
+    notes = []
+    first = first_image
+    refs = list(references or [])
+    has_five_view = any(marker in text for marker in ("五视图", "five-view", "five view", "5-view"))
+    if has_five_view and first is not None:
+        cropped = _crop_reference_tensor(first, 1 / 3, 0.88)
+        if cropped is not first:
+            first = cropped
+            notes.append("五视图已取左侧主身份 panel，避免其他视角被生成成半透明人物")
+    return first, refs, notes
+
+
 def load_uploaded_audio(filename):
     if not str(filename or "").strip():
         return None
@@ -582,6 +627,16 @@ class MiniMaxH3DirectorPlus:
             ]
         else:
             reference_images = [None] * len(connected_references)
+        composite_first, composite_references, reference_preprocessing = _sanitize_h3_composite_refs(
+            prompt,
+            first_image,
+            reference_images,
+            first_image_file,
+        )
+        first_image = composite_first
+        reference_images = composite_references
+        if reference_preprocessing:
+            LOGGER.info("[H3 director] 复合参考图预处理：%s", "；".join(reference_preprocessing))
         if mode == "REF2VA" and (first_image is not None or last_image is not None):
             require_contiguous_slots((first_image, last_image, *reference_images), "参考图")
         else:
@@ -629,6 +684,7 @@ class MiniMaxH3DirectorPlus:
             "audio_loudness": audio_loudness,
             "face_refine_mode": face_refine_mode,
             "ignored_media": ignored_media,
+            "reference_preprocessing": reference_preprocessing,
         })
 
         from .sampling_recipes import balanced_recipe
@@ -1245,6 +1301,7 @@ class MiniMaxH3DirectorPlus:
                 two_stage_plan["quality_basis"] if two_stage_plan else "H3 原生"
             ),
             "required_assets": required_assets,
+            "reference_preprocessing": list(request.get("reference_preprocessing", [])),
             "requested_width": int(requested_width),
             "requested_height": int(requested_height),
             "target_width": int(final_target_width),

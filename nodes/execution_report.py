@@ -32,7 +32,9 @@ _PLAN_KEYS = (
     "resolved_two_stage_route", "first_lora_name", "second_lora_name", "vosr2_profile",
     "first_lora_strength", "second_lora_strength", "postprocess_mode", "postprocess_path",
     "ref_image_size", "requested_ref_image_size",
-    "sage_requested", "sage_applied", "sage_error", "attention_backend", "minimax_head_chunks",
+    "sage_requested", "sage_applied", "sage_error", "sage_disabled_reason",
+    "attention_backend", "minimax_head_chunks", "mlp_chunking_applied",
+    "mlp_chunking_error", "minimax_mlp_chunks", "minimax_mlp_seq_threshold",
 )
 _RECIPE_KEYS = (
     "id", "key", "name", "preset", "route", "backend", "adapter", "adapter_name", "lora_name",
@@ -69,6 +71,9 @@ def execution_plan(guide):
     """Describe routing and endpoint semantics without serializing references."""
     guide = guide or {}
     plan = _scalars(guide, _PLAN_KEYS)
+    preprocessing = guide.get("reference_preprocessing")
+    if isinstance(preprocessing, (list, tuple)):
+        plan["reference_preprocessing"] = [str(item)[:256] for item in preprocessing[:8]]
     if isinstance(guide.get("scheduler_name"), str):
         plan["scheduler"] = guide["scheduler_name"][:256]
     signature = guide.get("scheduler_model_sampling")
@@ -107,6 +112,9 @@ def _plan_snapshot(source):
     if not isinstance(source, dict):
         return {}
     plan = _scalars(source, (*_PLAN_KEYS, "route"))
+    preprocessing = source.get("reference_preprocessing")
+    if isinstance(preprocessing, (list, tuple)):
+        plan["reference_preprocessing"] = [str(item)[:256] for item in preprocessing[:8]]
     if isinstance(source.get("scheduler_model_sampling"), dict):
         plan["scheduler_model_sampling"] = _scalars(source["scheduler_model_sampling"], ("video_shift", "audio_shift"))
     if isinstance(source.get("sampling_recipe"), dict):

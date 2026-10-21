@@ -29,6 +29,18 @@ def test_plan_reports_reference_endpoint_semantics_without_private_payloads():
     assert "PRIVATE" not in serialized and "SECRET" not in serialized and "waveform" not in serialized
 
 
+def test_plan_records_safe_reference_preprocessing_notes():
+    plan = evidence.execution_plan({
+        "reference_preprocessing": ["五视图已取左侧主身份 panel"],
+        "mlp_chunking_applied": True,
+        "minimax_mlp_chunks": 2,
+    })
+
+    assert plan["reference_preprocessing"] == ["五视图已取左侧主身份 panel"]
+    assert plan["mlp_chunking_applied"] is True
+    assert plan["minimax_mlp_chunks"] == 2
+
+
 def test_fl_endpoints_are_hard_constraints():
     plan = evidence.execution_plan(dict(resolved_backend="fl2va_model", first_frame=object()))
     assert plan["endpoints"] == {"first": "hard_anchor", "last": "absent"}

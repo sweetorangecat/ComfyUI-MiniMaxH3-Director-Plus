@@ -1303,6 +1303,34 @@ def test_blackwell_h3_uses_safe_attention_backend_instead_of_sage(monkeypatch):
     assert calls == [("model", 16)]
 
 
+def test_reference_ffn_chunk_patch_is_applied_only_to_model_objects(monkeypatch):
+    calls = []
+
+    class FakeModel:
+        def clone(self):
+            return FakeModel()
+
+        def get_model_object(self, name):
+            assert name == "diffusion_model"
+            return object()
+
+    class FfnPatch:
+        def execute(self, model, chunks, seq_threshold):
+            calls.append((model, chunks, seq_threshold))
+            return ("patched",)
+
+    monkeypatch.setattr(performance, "_kj_minimax_class", lambda name: FfnPatch)
+    guide = {}
+    result = performance._apply_minimax_ffn_chunking(FakeModel(), guide)
+
+    assert result == "patched"
+    assert calls[0][1:] == (2, 4096)
+    assert guide["mlp_chunking_applied"] is True
+    assert guide["minimax_mlp_chunks"] == 2
+    assert guide["minimax_mlp_seq_threshold"] == 4096
+    assert performance._apply_minimax_ffn_chunking("sentinel", {}) == "sentinel"
+
+
 def test_exact_low_vram_attention_uses_internal_reuse_patch(monkeypatch):
     calls = []
     monkeypatch.setattr(performance, "_free_vram_bytes", lambda: 8 * 1024**3)

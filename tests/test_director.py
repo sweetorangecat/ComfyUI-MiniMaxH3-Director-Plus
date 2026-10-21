@@ -5,6 +5,7 @@ import pytest
 from nodes.director import (
     MiniMaxH3DirectorPlus,
     _canonicalize_voice_audio,
+    _sanitize_h3_composite_refs,
     align_frame_count,
     native_resolution_for_request,
 )
@@ -81,6 +82,34 @@ def test_director_defaults_to_stable_quality_and_local_x2():
     assert required["performance_preset"][1]["default"] == "稳定质量"
     assert required["postprocess_mode"][1]["default"] == "ai_upscale"
     assert required["ai_upscale_model"][1]["default"] == "auto"
+
+
+def test_five_view_identity_sheet_is_cropped_to_the_left_identity_panel():
+    torch = pytest.importorskip("torch")
+    sheet = torch.zeros(1, 2048, 3072, 3)
+    cropped, references, notes = _sanitize_h3_composite_refs(
+        "主体来自五视图，只提供同一人的身份和造型。",
+        sheet,
+        ["storyboard"],
+    )
+
+    assert tuple(cropped.shape) == (1, 1802, 1024, 3)
+    assert references == ["storyboard"]
+    assert notes and "五视图" in notes[0]
+
+
+def test_storyboard_reference_is_preserved_and_plain_images_are_untouched():
+    torch = pytest.importorskip("torch")
+    sheet = torch.zeros(1, 2048, 3072, 3)
+    cropped, references, notes = _sanitize_h3_composite_refs(
+        "六格故事板按时间顺序提供动作阶段。",
+        sheet,
+        [sheet],
+    )
+
+    assert cropped is sheet
+    assert references[0] is sheet
+    assert notes == []
 
 
 def test_smart_free_1080p_resolves_base_backend_to_sage_and_x2(monkeypatch):
