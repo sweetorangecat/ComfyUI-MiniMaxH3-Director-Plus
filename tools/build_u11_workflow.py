@@ -147,7 +147,7 @@ def _replace_director(node):
             "none", "s2-pro-w4a16 (auto download)", "match", "智能画质（自动适配）", "video_sr", "HIGH", "auto",
             "{\"version\":1,\"items\":[]}", "", "", "", "", "",
             "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-            "off", "auto", "auto", "off", "standard", "off",
+            "off", "auto", "auto", "off", "standard", "off", "legacy",
         ],
         "color": "#24353d",
         "bgcolor": "#344b55",

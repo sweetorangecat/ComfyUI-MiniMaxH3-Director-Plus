@@ -2274,7 +2274,8 @@
         "auto",
         "off",
         "standard",
-        "off"
+        "off",
+        "legacy"
       ],
       "widgets_values_named": {
         "mode": "REF2VA",
@@ -2320,7 +2321,8 @@
         "voice_gender": "auto",
         "face_refine_mode": "off",
         "sampling_method": "standard",
-        "community_lora_profile": "off"
+        "community_lora_profile": "off",
+        "vosr2_profile": "legacy"
       },
       "color": "#24353d",
       "bgcolor": "#344b55"

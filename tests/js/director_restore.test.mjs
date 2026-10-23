@@ -168,6 +168,23 @@ test("SelfLift and motion profiles restore and reset when leaving two-stage", ()
   assert.equal(profile.value, "off");
 });
 
+for (const voiceMode of ["h3_reference", "audio_reuse"]) {
+  test(`REF2VA ${voiceMode} exposes the SelfLift choice`, () => {
+    const { node } = installedDirector("off", [
+      { name: "performance_preset", value: "质量优先二采样" },
+      { name: "sampling_method", value: "standard" },
+      { name: "community_lora_profile", value: "off" },
+      { name: "voice_mode", value: voiceMode },
+      { name: "resolution_preset", value: "2K QHD" },
+    ]);
+    const mode = node.widgets.find(item => item.name === "mode");
+    mode.value = "REF2VA";
+    mode.callback("REF2VA");
+    const select = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "sampling_method");
+    assert.deepEqual(select.children.map(el => el.value), ["standard", "selflift"]);
+  });
+}
+
 function advancedPanel(node) {
   return allElements(node.root).find(el => el.tag === "details"
     && el.children.some(child => child.textContent === "二采高级设置"));

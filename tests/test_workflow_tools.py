@@ -50,9 +50,13 @@ def test_checked_in_u11_example_preserves_native_seed_control_widget_alignment()
         named["fish_model_path"],
         named["ref_image_size"],
     ] == ["h3_reference", "s2-pro-w4a16 (auto download)", "match"]
-    assert len(values) == 44
+    assert len(values) == 45
     assert values[41] == named["face_refine_mode"] == "off"
-    assert values[42:] == [named["sampling_method"], named["community_lora_profile"]] == ["standard", "off"]
+    assert values[42:] == [
+        named["sampling_method"],
+        named["community_lora_profile"],
+        named["vosr2_profile"],
+    ] == ["standard", "off", "legacy"]
     assert values[38:41] == ["off", "auto", "auto"]
     assert named["motion_smoothing"] == values[38]
     assert named["audio_loudness"] == values[39]
@@ -371,7 +375,7 @@ def test_built_workflow_keeps_duration_and_resolution_widgets():
     assert {"width", "height"} <= input_names
     assert director["widgets_values"][:5] == ["FL2VA", "", 5, 1344, 768]
     assert director["widgets_values"][14:17] == ["智能画质（自动适配）", "video_sr", "HIGH"]
-    assert director["widgets_values"][38:] == ["off", "auto", "auto", "off", "standard", "off"]
+    assert director["widgets_values"][38:] == ["off", "auto", "auto", "off", "standard", "off", "legacy"]
 
 
 def test_built_settings_removes_legacy_resolution_calculator():
@@ -435,7 +439,7 @@ def test_generated_director_appends_safe_output_defaults_without_shifting_timeli
     )
 
     assert director["widgets_values"][18] == '{"version":1,"items":[]}'
-    assert director["widgets_values"][38:] == ["off", "auto", "auto", "off", "standard", "off"]
+    assert director["widgets_values"][38:] == ["off", "auto", "auto", "off", "standard", "off", "legacy"]
 
 
 def test_api_template_scopes_low_vram_policy_around_sampling():
