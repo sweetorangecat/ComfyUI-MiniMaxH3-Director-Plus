@@ -1,7 +1,12 @@
 from pathlib import Path
 
 
-SOURCE_PATH = Path("js/minimax_h3_director_plus_v10.js")
+SOURCE_PATH = Path("js/minimax_h3_director_plus_v11.js")
+
+
+def test_frontend_script_uses_versioned_entry_to_bypass_comfyui_static_cache():
+    assert Path("js/minimax_h3_director_plus_v11.js").is_file()
+    assert not Path("js/minimax_h3_director_plus_v10.js").exists()
 
 
 def source():

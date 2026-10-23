@@ -57,7 +57,7 @@ function installedDirector(initialValue = "off", extraWidgets = [], nativeWidget
     requestAnimationFrame: (fn) => frames.push(fn),
     setTimeout() {},
   });
-  const source = readFileSync(new URL("../../js/minimax_h3_director_plus_v10.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../js/minimax_h3_director_plus_v11.js", import.meta.url), "utf8");
   vm.runInContext(source.replace(/^import .*;\r?\n/gm, ""), context);
   const face = { name: "face_refine_mode", value: initialValue, options: { values: ["off", "auto"] } };
   const node = {
