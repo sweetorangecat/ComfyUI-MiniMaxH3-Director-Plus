@@ -19,9 +19,11 @@ def euler_sampler():
 
 
 def request(**changes):
-    return dict(mode="REF2VA", voice_mode="none", duration=5,
-                performance_preset="quality_two_stage", sampling_method="selflift",
-                community_lora_profile="off", **changes)
+    raw = dict(mode="REF2VA", voice_mode="none", duration=5,
+               performance_preset="quality_two_stage", sampling_method="selflift",
+               community_lora_profile="off")
+    raw.update(changes)
+    return raw
 
 
 @pytest.mark.parametrize("size", [(1920, 1080), (1080, 1920), (2560, 1440),
@@ -63,7 +65,7 @@ def test_unqualified_selflift_memory_is_rejected(total, free):
 
 
 @pytest.mark.parametrize("key,value", [
-    ("mode", "T2VA"), ("voice_mode", "h3_reference"),
+    ("mode", "T2VA"), ("voice_mode", "fish_lock"),
     ("performance_preset", "low_vram"), ("sampling_method", "unknown"),
     ("community_lora_profile", "unknown"), ("motion_smoothing", "rife_x2"),
     ("fps", 48),
@@ -83,6 +85,12 @@ def test_motion_profiles_separate_general_motion_and_combat():
     combat = experiments.motion_lora_chain("combat")
     assert len(combat) == 2 and combat[1] == (("H3_Combat_V2.safetensors",), 0.5)
     assert not any("GunFu" in name or "fafafast" in name for names, _ in combat for name in names)
+
+
+@pytest.mark.parametrize("voice_mode", ["none", "h3_reference", "audio_reuse"])
+def test_selflift_accepts_h3_audio_routes_but_not_fish(voice_mode):
+    raw = request(voice_mode=voice_mode)
+    assert experiments.validate_sampling_options(raw)["sampling_method"] == "selflift"
 
 
 class SamplerNode:
@@ -115,7 +123,7 @@ def test_selflift_missing_or_obsolete_dependency_fails_preflight():
     assert not report["ready"] and report["missing"]
 
 
-def test_adapter_uses_one_eight_step_schedule_and_unloads_lifter(monkeypatch):
+def test_adapter_uses_u22_ten_step_schedule_and_unloads_lifter(monkeypatch):
     ticks = iter((10.0, 12.5))
     monkeypatch.setattr(experiments, "time", types.SimpleNamespace(perf_counter=lambda: next(ticks)), raising=False)
     node = SamplerNode()
@@ -123,28 +131,29 @@ def test_adapter_uses_one_eight_step_schedule_and_unloads_lifter(monkeypatch):
     latent = {"samples": AV()}
     result = experiments.run_selflift(
         model=object(), positive=[], vae=object(), sampler=euler_sampler(),
-        sigmas=[1, .9, .8, .7, .6, .4, .2, .1, 0],
+        sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
         latent=latent, seed=42, guide=guide,
         registry={"SelfLiftH3Sampler": lambda: node})
     assert result["samples"] is latent["samples"]
     actual = node.received
-    assert actual["transition_step"] == 4 and actual["lowres_scale"] == 0.65
+    assert actual["transition_step"] == 6 and actual["lowres_scale"] == 0.6
     assert actual["rho"] == 0 and actual["cfg"] == 1
-    assert actual["upscaler_unload"] and not actual["highres_tiling"]
+    assert actual["upscaler_unload"] and actual["highres_tiling"]
     assert actual["upscaler_model"] == "h3_fp16.safetensors"
     assert actual["model_hires"] is actual["model"]
-    assert guide["sampling_executed_steps"] == 8
+    assert guide["sampling_executed_steps"] == 10
     assert guide["sampling_actual_method"] == "selflift"
     assert guide["sampling_route"] == "SelfLiftH3Sampler"
     assert guide["sampling_elapsed_seconds"] == 2.5
-    assert guide["two_stage_first_executed_steps"] == guide["two_stage_second_executed_steps"] == 4
+    assert guide["two_stage_first_executed_steps"] == 6
+    assert guide["two_stage_second_executed_steps"] == 4
 
 
 def test_cfg_one_uses_iterable_empty_negative_conditioning():
     node = SamplerNode()
     embedding = object()
     experiments.run_selflift(model=object(), positive=[[embedding, {}]], vae=object(),
-        sampler=euler_sampler(), sigmas=[1, .9, .8, .7, .6, .4, .2, .1, 0],
+        sampler=euler_sampler(), sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
         latent={"samples": AV()}, seed=1, guide={"selflift_upscaler_model": "h3.safetensors"},
         registry={"SelfLiftH3Sampler": lambda: node})
     assert node.received["negative"] == [] and node.received["cfg"] == 1.0
@@ -154,7 +163,7 @@ def test_cfg_one_uses_iterable_empty_negative_conditioning():
 @pytest.mark.parametrize("change", ["vae", "seed", "sigmas", "samples", "sampler"])
 def test_adapter_rejects_invalid_execution_before_external_sampling(change):
     args = dict(model=object(), positive=[], vae=object(), sampler=euler_sampler(),
-                sigmas=[1, .9, .8, .7, .6, .4, .2, .1, 0],
+                sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
                 latent={"samples": AV()}, seed=42,
                 guide={"selflift_upscaler_model": "h3.safetensors"},
                 registry={"SelfLiftH3Sampler": SamplerNode})
@@ -175,15 +184,15 @@ def test_adapter_checks_returned_av_shape():
     with pytest.raises(RuntimeError, match="AV|latent"):
         experiments.run_selflift(
             model=object(), positive=[], vae=object(), sampler=euler_sampler(),
-            sigmas=[1, .9, .8, .7, .6, .4, .2, .1, 0], latent={"samples": AV()},
+            sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0], latent={"samples": AV()},
             seed=42, guide={"selflift_upscaler_model": "h3.safetensors"},
             registry={"SelfLiftH3Sampler": Broken})
 
 
 @pytest.mark.parametrize("sigmas", [
-    [1, .9, .8, .7, .6, .4, .2, float("nan"), 0],
-    [1, .9, .8, .7, .6, .4, .5, .1, 0],
-    [1, .9, .8, .7, .6, .4, .2, .1, .05],
+    [1, .95, .9, .8, .7, .6, .45, .3, .18, float("nan"), 0],
+    [1, .95, .9, .8, .7, .6, .45, .3, .18, .25, 0],
+    [1, .95, .9, .8, .7, .6, .45, .3, .18, .08, .01],
 ])
 def test_adapter_rejects_invalid_eight_step_schedule(sigmas):
     with pytest.raises(ValueError, match="sigma"):
@@ -200,7 +209,7 @@ def test_no_upscaler_cannot_disable_selflift_correction():
 def test_adapter_rejects_low_grid_as_target_template():
     with pytest.raises(ValueError, match="目标|target"):
         experiments.run_selflift(model=object(), positive=[], vae=object(),
-            sampler=euler_sampler(), sigmas=[1, .9, .8, .7, .6, .4, .2, .1, 0],
+            sampler=euler_sampler(), sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
             latent={"samples": AV()}, seed=1,
             guide={"selflift_upscaler_model": "h3.safetensors", "second_stage_width": 1920, "second_stage_height": 1088},
             registry={"SelfLiftH3Sampler": SamplerNode})
@@ -218,7 +227,7 @@ def test_adapter_rejects_changed_audio_shape_even_when_video_matches():
             return ({"samples": ChangedAudio()},)
     with pytest.raises(RuntimeError, match="AV.*尺寸|时长"):
         experiments.run_selflift(model=object(), positive=[], vae=object(),
-            sampler=euler_sampler(), sigmas=[1, .9, .8, .7, .6, .4, .2, .1, 0],
+            sampler=euler_sampler(), sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
             latent={"samples": AV()}, seed=1, guide={"selflift_upscaler_model": "h3.safetensors"},
             registry={"SelfLiftH3Sampler": Broken})
 
@@ -232,7 +241,7 @@ def test_adapter_reports_external_failure_as_selflift_failure():
     guide = {"selflift_upscaler_model": "h3.safetensors"}
     with pytest.raises(RuntimeError, match="SelfLift.*missing learned weights"):
         experiments.run_selflift(model=object(), positive=[], vae=object(),
-            sampler=euler_sampler(), sigmas=[1, .9, .8, .7, .6, .4, .2, .1, 0],
+            sampler=euler_sampler(), sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
             latent={"samples": AV()}, seed=1, guide=guide,
             registry={"SelfLiftH3Sampler": Failing})
     assert "sampling_executed_steps" not in guide

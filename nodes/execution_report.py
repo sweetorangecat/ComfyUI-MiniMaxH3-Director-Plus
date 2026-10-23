@@ -30,11 +30,18 @@ _PLAN_KEYS = (
     "sampler_name", "scheduler", "scheduler_name", "scheduler_sigma_count",
     "video_shift", "audio_shift", "two_stage_enabled",
     "resolved_two_stage_route", "first_lora_name", "second_lora_name", "vosr2_profile",
+    "selflift_lora_kind",
     "first_lora_strength", "second_lora_strength", "postprocess_mode", "postprocess_path",
     "ref_image_size", "requested_ref_image_size",
     "sage_requested", "sage_applied", "sage_error", "sage_disabled_reason",
     "attention_backend", "minimax_head_chunks", "mlp_chunking_applied",
     "mlp_chunking_error", "minimax_mlp_chunks", "minimax_mlp_seq_threshold",
+    "sol_attn_applied", "sol_attn_error", "sol_attn_tau", "sol_attn_min_tokens",
+    "sol_attn_extra_tokens_requested", "sol_attn_extra_tokens_applied",
+    "sol_attn_extra_tokens",
+    "sol_attn_sink_conditioning", "sol_attn_int8_qk", "sol_attn_int8_pv",
+    "selflift_highres_tiling", "selflift_highres_tiling_mode",
+    "selflift_highres_token_chunk", "selflift_highres_weight_cache_gb",
 )
 _RECIPE_KEYS = (
     "id", "key", "name", "preset", "route", "backend", "adapter", "adapter_name", "lora_name",

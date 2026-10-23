@@ -12,10 +12,13 @@ from nodes.two_stage_assets import (
     LATENT_UPSCALER_MODEL_CANDIDATES,
     LATENT_UPSCALER_MODEL_FP16,
     REF_STAGE_LORA,
+    SELFLIFT_DMAD_LORA,
+    SELFLIFT_MYSTIC_LORA,
     V4_TURBO_LORA,
     V4_TURBO_LORA_PRUNED,
     dependency_report,
     resolve_v4_turbo_lora_name,
+    resolve_selflift_lora_recipe,
     run_trained_latent_upscaler,
     resolve_two_stage_route,
 )
@@ -103,6 +106,34 @@ def test_pruned_v4_lora_is_preferred_over_original_variant(tmp_path):
     # The pruned ComfyUI conversion loads through the native LoRA path
     # (no runtime-injection hooks), so it wins whenever both files exist.
     assert resolve_v4_turbo_lora_name(tmp_path) == V4_TURBO_LORA_PRUNED
+
+
+def test_selflift_prefers_u22_dmad_recipe_when_installed(tmp_path):
+    _touch(tmp_path, f"models/loras/minimax/{SELFLIFT_DMAD_LORA}")
+    recipe = resolve_selflift_lora_recipe(tmp_path)
+    assert recipe == {
+        "kind": "u22_dmad_mystic",
+        "lora_name": SELFLIFT_DMAD_LORA,
+        "lora_strength": 0.8,
+        "detail_name": SELFLIFT_MYSTIC_LORA,
+        "detail_strength": 0.45,
+    }
+
+
+def test_selflift_accepts_community_fro_dmad_variant(tmp_path):
+    name = "minimax_h3_dmad_full_dareties_v4_step600_comfy_fro.safetensors"
+    _touch(tmp_path, f"models/loras/minimax/{name}")
+    recipe = resolve_selflift_lora_recipe(tmp_path)
+    assert recipe["kind"] == "u22_dmad_mystic"
+    assert recipe["lora_name"] == name
+
+
+def test_selflift_falls_back_to_pruned_v4_recipe(tmp_path):
+    _touch(tmp_path, f"models/loras/{V4_TURBO_LORA_PRUNED}")
+    recipe = resolve_selflift_lora_recipe(tmp_path)
+    assert recipe["kind"] == "v4_mystic_fallback"
+    assert recipe["lora_name"] == V4_TURBO_LORA_PRUNED
+    assert recipe["lora_strength"] == 1.0
 
 
 def test_installed_legacy_upscaler_id_is_accepted(tmp_path):

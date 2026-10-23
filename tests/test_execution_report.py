@@ -41,6 +41,29 @@ def test_plan_records_safe_reference_preprocessing_notes():
     assert plan["minimax_mlp_chunks"] == 2
 
 
+def test_plan_records_sol_attn_execution_evidence():
+    plan = evidence.execution_plan({
+        "sol_attn_applied": True,
+        "sol_attn_tau": 1.3,
+        "sol_attn_min_tokens": 12288,
+        "sol_attn_extra_tokens_requested": 256,
+        "sol_attn_extra_tokens_applied": False,
+        "sol_attn_extra_tokens": None,
+        "sol_attn_sink_conditioning": "exact_kv_and_rows",
+        "sol_attn_int8_qk": True,
+        "sol_attn_int8_pv": True,
+    })
+    assert plan["sol_attn_applied"] is True
+    assert plan["sol_attn_tau"] == 1.3
+    assert plan["sol_attn_min_tokens"] == 12288
+    assert plan["sol_attn_extra_tokens_requested"] == 256
+    assert plan["sol_attn_extra_tokens_applied"] is False
+    assert plan["sol_attn_extra_tokens"] is None
+    assert plan["sol_attn_sink_conditioning"] == "exact_kv_and_rows"
+    assert plan["sol_attn_int8_qk"] is True
+    assert plan["sol_attn_int8_pv"] is True
+
+
 def test_fl_endpoints_are_hard_constraints():
     plan = evidence.execution_plan(dict(resolved_backend="fl2va_model", first_frame=object()))
     assert plan["endpoints"] == {"first": "hard_anchor", "last": "absent"}

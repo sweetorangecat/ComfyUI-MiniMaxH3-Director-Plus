@@ -13,6 +13,20 @@ LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus")
 FL_STAGE1_LORA = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
 FL_STAGE2_LORA = "minimax_h3_fl2v_turbo_4step_v1.1_768p_comfyui_bf16.safetensors"
 REF_STAGE_LORA = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+# U22 SelfLift model stack.  The supplied U22 graph loads this adapter at
+# strength 0.8 and then applies Mystic at 0.45.  Keep the alternate names used
+# by older community exports so the route can select the installed file without
+# adding another UI control.
+SELFLIFT_DMAD_LORA = "minimax_h3_dmad_full_dareties_v4_step600_comfy.safetensors"
+SELFLIFT_DMAD_LORA_CANDIDATES = (
+    SELFLIFT_DMAD_LORA,
+    "minimax_h3_dmad_full_dareties_v4_step600_comfy_fro.safetensors",
+    "minimax_h3_dmad_full_dareties_v4_step600.safetensors",
+    "dmad_minimax_h3_4step_full_critic_comfyui.safetensors",
+)
+SELFLIFT_MYSTIC_LORA = "MysticXXX_MMH3-V1.safetensors"
+SELFLIFT_MYSTIC_LORA_STRENGTH = 0.45
+SELFLIFT_DMAD_LORA_STRENGTH = 0.8
 # Community-proven U22 recipe: the 12-step-capable turbo v4 adapter drives both
 # passes of a REF2VA trained two-stage run (8 high-sigma steps + 4-step
 # low-sigma redraw after the learned 3D latent upscale).  The legacy
@@ -56,11 +70,13 @@ REF_EXTRA_LORA_CHAIN = (
 )
 LATENT_UPSCALER_MODEL_FP16 = "minimax_h3_latent_upscaler_3d_fp16.safetensors"
 LATENT_UPSCALER_MODEL = "minimax_h3_latent_upscaler_3d_bf16.safetensors"
+SELFLIFT_LMS_MODEL = "h3_upscaler_lms_v0.1.safetensors"
 # U22 runs the fp16 build of the trained 3D upscaler; its finer mantissa keeps
 # flat regions clean where the bf16 build leaves a fine latent-grid weave that
 # survives the low-sigma redraw.  Prefer fp16 whenever it is registered and
 # keep bf16 as the fallback.
 LATENT_UPSCALER_MODEL_CANDIDATES = (LATENT_UPSCALER_MODEL_FP16, LATENT_UPSCALER_MODEL)
+SELFLIFT_UPSCALER_MODEL_CANDIDATES = (SELFLIFT_LMS_MODEL, LATENT_UPSCALER_MODEL_FP16, LATENT_UPSCALER_MODEL)
 UPSCALE_NODE_IDS = ("MinimaxH3LatentUpscaler3D", "MinimaxH3LatentUpscalerNode3D")
 SIGMA_REFINER_NODE_ID = "H3SigmaRefiner"
 SPLIT_UPSCALE_NODE_ID = "MMH3SplitUpscale"
@@ -127,6 +143,15 @@ def resolve_latent_upscaler_model(comfy_root=None):
     return None
 
 
+def resolve_selflift_upscaler_model(comfy_root=None):
+    """Resolve the U22 SelfLift LMS weight before generic H3 latent weights."""
+    for name in SELFLIFT_UPSCALER_MODEL_CANDIDATES:
+        resolved = resolve_registered_model_name("latent_upscale_models", name, comfy_root)
+        if resolved is not None:
+            return resolved
+    return None
+
+
 def _latent_upscaler_variant():
     resolved = resolve_latent_upscaler_model()
     if resolved is not None:
@@ -140,9 +165,20 @@ def _registered_asset_exists(comfy_root, category, name):
 
 
 def _asset_exists(comfy_root, category, directory, name):
-    return _registered_asset_exists(comfy_root, category, name) or (
-        Path(comfy_root) / "models" / directory / name
-    ).is_file()
+    if _registered_asset_exists(comfy_root, category, name):
+        return True
+    root = Path(comfy_root) / "models" / directory
+    direct = root / name
+    if direct.is_file():
+        return True
+    # Community packs commonly keep the basename under a vendor folder
+    # (for example ``models/loras/minimax/``).  Match ComfyUI's registered
+    # basename lookup when a standalone test/runtime root is supplied.
+    basename = Path(name).name
+    try:
+        return any(path.is_file() for path in root.rglob(basename))
+    except OSError:
+        return False
 
 
 def resolve_v4_turbo_lora_name(comfy_root=None):
@@ -153,6 +189,39 @@ def resolve_v4_turbo_lora_name(comfy_root=None):
                 return name
         elif _asset_exists(comfy_root, "loras", "loras", name):
             return name
+    return None
+
+
+def resolve_selflift_lora_recipe(comfy_root=None):
+    """Select the U22 SelfLift adapter, with the proven v4 fallback.
+
+    U22's loader uses the DMAD v4 adapter plus Mystic.  Existing installs
+    commonly have only the pruned turbo-v4 adapter, so SelfLift keeps that
+    route as a compatibility fallback instead of failing merely because the
+    newer optional adapter was not downloaded.
+    """
+    for name in SELFLIFT_DMAD_LORA_CANDIDATES:
+        if comfy_root is None:
+            resolved = resolve_registered_model_name("loras", name)
+        else:
+            resolved = name if _asset_exists(comfy_root, "loras", "loras", name) else None
+        if resolved is not None:
+            return {
+                "kind": "u22_dmad_mystic",
+                "lora_name": resolved,
+                "lora_strength": SELFLIFT_DMAD_LORA_STRENGTH,
+                "detail_name": SELFLIFT_MYSTIC_LORA,
+                "detail_strength": SELFLIFT_MYSTIC_LORA_STRENGTH,
+            }
+    v4 = resolve_v4_turbo_lora_name(comfy_root)
+    if v4 is not None:
+        return {
+            "kind": "v4_mystic_fallback",
+            "lora_name": v4,
+            "lora_strength": 1.0,
+            "detail_name": SELFLIFT_MYSTIC_LORA,
+            "detail_strength": SELFLIFT_MYSTIC_LORA_STRENGTH,
+        }
     return None
 
 

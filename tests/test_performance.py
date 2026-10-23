@@ -17,7 +17,10 @@ from nodes.performance import (
     sampler_route,
     scheduler_plan,
 )
-from nodes.two_stage_assets import FL_STAGE1_LORA, FL_STAGE2_LORA, V4_TURBO_LORA, V4_TURBO_LORA_PRUNED, resolve_two_stage_route
+from nodes.two_stage_assets import (
+    FL_STAGE1_LORA, FL_STAGE2_LORA, SELFLIFT_DMAD_LORA, SELFLIFT_MYSTIC_LORA,
+    V4_TURBO_LORA, V4_TURBO_LORA_PRUNED, resolve_two_stage_route,
+)
 
 
 def test_fast_preset_exposes_four_step_sampling_contract():
@@ -937,6 +940,90 @@ def test_ref_two_stage_applies_u22_detail_loras_when_registered(monkeypatch):
         "MinimaxH3真实电影质感V1.0.safetensors@0.5",
     ]
     assert "4 个社区 LoRA" in result[1]
+
+
+def test_selflift_prefers_u22_dmad_and_mystic_without_extra_stack(monkeypatch):
+    calls = []
+
+    class FakeSolNode:
+        def execute(self, model, *args, **kwargs):
+            return (model,)
+
+    monkeypatch.setattr(
+        performance,
+        "resolve_selflift_lora_recipe",
+        lambda: {
+            "kind": "u22_dmad_mystic",
+            "lora_name": SELFLIFT_DMAD_LORA,
+            "lora_strength": 0.8,
+            "detail_name": SELFLIFT_MYSTIC_LORA,
+            "detail_strength": 0.45,
+        },
+    )
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name",
+        lambda category, name, comfy_root=None: name,
+    )
+    monkeypatch.setattr(
+        performance,
+        "_load_lightx2v_lora",
+        lambda model, name, strength=1.0, low_vram=False: calls.append((name, strength)) or model,
+    )
+    monkeypatch.setattr(performance, "_apply_minimax_reuse_attention", lambda model, guide: model)
+    monkeypatch.setattr(performance, "_apply_sol_attention", lambda model, guide: model)
+    guide = {
+        "mode": "REF2VA", "voice_mode": "none", "duration": 5,
+        "performance_preset": "quality_two_stage", "resolved_backend": "ref2va_model",
+        "sampling_method": "selflift", "community_lora_profile": "off",
+        "community_lora_mode": "仅 U22 细节链",
+        "total_vram_gb": 32.0, "free_vram_gb": 26.0,
+        "sol_attn_available": True,
+    }
+    first, _, ready, second = MiniMaxH3AccelerationRouter().apply(
+        "model", guide, community_loras="仅 U22 细节链"
+    )
+    assert ready and first is second
+    assert calls == [(SELFLIFT_DMAD_LORA, 0.8), (SELFLIFT_MYSTIC_LORA, 0.45)]
+    assert guide["selflift_lora_kind"] == "u22_dmad_mystic"
+    assert guide["sol_attn_applied"] is True
+
+
+def test_standard_u22_profile_keeps_mystic_on_v4_fallback(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        performance,
+        "resolve_selflift_lora_recipe",
+        lambda: {
+            "kind": "v4_mystic_fallback",
+            "lora_name": V4_TURBO_LORA,
+            "lora_strength": 1.0,
+            "detail_name": SELFLIFT_MYSTIC_LORA,
+            "detail_strength": 0.45,
+        },
+    )
+    monkeypatch.setattr(
+        performance, "resolve_registered_model_name",
+        lambda category, name, comfy_root=None: name,
+    )
+    monkeypatch.setattr(
+        performance,
+        "_load_lightx2v_lora",
+        lambda model, name, strength=1.0, low_vram=False: calls.append((name, strength)) or model,
+    )
+    monkeypatch.setattr(performance, "_apply_minimax_reuse_attention", lambda model, guide: model)
+    guide = {
+        "mode": "REF2VA", "voice_mode": "h3_reference", "duration": 5,
+        "performance_preset": "quality_two_stage", "resolved_backend": "ref2va_model",
+        "community_lora_profile": "off", "community_lora_mode": "仅 U22 细节链",
+        "total_vram_gb": 16.0, "free_vram_gb": 12.0,
+        "sol_attn_available": False,
+    }
+    first, _, ready, second = MiniMaxH3AccelerationRouter().apply(
+        "model", guide, community_loras="仅 U22 细节链"
+    )
+    assert ready and first is second
+    assert calls == [(V4_TURBO_LORA, 1.0), (SELFLIFT_MYSTIC_LORA, 0.45)]
 
 
 def test_fingerprint_base_model_hashes_adaln_t_table():

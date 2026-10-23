@@ -268,7 +268,7 @@ function restoreSamplingOptions(node, mode, voiceMode, preset) {
   const method = widget(node, "sampling_method");
   const profile = widget(node, "community_lora_profile");
   if (method && (!SAMPLING_METHODS.some(([value]) => value === method.value)
-      || !twoStage || mode !== "REF2VA" || voiceMode !== "none")) {
+      || !twoStage || mode !== "REF2VA" || !["none", "h3_reference", "audio_reuse"].includes(voiceMode))) {
     setWidget(node, "sampling_method", "standard", false);
   }
   if (profile && (!MOTION_PROFILES.some(([value]) => value === profile.value) || !twoStage)) {
@@ -1145,13 +1145,13 @@ function install(node) {
       const controls = document.createElement("div");
       controls.className = "h3p-grid";
       controls.append(
-        valueControl("二采方法", "sampling_method", mode === "REF2VA" && voiceMode === "none"
+        valueControl("二采方法", "sampling_method", mode === "REF2VA" && ["none", "h3_reference", "audio_reuse"].includes(voiceMode)
           ? SAMPLING_METHODS : SAMPLING_METHODS.slice(0, 1), widget(node, "sampling_method")?.value || "standard"),
         valueControl("动作增强", "community_lora_profile", MOTION_PROFILES, widget(node, "community_lora_profile")?.value || "off"),
       );
       const note = document.createElement("div");
       note.className = "h3p-spec-note";
-      note.textContent = "SelfLift 实验：参考图模式、不使用音色、4–15秒；支持所选超分输出2K/4K，总显存至少20GB且空闲至少18GB。动作增强默认关闭，建议分别对比。";
+      note.textContent = "SelfLift 实验：REF2VA 可带 H3 原生参考或完整复用音频，不支持 Fish 克隆；4–15秒，支持所选超分输出2K/4K，总显存至少20GB且空闲至少18GB。动作增强默认关闭。";
       advanced.append(summary, controls, note);
       specification.append(advanced);
     }
@@ -1168,7 +1168,7 @@ function install(node) {
     postprocessNote.textContent = postprocessNotes[postprocessMode] || postprocessNotes.native;
     if (preset === "质量优先二采样") {
       postprocessNote.textContent = widget(node, "sampling_method")?.value === "selflift"
-        ? "SelfLift 实验使用4步小尺寸采样 + 4步目标尺寸采样，再执行所选超分；依赖缺失会停止，RIFE 固定关闭。"
+        ? "SelfLift 实验使用6步小尺寸采样 + 4步目标尺寸采样，再执行所选超分；依赖缺失会停止，RIFE 固定关闭。"
         : `标准二采完成后执行所选超分；RIFE 固定关闭。${twoStageSizeHint(resolvedWidth, resolvedHeight, resolvedBackend)}；实际尺寸以生成前显存检查为准。`;
     } else if (preset === "低显存二采") {
       const duration = Number(widget(node, "duration")?.value) || 4;

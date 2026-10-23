@@ -139,14 +139,14 @@ def test_failed_sampling_setup_preserves_explicit_sr_geometry(native_size, metho
     assert guide["upscale_method"] == engine and guide["upscale_required"] is True
 
 
-def test_selflift_performance_uses_simple_eight_step_schedule():
+def test_selflift_performance_uses_u22_beta_ten_step_schedule():
     from nodes import performance
     guide = short_guide()
-    assert performance.scheduler_plan(guide) == dict(scheduler="simple", steps=8, split_step=4, refine_reference_tail=False)
+    assert performance.scheduler_plan(guide) == dict(scheduler="beta", steps=10, split_step=6, refine_reference_tail=False)
     assert performance.sampler_name_for_guide(guide, "dpmpp_2m") == "euler"
     result = performance.MiniMaxH3PerformancePreset().apply(guide, acceleration_ready=True)
-    assert result[:3] == (8, False, False)
-    assert guide["two_stage_split_step"] == 4
+    assert result[:3] == (10, False, False)
+    assert guide["two_stage_split_step"] == 6
 
 
 def test_selflift_scheduler_ignores_stale_connected_step_count(monkeypatch):
@@ -159,7 +159,7 @@ def test_selflift_scheduler_ignores_stale_connected_step_count(monkeypatch):
             return ([1] * steps + [0],)
     monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace(BasicScheduler=Scheduler))
     performance.MiniMaxH3SchedulerRouter().route(object(), 12, short_guide())
-    assert calls == [("simple", 8)]
+    assert calls == [("beta", 10)]
 
 
 def test_selflift_model_route_shares_one_exact_attention_model(monkeypatch):
@@ -171,7 +171,9 @@ def test_selflift_model_route_shares_one_exact_attention_model(monkeypatch):
     guide = short_guide()
     first, _, ready, second = performance.MiniMaxH3AccelerationRouter().apply("model", guide)
     assert ready and first is second
-    assert len(calls) == 1 and calls[0] == performance.V4_TURBO_LORA
+    assert len(calls) == 2
+    assert calls[0] in {performance.V4_TURBO_LORA, performance.V4_TURBO_LORA_PRUNED}
+    assert calls[1].endswith("MysticXXX_MMH3-V1.safetensors")
     assert not guide["sage_requested"] and not guide["sage_applied"]
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import hashlib
+import inspect
 import importlib
 import importlib.util
 import logging
@@ -33,9 +34,12 @@ from .two_stage_assets import (
     REF_DETAIL_LORA_CHAIN,
     REF_EXTRA_LORA_CHAIN,
     REF_STAGE_LORA,
+    SELFLIFT_MYSTIC_LORA,
+    SELFLIFT_MYSTIC_LORA_STRENGTH,
     SIGMA_REFINER_NODE_ID,
     V4_TURBO_LORA,
     V4_TURBO_LORA_PRUNED,
+    resolve_selflift_lora_recipe,
     resolve_registered_model_name,
     resolve_two_stage_route,
 )
@@ -515,6 +519,177 @@ def _h3_sage_arch(node_class):
     return arches[0] if arches else None
 
 
+def _sol_attn_class():
+    """Load the optional U22 Sol-Attn node without making it a hard dependency."""
+    module_name = "_u11_sol_attn_runtime"
+    loaded = sys.modules.get(module_name)
+    if loaded is not None:
+        return getattr(loaded, "SolAttnPatch")
+    package_name = "ComfyUI-SolAttn_triton"
+    package_dir = Path("ComfyUI-SolAttn_triton")
+    # The source checkout and the portable ComfyUI runtime usually live in
+    # different trees.  Resolve the plugin from both layouts instead of
+    # assuming it is a sibling of the repository root: the old assumption
+    # made every local probe report Sol-Attn as unavailable and silently sent
+    # high-VRAM jobs back to Sage/exact attention.
+    candidates = []
+    source_file = Path(__file__).resolve()
+    candidates.extend((source_file.parents[1] / package_dir,
+                       source_file.parents[2] / package_dir))
+    for entry in sys.path:
+        if entry:
+            candidates.append(Path(entry) / package_dir)
+    # ComfyUI exposes custom_nodes on sys.path in normal execution, but a
+    # direct unit-test import may not.  folder_paths.base_path covers that
+    # runtime without making folder_paths a required import for this module.
+    try:
+        import folder_paths
+        base_path = getattr(folder_paths, "base_path", None)
+    except (ImportError, AttributeError):
+        base_path = None
+    if base_path:
+        candidates.append(Path(base_path) / "custom_nodes" / package_dir)
+    path = next((candidate / "__init__.py" for candidate in candidates
+                 if (candidate / "__init__.py").is_file()), None)
+    if path is None:
+        raise RuntimeError(f"缺少 {package_name}")
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        path,
+        submodule_search_locations=[str(path.parent)],
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("无法加载 ComfyUI-SolAttn_triton")
+    loaded = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = loaded
+    try:
+        spec.loader.exec_module(loaded)
+        return getattr(loaded, "SolAttnPatch")
+    except (AttributeError, ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        sys.modules.pop(module_name, None)
+        raise RuntimeError(f"Sol-Attn 内核不可用: {exc}") from exc
+
+
+def u22_attention_plan(guide):
+    """Resolve the U22 long-sequence attention contract without changing UI choices.
+
+    U22's sparse attention is only useful when there is enough VRAM to keep the
+    H3 model resident and when the external Triton kernels are available.  The
+    exact-KV-and-rows sink is deliberately used for every REF2VA voice mode so
+    audio/reference conditioning remains dense.  All other routes retain the
+    measured Sage/exact-reuse path.
+    """
+    guide = guide or {}
+    plan = {
+        "backend": "sage",
+        "tau": 1.3,
+        "start_percent": 0.2,
+        "end_percent": 1.0,
+        "min_tokens": 12288,
+        "extra_tokens": 256,
+        "sink_conditioning": "exact_kv_and_rows",
+        "int8_qk": True,
+        "int8_pv": True,
+        "morton": False,
+        "morton_curve": "2d_frame",
+        "dense_blocks": "",
+        "verbose": False,
+        "use_tma": False,
+    }
+    preset = PRESET_LABELS.get(
+        guide.get("performance_preset", "quality"),
+        guide.get("performance_preset", "quality"),
+    )
+    total = guide.get("total_vram_gb")
+    free = guide.get("free_vram_gb")
+    try:
+        roomy = float(total) >= 24.0 and float(free) >= 18.0
+    except (TypeError, ValueError):
+        roomy = False
+    available = guide.get("sol_attn_available")
+    if available is None:
+        try:
+            _sol_attn_class()
+        except (AttributeError, ImportError, OSError, RuntimeError, TypeError, ValueError):
+            available = False
+        else:
+            available = True
+        guide["sol_attn_available"] = bool(available)
+    if (
+        str(guide.get("resolved_backend", "")) == "ref2va_model"
+        and preset in {"quality_sage", "ref_quality_native", "quality_two_stage"}
+        and roomy
+        and bool(available)
+    ):
+        plan["backend"] = "sol_attn"
+    return plan
+
+
+def _apply_sol_attention(model, guide):
+    """Apply U22's Sol-Attn patch, preserving a dense audio/reference sink."""
+    config = u22_attention_plan(guide)
+    patch = _sol_attn_class()
+    positional = (
+        model,
+        config["tau"],
+        config["start_percent"],
+        config["end_percent"],
+        config["min_tokens"],
+        config["int8_qk"],
+        config["sink_conditioning"],
+        config["morton"],
+        config["morton_curve"],
+        config["dense_blocks"],
+        config["verbose"],
+    )
+    optional = {"use_tma": config["use_tma"], "int8_pv": config["int8_pv"]}
+    # Newer BlockSparseAttention builds expose the U22 extra-token guard;
+    # older SolAttnPatch builds do not.  Pass it only when the installed
+    # callable advertises the input so an older local plugin still works.
+    try:
+        parameters = inspect.signature(patch.execute).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    extra_tokens_applied = "extra_tokens" in parameters
+    if extra_tokens_applied:
+        optional["extra_tokens"] = config["extra_tokens"]
+    result = patch.execute(*positional, **optional)
+    patched = _node_model(result)
+    if patched is None:
+        raise RuntimeError("Sol-Attn 未返回模型")
+    patched = _apply_minimax_ffn_chunking(patched, guide)
+    guide["attention_backend"] = "sol_attn"
+    guide["sol_attn_applied"] = True
+    guide["sol_attn_tau"] = config["tau"]
+    guide["sol_attn_min_tokens"] = config["min_tokens"]
+    # Keep the requested U22 value separate from the value actually accepted
+    # by the installed node.  The current SolAttnPatch exposes no
+    # ``extra_tokens`` input; reporting 256 in that case would make the
+    # execution report claim a setting that never reached the kernel.
+    guide["sol_attn_extra_tokens_requested"] = config["extra_tokens"]
+    guide["sol_attn_extra_tokens_applied"] = extra_tokens_applied
+    guide["sol_attn_extra_tokens"] = (
+        config["extra_tokens"] if extra_tokens_applied else None
+    )
+    guide["sol_attn_sink_conditioning"] = config["sink_conditioning"]
+    guide["sol_attn_int8_qk"] = config["int8_qk"]
+    guide["sol_attn_int8_pv"] = config["int8_pv"]
+    return patched
+
+
+def _clear_sol_attention_evidence(guide):
+    """Remove Sol-Attn claims after a patch attempt falls back."""
+    if guide.get("attention_backend") == "sol_attn":
+        guide.pop("attention_backend", None)
+    for key in (
+        "sol_attn_applied", "sol_attn_tau", "sol_attn_min_tokens",
+        "sol_attn_extra_tokens_requested", "sol_attn_extra_tokens_applied",
+        "sol_attn_extra_tokens", "sol_attn_sink_conditioning",
+        "sol_attn_int8_qk", "sol_attn_int8_pv",
+    ):
+        guide.pop(key, None)
+
+
 def _apply_h3_blackwell_safe_attention(model, guide, chunks):
     """Use a safe dense backend on SM120/121 instead of Sage FP8-PV.
 
@@ -549,6 +724,14 @@ def _apply_sage_attention(model, guide):
     """Apply SageAttention with an RTX 30xx-safe kernel."""
     preset = PRESET_LABELS.get(guide.get("performance_preset", "quality"), guide.get("performance_preset", "quality"))
     if preset in {"quality_sage", "ref_quality_native", BALANCED_PRESET}:
+        u22_plan = u22_attention_plan(guide)
+        if u22_plan["backend"] == "sol_attn":
+            try:
+                return _apply_sol_attention(model, guide)
+            except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                _clear_sol_attention_evidence(guide)
+                guide["sol_attn_error"] = str(exc)
+                LOGGER.warning("[H3 acceleration] U22 Sol-Attn unavailable, falling back to SageAttention: %s", exc)
         # The generic KJ override keeps full Q/K/V tensors alive and can add
         # multiple GiB of temporary memory on long H3 sequences. The H3
         # patch quantizes the packed attention path and splits independent
@@ -639,7 +822,7 @@ def _runtime_preset_values(guide, preset):
     """Apply route-specific quality guards on top of the shared preset."""
     values = preset_values(preset, guide.get("resolved_backend"))
     if guide.get("sampling_method", "standard") == "selflift":
-        values.update(steps=8, two_stage_split_step=4, use_sage=False, use_cache=False)
+        values.update(steps=10, two_stage_split_step=6, use_sage=False, use_cache=False)
     # EasyCache is not part of the official T2VA Turbo recipe and can soften
     # fast text-only motion. Keep T2VA fast mode to Turbo + Sage only.
     if guide.get("mode") == "T2VA" and preset == "fast_4step":
@@ -712,7 +895,7 @@ class MiniMaxH3PerformancePreset:
             BALANCED_PRESET: "均衡高质：匹配 FL/REF 768p LoRA，完整 8 步 Euler/simple，视频/音频 shift=6/3；H3 SageAttention、单采、无缓存",
             "quality": "稳定质量：20 步，不强制启用缓存",
             "quality_sage": "质量优先加速：20 步 + SageAttention，动态分层加载，关闭 Turbo LoRA 与 EasyCache",
-            "quality_two_stage": "质量优先二采样：匹配 LoRA 首采 8 步（共 12 步）+ 训练型 3D latent 放大 + 4 步低 sigma 重绘；自动保留音频 latent；REF2VA 使用社区验证的 turbo v4 配方",
+            "quality_two_stage": "质量优先二采样：匹配 LoRA 首采 8 步（共 12 步）+ 训练型 3D latent 放大 + 4 步低 sigma 重绘；自动保留音频 latent；高显存 REF2VA 优先 U22 Sol-Attn，缺失时回退 Sage/精确注意力",
             "fl_quality_fast_v4": "高清快速（v4 8 步）：FL/T2V 后端使用社区 v4 LoRA，单采 8 步 + simple/Euler，不启用 latent 二采",
             "fast_4step": "极速 4 步：T2VA/FL2VA/I2VA/L2VA 使用官方 H3 Turbo；REF2VA/音色参考使用官方 Ref2VA Turbo + 原生 Euler",
             "reference_fast": "参考图加速：6 步 + Sage + EasyCache",
@@ -723,7 +906,7 @@ class MiniMaxH3PerformancePreset:
             "custom": "自定义：保守默认值，可在设置子图中调整",
         }
         if guide.get("sampling_method") == "selflift":
-            descriptions[name] = "SelfLift 短视频试验：同一 v4 模型、simple/Euler 共 8 步，0.65 倍网格前 4 步 + 目标网格后 4 步；Sage 与缓存关闭"
+            descriptions[name] = "SelfLift 短视频实验：U22 DMAD+Mystic（缺失时回退 v4+Mystic），beta/Euler 共 10 步，0.6 倍网格前 6 步 + 目标网格后 4 步；优先 Sol-Attn，缺失时精确注意力"
         if mode == "T2VA" and name == "fast_4step":
             descriptions[name] = "T2VA 极速 4 步：官方 H3 Turbo + Sage，关闭 EasyCache 以减少细节损失"
         if name == "low_vram_two_stage" and acceleration_ready is not True:
@@ -845,14 +1028,65 @@ def acceleration_plan(guide):
         plan["lora_name"] = None
     if use_two_stage:
         if route == "trained_latent_ref":
-            # U22 REF2VA recipe: one 12-step turbo v4 adapter drives both the
-            # 8-step composition pass and the 4-step low-sigma redraw.
-            plan.update(
-                first_lora_name=V4_TURBO_LORA,
-                first_lora_strength=1.0,
-                second_lora_name=V4_TURBO_LORA,
-                second_lora_strength=1.0,
-            )
+            if guide.get("sampling_method") == "selflift":
+                # The supplied U22 graph uses its DMAD v4 adapter at 0.8
+                # followed by Mystic.  Existing installs may only have the
+                # pruned turbo-v4 adapter, so resolve the best installed
+                # recipe and keep the same model for both SelfLift phases.
+                recipe = guide.get("selflift_lora_recipe") or resolve_selflift_lora_recipe()
+                if recipe is None:
+                    # Unit-test doubles and older graph loaders may not expose
+                    # folder_paths while still providing the proven v4 model.
+                    # Keep that compatibility fallback explicit in the guide.
+                    recipe = {
+                        "kind": "v4_mystic_fallback",
+                        "lora_name": V4_TURBO_LORA,
+                        "lora_strength": 1.0,
+                        "detail_name": SELFLIFT_MYSTIC_LORA,
+                        "detail_strength": SELFLIFT_MYSTIC_LORA_STRENGTH,
+                    }
+                guide["selflift_lora_recipe"] = recipe
+                guide["selflift_lora_kind"] = recipe.get("kind")
+                plan.update(
+                    first_lora_name=recipe["lora_name"],
+                    first_lora_strength=float(recipe["lora_strength"]),
+                    second_lora_name=recipe["lora_name"],
+                    second_lora_strength=float(recipe["lora_strength"]),
+                )
+            else:
+                # U22 REF2VA quality route: one 12-step turbo v4 adapter
+                # drives both the 8-step composition pass and the 4-step
+                # low-sigma redraw.
+                u22_mode = str(guide.get("community_lora_mode") or "") == "仅 U22 细节链"
+                recipe = resolve_selflift_lora_recipe() if u22_mode else None
+                # The asset resolver can inspect a different ComfyUI runtime
+                # from the one executing this router (and test doubles often
+                # expose only a subset of the registered files).  Revalidate
+                # the selected primary adapter through this runtime before
+                # replacing the long-standing v4 fallback.
+                if recipe:
+                    resolved_primary = resolve_registered_model_name(
+                        "loras", recipe.get("lora_name")
+                    )
+                    if resolved_primary is None:
+                        recipe = None
+                    else:
+                        recipe = dict(recipe, lora_name=resolved_primary)
+                if recipe:
+                    plan.update(
+                        first_lora_name=recipe["lora_name"],
+                        first_lora_strength=float(recipe["lora_strength"]),
+                        second_lora_name=recipe["lora_name"],
+                        second_lora_strength=float(recipe["lora_strength"]),
+                    )
+                    guide["u22_lora_recipe"] = recipe
+                else:
+                    plan.update(
+                        first_lora_name=V4_TURBO_LORA,
+                        first_lora_strength=1.0,
+                        second_lora_name=V4_TURBO_LORA,
+                        second_lora_strength=1.0,
+                    )
         else:
             plan.update(
                 first_lora_name=FL_STAGE1_LORA,
@@ -869,7 +1103,7 @@ def scheduler_plan(guide):
     if guide.get("sampling_method") == "selflift":
         if guide.get("two_stage_enabled") is False:
             raise RuntimeError("SelfLift 模型路线未就绪，已阻止 standard 旁路")
-        return {"scheduler": "simple", "steps": 8, "split_step": 4, "refine_reference_tail": False}
+        return {"scheduler": "beta", "steps": 10, "split_step": 6, "refine_reference_tail": False}
     if preset in TWO_STAGE_PERFORMANCE_PRESETS and guide.get("two_stage_enabled") is not False:
         route = resolve_two_stage_route(guide)
         if route == "trained_latent_ref":
@@ -1167,16 +1401,58 @@ def _apply_ref_detail_loras(model, guide):
     applied = []
     chain = []
     profile = guide.get("community_lora_profile", "legacy")
-    if profile != "legacy":
+    raw_mode = guide.get("community_lora_mode")
+    mode = str(raw_mode or "全部自动叠加")
+    selflift = guide.get("sampling_method") == "selflift"
+    # A guide created directly by an API caller may carry the new explicit
+    # ``community_lora_profile=off`` without the legacy router's separate
+    # community_lora_mode field.  Treat that combination as a real opt-out;
+    # only a router-provided mode may request the legacy chain.
+    if profile == "off" and raw_mode is None and not selflift:
+        guide["detail_loras_applied"] = []
+        guide["community_loras_applied"] = []
+        return model
+    # Selecting SelfLift itself opts into the compact U22 model stack; this
+    # keeps the existing workflow's hidden router setting from silently
+    # removing DMAD/Mystic.  Standard two-stage jobs still respect the router
+    # switch and only use the U22 chain when it is explicitly selected.
+    u22_profile_override = profile == "off" and (mode == "仅 U22 细节链" or selflift)
+    if profile != "legacy" and not u22_profile_override:
         chain.extend(motion_lora_chain(profile))
     else:
-        mode = str(guide.get("community_lora_mode") or "全部自动叠加")
-        detail_on = _env_flag("MMH3_DETAIL_LORAS", True) and mode != "全部关闭"
-        extra_on = _env_flag("MMH3_EXTRA_LORAS", True) and mode == "全部自动叠加"
+        detail_on = _env_flag("MMH3_DETAIL_LORAS", True) and (
+            selflift or mode != "全部关闭"
+        )
+        recipe = guide.get("selflift_lora_recipe") or guide.get("u22_lora_recipe")
+        u22_detail = None
+        if recipe and recipe.get("detail_name"):
+            u22_detail = ((recipe["detail_name"], float(recipe.get("detail_strength", SELFLIFT_MYSTIC_LORA_STRENGTH))),)
+        # SelfLift's U22 stack is deliberately small: the selected DMAD/v4
+        # adapter is applied by acceleration_plan and Mystic supplies the
+        # matching detail pass.  The standard router switch remains respected
+        # outside SelfLift.
+        if selflift:
+            # SelfLift's U22 detail adapter is part of the selected recipe,
+            # not a reason to revive the legacy community chain.  If an old
+            # graph omitted the resolved recipe, leave the route clean and let
+            # the acceleration planner report the missing core asset.
+            if detail_on and u22_detail:
+                chain.extend(u22_detail)
+        elif mode == "仅 U22 细节链" and detail_on and u22_detail:
+            # When the user selects the U22 profile on the standard REF route,
+            # acceleration_plan has already made DMAD the official adapter.
+            chain.extend(u22_detail)
+        elif detail_on and mode != "全部关闭":
+            chain.extend(REF_DETAIL_LORA_CHAIN)
+        # The U22 SelfLift path keeps motion/cinematic add-ons off by default;
+        # they remain available through the explicit continuity/combat profiles.
+        extra_on = (
+            not selflift
+            and _env_flag("MMH3_EXTRA_LORAS", True)
+            and mode == "全部自动叠加"
+        )
         if mode != "全部自动叠加":
             LOGGER.info("[H3 two-stage models] 社区 LoRA 开关=%s（节点控件设置）", mode)
-        if detail_on:
-            chain.extend(REF_DETAIL_LORA_CHAIN)
         if extra_on:
             chain.extend(REF_EXTRA_LORA_CHAIN)
     for names, strength in chain:
@@ -1262,6 +1538,16 @@ def _apply_two_stage_models(model, guide, plan, values):
     guide.pop("mlp_chunking_error", None)
     guide.pop("minimax_mlp_seq_threshold", None)
     guide.pop("attention_backend", None)
+    guide.pop("sol_attn_applied", None)
+    guide.pop("sol_attn_error", None)
+    guide.pop("sol_attn_tau", None)
+    guide.pop("sol_attn_min_tokens", None)
+    guide.pop("sol_attn_extra_tokens_requested", None)
+    guide.pop("sol_attn_extra_tokens_applied", None)
+    guide.pop("sol_attn_extra_tokens", None)
+    guide.pop("sol_attn_sink_conditioning", None)
+    guide.pop("sol_attn_int8_qk", None)
+    guide.pop("sol_attn_int8_pv", None)
     guide["minimax_head_chunks"] = int(values.get("minimax_head_chunks", 8))
     base_table_sha = _fingerprint_base_model(original_model)
     guide["base_table_sha"] = base_table_sha
@@ -1283,7 +1569,12 @@ def _apply_two_stage_models(model, guide, plan, values):
         )
     else:
         LOGGER.info("[H3 two-stage models] 未能读取底模指纹（非标准模型对象），跳过底模识别")
-    two_stage_sage = not selflift and _env_flag("MMH3_TWO_STAGE_SAGE", True)
+    u22_plan = u22_attention_plan(guide)
+    sol_attn_two_stage = (
+        u22_plan["backend"] == "sol_attn"
+        and _env_flag("MMH3_TWO_STAGE_SOL_ATTN", True)
+    )
+    two_stage_sage = not selflift and not sol_attn_two_stage and _env_flag("MMH3_TWO_STAGE_SAGE", True)
     second_stage_sage = two_stage_sage and _env_flag("MMH3_SECOND_STAGE_SAGE", True)
     try:
         shared_lora = (
@@ -1316,14 +1607,41 @@ def _apply_two_stage_models(model, guide, plan, values):
             if detail_chain_route:
                 second_model = _apply_ref_detail_loras(second_model, guide)
         shared_second_model = second_model is first_model
-        if not two_stage_sage:
+        if sol_attn_two_stage:
+            unpatched_first_model = first_model
+            unpatched_second_model = second_model
+            try:
+                first_model = _apply_sol_attention(first_model, guide)
+                if shared_second_model:
+                    second_model = first_model
+                else:
+                    second_model = _apply_sol_attention(second_model, guide)
+                guide["sol_attn_applied"] = True
+                guide["attention_backend"] = "sol_attn"
+            except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                # A stale Triton/Sol-Attn build must not make the quality
+                # route bypass the trained sampler.  Re-enter the same Sage
+                # or exact-reuse decision used by the older route.
+                first_model = unpatched_first_model
+                second_model = unpatched_second_model
+                _clear_sol_attention_evidence(guide)
+                guide["sol_attn_error"] = str(exc)
+                guide["sol_attn_applied"] = False
+                LOGGER.warning(
+                    "[H3 two-stage models] U22 Sol-Attn unavailable, falling back to the existing attention route: %s",
+                    exc,
+                )
+                sol_attn_two_stage = False
+                two_stage_sage = False if selflift else _env_flag("MMH3_TWO_STAGE_SAGE", True)
+                second_stage_sage = two_stage_sage and _env_flag("MMH3_SECOND_STAGE_SAGE", True)
+        if not sol_attn_two_stage and not two_stage_sage:
             first_model = _apply_minimax_reuse_attention(first_model, guide)
             if shared_second_model:
                 second_model = first_model
             else:
                 second_model = _apply_minimax_reuse_attention(second_model, guide)
             guide["head_chunking_applied"] = True
-        else:
+        elif not sol_attn_two_stage:
             try:
                 sage_node = _kj_ltx_class("MiniMaxH3MemoryEfficientSageAttentionPatch")()
                 first_model = _node_model(sage_node.execute(first_model))
@@ -1405,7 +1723,9 @@ def _apply_two_stage_models(model, guide, plan, values):
         guide["minimax_head_chunks"],
         guide["two_stage_scale"],
     )
-    if guide["sage_applied"] and guide["second_stage_sage_applied"]:
+    if guide.get("sol_attn_applied"):
+        attention_note = "U22 Sol-Attn 稀疏注意力与 MiniMax MLP 分块"
+    elif guide["sage_applied"] and guide["second_stage_sage_applied"]:
         attention_note = "SageAttention 双阶段加速补丁"
     elif guide["sage_applied"]:
         attention_note = "一采 SageAttention 加速与二采全精度细节注意力"

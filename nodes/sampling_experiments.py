@@ -35,8 +35,8 @@ def validate_sampling_options(request):
     if (method != "standard" or profile != "off") and request.get("performance_preset") != "quality_two_stage":
         raise ValueError("高级采样与动作 LoRA 配置仅支持质量优先二采样")
     if method == "selflift":
-        if request.get("mode") != "REF2VA" or request.get("voice_mode", "none") != "none":
-            raise ValueError("SelfLift 目前仅支持 REF2VA 且不使用音色条件")
+        if request.get("mode") != "REF2VA" or request.get("voice_mode", "none") not in {"none", "h3_reference", "audio_reuse"}:
+            raise ValueError("SelfLift 目前支持 REF2VA 的无音色、H3 原生参考或完整复用音频；Fish 克隆音色不支持")
         if request.get("motion_smoothing", "off") not in {"off", "auto"} or float(request.get("fps", 24)) != 24:
             raise ValueError("SelfLift 目前仅支持 24FPS，不能启用 RIFE")
         width = request.get("requested_width", request.get("width"))
@@ -79,7 +79,7 @@ def plan_selflift_dimensions(width, height, duration, total, free):
         "final_scale_x": scale_x, "final_scale_y": scale_y,
         "final_scale": max(scale_x, scale_y), "max_final_vsr_scale": None,
         "vram_safety_tier": "selflift_shortvideo_experimental",
-        "quality_basis": "SelfLift 4+4 步渐进采样（实验）",
+        "quality_basis": "SelfLift 6+4 步渐进采样（实验）",
     }
 
 
@@ -112,6 +112,51 @@ def _selflift_callable(registry):
     if missing or unknown_required:
         raise RuntimeError("SelfLiftH3Sampler 当前方法契约不匹配：" + ", ".join(missing + unknown_required))
     return function
+
+
+def _selflift_call_kwargs(function, *, model, positive, negative, vae,
+                          latent, sampler, sigmas, seed, upscaler_name):
+    """Build the SelfLift call for both legacy and current upstream nodes.
+
+    Recent SelfLift releases add the ``global_stream`` high-resolution path,
+    token batching, and a bounded weight cache.  Older releases do not expose
+    those keyword arguments, so pass them only when the installed callable
+    advertises them.  This keeps old saved workflows loadable while making the
+    U22 memory-saving path explicit on the current node.
+    """
+    parameters = inspect.signature(function).parameters
+    values = {
+        "model": model,
+        "positive": positive,
+        "negative": negative,
+        "vae": vae,
+        "latent_image": latent,
+        "sampler": sampler,
+        "sigmas": sigmas,
+        "seed": seed,
+        "cfg": 1.0,
+        "transition_step": 6,
+        "lowres_scale": 0.6,
+        "rho": 0.0,
+        "w_min": 0.5,
+        "w_max": 1.0,
+        "upscaler_model": upscaler_name,
+        "model_hires": model,
+        "highres_tiling": True,
+        "upscaler_unload": True,
+        # U22's current SelfLift node calls this global stream mode.  It keeps
+        # full temporal context while batching projections and unloading the
+        # learned lifter before the expensive target-resolution pass.
+        "highres_tiling_mode": "global_stream",
+        "highres_token_chunk": 4096,
+        "highres_weight_cache_gb": 4.0,
+    }
+    declared = {
+        name for name, parameter in parameters.items()
+        if parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                              inspect.Parameter.KEYWORD_ONLY)
+    }
+    return {name: value for name, value in values.items() if name in declared}
 
 
 def selflift_dependency_report(registry, upscaler_name):
@@ -152,8 +197,8 @@ def _validate_euler(sampler):
         raise ValueError("SelfLift 必须使用标准 Euler 采样器（s_churn=0）")
 
 
-def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, registry=None):
-    """Execute exactly eight NFEs using the installed upstream H3 node."""
+def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, registry=None, negative=None):
+    """Execute the U22 ten-NFE H3 recipe using the installed upstream node."""
     if vae is None:
         raise ValueError("SelfLift 缺少视频 VAE，请连接 video_vae")
     if model is None or positive is None:
@@ -163,10 +208,10 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
     if getattr(sigmas, "ndim", 1) != 1:
         raise ValueError("SelfLift 需要一维 sigma 轨迹")
     values = [float(value) for value in sigmas]
-    if len(values) != 9 or not all(math.isfinite(value) for value in values) or any(
+    if len(values) != 11 or not all(math.isfinite(value) for value in values) or any(
         value <= 0 for value in values[:-1]
     ) or values[-1] != 0 or any(b > a for a, b in zip(values, values[1:])) or values[4] >= 1:
-        raise ValueError("SelfLift 需要有效的 8 步 sigma 轨迹并以 sigma=0 结束")
+        raise ValueError("SelfLift 需要有效的 10 步 sigma 轨迹并以 sigma=0 结束")
     _validate_euler(sampler)
     shapes = _av_shapes(latent)
     expected = (guide.get("second_stage_height"), guide.get("second_stage_width"))
@@ -181,13 +226,24 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         raise RuntimeError("SelfLift 依赖未就绪：" + "；".join(report["missing"]))
     started = time.perf_counter()
     try:
-        result = _selflift_callable(registry)(
-            model=model, positive=positive, negative=[], vae=vae,
-            latent_image=latent, sampler=sampler, sigmas=sigmas, seed=seed,
-            cfg=1.0, transition_step=4, lowres_scale=0.65, rho=0.0,
-            w_min=0.5, w_max=1.0, upscaler_model=upscaler_name,
-            model_hires=model, highres_tiling=False, upscaler_unload=True,
+        function = _selflift_callable(registry)
+        call_kwargs = _selflift_call_kwargs(
+            function,
+            model=model,
+            positive=positive,
+            negative=[] if negative is None else negative,
+            vae=vae,
+            latent=latent,
+            sampler=sampler,
+            sigmas=sigmas,
+            seed=seed,
+            upscaler_name=upscaler_name,
         )
+        guide["selflift_highres_tiling"] = bool(call_kwargs.get("highres_tiling", False))
+        guide["selflift_highres_tiling_mode"] = call_kwargs.get("highres_tiling_mode")
+        guide["selflift_highres_token_chunk"] = call_kwargs.get("highres_token_chunk")
+        guide["selflift_highres_weight_cache_gb"] = call_kwargs.get("highres_weight_cache_gb")
+        result = function(**call_kwargs)
     except RuntimeError as exc:
         # Preserve CUDA OOM's exception type so ComfyUI can release its models.
         raise type(exc)(f"SelfLift 执行失败，已停止：{exc}") from exc
@@ -201,10 +257,10 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         raise RuntimeError(f"SelfLift 返回无效的 AV latent：{exc}") from exc
     if output_shapes != shapes:
         raise RuntimeError("SelfLift 返回 AV latent 的目标尺寸或时长发生变化")
-    guide.update(sampling_actual_method="selflift", sampling_executed_steps=8,
+    guide.update(sampling_actual_method="selflift", sampling_executed_steps=10,
                  sampling_route=SELFLIFT_NODE_ID,
                  sampling_elapsed_seconds=time.perf_counter() - started,
-                 two_stage_first_executed_steps=4, two_stage_second_executed_steps=4,
-                 two_stage_first_sigma_count=5, two_stage_second_sigma_count=5,
-                 two_stage_status="SelfLift 4+4 步渐进采样完成", two_stage_second_stage_path="selflift")
+                 two_stage_first_executed_steps=6, two_stage_second_executed_steps=4,
+                 two_stage_first_sigma_count=7, two_stage_second_sigma_count=5,
+                 two_stage_status="SelfLift 6+4 步渐进采样完成", two_stage_second_stage_path="selflift")
     return result

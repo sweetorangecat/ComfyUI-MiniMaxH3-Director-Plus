@@ -431,6 +431,26 @@ def _positive_conditioning(guider):
     return rebuilt
 
 
+def _negative_conditioning(guider):
+    """Rebuild the raw negative CONDITIONING for SelfLift's CFG=1 contract."""
+    original = getattr(guider, "original_conds", None)
+    negative = original.get("negative") if isinstance(original, dict) else None
+    if not isinstance(negative, list):
+        return []
+    rebuilt = []
+    for entry in negative:
+        if isinstance(entry, dict):
+            payload = {
+                key: value
+                for key, value in entry.items()
+                if key not in ("cross_attn", "uuid")
+            }
+            rebuilt.append([entry.get("cross_attn"), payload])
+        else:
+            rebuilt.append(entry)
+    return rebuilt
+
+
 def _matched_selflift_model(guide, second_model):
     """Accept the accelerated v4 output when a legacy graph keeps a model clone.
 
@@ -442,7 +462,9 @@ def _matched_selflift_model(guide, second_model):
     """
     if second_model is None or not guide.get("two_stage_enabled"):
         return False
-    if not guide.get("turbo_lora_applied") or not guide.get("head_chunking_applied"):
+    if not guide.get("turbo_lora_applied") or not (
+        guide.get("head_chunking_applied") or guide.get("sol_attn_applied")
+    ):
         return False
     if guide.get("resolved_two_stage_route") not in {"trained_latent_ref", "trained_latent_fl"}:
         return False
@@ -639,6 +661,7 @@ class MiniMaxH3TwoStageSampler:
             report["sampling_settings"] = sampling_settings(guide, model=model, sampler=sampler, sigmas=sigmas)
             with memory_policy(guide):
                 result = run_selflift(model=model, positive=_positive_conditioning(guider),
+                    negative=_negative_conditioning(guider),
                     vae=video_vae, sampler=sampler, sigmas=sigmas, latent=latent_image,
                     seed=getattr(noise, "seed", None), guide=guide)
             return result, result

@@ -131,18 +131,29 @@ def _seedvr2_dependency_report():
 
 def _selflift_dependency_report():
     from .two_stage_assets import (
-        _comfy_node_mappings, resolve_latent_upscaler_model, resolve_v4_turbo_lora_name,
-        V4_TURBO_LORA_CANDIDATES, LATENT_UPSCALER_MODEL_CANDIDATES,
+        _comfy_node_mappings, resolve_selflift_lora_recipe, resolve_selflift_upscaler_model,
+        SELFLIFT_DMAD_LORA_CANDIDATES, SELFLIFT_UPSCALER_MODEL_CANDIDATES,
+        V4_TURBO_LORA_CANDIDATES,
     )
-    upscaler = resolve_latent_upscaler_model()
-    lora = resolve_v4_turbo_lora_name()
+    upscaler_name = resolve_selflift_upscaler_model()
+    upscaler = (upscaler_name, "lms") if upscaler_name else None
+    lora_recipe = resolve_selflift_lora_recipe()
     report = selflift_dependency_report(_comfy_node_mappings(), upscaler[0] if upscaler else None)
-    if lora is None:
-        report["missing"].append(" 或 ".join(V4_TURBO_LORA_CANDIDATES))
+    if lora_recipe is None:
+        report["missing"].append(
+            " 或 ".join((*SELFLIFT_DMAD_LORA_CANDIDATES, *V4_TURBO_LORA_CANDIDATES))
+        )
     if upscaler is None:
-        report["missing"].append(" 或 ".join(LATENT_UPSCALER_MODEL_CANDIDATES))
+        report["missing"].append(" 或 ".join(SELFLIFT_UPSCALER_MODEL_CANDIDATES))
     report["ready"] = not report["missing"]
-    report["required_assets"] = [item for item in (lora, upscaler[0] if upscaler else None) if item]
+    report["lora_recipe"] = lora_recipe
+    report["required_assets"] = [
+        item for item in (
+            lora_recipe["lora_name"] if lora_recipe else None,
+            lora_recipe.get("detail_name") if lora_recipe else None,
+            upscaler[0] if upscaler else None,
+        ) if item
+    ]
     return report
 
 
@@ -441,7 +452,7 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_7": ("IMAGE",),
                 "reference_image_8": ("IMAGE",),
                 "reference_image_9": ("IMAGE",),
-                "sampling_method": (["standard", "selflift"], {"default": "standard", "tooltip": "仅质量优先二采样生效；SelfLift 实验使用 REF2VA、无音色、4–15 秒、24FPS，支持所选超分输出 2K/4K"}),
+                "sampling_method": (["standard", "selflift"], {"default": "standard", "tooltip": "仅质量优先二采样生效；SelfLift 实验使用 REF2VA、可带 H3 原生参考或完整复用音频、不支持 Fish，4–15 秒、24FPS，支持所选超分输出 2K/4K"}),
                 "community_lora_profile": (["off", "continuity", "combat", "legacy"], {"default": "off", "tooltip": "仅质量优先二采样：关闭、动作连续性、武戏；legacy 复用旧社区开关"}),
                 "vosr2_profile": (["legacy", "manual_baseline", "experimental_32gb"], {"default": "legacy", "tooltip": "VOSR2 配置对比：旧配置、手动基线、32GB 候选（未实测加速；按实际空闲显存检查）"}),
             },
@@ -731,6 +742,10 @@ class MiniMaxH3DirectorPlus:
         smart_mode = requested_performance_preset == SMART_PRESET
         smart_plan = None
         smart_vram = None
+        # Keep a measured snapshot available for every route. Smart mode may
+        # refresh it after releasing cached models; ordinary routes still need
+        # stable values for attention selection and execution evidence.
+        total_vram_gb, free_vram_gb = _cuda_memory_gb()
         if smart_mode:
             smart_vram = _probe_vram_after_prefree()
             total_vram_gb, free_vram_gb = smart_vram
@@ -857,6 +872,7 @@ class MiniMaxH3DirectorPlus:
         resolved_two_stage_route = "bypass"
         required_assets = []
         selflift_upscaler_model = None
+        selflift_lora_recipe = None
         if request["sampling_method"] == "selflift":
             total_vram_gb, free_vram_gb = _probe_vram_after_prefree()
             try:
@@ -869,6 +885,7 @@ class MiniMaxH3DirectorPlus:
             if not dependencies["ready"]:
                 raise RequestError("SelfLift 依赖缺失：" + "、".join(dependencies["missing"]))
             selflift_upscaler_model = dependencies["upscaler_model"]
+            selflift_lora_recipe = dependencies.get("lora_recipe")
             required_assets = list(dependencies["required_assets"])
             resolved_two_stage_route = "trained_latent_ref"
             # SelfLift downsizes the target template internally. Conditioning
@@ -878,8 +895,8 @@ class MiniMaxH3DirectorPlus:
             native_capped = (native_width, native_height) != (requested_width, requested_height)
             two_stage_tiled = False
             request["warnings"].append(
-                "SelfLift 渐进采样实验：simple/Euler 共 8 步，前 4 步使用约 0.65 倍网格，"
-                "后 4 步使用 H3 目标网格；关闭 Sage、RIFE 和空间分块。显存门槛通过不保证无 OOM。"
+                "SelfLift 渐进采样实验：beta/Euler 共 10 步，前 6 步使用约 0.6 倍网格，"
+                "后 4 步使用 H3 目标网格；关闭 Sage、RIFE，按 U22 开启高分辨率分块。显存门槛通过不保证无 OOM。"
             )
         elif request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS:
             resolved_two_stage_route = resolve_two_stage_route(request)
@@ -1245,6 +1262,10 @@ class MiniMaxH3DirectorPlus:
             "sampling_method": request["sampling_method"],
             "community_lora_profile": request["community_lora_profile"],
             "selflift_upscaler_model": selflift_upscaler_model,
+            "selflift_lora_recipe": selflift_lora_recipe,
+            "selflift_lora_kind": (
+                selflift_lora_recipe.get("kind") if selflift_lora_recipe else None
+            ),
             "face_refine_mode": request["face_refine_mode"],
             "voice_gender": request["voice_gender"],
             "resolved_backend": request["resolved_backend"],
@@ -1300,6 +1321,12 @@ class MiniMaxH3DirectorPlus:
             "quality_basis": (
                 two_stage_plan["quality_basis"] if two_stage_plan else "H3 原生"
             ),
+            # The runtime attention router uses the same measured snapshot as
+            # the resolution planner.  Keeping it in the guide lets the U22
+            # Sol-Attn contract select itself on roomy REF2VA jobs while the
+            # existing Sage/exact-reuse route remains the low-VRAM fallback.
+            "total_vram_gb": float(total_vram_gb),
+            "free_vram_gb": float(free_vram_gb),
             "required_assets": required_assets,
             "reference_preprocessing": list(request.get("reference_preprocessing", [])),
             "requested_width": int(requested_width),

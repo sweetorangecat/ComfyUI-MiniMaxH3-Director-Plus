@@ -1625,6 +1625,13 @@ class MiniMaxH3StreamingVideoCombine:
                 "two_stage_second_sigma_count", "two_stage_second_stage_path",
                 "first_stage_width", "first_stage_height", "second_stage_width",
                 "second_stage_height", "community_lora_profile", "community_loras_applied",
+                "selflift_lora_kind",
+                "attention_backend", "sol_attn_applied", "sol_attn_error", "sol_attn_tau",
+                "sol_attn_min_tokens", "sol_attn_extra_tokens_requested", "sol_attn_extra_tokens_applied",
+                "sol_attn_extra_tokens", "sol_attn_sink_conditioning", "sol_attn_int8_qk",
+                "sol_attn_int8_pv",
+                "selflift_highres_tiling", "selflift_highres_tiling_mode",
+                "selflift_highres_token_chunk", "selflift_highres_weight_cache_gb",
             ) if key in guide
         }
         execution["upscale_method"] = (
