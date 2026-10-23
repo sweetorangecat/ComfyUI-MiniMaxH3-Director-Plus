@@ -17,8 +17,42 @@ LOW_VRAM_MAX_SECONDS = 6
 LOW_VRAM_MIN_FREE_GB = 6.0
 LOW_VRAM_TOTAL_GB = 16.0
 LOW_VRAM_LONG_MAX_SECONDS = 15
-LOW_VRAM_768P_TWO_STAGE_MAX_SECONDS = 10
+# Ten seconds is the longest 768p clip for which the low-VRAM route has a
+# detail-preserving temporal/spatial redraw. Keep the old name as an alias for
+# callers that imported the experimental planner constant.
+LOW_VRAM_768P_MAX_SECONDS = 10
+LOW_VRAM_768P_TWO_STAGE_MAX_SECONDS = LOW_VRAM_768P_MAX_SECONDS
 LOW_VRAM_LONG_MAX_PIXELS = 1344 * 768
+
+
+def is_768p_class_target(target_preset=None, target_width=None, target_height=None):
+    """Return whether a target belongs to the low-VRAM 768p detail budget."""
+    if target_preset == "768p H3":
+        return True
+    try:
+        width, height = int(target_width), int(target_height)
+    except (TypeError, ValueError):
+        return False
+    area = width * height
+    return (
+        min(width, height) >= 720
+        and LOW_VRAM_LONG_MAX_PIXELS * 0.75 <= area <= LOW_VRAM_LONG_MAX_PIXELS * 1.02
+    )
+
+
+def low_vram_768p_duration_error(seconds, total_vram_gb=None, free_vram_gb=None):
+    """Build the actionable preflight error for the unsafe long 768p route."""
+    memory = ""
+    if total_vram_gb is not None and free_vram_gb is not None:
+        memory = (
+            f"（总显存 {float(total_vram_gb):.1f}GB，空闲显存 {float(free_vram_gb):.1f}GB）"
+        )
+    return (
+        f"低显存 768p H3 最多支持 {LOW_VRAM_768P_MAX_SECONDS} 秒，当前请求 {int(seconds)} 秒"
+        f"{memory}；11–15 秒会把 H3 首采压到约 0.26MP，人物身份和动作连续性会漂移，"
+        "VOSR2/AI 超分无法补回首采缺失的信息。请拆成不超过 10 秒的片段，"
+        "或改用更高显存档位。"
+    )
 
 
 def smart_1080p_target(width, height):
@@ -84,6 +118,14 @@ def resolve_smart_1080p_plan(
 
     seconds = _duration_seconds(duration)
     low_vram = total_vram_gb <= LOW_VRAM_TOTAL_GB
+    if (
+        low_vram
+        and seconds > LOW_VRAM_768P_MAX_SECONDS
+        and is_768p_class_target(target_preset, target_width, target_height)
+    ):
+        raise RequestError(
+            low_vram_768p_duration_error(seconds, total_vram_gb, free_vram_gb)
+        )
     selected_sr = postprocess_mode in {"vosr2", "video_sr", "ai_upscale"}
     if postprocess_mode == "video_sr" and not seedvr2_ready:
         raise RequestError("所选 SeedVR2 未就绪：节点或权重缺失；请安装后重试，或选择其他超分")
@@ -110,14 +152,14 @@ def resolve_smart_1080p_plan(
             "warning": "已选择 H3 二采：首采后放大 latent 并重绘，不叠加 VOSR2 或 SeedVR2。",
         }
     # An explicit 768p target normally keeps the inexpensive single-pass
-    # route.  On low-VRAM cards, however, a ready trained redraw is the only
-    # path that can preserve enough detail for a 7–10 second clip.  Let the
-    # generic low-VRAM planner handle that case; 11–15 seconds still falls
-    # through to the guarded single-pass route below.
+    # route. On low-VRAM cards, however, a ready trained redraw is the only
+    # path that can preserve enough detail for a 7–10 second clip. Longer
+    # 768p clips are rejected above instead of falling through to a visibly
+    # drifting 0.26MP single-pass route.
     low_vram_768p_two_stage = (
         target_preset == "768p H3"
         and low_vram
-        and seconds <= LOW_VRAM_768P_TWO_STAGE_MAX_SECONDS
+        and seconds <= LOW_VRAM_768P_MAX_SECONDS
         and bool(two_stage_ready)
         and voice_mode in ("none", "h3_reference")
     )

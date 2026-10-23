@@ -175,7 +175,7 @@ def test_low_vram_smart_fhd_uses_selected_seedvr2_when_seedvr2_is_available(monk
     assert guide["upscale_profile"] == "standard"
 
 
-def test_low_vram_smart_768p_allows_fifteen_seconds(monkeypatch):
+def test_low_vram_smart_768p_rejects_fifteen_seconds_before_sampling(monkeypatch):
     monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
     monkeypatch.setattr(
         "nodes.director._trained_two_stage_dependency_report",
@@ -190,28 +190,44 @@ def test_low_vram_smart_768p_allows_fifteen_seconds(monkeypatch):
         lambda *args, **kwargs: "RealESRGAN_x2plus.pth",
     )
 
-    guide, *_ = MiniMaxH3DirectorPlus().build(
-        mode="REF2VA",
-        prompt="人物缓慢转身。",
-        duration=15,
-        width=1344,
-        height=768,
-        aspect_ratio="16:9",
-        voice_mode="none",
-        ref_image_size="match",
-        performance_preset="智能画质（自动适配）",
-        postprocess_mode="ai_upscale",
-        resolution_preset="768p H3",
-        timeline_data="{}",
-        target_dialogue="",
-        reference_transcript="",
-    )
+    with pytest.raises(RequestError, match="768p.*最多支持 10 秒"):
+        MiniMaxH3DirectorPlus().build(
+            mode="REF2VA",
+            prompt="人物缓慢转身。",
+            duration=15,
+            width=1344,
+            height=768,
+            aspect_ratio="16:9",
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="智能画质（自动适配）",
+            postprocess_mode="ai_upscale",
+            resolution_preset="768p H3",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
 
-    assert guide["performance_preset"] == "low_vram"
-    assert guide["max_duration"] == 15
-    assert (guide["requested_width"], guide["requested_height"]) == (1344, 768)
-    assert (guide["target_width"], guide["target_height"]) == (1344, 768)
-    assert guide["native_width"] * guide["native_height"] <= 0.26 * 1024 * 1024 * 1.1
+
+def test_explicit_low_vram_768p_rejects_fifteen_seconds_before_sampling(monkeypatch):
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
+    with pytest.raises(RequestError, match="768p.*最多支持 10 秒"):
+        MiniMaxH3DirectorPlus().build(
+            mode="REF2VA",
+            prompt="人物缓慢转身。",
+            duration=15,
+            width=1344,
+            height=768,
+            aspect_ratio="16:9",
+            voice_mode="none",
+            ref_image_size="match",
+            performance_preset="低显存",
+            postprocess_mode="ai_upscale",
+            resolution_preset="768p H3",
+            timeline_data="{}",
+            target_dialogue="",
+            reference_transcript="",
+        )
 
 
 def test_low_vram_smart_768p_ten_seconds_uses_tiled_trained_redraw(monkeypatch):
@@ -2032,8 +2048,8 @@ def test_max_ref_image_size_skips_upscale_dilution_warning():
 
 @pytest.mark.parametrize("requested_size", ["match", "max"])
 @pytest.mark.parametrize("preset,duration,voice_mode,resolved_preset", [
-    ("低显存", 15, "none", "low_vram"),
-    ("低显存", 15, "h3_reference", "low_vram"),
+    ("低显存", 10, "none", "low_vram"),
+    ("低显存", 10, "h3_reference", "low_vram"),
     ("低显存二采", 6, "none", "low_vram"),
     ("低显存二采", 6, "h3_reference", "low_vram"),
 ])
@@ -2064,7 +2080,7 @@ def test_low_vram_bounds_reference_encoding_without_dropping_images_or_voice(
 
 
 @pytest.mark.parametrize("preset,duration,resolved_preset", [
-    ("低显存", 15, "low_vram"),
+    ("低显存", 10, "low_vram"),
     ("低显存二采", 6, "low_vram_two_stage"),
 ])
 def test_low_vram_does_not_override_fl_hard_endpoints(preset, duration, resolved_preset):

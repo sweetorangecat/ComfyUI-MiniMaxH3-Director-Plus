@@ -100,20 +100,17 @@ def test_low_vram_rejects_duration_above_six_with_actionable_chinese_error():
 
 
 @pytest.mark.parametrize("backend", ["fl2va_model", "ref2va_model"])
-def test_low_vram_768p_allows_fifteen_seconds_on_single_pass_route(backend):
-    plan = resolve_smart_1080p_plan(
-        backend,
-        15,
-        8,
-        7,
-        target_width=1344,
-        target_height=768,
-    )
-
-    assert plan["performance_preset"] == "low_vram"
-    assert plan["two_stage_route"] == "bypass"
-    assert plan["max_duration"] == 15
-    assert "768p" in plan["warning"]
+def test_low_vram_768p_rejects_eleven_to_fifteen_seconds_before_sampling(backend):
+    with pytest.raises(RequestError, match="768p.*最多支持 10 秒"):
+        resolve_smart_1080p_plan(
+            backend,
+            15,
+            8,
+            7,
+            target_width=1344,
+            target_height=768,
+            target_preset="768p H3",
+        )
 
 
 def test_low_vram_short_768p_fl_prefers_trained_detail_route_when_ready():

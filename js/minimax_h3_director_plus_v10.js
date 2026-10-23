@@ -254,7 +254,7 @@ function performancePresetHint(preset) {
   if (preset === "高清快速（v4 8步）") return "v4 8步仅适用于 FL/T2V 后端：社区 v4 LoRA + simple/Euler，单采不做 latent 二采";
   if (preset === "参考高清（原生20步）") return "仅适用于 REF2VA/音色参考：原生 20 步 + SageAttention，不使用 Turbo/二采";
   if (preset === "参考极速（官方4步）") return "仅适用于 REF2VA/音色参考：官方 Ref2VA Turbo 4 步 + 原生 Euler";
-  if (preset === "低显存") return "20 步单采 + 注意力分块与动态分层加载，按时长降低采样尺寸；8GB 建议先试 768p、4 秒";
+  if (preset === "低显存") return "20 步单采 + 注意力分块与动态分层加载；8GB 的 768p 最多 10 秒，11–15 秒会在排队前拦截以避免人物漂移";
   if (preset === "极速4步") return "官方 Turbo LoRA，速度优先";
   return "模式与加速预设";
 }
@@ -1043,7 +1043,7 @@ function install(node) {
       "分辨率档位",
       "resolution_preset",
       preset === SMART_PRESET || preset === LEGACY_SMART_PRESET
-        ? [["480p", "480p（8GB 单采，4–15 秒）"], ["768p H3", "768p H3（8GB 单采 + 所选放大，峰值需实测）"], ["1080p FHD", "1080p FHD（8GB 最多 6 秒）"], ["2K QHD", "2K QHD"], ["4K UHD", "4K UHD"]]
+        ? [["480p", "480p（8GB 单采，4–15 秒）"], ["768p H3", "768p H3（8GB 清晰路线最多 10 秒）"], ["1080p FHD", "1080p FHD（8GB 最多 6 秒）"], ["2K QHD", "2K QHD"], ["4K UHD", "4K UHD"]]
         : RESOLUTIONS,
       resolutionPreset,
     );
@@ -1176,7 +1176,7 @@ function install(node) {
     } else if (preset === "低显存") {
       const [sampleWidth, sampleHeight] = lowVramSamplingSize(node, resolvedWidth, resolvedHeight);
       const seconds = Number(widget(node, "duration")?.value) || 4;
-      postprocessNote.textContent += " 当前 " + seconds + " 秒低显存：实际 H3 采样 " + sampleWidth + "×" + sampleHeight + "，输出目标 " + resolvedWidth + "×" + resolvedHeight + "；放大无法准确补回底图缺失的五官细节。输出尺寸不代表原生细节；提高源细节需使用更高原生采样尺寸，并承担相应显存与耗时。";
+      postprocessNote.textContent += " 当前 " + seconds + " 秒低显存：实际 H3 采样 " + sampleWidth + "×" + sampleHeight + "，输出目标 " + resolvedWidth + "×" + resolvedHeight + "；放大无法准确补回底图缺失的五官细节。8GB 选择 768p 时最多 10 秒，11–15 秒首采会过度压缩并在排队前拦截；需要更长视频请拆段或提高显存。";
     } else if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
       postprocessNote.textContent = postprocessMode === "h3_two_stage" ? "H3 首采 → latent 放大 → H3 二采重绘 → 输出。" : "按显存和时长安排 H3 采样，再执行所选超分到目标尺寸，保留采样音频。";
     }

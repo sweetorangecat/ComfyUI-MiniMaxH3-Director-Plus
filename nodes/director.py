@@ -19,7 +19,13 @@ from .schema import (
     low_vram_target_limit,
     normalize_request,
 )
-from .smart_1080p import SMART_PRESET, resolve_smart_1080p_plan, smart_1080p_target
+from .smart_1080p import (
+    SMART_PRESET,
+    is_768p_class_target,
+    low_vram_768p_duration_error,
+    resolve_smart_1080p_plan,
+    smart_1080p_target,
+)
 from .sampling_experiments import plan_selflift_dimensions, selflift_dependency_report
 from .two_stage_assets import dependency_report, resolve_two_stage_route, resolve_split_upscale_callables
 from .video_sr import resolve_seedvr2_fhd_plan, resolve_seedvr2_plan, seedvr2_dependency_report
@@ -852,6 +858,21 @@ class MiniMaxH3DirectorPlus:
                 raise RequestError(
                     f"低显存模式下 {request['duration']} 秒视频的最终输出目标最大为 "
                     f"{limit_width}×{limit_height}"
+                )
+            if (
+                float(total_vram_gb) > 0
+                and float(total_vram_gb) <= 16.0
+                and int(request["duration"]) > 10
+                and is_768p_class_target(
+                    resolution_preset,
+                    requested_width,
+                    requested_height,
+                )
+            ):
+                raise RequestError(
+                    low_vram_768p_duration_error(
+                        request["duration"], total_vram_gb, free_vram_gb
+                    )
                 )
 
         # Voice fidelity needs enough denoising steps: the reference self-host
