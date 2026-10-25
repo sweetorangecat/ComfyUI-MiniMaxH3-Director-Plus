@@ -242,18 +242,45 @@ def test_selflift_sampler_dispatches_before_standard_bypass(monkeypatch):
 
 
 def test_selflift_uses_matched_accelerated_model_when_guider_keeps_sigma_shift_clone(monkeypatch):
+    import copy
     from nodes import two_stage
+    from nodes.execution_report import report_from
     import torch
     calls = []
 
+    class Model:
+        def __init__(self, video_shift, audio_shift, options):
+            self.object_patches = {"model_sampling": types.SimpleNamespace(
+                shift=video_shift, audio_shift=audio_shift, noise_scale=0.75)}
+            self.model_options = {"transformer_options": options}
+            self.patches = {"weight": ["dmad-v4", "motion-repair"]}
+
+        def get_model_object(self, name):
+            return self.object_patches[name]
+
+        def add_object_patch(self, name, value):
+            self.object_patches[name] = value
+
+        def clone(self):
+            cloned = copy.copy(self)
+            cloned.object_patches = self.object_patches.copy()
+            cloned.model_options = copy.deepcopy(self.model_options)
+            return cloned
+
     def run(**kwargs):
         calls.append(kwargs)
+        kwargs["guide"].update(selflift_rho=0.6, selflift_w_min=0.5,
+                               selflift_w_max=1.0, selflift_upscaler_model="h3.safetensors")
         return kwargs["latent"]
 
     monkeypatch.setattr(two_stage, "run_selflift", run, raising=False)
     monkeypatch.setitem(sys.modules, "comfy_extras.nodes_custom_sampler", types.SimpleNamespace())
-    guider_model = object()
-    accelerated_model = object()
+    guider_model = Model(10.0, 5.0, {
+        "minimax_h3_sigma_shift_video": 10.0,
+        "minimax_h3_sigma_shift_audio": 5.0,
+        "guider_only": True,
+    })
+    accelerated_model = Model(12.0, 3.0, {"attention_backend": "sol_attn"})
     guider = types.SimpleNamespace(
         model_patcher=guider_model,
         original_conds={"positive": [["embedding", {}]]},
@@ -267,14 +294,30 @@ def test_selflift_uses_matched_accelerated_model_when_guider_keeps_sigma_shift_c
         second_lora_name="minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors",
     )
     latent = {"samples": "target-av"}
+    sigmas = torch.linspace(1, 0, 11)
+    sigmas._mmh3_sampling_signature = {"video_shift": 10.0, "audio_shift": 5.0}
 
     result = two_stage.MiniMaxH3TwoStageSampler().execute(
-        types.SimpleNamespace(seed=23), guider, object(), torch.linspace(1, 0, 9),
+        types.SimpleNamespace(seed=23), guider, object(), sigmas,
         latent, guide, second_model=accelerated_model, video_vae=object(),
     )
 
     assert result == (latent, latent)
-    assert calls[0]["model"] is accelerated_model
+    selected = calls[0]["model"]
+    sampling = selected.get_model_object("model_sampling")
+    assert (sampling.shift, sampling.audio_shift, sampling.noise_scale) == (10.0, 5.0, 0.75)
+    assert selected.model_options["transformer_options"] == {
+        "attention_backend": "sol_attn",
+        "minimax_h3_sigma_shift_video": 10.0,
+        "minimax_h3_sigma_shift_audio": 5.0,
+    }
+    assert selected.patches == accelerated_model.patches
+    assert accelerated_model.get_model_object("model_sampling").shift == 12.0
+    assert accelerated_model.model_options == {"transformer_options": {"attention_backend": "sol_attn"}}
+    settings = report_from(result[0])["sampling_settings"]
+    assert (settings["video_shift"], settings["audio_shift"]) == (10.0, 5.0)
+    assert (settings["selflift_rho"], settings["selflift_w_min"], settings["selflift_w_max"]) == (0.6, 0.5, 1.0)
+    assert settings["selflift_upscaler_model"] == "h3.safetensors"
 
 
 def test_standard_bypass_records_actual_steps_route_and_time(monkeypatch):

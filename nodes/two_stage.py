@@ -473,6 +473,23 @@ def _matched_selflift_model(guide, second_model):
     return bool(first_lora and first_lora == second_lora and "v4" in first_lora.lower())
 
 
+def _inherit_selflift_sampling(model, guider_model):
+    """Keep router weights/attention and the guider's complete AV shift patch.
+
+    SigmaShift patches both model_sampling and the DiT transformer options.
+    The legacy graph's router output precedes that node, so selecting it as-is
+    silently restores the base 12/3 shifts after validating a 10/5 schedule.
+    Clone the router output to avoid changing its other consumers.
+    """
+    sampling = guider_model.get_model_object("model_sampling")
+    patched = model.clone()
+    patched.add_object_patch("model_sampling", sampling)
+    options = patched.model_options["transformer_options"] = patched.model_options.get("transformer_options", {}).copy()
+    options["minimax_h3_sigma_shift_video"] = float(sampling.shift)
+    options["minimax_h3_sigma_shift_audio"] = float(sampling.audio_shift)
+    return patched
+
+
 def run_tiled_second_stage(
     split_callables,
     *,
@@ -655,15 +672,19 @@ class MiniMaxH3TwoStageSampler:
                 if model is None or not _matched_selflift_model(guide, second_model):
                     raise ValueError("SelfLift 两阶段必须连接同一个匹配 v4 的模型")
                 LOGGER.warning(
-                    "[H3 SelfLift] 兼容旧工作流：BasicGuider 保留模型副本，改用加速路由的匹配 v4 输出"
+                    "[H3 SelfLift] 兼容旧工作流：使用加速路由的匹配 v4 输出，并继承 BasicGuider 的视频/音频 shift"
                 )
-                model = second_model
+                model = _inherit_selflift_sampling(second_model, model)
+            validate_scheduler_model(model, sigmas)
             report["sampling_settings"] = sampling_settings(guide, model=model, sampler=sampler, sigmas=sigmas)
             with memory_policy(guide):
                 result = run_selflift(model=model, positive=_positive_conditioning(guider),
                     negative=_negative_conditioning(guider),
                     vae=video_vae, sampler=sampler, sigmas=sigmas, latent=latent_image,
                     seed=getattr(noise, "seed", None), guide=guide)
+            report["sampling_settings"].update({key: guide[key] for key in (
+                "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
+            ) if key in guide})
             return result, result
 
         from comfy_extras.nodes_custom_sampler import SamplerCustomAdvanced

@@ -275,6 +275,8 @@ def test_completed_sampling_settings_survive_decode_and_output_snapshots():
     report = evidence.new_report({})
     report["sampling_settings"] = {"evidence": "sampler_inputs", "origin": "current_execution",
                                    "sampler": "euler", "steps": 20, "audio_shift": 5.,
+                                   "selflift_rho": 0.6, "selflift_w_min": 0.5,
+                                   "selflift_w_max": 1., "selflift_upscaler_model": "h3.safetensors",
                                    "scheduler_model_sampling": {"video_shift": 10., "audio_shift": 5.}}
     source = {"samples": torch.zeros(1)}
     evidence.attach_report(source, report)
@@ -282,3 +284,5 @@ def test_completed_sampling_settings_survive_decode_and_output_snapshots():
     assert downstream["sampling_settings"]["steps"] == 20
     assert downstream["sampling_settings"]["origin"] == "upstream_artifact"
     assert downstream["sampling_settings"]["scheduler_model_sampling"]["video_shift"] == 10.
+    for key in ("selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model"):
+        assert downstream["sampling_settings"][key] == report["sampling_settings"][key]

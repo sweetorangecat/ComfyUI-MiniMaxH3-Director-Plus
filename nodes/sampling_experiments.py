@@ -137,7 +137,10 @@ def _selflift_call_kwargs(function, *, model, positive, negative, vae,
         "cfg": 1.0,
         "transition_step": 6,
         "lowres_scale": 0.6,
-        "rho": 0.0,
+        # The latent-only lift reproduced white scratches before VOSR2, even
+        # with FP32 weights and dense attention. Correct the highest-risk 60%
+        # against the pixel/VAE anchor while retaining the learned lift's detail.
+        "rho": 0.6,
         "w_min": 0.5,
         "w_max": 1.0,
         "upscaler_model": upscaler_name,
@@ -243,6 +246,8 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         guide["selflift_highres_tiling_mode"] = call_kwargs.get("highres_tiling_mode")
         guide["selflift_highres_token_chunk"] = call_kwargs.get("highres_token_chunk")
         guide["selflift_highres_weight_cache_gb"] = call_kwargs.get("highres_weight_cache_gb")
+        guide.update(selflift_rho=call_kwargs["rho"], selflift_w_min=call_kwargs["w_min"],
+                     selflift_w_max=call_kwargs["w_max"])
         result = function(**call_kwargs)
     except RuntimeError as exc:
         # Preserve CUDA OOM's exception type so ComfyUI can release its models.

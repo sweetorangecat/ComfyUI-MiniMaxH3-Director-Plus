@@ -15,7 +15,11 @@ SelfLift 使用 REF2VA、24 FPS，时长沿用导演台的 **4–15 秒**，支�
 
 SelfLift 的用途是把前半程计算放在较小网格上，再放大继续采样，以尝试减少计算量。它不会自动增加画质，也不是最终视频超分。U22 配方使用混合 INT8 底模、DMAD v4（0.8）和 Mystic（0.45），调度为 beta 10 个积分间隔、标准 Euler：前 6 步在宽高约 0.6 倍网格采样，经 learned latent upscaler 放大后，在目标网格完成后 4 步。目标 H3 网格按比例限制在 1344×768 像素面积以内；最终尺寸由所选超分完成，2K/4K 不代表 H3 原生以该分辨率采样。
 
-`rho=0`，使用 learned latent upscaler，并在放大后卸载。初始 latent 必须是目标网格，低分辨率前段由 SelfLift 内部建立。高分辨率阶段优先启用 U22 的 Sol-Attn 与 MiniMax MLP 分块；新版 SelfLift 节点同时使用 `global_stream` 全局上下文分块、4096 token 批处理和 4GiB 权重缓存，缺少这些可选参数时自动兼容旧节点。Sol-Attn 内核不可用时回退现有 Sage/精确注意力路线，不旁路训练型二采。它是外部 learned lift 配方，不是论文的完整 SelfLift-zero。日志、指南和输出元数据记录 `sampling_actual_method=selflift`、`sampling_executed_steps=10`、实际节点路线与采样耗时、6+4 步拆分及高分辨率分块参数。标准二采也记录实际执行步数，便于同种子对照。
+`rho=0.6, w_min=0.5, w_max=1.0`，使用 learned latent upscaler 与像素/VAE 锚点的局部一致性修正，并在放大后卸载 learned 模型。2026-10-26 的同素材对照中，原先 `rho=0` 的纯 learned 过渡在超分前就会产生白色细丝和划痕；局部修正消除了检查帧中的明显伪影，比纯像素锚点保留更多细节，但增加一次 VAE 解码/编码，不能作为提速承诺。
+
+初始 latent 必须是目标网格，低分辨率前段由 SelfLift 内部建立。高分辨率阶段优先启用 U22 的 Sol-Attn 与 MiniMax MLP 分块；新版 SelfLift 节点同时使用 `global_stream` 全局上下文分块、4096 token 批处理和 4GiB 权重缓存，缺少这些可选参数时自动兼容旧节点。Sol-Attn 内核不可用时回退现有 Sage/精确注意力路线，不旁路训练型二采。它是外部 learned lift 与像素锚点的混合配方，不是论文的完整 SelfLift-zero。
+
+日志、指南和输出元数据记录 `sampling_actual_method=selflift`、`sampling_executed_steps=10`、实际节点路线与采样耗时、6+4 步拆分、高分辨率分块参数，以及实际 `selflift_rho`、`selflift_w_min`、`selflift_w_max` 和放大模型。旧图从路由器选择匹配模型时继承 BasicGuider 的完整 AV 采样对象和视频/音频 shift，避免模型恢复为 12/3 而调度器仍为 10/5。标准二采也记录实际执行步数，便于同种子对照。
 
 ## 安装依赖
 
@@ -66,3 +70,5 @@ fi
 ## 本次验证记录
 
 2026-10-24：便携版 ComfyUI Python 运行时通过 1420 项 Python 测试、Node.js 前端 80 项测试和 Python 编译检查。测试覆盖 U22 路由、DMAD/Mystic 选择、Sol-Attn 失败回退、SelfLift 10 步 6+4 调用、高分辨率分块参数和执行报告证据。测试验证参数与调用契约，不能替代实际 GPU 视频、画质、耗时和峰值显存验收；AutoDL 当前未运行，因此本轮没有新增 5090 A/B 数据。
+
+2026-10-26：修正旧图的 AV shift 交接，启用局部像素/VAE 锚点校正。399 项相关回归与 10 项文档测试通过；5090 上通过原节点生成了带 H3 克隆音色的 2560×1464 样片，检查帧中未再发现原对照的明显白丝。4 秒设置实际输出 107 帧、4.458 秒，不代表完成 15 秒多空间块验收。对照与运行证据见[排查记录](research/2026-10-26-selflift-glass-artifacts.md)。

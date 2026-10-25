@@ -57,6 +57,7 @@ _SAMPLING_KEYS = (
     "evidence", "origin", "sampler", "sampler_source", "scheduler", "scheduler_source",
     "steps", "sigma_count", "video_shift", "audio_shift", "first_lora_name",
     "first_lora_strength", "second_lora_name", "second_lora_strength",
+    "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
 )
 
 

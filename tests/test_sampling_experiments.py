@@ -137,7 +137,8 @@ def test_adapter_uses_u22_ten_step_schedule_and_unloads_lifter(monkeypatch):
     assert result["samples"] is latent["samples"]
     actual = node.received
     assert actual["transition_step"] == 6 and actual["lowres_scale"] == 0.6
-    assert actual["rho"] == 0 and actual["cfg"] == 1
+    assert actual["rho"] == 0.6 and actual["cfg"] == 1
+    assert (actual["w_min"], actual["w_max"]) == (0.5, 1.0)
     assert actual["upscaler_unload"] and actual["highres_tiling"]
     assert actual["upscaler_model"] == "h3_fp16.safetensors"
     assert actual["model_hires"] is actual["model"]
@@ -147,6 +148,9 @@ def test_adapter_uses_u22_ten_step_schedule_and_unloads_lifter(monkeypatch):
     assert guide["sampling_elapsed_seconds"] == 2.5
     assert guide["two_stage_first_executed_steps"] == 6
     assert guide["two_stage_second_executed_steps"] == 4
+    assert guide["selflift_rho"] == actual["rho"]
+    assert guide["selflift_w_min"] == actual["w_min"]
+    assert guide["selflift_w_max"] == actual["w_max"]
 
 
 def test_cfg_one_uses_iterable_empty_negative_conditioning():
