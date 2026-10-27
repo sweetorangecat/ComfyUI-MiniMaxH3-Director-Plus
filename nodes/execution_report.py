@@ -42,6 +42,7 @@ _PLAN_KEYS = (
     "sol_attn_sink_conditioning", "sol_attn_int8_qk", "sol_attn_int8_pv",
     "selflift_highres_tiling", "selflift_highres_tiling_mode",
     "selflift_highres_token_chunk", "selflift_highres_weight_cache_gb",
+    "selflift_node_id", "selflift_node_variant",
 )
 _RECIPE_KEYS = (
     "id", "key", "name", "preset", "route", "backend", "adapter", "adapter_name", "lora_name",
@@ -58,6 +59,7 @@ _SAMPLING_KEYS = (
     "steps", "sigma_count", "video_shift", "audio_shift", "first_lora_name",
     "first_lora_strength", "second_lora_name", "second_lora_strength",
     "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
+    "selflift_node_id", "selflift_node_variant",
 )
 
 

@@ -947,7 +947,8 @@ class MiniMaxH3DirectorPlus:
             two_stage_tiled = False
             request["warnings"].append(
                 "SelfLift 渐进采样实验：beta/Euler 共 10 步，前 6 步使用约 0.6 倍网格，"
-                "后 4 步使用 H3 目标网格；关闭 Sage、RIFE，按 U22 开启高分辨率分块。显存门槛通过不保证无 OOM。"
+                "后 4 步使用 H3 目标网格；优先使用 Avatar 全局高分辨率上下文，旧节点自动启用白丝保护；"
+                "关闭 Sage、RIFE。显存门槛通过不保证无 OOM。"
             )
         elif request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS:
             resolved_two_stage_route = resolve_two_stage_route(request)

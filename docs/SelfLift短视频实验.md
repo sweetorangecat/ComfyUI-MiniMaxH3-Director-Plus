@@ -15,7 +15,7 @@ SelfLift 使用 REF2VA、24 FPS，时长沿用导演台的 **4–15 秒**，支�
 
 SelfLift 的用途是把前半程计算放在较小网格上，再放大继续采样，以尝试减少计算量。它不会自动增加画质，也不是最终视频超分。U22 配方使用混合 INT8 底模、DMAD v4（0.8）和 Mystic（0.45），调度为 beta 10 个积分间隔、标准 Euler：前 6 步在宽高约 0.6 倍网格采样，经 learned latent upscaler 放大后，在目标网格完成后 4 步。目标 H3 网格按比例限制在 1344×768 像素面积以内；最终尺寸由所选超分完成，2K/4K 不代表 H3 原生以该分辨率采样。
 
-导演台当前连接的是外部 learned latent upscaler，因此默认使用 `rho=0`、`w_min=0.5`、`w_max=1.0`，并在放大后卸载 learned 模型。上游 SelfLift 节点把“外部 learned upscaler + `rho>0`”定义为混合实验：它会再做一次 VAE 解码/编码，容易把皮肤和细边缘抹成蜡感，也会增加耗时。`rho>0` 的 SelfLift-zero 需要 `upscaler_model=none`，目前不作为导演台的自动路线。2026-10-26 的旧样片曾用过混合配方；后续 15 秒 2K 样片出现油腻和细节变软后，已按上游契约回到外部 learned-only 路线。
+导演台优先使用 `selflift-Avatar` 的 `SelfLiftAvatarH3Sampler`。该节点仍由原来的二采节点内部调用，不需要换工作流；它使用全局高分辨率上下文、长片安全的时序边界处理和 `rho=0` learned-only 路线，避免旧空间窗口的接缝与玻璃感。若环境只有旧 `SelfLiftH3Sampler`，适配器会自动退回兼容路线，并只对差异最大的 40% 位置启用轻量 VAE 锚点校正（`rho=0.4, w_min=0.25, w_max=1.0`），优先压住白丝而减少整面皮肤变软。这个兼容保护会增加一次 VAE 解码/编码；安装新版 Avatar 后会自动取消该回环。
 
 初始 latent 必须是目标网格，低分辨率前段由 SelfLift 内部建立。高分辨率阶段优先启用 U22 的 Sol-Attn 与 MiniMax MLP 分块；新版 SelfLift 节点如果声明了 `global_stream`、4096 token 批处理和 4GiB 权重缓存参数，导演台会按能力传入，旧节点则自动兼容。Sol-Attn 内核不可用时回退现有 Sage/精确注意力路线，不旁路训练型二采。当前导演台走外部 learned lift 路线，不把它伪装成论文的完整 SelfLift-zero。
 
@@ -23,17 +23,19 @@ SelfLift 的用途是把前半程计算放在较小网格上，再放大继续�
 
 ## 安装依赖
 
-使用 [facok/comfyui-SelfLift](https://github.com/facok/comfyui-SelfLift)，本次核对的源码版本为 `835c3cf7919410f71f414688f049c6ca497789d0`。需要包含 `SelfLiftH3Sampler` 和 `upscaler_unload` / `highres_tiling` 参数的版本；缺失或过旧会在生成前报错。
+优先使用 [slmonker/selflift-Avatar](https://github.com/slmonker/selflift-Avatar) 主线，它提供 `SelfLiftAvatarH3Sampler`。没有该节点时仍兼容 [facok/comfyui-SelfLift](https://github.com/facok/comfyui-SelfLift) 的 `SelfLiftH3Sampler`。两种节点都必须包含 `upscaler_unload` / `highres_tiling` 参数；缺失或过旧会在生成前报错。
 
 在 ComfyUI 根目录、运行 ComfyUI 的同一个 Python 环境执行。以下适用于尚未安装该插件的环境：
 
 ```bash
-git clone https://github.com/facok/comfyui-SelfLift.git custom_nodes/comfyui-SelfLift
-git -C custom_nodes/comfyui-SelfLift checkout 835c3cf7919410f71f414688f049c6ca497789d0
-if [ -f custom_nodes/comfyui-SelfLift/requirements.txt ]; then
-  python -m pip install -r custom_nodes/comfyui-SelfLift/requirements.txt
+git clone https://github.com/slmonker/selflift-Avatar.git custom_nodes/selflift-Avatar
+git -C custom_nodes/selflift-Avatar pull --ff-only
+if [ -f custom_nodes/selflift-Avatar/requirements.txt ]; then
+  python -m pip install -r custom_nodes/selflift-Avatar/requirements.txt
 fi
 ```
+
+已有旧目录时不要再克隆第二份：先 `git -C custom_nodes/selflift-Avatar pull --ff-only`，重启 ComfyUI。适配器会在同一个原工作流中自动选择 Avatar 节点；如果只保留旧目录，则使用旧节点的兼容保护。
 
 已安装时先检查该目录的版本和本地改动，避免重复安装两个副本。安装后重启 ComfyUI 并刷新页面。现有工作流连接完整时继续使用即可。
 
@@ -73,4 +75,4 @@ fi
 
 2026-10-26：修正旧图的 AV shift 交接，曾启用局部像素/VAE 锚点校正。399 项相关回归与 10 项文档测试通过；5090 上通过原节点生成了带 H3 克隆音色的 2560×1464 样片，检查帧中未再发现原对照的明显白丝。4 秒设置实际输出 107 帧、4.458 秒，不代表完成 15 秒多空间块验收。对照与运行证据见[排查记录](research/2026-10-26-selflift-glass-artifacts.md)。
 
-2026-10-27：远程 5090 的 15 秒 2K 样片确认使用了外部 learned upscaler 与 `rho=0.6` 混合配方；采样约 795 秒，VOSR2 约 718 秒，画面出现皮肤和边缘偏油腻。导演台恢复外部 learned-only 的 `rho=0` 契约，避免无必要的 VAE 回环；同时把完全空闲 32GB 卡的 VOSR2 空间 tile batch 自动提高到 8，保留显存不足时的 4/1 回退。
+2026-10-27：15 秒 2K 样片的执行报告显示实际加载的是旧 `SelfLiftH3Sampler`，`highres_tiling_mode/token_chunk/weight_cache` 均为 `null`；成片在脸颊、头发和高光边缘出现与历史样片一致的白色细丝。适配器现优先选择 `SelfLiftAvatarH3Sampler`；旧节点才启用 `rho=0.4` 的稀疏锚点保护，并把实际节点变体写入执行报告。完整 15 秒 GPU A/B 仍需在更新插件后复跑。

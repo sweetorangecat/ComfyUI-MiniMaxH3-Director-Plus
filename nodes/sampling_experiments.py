@@ -13,6 +13,11 @@ import time
 
 
 SELFLIFT_NODE_ID = "SelfLiftH3Sampler"
+# selflift-Avatar keeps the original H3 node contract but adds the global
+# high-resolution stream path and the long-clip reflect-padding fix.  Prefer it
+# when installed; the original facok node remains a compatibility fallback so
+# saved workflows do not need a new node or a new JSON graph.
+SELFLIFT_NODE_IDS = ("SelfLiftAvatarH3Sampler", SELFLIFT_NODE_ID)
 SELFLIFT_PARAMETERS = (
     "model", "positive", "negative", "vae", "latent_image", "sampler", "sigmas",
     "seed", "cfg", "transition_step", "lowres_scale", "rho", "w_min", "w_max",
@@ -94,27 +99,75 @@ def motion_lora_chain(profile):
     raise ValueError(f"未知社区 LoRA 配置：{profile}")
 
 
-def _selflift_callable(registry):
-    factory = registry.get(SELFLIFT_NODE_ID)
-    if not callable(factory):
-        raise RuntimeError("缺少 SelfLiftH3Sampler 节点，请安装或更新 ComfyUI-SelfLift")
-    node = factory()
-    function = getattr(node, "sample", None)
-    if not callable(function):
-        raise RuntimeError("SelfLiftH3Sampler 缺少当前 sample 方法")
+def _selflift_contract_error(function):
+    """Return a readable contract error for either supported upstream node."""
     parameters = inspect.signature(function).parameters
-    missing = [name for name in SELFLIFT_PARAMETERS if name not in parameters or parameters[name].kind not in (
-        inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY,
-    )]
-    unknown_required = [name for name, param in parameters.items()
-                        if name not in SELFLIFT_PARAMETERS and param.default is inspect.Parameter.empty
-                        and param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)]
+    declared = {
+        name: parameter
+        for name, parameter in parameters.items()
+        if parameter.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    }
+    # facok uses ``model``/``model_hires``; selflift-Avatar names the same
+    # inputs ``low_res_model``/``high_res_model``.  All other inputs are shared.
+    model_name = "low_res_model" if "low_res_model" in declared else "model"
+    required = (
+        "positive", "negative", "vae", "latent_image", "sampler", "sigmas",
+        "seed", "cfg", "transition_step", "lowres_scale", "rho", "w_min",
+        "w_max", "upscaler_model", "highres_tiling", model_name,
+    )
+    aliases = {
+        "model", "low_res_model", "model_hires", "high_res_model", "upscaler_unload",
+        "highres_tiling_mode", "highres_token_chunk", "highres_weight_cache_gb",
+        "tiling_mode", "tiling_tiles", "tiling_axis",
+    }
+    missing = [
+        name for name in required
+        if name not in declared
+    ]
+    unknown_required = [
+        name for name, parameter in declared.items()
+        if name not in required and name not in aliases
+        and parameter.default is inspect.Parameter.empty
+    ]
     if missing or unknown_required:
-        raise RuntimeError("SelfLiftH3Sampler 当前方法契约不匹配：" + ", ".join(missing + unknown_required))
-    return function
+        return ", ".join(missing + unknown_required)
+    return None
 
 
-def _selflift_call_kwargs(function, *, model, positive, negative, vae,
+def _resolve_selflift_callable(registry):
+    """Select the newest compatible SelfLift node without changing the graph."""
+    errors = []
+    for node_id in SELFLIFT_NODE_IDS:
+        factory = registry.get(node_id)
+        if not callable(factory):
+            continue
+        try:
+            node = factory()
+            function = getattr(node, "sample", None)
+            if not callable(function):
+                raise RuntimeError("缺少当前 sample 方法")
+            contract_error = _selflift_contract_error(function)
+            if contract_error:
+                raise RuntimeError("方法契约不匹配：" + contract_error)
+            return function, node_id
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            errors.append(f"{node_id}: {exc}")
+    if errors:
+        raise RuntimeError("SelfLift 节点不可用：" + "；".join(errors))
+    raise RuntimeError(
+        "缺少 SelfLiftAvatarH3Sampler 或 SelfLiftH3Sampler 节点，请安装或更新 SelfLift 插件"
+    )
+
+
+def _selflift_callable(registry):
+    """Compatibility wrapper retained for callers that only need the method."""
+    return _resolve_selflift_callable(registry)[0]
+
+
+def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
                           latent, sampler, sigmas, seed, upscaler_name):
     """Build the SelfLift call for both legacy and current upstream nodes.
 
@@ -125,8 +178,23 @@ def _selflift_call_kwargs(function, *, model, positive, negative, vae,
     U22 memory-saving path explicit on the current node.
     """
     parameters = inspect.signature(function).parameters
+    # The current Avatar node has a separate highres_tiling_mode input for the
+    # full-sequence global stream.  Older Avatar builds only expose the spatial
+    # tiler and reject the global mode string in their tiling_mode input.  Keep
+    # the call legal on both versions and use the sparse VAE anchor on every
+    # pre-global/legacy route; this is internal so the UI stays simple.
+    avatar = node_id == "SelfLiftAvatarH3Sampler"
+    supports_global_stream = avatar and "highres_tiling_mode" in parameters
+    artifact_guard = (
+        dict(name="avatar_global_stream", rho=0.0, w_min=0.5, w_max=1.0,
+             highres_tiling_mode="global_stream")
+        if supports_global_stream else
+        dict(name="avatar_spatial_compat_guard" if avatar else "legacy_sparse_artifact_guard",
+             rho=0.4, w_min=0.25, w_max=1.0, highres_tiling_mode="spatial")
+    )
     values = {
         "model": model,
+        "low_res_model": model,
         "positive": positive,
         "negative": negative,
         "vae": vae,
@@ -137,43 +205,50 @@ def _selflift_call_kwargs(function, *, model, positive, negative, vae,
         "cfg": 1.0,
         "transition_step": 6,
         "lowres_scale": 0.6,
-        # This route supplies an external learned H3 latent lifter.  The
-        # upstream node documents rho>0 with that lifter as a hybrid experiment:
-        # it adds a VAE decode/encode round trip and softens fine detail.  Keep
-        # the learned lift only; SelfLift-zero is a separate, unsupported route
-        # in the director because it has no external lifter dependency.
-        "rho": 0.0,
-        "w_min": 0.5,
-        "w_max": 1.0,
+        "rho": artifact_guard["rho"],
+        "w_min": artifact_guard["w_min"],
+        "w_max": artifact_guard["w_max"],
         "upscaler_model": upscaler_name,
         "model_hires": model,
+        "high_res_model": model,
         "highres_tiling": True,
         "upscaler_unload": True,
-        # U22's current SelfLift node calls this global stream mode.  It keeps
-        # full temporal context while batching projections and unloading the
-        # learned lifter before the expensive target-resolution pass.
-        "highres_tiling_mode": "global_stream",
+        # Current Avatar builds use full-sequence context while batching
+        # projections. Older builds ignore these optional arguments and use
+        # the legal spatial compatibility values below.
+        "highres_tiling_mode": artifact_guard["highres_tiling_mode"],
         "highres_token_chunk": 4096,
         "highres_weight_cache_gb": 4.0,
+        "tiling_mode": "auto",
+        "tiling_tiles": 2,
+        "tiling_axis": "auto",
     }
     declared = {
         name for name, parameter in parameters.items()
         if parameter.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,
                               inspect.Parameter.KEYWORD_ONLY)
     }
-    return {name: value for name, value in values.items() if name in declared}
+    return {
+        name: value for name, value in values.items()
+        if name in declared
+    }, artifact_guard
 
 
 def selflift_dependency_report(registry, upscaler_name):
     """Check the current upstream method and a resolved external learned lifter."""
     missing = []
     try:
-        _selflift_callable(registry or {})
+        _, node_id = _resolve_selflift_callable(registry or {})
     except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
         missing.append(str(exc))
     if not str(upscaler_name or "").strip() or str(upscaler_name).lower() == "none":
         missing.append("SelfLift 必须安装并选择 H3 learned latent upscaler")
-    return {"ready": not missing, "missing": missing, "upscaler_model": upscaler_name}
+    return {
+        "ready": not missing,
+        "missing": missing,
+        "upscaler_model": upscaler_name,
+        "node_id": node_id if not missing else None,
+    }
 
 
 def _av_shapes(latent):
@@ -231,9 +306,10 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         raise RuntimeError("SelfLift 依赖未就绪：" + "；".join(report["missing"]))
     started = time.perf_counter()
     try:
-        function = _selflift_callable(registry)
-        call_kwargs = _selflift_call_kwargs(
+        function, node_id = _resolve_selflift_callable(registry)
+        call_kwargs, artifact_guard = _selflift_call_kwargs(
             function,
+            node_id=node_id,
             model=model,
             positive=positive,
             negative=[] if negative is None else negative,
@@ -245,11 +321,19 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
             upscaler_name=upscaler_name,
         )
         guide["selflift_highres_tiling"] = bool(call_kwargs.get("highres_tiling", False))
-        guide["selflift_highres_tiling_mode"] = call_kwargs.get("highres_tiling_mode")
+        guide["selflift_highres_tiling_mode"] = (
+            artifact_guard["highres_tiling_mode"]
+            if call_kwargs.get("highres_tiling") else None
+        )
         guide["selflift_highres_token_chunk"] = call_kwargs.get("highres_token_chunk")
         guide["selflift_highres_weight_cache_gb"] = call_kwargs.get("highres_weight_cache_gb")
-        guide.update(selflift_rho=call_kwargs["rho"], selflift_w_min=call_kwargs["w_min"],
-                     selflift_w_max=call_kwargs["w_max"])
+        guide.update(
+            selflift_node_id=node_id,
+            selflift_node_variant=artifact_guard["name"],
+            selflift_rho=call_kwargs["rho"],
+            selflift_w_min=call_kwargs["w_min"],
+            selflift_w_max=call_kwargs["w_max"],
+        )
         result = function(**call_kwargs)
     except RuntimeError as exc:
         # Preserve CUDA OOM's exception type so ComfyUI can release its models.
@@ -265,7 +349,7 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
     if output_shapes != shapes:
         raise RuntimeError("SelfLift 返回 AV latent 的目标尺寸或时长发生变化")
     guide.update(sampling_actual_method="selflift", sampling_executed_steps=10,
-                 sampling_route=SELFLIFT_NODE_ID,
+                 sampling_route=node_id,
                  sampling_elapsed_seconds=time.perf_counter() - started,
                  two_stage_first_executed_steps=6, two_stage_second_executed_steps=4,
                  two_stage_first_sigma_count=7, two_stage_second_sigma_count=5,

@@ -123,6 +123,103 @@ def test_selflift_missing_or_obsolete_dependency_fails_preflight():
     assert not report["ready"] and report["missing"]
 
 
+class AvatarSamplerNode:
+    def sample(self, low_res_model, positive, negative, vae, latent_image, sampler, sigmas,
+               seed, cfg, transition_step, lowres_scale, rho, w_min, w_max,
+               upscaler_model, high_res_model=None, highres_tiling=False,
+               upscaler_unload=True, highres_tiling_mode="spatial",
+               highres_token_chunk=4096, highres_weight_cache_gb=4.0):
+        self.received = locals()
+        return (latent_image.copy(),)
+
+
+class AvatarSamplerWithoutLegacyUnload(AvatarSamplerNode):
+    def sample(self, low_res_model, positive, negative, vae, latent_image, sampler, sigmas,
+               seed, cfg, transition_step, lowres_scale, rho, w_min, w_max,
+               upscaler_model, high_res_model=None, highres_tiling=False,
+               highres_tiling_mode="spatial", highres_token_chunk=4096,
+               highres_weight_cache_gb=4.0):
+        self.received = locals()
+        return (latent_image.copy(),)
+
+
+class AvatarSpatialCompatibilityNode:
+    """Pre-global-stream Avatar API: spatial tiling only."""
+
+    def sample(self, low_res_model, positive, negative, vae, latent_image, sampler, sigmas,
+               seed, cfg, transition_step, lowres_scale, rho, w_min, w_max,
+               upscaler_model, high_res_model=None, highres_tiling=False,
+               tiling_mode="auto", tiling_tiles=2, tiling_axis="auto"):
+        self.received = locals()
+        return (latent_image.copy(),)
+
+
+def test_selflift_prefers_avatar_sampler_and_uses_global_context_recipe():
+    node = AvatarSamplerNode()
+    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors")
+    latent = {"samples": AV()}
+    result = experiments.run_selflift(
+        model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+        sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
+        latent=latent, seed=42, guide=guide,
+        registry={"SelfLiftAvatarH3Sampler": lambda: node, "SelfLiftH3Sampler": lambda: SamplerNode()},
+    )
+    assert result["samples"] is latent["samples"]
+    actual = node.received
+    assert actual["low_res_model"] is actual["high_res_model"]
+    assert actual["rho"] == 0.0
+    assert actual["highres_tiling"] is True
+    assert actual["highres_tiling_mode"] == "global_stream"
+    assert actual["highres_token_chunk"] == 4096
+    assert actual["highres_weight_cache_gb"] == 4.0
+    assert guide["sampling_route"] == "SelfLiftAvatarH3Sampler"
+    assert guide["selflift_node_variant"] == "avatar_global_stream"
+
+
+def test_avatar_sampler_does_not_require_legacy_unload_argument():
+    node = AvatarSamplerWithoutLegacyUnload()
+    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors")
+    experiments.run_selflift(
+        model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+        sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
+        latent={"samples": AV()}, seed=42, guide=guide,
+        registry={"SelfLiftAvatarH3Sampler": lambda: node},
+    )
+    assert node.received["highres_tiling_mode"] == "global_stream"
+
+
+def test_pre_global_avatar_uses_spatial_compatibility_contract():
+    node = AvatarSpatialCompatibilityNode()
+    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors")
+    experiments.run_selflift(
+        model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+        sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
+        latent={"samples": AV()}, seed=42, guide=guide,
+        registry={"SelfLiftAvatarH3Sampler": lambda: node},
+    )
+    actual = node.received
+    assert actual["tiling_mode"] == "auto"
+    assert actual["tiling_tiles"] == 2
+    assert actual["tiling_axis"] == "auto"
+    assert actual["rho"] == 0.4
+    assert guide["selflift_highres_tiling_mode"] == "spatial"
+    assert guide["selflift_node_variant"] == "avatar_spatial_compat_guard"
+
+
+def test_legacy_selflift_gets_sparse_artifact_guard():
+    node = SamplerNode()
+    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors")
+    experiments.run_selflift(
+        model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+        sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
+        latent={"samples": AV()}, seed=42, guide=guide,
+        registry={"SelfLiftH3Sampler": lambda: node},
+    )
+    actual = node.received
+    assert (actual["rho"], actual["w_min"], actual["w_max"]) == (0.4, 0.25, 1.0)
+    assert guide["selflift_node_variant"] == "legacy_sparse_artifact_guard"
+
+
 def test_adapter_uses_u22_ten_step_schedule_and_unloads_lifter(monkeypatch):
     ticks = iter((10.0, 12.5))
     monkeypatch.setattr(experiments, "time", types.SimpleNamespace(perf_counter=lambda: next(ticks)), raising=False)
@@ -137,11 +234,10 @@ def test_adapter_uses_u22_ten_step_schedule_and_unloads_lifter(monkeypatch):
     assert result["samples"] is latent["samples"]
     actual = node.received
     assert actual["transition_step"] == 6 and actual["lowres_scale"] == 0.6
-    # An external learned H3 lifter already supplies the learned lift.  The
-    # pixel/VAE anchor is reserved for the SelfLift-zero route; combining it
-    # with the external lifter adds a slow, softening round trip.
-    assert actual["rho"] == 0.0 and actual["cfg"] == 1
-    assert (actual["w_min"], actual["w_max"]) == (0.5, 1.0)
+    # The legacy node lacks Avatar's global-stream artifact fix, so the
+    # adapter uses a sparse, low-strength VAE anchor only on high-risk sites.
+    assert actual["rho"] == 0.4 and actual["cfg"] == 1
+    assert (actual["w_min"], actual["w_max"]) == (0.25, 1.0)
     assert actual["upscaler_unload"] and actual["highres_tiling"]
     assert actual["upscaler_model"] == "h3_fp16.safetensors"
     assert actual["model_hires"] is actual["model"]
