@@ -1120,6 +1120,7 @@ def test_director_seed_uses_comfy_control_after_generate_and_is_exported():
         reference_transcript="",
     )
 
+    assert result[0]["seed"] == 123456
     assert result[-1] == 123456
 
 

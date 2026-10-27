@@ -1308,6 +1308,9 @@ class MiniMaxH3DirectorPlus:
             )
         guide = {
             "version": 1,
+            # Keep the Director seed on the guide so downstream sampling,
+            # reconstruction and output naming all refer to the same run.
+            "seed": int(seed),
             "mode": mode,
             "voice_mode": voice_mode,
             "sampling_method": request["sampling_method"],
