@@ -30,6 +30,29 @@ def without_voice_references(prompt):
 FORBIDDEN_AUDIO_MARKERS = ("fully_" + "copy", "partially_" + "copy", "audio " + "reuse")
 
 
+_VISUAL_TEXT_POLICY = (
+    "visual_text_policy:\n"
+    "Visible writing is allowed only when the user explicitly requests it as part of the visual scene. "
+    "Speech is audio-only and must never be inferred as visible writing. "
+    "Otherwise, no subtitles, captions, transcript text, speech bubbles, calligraphy, title cards, labels, watermarks, UI text, or glowing Chinese characters anywhere in the video. "
+    "Ignore and do not copy writing from reference images or storyboards; keep lower third and margins as clean scene pixels. "
+    "除非用户明确要求画面文字，否则对白只进入声音，不要自动生成字幕、对白文字、气泡字或发光中文。"
+)
+
+
+def _append_visual_text_policy(prompt):
+    """Keep spoken dialogue and reference-image writing out of video pixels."""
+    text = str(prompt or "").strip()
+    if "visual_text_policy:" in text.lower():
+        return text
+    return f"{text}\n\n{_VISUAL_TEXT_POLICY}" if text else _VISUAL_TEXT_POLICY
+
+
+def ensure_visual_text_policy(prompt):
+    """Add the shared no-visible-writing policy to any H3 route prompt."""
+    return _append_visual_text_policy(prompt)
+
+
 def is_structured_reference_prompt(detail):
     """Detect a prompt that already follows the official R2V section layout."""
     text = str(detail or "")
@@ -112,7 +135,7 @@ def build_reference_prompt(
         )
         if any(marker in prompt for marker in FORBIDDEN_AUDIO_MARKERS):
             raise ValueError("提示词包含不允许的音频复制语义")
-        return prompt
+        return _append_visual_text_policy(prompt)
 
     definitions = []
     retention = []
@@ -202,4 +225,4 @@ def build_reference_prompt(
     ).strip()
     if any(marker in prompt for marker in FORBIDDEN_AUDIO_MARKERS):
         raise ValueError("提示词包含不允许的音频复制语义")
-    return prompt
+    return _append_visual_text_policy(prompt)

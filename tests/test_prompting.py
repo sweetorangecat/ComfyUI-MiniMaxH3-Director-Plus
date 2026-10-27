@@ -85,6 +85,44 @@ def test_reference_prompt_numbers_multiple_audio_samples():
     assert "<Audio 3>" not in prompt
 
 
+def test_reference_prompt_explicitly_keeps_spoken_dialogue_out_of_video_pixels():
+    prompt = build_reference_prompt(
+        mode="REF2VA",
+        detail="人物使用 <Audio 1> 的音色说：<d>[Chinese] 我还要睡觉。</d>",
+        duration=5,
+        has_audio=True,
+        audio_count=1,
+    )
+
+    assert "visual_text_policy:" in prompt
+    assert "Speech is audio-only" in prompt
+    assert "subtitles" in prompt.lower()
+    assert "speech bubbles" in prompt.lower()
+    assert "reference images or storyboards" in prompt
+
+
+def test_structured_reference_prompt_also_receives_visible_text_policy():
+    detail = (
+        "subject_definitions:\n"
+        "<Audio 1> is the voice-timbre reference for the woman.\n\n"
+        "summary:\n"
+        "[reference generation + audio reference] one shot.\n\n"
+        "detailed_description:\n"
+        "The woman speaks one short line.\n"
+    )
+
+    prompt = build_reference_prompt(
+        mode="REF2VA",
+        detail=detail,
+        duration=5,
+        has_audio=True,
+        audio_count=1,
+    )
+
+    assert "visual_text_policy:" in prompt
+    assert "Speech is audio-only" in prompt
+
+
 def test_reference_prompt_can_lock_male_voice_register():
     prompt = build_reference_prompt(
         mode="REF2VA",
@@ -124,9 +162,10 @@ def test_structured_prompt_passes_through_without_rewrapping():
         audio_names=("橘总",),
     )
 
-    assert prompt == detail.strip()
+    assert detail.strip() in prompt
     assert prompt.count("subject_definitions:") == 1
     assert "generic reference image" not in prompt
+    assert "visual_text_policy:" in prompt
 
 
 def test_structured_prompt_applies_explicit_female_voice_constraint():

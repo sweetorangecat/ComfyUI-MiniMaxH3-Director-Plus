@@ -874,7 +874,8 @@ def test_native_fl2va_guide_keeps_hard_endpoint_images():
     assert guide["last_frame"] is last
     assert guide["ref_images"] == {}
     assert length == 124
-    assert resolved_prompt == "人物从房间走到门外。"
+    assert "人物从房间走到门外。" in resolved_prompt
+    assert "visual_text_policy:" in resolved_prompt
     assert backend == "fl2va_model"
     assert is_hard_endpoint is True
     assert warnings == ""

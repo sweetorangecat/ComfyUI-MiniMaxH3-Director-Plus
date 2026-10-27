@@ -8,7 +8,7 @@ import math
 import os
 from pathlib import Path
 
-from .prompting import build_reference_prompt, without_voice_references
+from .prompting import build_reference_prompt, ensure_visual_text_policy, without_voice_references
 from .resolution import ASPECTS, MEGAPIXELS, calculate_resolution, h3_native_canvas
 from .rtx_vsr_stream import probe_vsr_capability
 from .rife_stream import DEFAULT_RIFE_MODEL, probe_rife_capability
@@ -1269,7 +1269,7 @@ class MiniMaxH3DirectorPlus:
         ref_audios = {}
         first_frame = first_image
         last_frame = last_image
-        resolved_prompt = str(prompt or "").strip()
+        resolved_prompt = ensure_visual_text_policy(str(prompt or "").strip())
 
         if request["resolved_backend"] == "ref2va_model":
             first_frame = None
