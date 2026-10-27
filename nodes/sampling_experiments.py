@@ -137,10 +137,12 @@ def _selflift_call_kwargs(function, *, model, positive, negative, vae,
         "cfg": 1.0,
         "transition_step": 6,
         "lowres_scale": 0.6,
-        # The latent-only lift reproduced white scratches before VOSR2, even
-        # with FP32 weights and dense attention. Correct the highest-risk 60%
-        # against the pixel/VAE anchor while retaining the learned lift's detail.
-        "rho": 0.6,
+        # This route supplies an external learned H3 latent lifter.  The
+        # upstream node documents rho>0 with that lifter as a hybrid experiment:
+        # it adds a VAE decode/encode round trip and softens fine detail.  Keep
+        # the learned lift only; SelfLift-zero is a separate, unsupported route
+        # in the director because it has no external lifter dependency.
+        "rho": 0.0,
         "w_min": 0.5,
         "w_max": 1.0,
         "upscaler_model": upscaler_name,

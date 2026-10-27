@@ -64,7 +64,7 @@ def test_unknown_profile_is_rejected(profile):
 
 
 @pytest.mark.parametrize('supported,total,free,expected', [
-    (True,32,28,4), (False,32,28,1), (True,8,7,1),
+    (True,32,30,8), (True,32,28,4), (False,32,28,1), (True,8,7,1),
     (True,32,20,1), (True,32,float('nan'),1), (True,None,None,1),
     (True,32,33,1), (True,True,28,1),
 ])

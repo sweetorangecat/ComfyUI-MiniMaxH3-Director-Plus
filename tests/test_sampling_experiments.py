@@ -137,7 +137,10 @@ def test_adapter_uses_u22_ten_step_schedule_and_unloads_lifter(monkeypatch):
     assert result["samples"] is latent["samples"]
     actual = node.received
     assert actual["transition_step"] == 6 and actual["lowres_scale"] == 0.6
-    assert actual["rho"] == 0.6 and actual["cfg"] == 1
+    # An external learned H3 lifter already supplies the learned lift.  The
+    # pixel/VAE anchor is reserved for the SelfLift-zero route; combining it
+    # with the external lifter adds a slow, softening round trip.
+    assert actual["rho"] == 0.0 and actual["cfg"] == 1
     assert (actual["w_min"], actual["w_max"]) == (0.5, 1.0)
     assert actual["upscaler_unload"] and actual["highres_tiling"]
     assert actual["upscaler_model"] == "h3_fp16.safetensors"

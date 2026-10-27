@@ -22,7 +22,14 @@ def resolve_vosr2_profile(profile='legacy', *, free_vram_gb=None, total_vram_gb=
             raise ValueError('VOSR2 experimental_32gb 需要释放模型后实测总显存至少 30 GiB、'
                              '空闲显存至少 24 GiB；无法测量或不足时请显式选择 manual_baseline。')
     legacy = profile == 'legacy'
-    tile_batch = 4 if legacy and supports_tile_batch is True and roomy else 1
+    # The Linux compatibility backend batches independent spatial DiT tiles.
+    # A fully idle 32GB card has enough headroom for eight tiles; keeping four
+    # for the lower-headroom case avoids trading an OOM for a small speed gain.
+    tile_batch = (
+        8 if legacy and supports_tile_batch is True and roomy
+        and float(free_vram_gb) >= 29.0
+        else 4 if legacy and supports_tile_batch is True and roomy else 1
+    )
     frame_batch = 4 if experimental else 2
     policy = 'auto' if legacy else 'staged'
     return {

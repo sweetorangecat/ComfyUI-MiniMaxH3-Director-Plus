@@ -8,11 +8,11 @@ Linux兼容层的定点维护例外：`tools/patch_linux_vosr2.py` 可对已经�
 
 | 配置键 | 上游质量 / tile 策略 | tile / VAE tile | frame / DINO batch | 显存策略 | 用途 |
 |---|---|---|---|---|---|
-| `legacy` | `speed` / `auto` | 512 / 1024 | 2 / 2 | `auto` | 原有行为 |
+| `legacy` | `speed` / `auto` | 512 / 1024 | 2 / 2 | `auto` | 原有行为；完全空闲的 30GB+ 显存自动把独立空间 tile batch 提到 8 |
 | `manual_baseline` | `manual` / `tiled` | 512 / 1024 | 2 / 2 | `staged` | 固定 tile 的保守对比基线 |
 | `experimental_32gb` | `manual` / `tiled` | 512 / 1024 | 4 / 4 | `staged` | 明确实验档，只测试更大的帧与 DINO 批量 |
 
-除上述兼容层批量处理外，`image_batch` 保持1。全部配置保持 tile overlap=32、VAE overlap=32、`temporal_cache=False`、`torch_compile=False`、`vae_encode_amp=False`、wavelet 颜色对齐。frame batch 同时传给 Settings 与 Video，避免 Video 覆盖所选配置。`legacy` 的 `speed/auto` 仍允许上游自行调整有效设置；日志中的 `requested_config` 是实际传入参数，`upstream_settings` 只记录上游返回且可读取的标量字段，不冒充内核内的全部最终设置。
+除上述兼容层批量处理外，普通显存档的 `image_batch` 保持1；已验证的 Linux 兼容层在实测总显存至少 30 GiB、空闲至少 29 GiB 时，`legacy` 自动使用 8 个独立空间 tile 的批量调用，空闲不足回到 4 或 1。全部配置保持 tile overlap=32、VAE overlap=32、`temporal_cache=False`、`torch_compile=False`、`vae_encode_amp=False`、wavelet 颜色对齐。frame batch 同时传给 Settings 与 Video，避免 Video 覆盖所选配置。`legacy` 的 `speed/auto` 仍允许上游自行调整有效设置；日志中的 `requested_config` 是实际传入参数，`upstream_settings` 只记录上游返回且可读取的标量字段，不冒充内核内的全部最终设置。
 
 上游 TE-Speed-VOSR2 1.0 README 提醒：`speed` 更大的 tile batch 或 VAE tile 可能提高显存峰值并触发换载，因此可能比 `manual` 慢。本次保持 tile 尺寸，仅对已验证的 Linux 兼容层合并独立分块调用；实测范围见下文。
 
