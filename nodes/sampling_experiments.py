@@ -266,6 +266,26 @@ def _av_shapes(latent):
     return shapes
 
 
+def _unwrap_sampler_result(result):
+    """Normalize ComfyUI node outputs to the returned LATENT value.
+
+    Native node functions may return a tuple/list, while ComfyUI custom nodes
+    commonly return ``{"ui": ..., "result": (latent,)}``.  The latter shape
+    is used by current selflift-Avatar releases and must be unwrapped before
+    validating the AV latent contract.
+    """
+    if isinstance(result, dict) and "samples" in result:
+        return result
+    result_value = getattr(result, "result", None)
+    if result_value is not None:
+        result = result_value
+    elif isinstance(result, dict) and "result" in result:
+        result = result["result"]
+    if isinstance(result, (tuple, list)) and result:
+        result = result[0]
+    return result
+
+
 def _validate_euler(sampler):
     function = getattr(sampler, "sampler_function", None)
     try:
@@ -342,8 +362,7 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         raise type(exc)(f"SelfLift 执行失败，已停止：{exc}") from exc
     except (AttributeError, ImportError, KeyError, OSError, TypeError, ValueError) as exc:
         raise RuntimeError(f"SelfLift 执行失败，已停止：{exc}") from exc
-    result = getattr(result, "result", result)
-    result = result[0] if isinstance(result, (tuple, list)) and result else result
+    result = _unwrap_sampler_result(result)
     try:
         output_shapes = _av_shapes(result)
     except (AttributeError, TypeError, ValueError) as exc:

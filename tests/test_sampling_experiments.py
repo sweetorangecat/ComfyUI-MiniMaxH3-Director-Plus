@@ -176,6 +176,27 @@ def test_selflift_prefers_avatar_sampler_and_uses_global_context_recipe():
     assert guide["selflift_node_variant"] == "avatar_global_stream"
 
 
+def test_adapter_unwraps_comfy_node_output_mapping():
+    class ComfyOutputAvatarSampler(AvatarSamplerNode):
+        def sample(self, low_res_model, positive, negative, vae, latent_image, sampler, sigmas,
+                   seed, cfg, transition_step, lowres_scale, rho, w_min, w_max,
+                   upscaler_model, high_res_model=None, highres_tiling=False,
+                   upscaler_unload=True, highres_tiling_mode="spatial",
+                   highres_token_chunk=4096, highres_weight_cache_gb=4.0):
+            self.received = locals()
+            return {"ui": {"selflift_tiling": ["DONE"]}, "result": (latent_image.copy(),)}
+
+    node = ComfyOutputAvatarSampler()
+    latent = {"samples": AV(), "metadata": "preserved"}
+    result = experiments.run_selflift(
+        model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+        sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
+        latent=latent, seed=42, guide={"selflift_upscaler_model": "h3_fp16.safetensors"},
+        registry={"SelfLiftAvatarH3Sampler": lambda: node},
+    )
+    assert result["samples"] is latent["samples"]
+
+
 def test_avatar_sampler_does_not_require_legacy_unload_argument():
     node = AvatarSamplerWithoutLegacyUnload()
     guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors")
