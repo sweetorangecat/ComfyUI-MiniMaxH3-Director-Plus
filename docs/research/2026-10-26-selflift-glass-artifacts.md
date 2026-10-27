@@ -25,7 +25,7 @@
 
 这份记录保留的是 2026-10-26 的历史样片结论，不能直接作为当前默认配方。该样片的 `rho=0.6` 同时连接了外部 learned upscaler 和像素/VAE 锚点，属于上游节点标注的 hybrid experiment；它在短片上压住了白丝，但会增加 VAE 回环。2026-10-27 远程 5090 的 15 秒 2K 输出出现皮肤和细边缘油腻后，结合上游 README 与实际耗时，导演台已恢复外部 learned-only 的 `rho=0`。之前的白丝排查仍提示要优先保证 AV shift 为 10/5、底模和注意力路由一致，不能把 `rho=0.6` 当成通用质量开关。
 
-同一条 15 秒样片的执行报告还显示，实际节点没有声明 `highres_tiling_mode`、`highres_token_chunk` 或 `highres_weight_cache_gb`；适配器虽然兼容传参，但旧节点会静默忽略这些新版能力。因而当前修复同时增加了 `selflift-Avatar` 节点优先级：新节点走全局高分辨率上下文，旧节点才启用 `rho=0.4` 的稀疏锚点保护。完成更新后仍需用相同 seed 做一次 15 秒 GPU A/B，分别导出 SelfLift 前、VOSR2 前和最终帧，才能把视觉修复从“代码路径正确”提升为完整画质验收。
+同一条 15 秒样片的执行报告还显示，实际节点没有声明 `highres_tiling_mode`、`highres_token_chunk` 或 `highres_weight_cache_gb`；适配器虽然兼容传参，但旧节点会静默忽略这些新版能力。当前收集到的 Avatar 兼容版本也只声明空间分块接口，因此兼容路线统一使用实测的 `rho=0.6, w_min=0.5, w_max=1.0` 混合锚点保护；只有实际声明全局高分辨率流的新版节点才走 `rho=0` learned-only 路线，并把实际节点变体写入执行报告。完成更新后仍需用相同 seed 做一次 15 秒 GPU A/B，分别导出 SelfLift 前、VOSR2 前和最终帧，才能把视觉修复从“代码路径正确”提升为完整画质验收。
 
 兼容细节：当前 Avatar 节点把全局策略放在独立的 `highres_tiling_mode=global_stream` 输入；只有空间分块的旧 Avatar 版本仍使用 `tiling_mode=auto`、`tiling_tiles=2`。适配器不会再把 `global_stream` 写入旧版的空间 `tiling_mode`，执行报告会记录实际的 `global_stream` 或 `spatial` 路径。
 

@@ -15,7 +15,7 @@ SelfLift 使用 REF2VA、24 FPS，时长沿用导演台的 **4–15 秒**，支�
 
 SelfLift 的用途是把前半程计算放在较小网格上，再放大继续采样，以尝试减少计算量。它不会自动增加画质，也不是最终视频超分。U22 配方使用混合 INT8 底模、DMAD v4（0.8）和 Mystic（0.45），调度为 beta 10 个积分间隔、标准 Euler：前 6 步在宽高约 0.6 倍网格采样，经 learned latent upscaler 放大后，在目标网格完成后 4 步。目标 H3 网格按比例限制在 1344×768 像素面积以内；最终尺寸由所选超分完成，2K/4K 不代表 H3 原生以该分辨率采样。
 
-导演台优先使用 `selflift-Avatar` 的 `SelfLiftAvatarH3Sampler`。该节点仍由原来的二采节点内部调用，不需要换工作流；它使用全局高分辨率上下文、长片安全的时序边界处理和 `rho=0` learned-only 路线，避免旧空间窗口的接缝与玻璃感。若环境只有旧 `SelfLiftH3Sampler`，适配器会自动退回兼容路线，并只对差异最大的 40% 位置启用轻量 VAE 锚点校正（`rho=0.4, w_min=0.25, w_max=1.0`），优先压住白丝而减少整面皮肤变软。这个兼容保护会增加一次 VAE 解码/编码；安装新版 Avatar 后会自动取消该回环。
+导演台优先使用 `selflift-Avatar` 的 `SelfLiftAvatarH3Sampler`。该节点仍由原来的二采节点内部调用，不需要换工作流；如果节点声明了全局高分辨率流，就使用 `rho=0` learned-only 路线；当前已安装的 Avatar 兼容版本仍是空间分块接口，适配器会使用已验证的混合保护（`rho=0.6, w_min=0.5, w_max=1.0`）。若环境只有旧 `SelfLiftH3Sampler`，同样使用这条兼容保护，优先压住白丝而减少整面皮肤变软。这个保护会增加一次 VAE 解码/编码；更新到真正支持全局高分辨率流的 Avatar 后会自动取消该回环。
 
 初始 latent 必须是目标网格，低分辨率前段由 SelfLift 内部建立。高分辨率阶段优先启用 U22 的 Sol-Attn 与 MiniMax MLP 分块；新版 SelfLift 节点如果声明了 `global_stream`、4096 token 批处理和 4GiB 权重缓存参数，导演台会按能力传入，旧节点则自动兼容。Sol-Attn 内核不可用时回退现有 Sage/精确注意力路线，不旁路训练型二采。当前导演台走外部 learned lift 路线，不把它伪装成论文的完整 SelfLift-zero。
 
@@ -75,4 +75,4 @@ fi
 
 2026-10-26：修正旧图的 AV shift 交接，曾启用局部像素/VAE 锚点校正。399 项相关回归与 10 项文档测试通过；5090 上通过原节点生成了带 H3 克隆音色的 2560×1464 样片，检查帧中未再发现原对照的明显白丝。4 秒设置实际输出 107 帧、4.458 秒，不代表完成 15 秒多空间块验收。对照与运行证据见[排查记录](research/2026-10-26-selflift-glass-artifacts.md)。
 
-2026-10-27：15 秒 2K 样片的执行报告显示实际加载的是旧 `SelfLiftH3Sampler`，`highres_tiling_mode/token_chunk/weight_cache` 均为 `null`；成片在脸颊、头发和高光边缘出现与历史样片一致的白色细丝。适配器现优先选择 `SelfLiftAvatarH3Sampler`；旧节点才启用 `rho=0.4` 的稀疏锚点保护，并把实际节点变体写入执行报告。完整 15 秒 GPU A/B 仍需在更新插件后复跑。
+2026-10-27：15 秒 2K 样片的执行报告显示实际加载的是旧 `SelfLiftH3Sampler`，`highres_tiling_mode/token_chunk/weight_cache` 均为 `null`；成片在脸颊、头发和高光边缘出现与历史样片一致的白色细丝。适配器现优先选择 `SelfLiftAvatarH3Sampler`；空间分块兼容路线使用已验证的 `rho=0.6, w_min=0.5, w_max=1.0` 混合锚点保护，并把实际节点变体写入执行报告。完整 15 秒 GPU A/B 仍需在更新插件后复跑。

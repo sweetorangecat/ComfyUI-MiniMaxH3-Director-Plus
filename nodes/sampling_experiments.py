@@ -182,7 +182,9 @@ def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
     # full-sequence global stream.  Older Avatar builds only expose the spatial
     # tiler and reject the global mode string in their tiling_mode input.  Keep
     # the call legal on both versions and use the sparse VAE anchor on every
-    # pre-global/legacy route; this is internal so the UI stays simple.
+    # pre-global/legacy route; this is internal so the UI stays simple.  The
+    # measured 0.6/0.5 recipe removed sparse white strands on long clips;
+    # 0.4 left the same lift residuals visible on hair and skin.
     avatar = node_id == "SelfLiftAvatarH3Sampler"
     supports_global_stream = avatar and "highres_tiling_mode" in parameters
     artifact_guard = (
@@ -190,7 +192,7 @@ def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
              highres_tiling_mode="global_stream")
         if supports_global_stream else
         dict(name="avatar_spatial_compat_guard" if avatar else "legacy_sparse_artifact_guard",
-             rho=0.4, w_min=0.25, w_max=1.0, highres_tiling_mode="spatial")
+             rho=0.6, w_min=0.5, w_max=1.0, highres_tiling_mode="spatial")
     )
     values = {
         "model": model,

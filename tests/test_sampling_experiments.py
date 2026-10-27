@@ -201,7 +201,10 @@ def test_pre_global_avatar_uses_spatial_compatibility_contract():
     assert actual["tiling_mode"] == "auto"
     assert actual["tiling_tiles"] == 2
     assert actual["tiling_axis"] == "auto"
-    assert actual["rho"] == 0.4
+    # The installed Avatar build exposes only spatial tiling.  The measured
+    # artifact-safe hybrid recipe corrects the highest-risk 60% of the lift;
+    # 40% left the same sparse white strands on long H3 clips.
+    assert actual["rho"] == 0.6
     assert guide["selflift_highres_tiling_mode"] == "spatial"
     assert guide["selflift_node_variant"] == "avatar_spatial_compat_guard"
 
@@ -216,7 +219,7 @@ def test_legacy_selflift_gets_sparse_artifact_guard():
         registry={"SelfLiftH3Sampler": lambda: node},
     )
     actual = node.received
-    assert (actual["rho"], actual["w_min"], actual["w_max"]) == (0.4, 0.25, 1.0)
+    assert (actual["rho"], actual["w_min"], actual["w_max"]) == (0.6, 0.5, 1.0)
     assert guide["selflift_node_variant"] == "legacy_sparse_artifact_guard"
 
 
@@ -235,9 +238,9 @@ def test_adapter_uses_u22_ten_step_schedule_and_unloads_lifter(monkeypatch):
     actual = node.received
     assert actual["transition_step"] == 6 and actual["lowres_scale"] == 0.6
     # The legacy node lacks Avatar's global-stream artifact fix, so the
-    # adapter uses a sparse, low-strength VAE anchor only on high-risk sites.
-    assert actual["rho"] == 0.4 and actual["cfg"] == 1
-    assert (actual["w_min"], actual["w_max"]) == (0.25, 1.0)
+    # adapter uses the measured hybrid VAE anchor on high-risk sites.
+    assert actual["rho"] == 0.6 and actual["cfg"] == 1
+    assert (actual["w_min"], actual["w_max"]) == (0.5, 1.0)
     assert actual["upscaler_unload"] and actual["highres_tiling"]
     assert actual["upscaler_model"] == "h3_fp16.safetensors"
     assert actual["model_hires"] is actual["model"]
