@@ -1,3 +1,4 @@
+import inspect
 import json
 
 import pytest
@@ -53,6 +54,23 @@ def test_director_exposes_native_upload_widgets_for_each_media_role():
     assert optional["voice_gender"][0] == "STRING"
     assert optional["voice_gender"][1]["default"] == "auto"
     assert "audio_reuse" in inputs["required"]["voice_mode"][0]
+
+
+def test_director_defers_stale_upload_paths_to_build():
+    """A deleted old upload must not fail ComfyUI's pre-build combo check."""
+    upload_fields = [
+        "first_image_file", "last_image_file",
+        "voice_reference_audio_file", "voice_reference_audio_2_file",
+        "voice_reference_audio_3_file",
+        *[f"reference_image_{index}_file" for index in range(1, 10)],
+    ]
+    parameters = inspect.signature(MiniMaxH3DirectorPlus.VALIDATE_INPUTS).parameters
+
+    assert set(parameters) == set(upload_fields)
+    assert "kwargs" not in parameters
+    assert MiniMaxH3DirectorPlus.VALIDATE_INPUTS(
+        voice_reference_audio_file="h3-director-plus/old/deleted.wav",
+    ) is True
 
 
 def test_full_audio_reuse_keeps_original_out_of_h3_reference_conditioning():

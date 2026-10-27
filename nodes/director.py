@@ -464,6 +464,36 @@ class MiniMaxH3DirectorPlus:
             },
         }
 
+    @classmethod
+    def VALIDATE_INPUTS(
+        cls,
+        first_image_file="",
+        last_image_file="",
+        voice_reference_audio_file="",
+        voice_reference_audio_2_file="",
+        voice_reference_audio_3_file="",
+        reference_image_1_file="",
+        reference_image_2_file="",
+        reference_image_3_file="",
+        reference_image_4_file="",
+        reference_image_5_file="",
+        reference_image_6_file="",
+        reference_image_7_file="",
+        reference_image_8_file="",
+        reference_image_9_file="",
+    ):
+        """Defer upload-file validation until ``build`` can inspect the mode.
+
+        ComfyUI normally validates combo widgets against the current input
+        directory before calling the node.  A saved workflow can still carry
+        an old upload path after that file was deleted or moved, which makes
+        the prompt fail before ``voice_mode=none`` has a chance to ignore the
+        stale audio.  Only these upload fields opt out of the generic combo
+        check; ``build`` remains responsible for loading active files and
+        reporting missing assets.
+        """
+        return True
+
     RETURN_TYPES = ("MINIMAX_H3_DIRECTOR_PLUS_GUIDE", "INT", "STRING", "STRING", "STRING", "AUDIO", "STRING", "BOOLEAN", "INT")
     RETURN_NAMES = ("导演指南", "帧数", "最终提示词", "实际后端", "警告", "Fish音色样本", "Fish目标对白", "FL2VA硬端点", "噪音种子")
     FUNCTION = "build"
