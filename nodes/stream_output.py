@@ -71,6 +71,18 @@ def _next_video_counter(output_folder, filename, counter):
     return counter
 
 
+def _append_seed_to_filename_prefix(filename_prefix, guide):
+    """Make the actual generation seed visible in every exported asset name."""
+    raw_seed = guide.get("seed") if isinstance(guide, dict) else None
+    if raw_seed is None:
+        return filename_prefix
+    try:
+        seed = int(raw_seed)
+    except (TypeError, ValueError, OverflowError):
+        return filename_prefix
+    return f"{filename_prefix}_seed{seed}"
+
+
 def _center_crop_to_target_aspect(frame, target_width, target_height):
     """Return an even-sized centered HWC view matching the target aspect ratio."""
     target_width = int(target_width)
@@ -1270,6 +1282,7 @@ class MiniMaxH3StreamingVideoCombine:
         output_dir = dasiwa.folder_paths.get_output_directory() if save_output else dasiwa.folder_paths.get_temp_directory()
         output_type = "output" if save_output else "temp"
         filename_prefix = dasiwa._format_filename_prefix(filename_prefix)
+        filename_prefix = _append_seed_to_filename_prefix(filename_prefix, guide)
         output_folder, filename, counter, subfolder, _ = dasiwa.folder_paths.get_save_image_path(
             filename_prefix, output_dir, target_width, target_height,
         )

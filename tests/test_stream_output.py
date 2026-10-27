@@ -1823,6 +1823,49 @@ def test_video_counter_accounts_for_audio_and_exported_frame_suffixes(tmp_path, 
     assert stream_output._next_video_counter(str(tmp_path), prefix, 20) == 20
 
 
+def test_output_prefix_includes_the_actual_generation_seed(monkeypatch, tmp_path):
+    captured_prefixes = []
+    dasiwa = _fake_dasiwa([])
+    dasiwa.folder_paths = SimpleNamespace(
+        get_output_directory=lambda: str(tmp_path),
+        get_temp_directory=lambda: str(tmp_path),
+        get_save_image_path=lambda prefix, *args: (
+            captured_prefixes.append(prefix),
+            str(tmp_path), prefix, 1, "", None,
+        )[1:],
+    )
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+    monkeypatch.setattr(stream_output.os, "unlink", lambda path: None)
+
+    stream_output.MiniMaxH3StreamingVideoCombine().combine(
+        images=torch.rand(2, 2, 2, 3),
+        guide={
+            "seed": 123456789,
+            "target_width": 2,
+            "target_height": 2,
+            "postprocess_path": "native_bypass",
+        },
+        frame_rate=24.0,
+        codec="H.264",
+        container="MP4",
+        bit_depth="8-bit",
+        quality=20,
+        log_level="Standard",
+        pingpong=False,
+        save_metadata=False,
+        filename_prefix="clip",
+        save_output=True,
+        pass_frames=False,
+        crop_to_audio=False,
+        audio_codec="Auto",
+        audio_bitrate="192k",
+        save_first_frame=False,
+        save_last_frame=False,
+    )
+
+    assert captured_prefixes == ["clip_seed123456789"]
+
+
 def test_repeated_audio_video_outputs_keep_the_previous_file(monkeypatch, tmp_path):
     audio = object()
     dasiwa = _fake_dasiwa([], audio)
