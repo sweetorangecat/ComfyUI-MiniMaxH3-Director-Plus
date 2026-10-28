@@ -23,9 +23,9 @@
 - 旧图的 BasicGuider 保留 shift 副本。原兼容分支验证该副本后改选未 shift 的路由器输出，实际恢复为 12/3。现在克隆路由器模型、继承完整 `model_sampling` 与两个 transformer shift 参数，并对实际执行模型再次校验。保留路由器的 LoRA 与注意力设置，不修改其他消费者。
 - 执行报告沿输出保存实际的 `selflift_rho`、`selflift_w_min`、`selflift_w_max`、`selflift_upscaler_model`，便于确认运行的配方。
 
-这份记录保留的是 2026-10-26 的历史样片结论，不能直接作为当前默认配方。该样片的 `rho=0.6` 同时连接了外部 learned upscaler 和像素/VAE 锚点，属于上游节点标注的 hybrid experiment；它在短片上压住了白丝，但会增加 VAE 回环。2026-10-27 远程 5090 的 15 秒 2K 输出出现皮肤和细边缘油腻后，结合上游 README 与实际耗时，导演台已恢复外部 learned-only 的 `rho=0`。之前的白丝排查仍提示要优先保证 AV shift 为 10/5、底模和注意力路由一致，不能把 `rho=0.6` 当成通用质量开关。
+这份记录保留的是 2026-10-26 的历史样片结论。该样片的 `rho=0.6` 同时连接了外部 learned upscaler 和像素/VAE 锚点，属于上游节点标注的 hybrid experiment；它在短片上压住了白丝，比纯像素锚点保留更多细节，但会增加 VAE 回环。2026-10-28 的 15 秒 2K 输出实际走新版 `SelfLiftAvatarH3Sampler` 的 `global_stream + rho=0`，白色纹路再次出现，说明全局上下文不能替代 learned-lift 伪影保护。导演台现恢复 `global_stream + rho=0.6, w_min=0.5, w_max=1.0` 的局部混合锚点；同时继续优先保证 AV shift 为 10/5、底模和注意力路由一致。
 
-同一条 15 秒样片的执行报告还显示，实际节点没有声明 `highres_tiling_mode`、`highres_token_chunk` 或 `highres_weight_cache_gb`；适配器虽然兼容传参，但旧节点会静默忽略这些新版能力。当前收集到的 Avatar 兼容版本也只声明空间分块接口，因此兼容路线统一使用实测的 `rho=0.6, w_min=0.5, w_max=1.0` 混合锚点保护；只有实际声明全局高分辨率流的新版节点才走 `rho=0` learned-only 路线，并把实际节点变体写入执行报告。完成更新后仍需用相同 seed 做一次 15 秒 GPU A/B，分别导出 SelfLift 前、VOSR2 前和最终帧，才能把视觉修复从“代码路径正确”提升为完整画质验收。
+同一条 15 秒样片的执行报告还显示，实际节点已经声明 `highres_tiling_mode`、`highres_token_chunk` 和 `highres_weight_cache_gb`，但日志中的 `native sparse blocks=0/50` 说明本次被未知 attention override 迫使其走全序列回退；这改变的是速度与上下文路径，不会消除 learned lift 的残差。旧节点仍会静默忽略这些新版能力。现在无论 Avatar 是否支持全局高分辨率流，适配器都把实际节点变体、全局能力和 `rho=0.6, w_min=0.5, w_max=1.0` 写入执行报告。完成更新后仍需用相同 seed 做一次 15 秒 GPU A/B，分别导出 SelfLift 前、VOSR2 前和最终帧，才能把视觉修复从“代码路径正确”提升为完整画质验收。
 
 兼容细节：当前 Avatar 节点把全局策略放在独立的 `highres_tiling_mode=global_stream` 输入；只有空间分块的旧 Avatar 版本仍使用 `tiling_mode=auto`、`tiling_tiles=2`。适配器不会再把 `global_stream` 写入旧版的空间 `tiling_mode`，执行报告会记录实际的 `global_stream` 或 `spatial` 路径。
 

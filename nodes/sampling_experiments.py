@@ -184,11 +184,13 @@ def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
     # the call legal on both versions and use the sparse VAE anchor on every
     # pre-global/legacy route; this is internal so the UI stays simple.  The
     # measured 0.6/0.5 recipe removed sparse white strands on long clips;
-    # 0.4 left the same lift residuals visible on hair and skin.
+    # 0.4 left the same lift residuals visible on hair and skin.  Global
+    # context fixes the high-resolution execution path, but does not remove
+    # the learned-lift residual itself, so it keeps this guard too.
     avatar = node_id == "SelfLiftAvatarH3Sampler"
     supports_global_stream = avatar and "highres_tiling_mode" in parameters
     artifact_guard = (
-        dict(name="avatar_global_stream", rho=0.0, w_min=0.5, w_max=1.0,
+        dict(name="avatar_global_stream_hybrid_guard", rho=0.6, w_min=0.5, w_max=1.0,
              highres_tiling_mode="global_stream", global_stream_supported=True,
              speed_warning=None)
         if supports_global_stream else
