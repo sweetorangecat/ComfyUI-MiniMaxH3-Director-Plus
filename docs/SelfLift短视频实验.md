@@ -17,6 +17,8 @@ SelfLift 的用途是把前半程计算放在较小网格上，再放大继续�
 
 导演台优先使用 `selflift-Avatar` 的 `SelfLiftAvatarH3Sampler`。该节点仍由原来的二采节点内部调用，不需要换工作流；如果节点声明了全局高分辨率流，就使用 `rho=0` learned-only 路线；当前已安装的 Avatar 兼容版本仍是空间分块接口，适配器会使用已验证的混合保护（`rho=0.6, w_min=0.5, w_max=1.0`）。若环境只有旧 `SelfLiftH3Sampler`，同样使用这条兼容保护，优先压住白丝而减少整面皮肤变软。这个保护会增加一次 VAE 解码/编码；更新到真正支持全局高分辨率流的 Avatar 后会自动取消该回环。
 
+速度验收必须看执行报告中的 `selflift_global_stream_supported` 和 `selflift_highres_tiling_mode`。只有前者为 `true` 且后者为 `global_stream`，才是新版全局上下文路线；如果报告出现 `false`、`spatial` 或 `null`，长片高分辨率阶段会按空间块重复执行，不能拿这次耗时代表新版路线。报告还会写入 `selflift_speed_warning`，提示需要更新 `selflift-Avatar`。
+
 初始 latent 必须是目标网格，低分辨率前段由 SelfLift 内部建立。高分辨率阶段优先启用 U22 的 Sol-Attn 与 MiniMax MLP 分块；新版 SelfLift 节点如果声明了 `global_stream`、4096 token 批处理和 4GiB 权重缓存参数，导演台会按能力传入，旧节点则自动兼容。Sol-Attn 内核不可用时回退现有 Sage/精确注意力路线，不旁路训练型二采。当前导演台走外部 learned lift 路线，不把它伪装成论文的完整 SelfLift-zero。
 
 日志、指南和输出元数据记录 `sampling_actual_method=selflift`、`sampling_executed_steps=10`、实际节点路线与采样耗时、6+4 步拆分、高分辨率分块参数，以及实际 `selflift_rho`、`selflift_w_min`、`selflift_w_max` 和放大模型。旧图从路由器选择匹配模型时继承 BasicGuider 的完整 AV 采样对象和视频/音频 shift，避免模型恢复为 12/3 而调度器仍为 10/5。标准二采也记录实际执行步数，便于同种子对照。

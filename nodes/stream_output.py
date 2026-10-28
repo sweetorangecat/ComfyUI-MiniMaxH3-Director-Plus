@@ -1645,6 +1645,7 @@ class MiniMaxH3StreamingVideoCombine:
                 "sol_attn_int8_pv",
                 "selflift_highres_tiling", "selflift_highres_tiling_mode",
                 "selflift_highres_token_chunk", "selflift_highres_weight_cache_gb",
+                "selflift_global_stream_supported", "selflift_speed_warning",
             ) if key in guide
         }
         execution["upscale_method"] = (

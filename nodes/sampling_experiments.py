@@ -189,10 +189,16 @@ def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
     supports_global_stream = avatar and "highres_tiling_mode" in parameters
     artifact_guard = (
         dict(name="avatar_global_stream", rho=0.0, w_min=0.5, w_max=1.0,
-             highres_tiling_mode="global_stream")
+             highres_tiling_mode="global_stream", global_stream_supported=True,
+             speed_warning=None)
         if supports_global_stream else
         dict(name="avatar_spatial_compat_guard" if avatar else "legacy_sparse_artifact_guard",
-             rho=0.6, w_min=0.5, w_max=1.0, highres_tiling_mode="spatial")
+             rho=0.6, w_min=0.5, w_max=1.0, highres_tiling_mode="spatial",
+             global_stream_supported=False,
+             speed_warning=(
+                 "当前 SelfLift 节点不支持 global_stream；高分辨率会按空间块重复执行，"
+                 "请更新 selflift-Avatar 后再测长片速度"
+             ))
     )
     values = {
         "model": model,
@@ -352,6 +358,8 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         guide.update(
             selflift_node_id=node_id,
             selflift_node_variant=artifact_guard["name"],
+            selflift_global_stream_supported=artifact_guard["global_stream_supported"],
+            selflift_speed_warning=artifact_guard["speed_warning"],
             selflift_rho=call_kwargs["rho"],
             selflift_w_min=call_kwargs["w_min"],
             selflift_w_max=call_kwargs["w_max"],

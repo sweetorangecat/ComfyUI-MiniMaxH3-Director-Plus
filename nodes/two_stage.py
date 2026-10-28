@@ -685,6 +685,7 @@ class MiniMaxH3TwoStageSampler:
             report["sampling_settings"].update({key: guide[key] for key in (
                 "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
                 "selflift_node_id", "selflift_node_variant",
+                "selflift_global_stream_supported", "selflift_speed_warning",
             ) if key in guide})
             return result, result
 

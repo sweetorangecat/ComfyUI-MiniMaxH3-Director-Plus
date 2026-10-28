@@ -174,6 +174,8 @@ def test_selflift_prefers_avatar_sampler_and_uses_global_context_recipe():
     assert actual["highres_weight_cache_gb"] == 4.0
     assert guide["sampling_route"] == "SelfLiftAvatarH3Sampler"
     assert guide["selflift_node_variant"] == "avatar_global_stream"
+    assert guide["selflift_global_stream_supported"] is True
+    assert guide["selflift_speed_warning"] is None
 
 
 def test_adapter_unwraps_comfy_node_output_mapping():
@@ -228,6 +230,8 @@ def test_pre_global_avatar_uses_spatial_compatibility_contract():
     assert actual["rho"] == 0.6
     assert guide["selflift_highres_tiling_mode"] == "spatial"
     assert guide["selflift_node_variant"] == "avatar_spatial_compat_guard"
+    assert guide["selflift_global_stream_supported"] is False
+    assert "global_stream" in guide["selflift_speed_warning"]
 
 
 def test_legacy_selflift_gets_sparse_artifact_guard():
@@ -242,6 +246,8 @@ def test_legacy_selflift_gets_sparse_artifact_guard():
     actual = node.received
     assert (actual["rho"], actual["w_min"], actual["w_max"]) == (0.6, 0.5, 1.0)
     assert guide["selflift_node_variant"] == "legacy_sparse_artifact_guard"
+    assert guide["selflift_global_stream_supported"] is False
+    assert "global_stream" in guide["selflift_speed_warning"]
 
 
 def test_adapter_uses_u22_ten_step_schedule_and_unloads_lifter(monkeypatch):
