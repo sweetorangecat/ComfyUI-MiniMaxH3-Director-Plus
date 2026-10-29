@@ -280,7 +280,29 @@ def dependency_report(comfy_root, route, node_mappings=None):
 def _comfy_node_mappings():
     import nodes as comfy_nodes
 
-    return getattr(comfy_nodes, "NODE_CLASS_MAPPINGS", {})
+    mappings = dict(getattr(comfy_nodes, "NODE_CLASS_MAPPINGS", {}) or {})
+    # ComfyUI-VOSR2 moved to a v3 extension and no longer publishes the
+    # legacy TE-Speed node names.  Add the lazy bridge only when that current
+    # extension is actually importable; machines without either backend keep
+    # the explicit missing-dependency error.
+    if not {
+        "TESpeedVOSR2Loader",
+        "TESpeedVOSR2Settings",
+        "TESpeedVOSR2Video",
+    }.issubset(mappings):
+        try:
+            from .vosr2_compat import compatibility_mappings
+
+            mappings.update(
+                {
+                    key: value
+                    for key, value in compatibility_mappings().items()
+                    if key not in mappings
+                }
+            )
+        except (ImportError, ModuleNotFoundError, AttributeError, OSError):
+            pass
+    return mappings
 
 
 def _unwrap_node_output(result):
