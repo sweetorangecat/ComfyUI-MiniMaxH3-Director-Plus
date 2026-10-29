@@ -320,6 +320,24 @@ def _dasiwa_video_module():
     raise RuntimeError("缺少 DaSiWa Enhanced Video Combine 编码器")
 
 
+def _dasiwa_video_backend(dasiwa):
+    """Resolve the legacy FFmpeg path or accept DaSiWa's current PyAV API."""
+    find_ffmpeg = getattr(dasiwa, "find_ffmpeg", None)
+    if callable(find_ffmpeg):
+        ffmpeg = find_ffmpeg()
+        if not ffmpeg:
+            raise RuntimeError("未找到 FFmpeg，无法保存 MP4")
+        return ffmpeg
+
+    # Recent ComfyUI-DaSiWa-Nodes encodes through PyAV.  Its encoder helpers
+    # retain the old positional backend argument for compatibility, but the
+    # module no longer exposes an FFmpeg executable path.
+    if callable(getattr(dasiwa, "_encode_with_available_encoder", None)):
+        LOGGER.info("[H3 output] Detected DaSiWa PyAV encoder backend")
+        return None
+    raise RuntimeError("DaSiWa Enhanced Video Combine 编码器接口不完整")
+
+
 _ENCODER_PROBE_CACHE = {}
 
 
@@ -1287,9 +1305,7 @@ class MiniMaxH3StreamingVideoCombine:
             filename_prefix, output_dir, target_width, target_height,
         )
         counter = _next_video_counter(output_folder, filename, counter)
-        ffmpeg = dasiwa.find_ffmpeg()
-        if not ffmpeg:
-            raise RuntimeError("未找到 FFmpeg，无法保存 MP4")
+        ffmpeg = _dasiwa_video_backend(dasiwa)
 
         source_frame_count = dasiwa._encoded_frame_count(source, pingpong)
         frame_multiplier = 2 if motion_smoothing == "rife_x2" else 1
@@ -1491,7 +1507,9 @@ class MiniMaxH3StreamingVideoCombine:
         # loop discovers the failure only after consuming the entire frame
         # stream, re-running SeedVR2/AI upscale once per broken encoder.
         original_available_encoders = getattr(dasiwa, "_available_encoders", None)
-        working_encoders = _probe_working_video_encoders(ffmpeg)
+        working_encoders = (
+            _probe_working_video_encoders(ffmpeg) if ffmpeg else None
+        )
         if working_encoders is not None and original_available_encoders is not None:
             dasiwa._available_encoders = lambda _ffmpeg: set(working_encoders)
         try:
@@ -1560,6 +1578,7 @@ class MiniMaxH3StreamingVideoCombine:
             and selected_codec == "H.264"
             and selected_container == "MP4"
             and performance_preset in _TRAINED_TWO_STAGE_PRESETS
+            and ffmpeg
         ):
             bt709_tagged = _tag_h264_bt709(ffmpeg, output_path)
 

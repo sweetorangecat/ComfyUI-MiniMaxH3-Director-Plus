@@ -111,6 +111,39 @@ def test_native_bypass_does_not_resize_or_require_vsr(monkeypatch):
     assert torch.equal(result, images)
 
 
+def test_pyav_dasiwa_backend_does_not_require_legacy_find_ffmpeg(monkeypatch):
+    """Current DaSiWa exposes PyAV helpers without the old find_ffmpeg API."""
+    images = torch.zeros(2, 2, 2, 3)
+    captured = []
+    dasiwa = _fake_dasiwa(captured)
+    del dasiwa.find_ffmpeg
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+    monkeypatch.setattr(stream_output.os, "unlink", lambda path: None)
+
+    stream_output.MiniMaxH3StreamingVideoCombine().combine(
+        images=images,
+        guide={"target_width": 2, "target_height": 2, "postprocess_path": "native_bypass"},
+        frame_rate=24.0,
+        codec="H.264",
+        container="MP4",
+        bit_depth="8-bit",
+        quality=20,
+        log_level="Standard",
+        pingpong=False,
+        save_metadata=False,
+        filename_prefix="pyav-test",
+        save_output=True,
+        pass_frames=False,
+        crop_to_audio=False,
+        audio_codec="Auto",
+        audio_bitrate="192k",
+        save_first_frame=False,
+        save_last_frame=False,
+    )
+
+    assert torch.cat(captured).shape == images.shape
+
+
 def test_output_reports_executed_sampling_and_selected_sr(monkeypatch):
     executed = {
         'sampling_actual_method': 'selflift', 'sampling_executed_steps': 8,
