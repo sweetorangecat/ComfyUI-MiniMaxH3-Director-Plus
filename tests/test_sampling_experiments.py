@@ -167,15 +167,17 @@ def test_selflift_prefers_avatar_sampler_and_uses_global_context_recipe():
     assert result["samples"] is latent["samples"]
     actual = node.received
     assert actual["low_res_model"] is actual["high_res_model"]
-    # Global context removes spatial tile seams, but does not remove the
-    # learned-lift residual that produced white strands in long clips.
-    assert actual["rho"] == 0.6
+    # The external learned lifter is the detail-preserving baseline on the
+    # full-sequence Avatar path.  Pixel/VAE anchoring is reserved for the
+    # legacy spatial compatibility path because a blanket hybrid correction
+    # made skin and hair look waxy in real 2K clips.
+    assert actual["rho"] == 0.0
     assert actual["highres_tiling"] is True
     assert actual["highres_tiling_mode"] == "global_stream"
     assert actual["highres_token_chunk"] == 4096
     assert actual["highres_weight_cache_gb"] == 4.0
     assert guide["sampling_route"] == "SelfLiftAvatarH3Sampler"
-    assert guide["selflift_node_variant"] == "avatar_global_stream_hybrid_guard"
+    assert guide["selflift_node_variant"] == "avatar_global_stream_learned_only"
     assert guide["selflift_global_stream_supported"] is True
     assert guide["selflift_speed_warning"] is None
 

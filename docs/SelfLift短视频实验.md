@@ -15,7 +15,7 @@ SelfLift 使用 REF2VA、24 FPS，时长沿用导演台的 **4–15 秒**，支�
 
 SelfLift 的用途是把前半程计算放在较小网格上，再放大继续采样，以尝试减少计算量。它不会自动增加画质，也不是最终视频超分。U22 配方使用混合 INT8 底模、DMAD v4（0.8）和 Mystic（0.45），调度为 beta 10 个积分间隔、标准 Euler：前 6 步在宽高约 0.6 倍网格采样，经 learned latent upscaler 放大后，在目标网格完成后 4 步。目标 H3 网格按比例限制在 1344×768 像素面积以内；最终尺寸由所选超分完成，2K/4K 不代表 H3 原生以该分辨率采样。
 
-导演台优先使用 `selflift-Avatar` 的 `SelfLiftAvatarH3Sampler`。该节点仍由原来的二采节点内部调用，不需要换工作流；全局高分辨率流只负责保留完整上下文和降低分块开销，仍使用已验证的混合保护（`rho=0.6, w_min=0.5, w_max=1.0`）校正 learned lift 的高风险位置。当前已安装的 Avatar 兼容版本使用同一条保护；若环境只有旧 `SelfLiftH3Sampler`，也沿用这条兼容保护，优先压住白丝而减少整面皮肤变软。这个保护会增加一次 VAE 解码/编码，但不会增加用户可见选项。
+导演台优先使用 `selflift-Avatar` 的 `SelfLiftAvatarH3Sampler`。该节点仍由原来的二采节点内部调用，不需要换工作流；全局高分辨率流默认使用外部 learned-only 路线（`rho=0`），保留皮肤、头发和衣料微纹理。只有旧版空间分块兼容路线和旧 `SelfLiftH3Sampler` 才启用已验证的局部混合保护（`rho=0.6, w_min=0.5, w_max=1.0`）来压制白丝；这条保护会增加一次 VAE 解码/编码，但不会增加用户可见选项。
 
 速度验收必须看执行报告中的 `selflift_global_stream_supported` 和 `selflift_highres_tiling_mode`。只有前者为 `true` 且后者为 `global_stream`，才是新版全局上下文路线；如果报告出现 `false`、`spatial` 或 `null`，长片高分辨率阶段会按空间块重复执行，不能拿这次耗时代表新版路线。报告还会写入 `selflift_speed_warning`，提示需要更新 `selflift-Avatar`。
 
