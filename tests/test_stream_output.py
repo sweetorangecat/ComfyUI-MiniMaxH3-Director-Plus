@@ -117,6 +117,9 @@ def test_pyav_dasiwa_backend_does_not_require_legacy_find_ffmpeg(monkeypatch):
     captured = []
     dasiwa = _fake_dasiwa(captured)
     del dasiwa.find_ffmpeg
+    dasiwa._frame_arrays = lambda chunk, bit_depth, pingpong=False: [
+        frame.numpy() for frame in chunk
+    ]
     monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
     monkeypatch.setattr(stream_output.os, "unlink", lambda path: None)
 
@@ -141,7 +144,58 @@ def test_pyav_dasiwa_backend_does_not_require_legacy_find_ffmpeg(monkeypatch):
         save_last_frame=False,
     )
 
-    assert torch.cat(captured).shape == images.shape
+    assert captured and all(hasattr(frame, "shape") for frame in captured)
+
+
+def test_pyav_dasiwa_receives_arrays_and_keeps_in_memory_resources(monkeypatch):
+    """The current DaSiWa API consumes arrays and owns no temp-file paths."""
+    images = torch.zeros(2, 2, 2, 3)
+    captured = []
+    dasiwa = _fake_dasiwa(captured)
+    del dasiwa.find_ffmpeg
+    dasiwa._frame_arrays = lambda chunk, bit_depth, pingpong=False: [
+        frame.numpy() for frame in chunk
+    ]
+    dasiwa._metadata_file = lambda prompt, extra: {"report": "in-memory"}
+    dasiwa._audio_file = lambda audio: (
+        (
+            images[0].numpy().transpose(2, 0, 1),
+            48000,
+            {"start": (0, 1), "end": (1, 1)},
+        ),
+        1.0,
+    )
+
+    def reject_non_path(value):
+        if not isinstance(value, (str, bytes, os.PathLike)):
+            raise AssertionError(f"attempted to unlink non-path: {type(value)!r}")
+
+    monkeypatch.setattr(stream_output, "_dasiwa_video_module", lambda: dasiwa)
+    monkeypatch.setattr(stream_output.os, "unlink", reject_non_path)
+
+    stream_output.MiniMaxH3StreamingVideoCombine().combine(
+        images=images,
+        guide={"target_width": 2, "target_height": 2, "postprocess_path": "native_bypass"},
+        frame_rate=24.0,
+        codec="H.264",
+        container="MP4",
+        bit_depth="8-bit",
+        quality=20,
+        log_level="Standard",
+        pingpong=False,
+        save_metadata=True,
+        filename_prefix="pyav-resource-test",
+        save_output=True,
+        pass_frames=False,
+        crop_to_audio=False,
+        audio_codec="Auto",
+        audio_bitrate="192k",
+        save_first_frame=False,
+        save_last_frame=False,
+        audio=None,
+    )
+
+    assert captured and all(hasattr(frame, "shape") for frame in captured)
 
 
 def test_output_reports_executed_sampling_and_selected_sr(monkeypatch):

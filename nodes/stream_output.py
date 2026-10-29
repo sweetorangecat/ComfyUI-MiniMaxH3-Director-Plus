@@ -338,6 +338,55 @@ def _dasiwa_video_backend(dasiwa):
     raise RuntimeError("DaSiWa Enhanced Video Combine 编码器接口不完整")
 
 
+def _dasiwa_frame_arrays(dasiwa, chunk, bit_depth):
+    """Yield the image-array frames expected by DaSiWa's current PyAV API."""
+    converter = getattr(dasiwa, "_frame_arrays", None)
+    if callable(converter):
+        yield from converter(chunk, bit_depth, False)
+        return
+
+    frames = chunk.detach().to(device="cpu", dtype=torch.float32).clamp(0.0, 1.0)
+    frames = frames[..., :3]
+    if bit_depth == 10:
+        frames = torch.round(frames * 1023).to(torch.int32).mul_(64).to(torch.uint16)
+    else:
+        frames = torch.round(frames * 255).to(torch.uint8)
+    yield from frames.numpy()
+
+
+def _cleanup_dasiwa_path(value):
+    """Remove an old-style temp path while leaving PyAV in-memory values alone."""
+    if not isinstance(value, (str, bytes, os.PathLike)):
+        return
+    try:
+        os.unlink(value)
+    except FileNotFoundError:
+        pass
+
+
+def _cleanup_dasiwa_audio(audio_value):
+    if isinstance(audio_value, (tuple, list)) and audio_value:
+        _cleanup_dasiwa_path(audio_value[0])
+    else:
+        _cleanup_dasiwa_path(audio_value)
+
+
+def _dasiwa_audio_info(audio_value):
+    """Return sample rate and channel count for old paths or PyAV arrays."""
+    if not isinstance(audio_value, (tuple, list)) or len(audio_value) < 2:
+        return None, None
+    sample_rate = audio_value[1]
+    first = audio_value[0]
+    shape = getattr(first, "shape", None)
+    if shape:
+        channels = int(shape[0])
+    elif len(audio_value) >= 3 and isinstance(audio_value[2], int):
+        channels = int(audio_value[2])
+    else:
+        channels = None
+    return sample_rate, channels
+
+
 _ENCODER_PROBE_CACHE = {}
 
 
@@ -1394,7 +1443,12 @@ class MiniMaxH3StreamingVideoCombine:
                         if "first" not in ai_edge_frames:
                             ai_edge_frames["first"] = chunk[0].detach().cpu().clone()
                         ai_edge_frames["last"] = chunk[-1].detach().cpu().clone()
-                    yield dasiwa._frame_bytes(chunk, selected_bit_depth)
+                    if ffmpeg is None:
+                        yield from _dasiwa_frame_arrays(
+                            dasiwa, chunk, selected_bit_depth
+                        )
+                    else:
+                        yield dasiwa._frame_bytes(chunk, selected_bit_depth)
             finally:
                 close = getattr(chunks, "close", None)
                 if callable(close):
@@ -1567,10 +1621,8 @@ class MiniMaxH3StreamingVideoCombine:
         finally:
             if original_available_encoders is not None:
                 dasiwa._available_encoders = original_available_encoders
-            if metadata_path:
-                os.unlink(metadata_path)
-            if audio_path:
-                os.unlink(audio_path[0])
+            _cleanup_dasiwa_path(metadata_path)
+            _cleanup_dasiwa_audio(audio_path)
 
         bt709_tagged = False
         if (
@@ -1700,6 +1752,7 @@ class MiniMaxH3StreamingVideoCombine:
             "audio_cleanup": [audio_cleanup],
             "audio_cleanup_reason": [audio_cleanup_reason],
         })
+        audio_sample_rate, audio_channels = _dasiwa_audio_info(audio_path)
         if not dasiwa._animated_image_settings(selected_container):
             ui["gifs"] = [{
                 **execution,
@@ -1710,8 +1763,8 @@ class MiniMaxH3StreamingVideoCombine:
                  "audio_loudness": audio_loudness,
                  "audio_cleanup": audio_cleanup,
                  "audio_cleanup_reason": audio_cleanup_reason,
-                 "audio_sample_rate": audio_path[1] if audio_path else None,
-                 "audio_channels": audio_path[2] if audio_path else None,
+                 "audio_sample_rate": audio_sample_rate,
+                 "audio_channels": audio_channels,
                  "audio_bitrate": str(audio_bitrate) if audio_path else None,
                  "postprocess_path": postprocess_path, "encode_quality": encode_quality,
                  "upscale_profile": upscale_profile,
