@@ -6,6 +6,22 @@ import math
 VOSR2_PROFILE_NAMES = ('legacy', 'manual_baseline', 'experimental_32gb')
 
 
+def resolve_vosr2_profile_for_sampling(profile='legacy', *, sampling_method='standard'):
+    """Resolve the VOSR2 profile that is safe for an upstream sampler route.
+
+    ``legacy`` is kept for old workflows and maps to the upstream ``speed``
+    quality profile.  SelfLift already performs a progressive latent redraw
+    from a capped H3 canvas, so feeding that result into the speed profile can
+    over-sharpen frame-local artifacts.  Keep explicit quality or experimental
+    choices intact and only upgrade the legacy default on that route.
+    """
+    if profile not in VOSR2_PROFILE_NAMES:
+        raise ValueError(f'未知 VOSR2 配置：{profile!r}；可选：{", ".join(VOSR2_PROFILE_NAMES)}')
+    if sampling_method == 'selflift' and profile == 'legacy':
+        return 'manual_baseline'
+    return profile
+
+
 def resolve_vosr2_profile(profile='legacy', *, free_vram_gb=None, total_vram_gb=None,
                          supports_tile_batch=False):
     """Return fresh upstream kwargs. Memory values are measured GiB, not card labels."""

@@ -24,6 +24,14 @@ def test_legacy_profile_keeps_existing_settings_and_is_default():
     assert resolve_vosr2_profile()['settings']['frame_batch'] == 2
 
 
+def test_selflift_maps_legacy_speed_profile_to_manual_quality_profile():
+    from nodes.vosr2_profiles import resolve_vosr2_profile_for_sampling
+
+    assert resolve_vosr2_profile_for_sampling("legacy", sampling_method="selflift") == "manual_baseline"
+    assert resolve_vosr2_profile_for_sampling("manual_baseline", sampling_method="selflift") == "manual_baseline"
+    assert resolve_vosr2_profile_for_sampling("legacy", sampling_method="standard") == "legacy"
+
+
 def test_manual_baseline_is_fixed_tile_without_cache_or_compile():
     from nodes.vosr2_profiles import resolve_vosr2_profile
     p = resolve_vosr2_profile('manual_baseline')

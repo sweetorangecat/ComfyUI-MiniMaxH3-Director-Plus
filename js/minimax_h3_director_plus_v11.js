@@ -937,6 +937,11 @@ function install(node) {
       postprocessMode = postprocessOptions[0][0];
       setWidget(node, "postprocess_mode", postprocessMode, false);
     }
+    const samplingMethod = widget(node, "sampling_method")?.value || "standard";
+    if (postprocessMode === "vosr2" && samplingMethod === "selflift"
+      && widget(node, "vosr2_profile")?.value === "legacy") {
+      setWidget(node, "vosr2_profile", "manual_baseline", false);
+    }
     const rtxQualityOptions = allowedRtxQualities(preset);
     let rtxQuality = widget(node, "rtx_quality")?.value || "HIGH";
     if (!rtxQualityOptions.some(([value]) => value === rtxQuality)) {
@@ -1132,11 +1137,19 @@ function install(node) {
       summary.textContent = "超分高级设置";
       const controls = document.createElement("div");
       controls.className = "h3p-grid";
+      const vosr2ProfileOptions = samplingMethod === "selflift"
+        ? [
+          ["manual_baseline", "质量基线（SelfLift 推荐）"],
+          ["experimental_32gb", "32GB 候选（实验，需实测）"],
+        ]
+        : [
+          ["legacy", "旧版 speed（兼容）"],
+          ["manual_baseline", "质量基线（用于对比）"],
+          ["experimental_32gb", "32GB 候选（实验，需实测）"],
+        ];
       controls.append(valueControl("VOSR2 配置", "vosr2_profile", [
-        ["legacy", "默认"],
-        ["manual_baseline", "手动基线（用于速度对比）"],
-        ["experimental_32gb", "32GB 候选（实验，需实测）"],
-      ], widget(node, "vosr2_profile")?.value || "legacy"));
+        ...vosr2ProfileOptions,
+      ], widget(node, "vosr2_profile")?.value || (samplingMethod === "selflift" ? "manual_baseline" : "legacy")));
       advanced.append(summary, controls);
       specification.append(advanced);
     }

@@ -37,6 +37,7 @@ from .upscale import (
     resolve_upscale_model_name,
 )
 from .vram_budget import plan_two_stage_dimensions, split_tile_plan
+from .vosr2_profiles import resolve_vosr2_profile_for_sampling
 
 
 BASE_MODES = {"T2VA", "I2VA", "FL2VA", "L2VA"}
@@ -733,6 +734,18 @@ class MiniMaxH3DirectorPlus:
             "ignored_media": ignored_media,
             "reference_preprocessing": reference_preprocessing,
         })
+
+        if request["postprocess_mode"] == "vosr2":
+            resolved_vosr2_profile = resolve_vosr2_profile_for_sampling(
+                request["vosr2_profile"],
+                sampling_method=request["sampling_method"],
+            )
+            if resolved_vosr2_profile != request["vosr2_profile"]:
+                request["warnings"].append(
+                    "SelfLift 已自动避开 VOSR2 speed 配置：当前先使用 manual_baseline 质量档，"
+                    "避免在 1344×768 级首采结果上做过度逐帧锐化；如需速度档请关闭 SelfLift。"
+                )
+                request["vosr2_profile"] = resolved_vosr2_profile
 
         from .sampling_recipes import balanced_recipe
         recipe = balanced_recipe(request)

@@ -217,6 +217,28 @@ test("VOSR tuning is collapsed by default and preserves saved values", () => {
   assert.equal(panel().open, true);
 });
 
+test("SelfLift VOSR2 panel upgrades the legacy speed choice to the quality baseline", () => {
+  const profile = { name: "vosr2_profile", value: "legacy" };
+  const { node } = installedDirector("off", [profile,
+    { name: "performance_preset", value: "质量优先二采样" },
+    { name: "postprocess_mode", value: "vosr2" },
+    { name: "sampling_method", value: "selflift" },
+    { name: "community_lora_profile", value: "off" },
+    { name: "resolution_preset", value: "2K QHD" },
+  ]);
+  const mode = node.widgets.find(item => item.name === "mode");
+  mode.value = "REF2VA";
+  mode.callback("REF2VA");
+  const sampling = node.widgets.find(item => item.name === "sampling_method");
+  sampling.value = "selflift";
+  sampling.callback("selflift");
+  const panel = () => allElements(node.root).find(el => el.tag === "details"
+    && el.children.some(child => child.textContent === "超分高级设置"));
+  assert.equal(profile.value, "manual_baseline");
+  const select = allElements(panel()).find(el => el.dataset?.h3pValueWidget === "vosr2_profile");
+  assert.deepEqual(select.children.map(el => el.value), ["manual_baseline", "experimental_32gb"]);
+});
+
 function directorWithAdvancedOptions() {
   const installed = installedDirector("off", [
     { name: "performance_preset", value: "质量优先二采样" },

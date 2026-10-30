@@ -90,6 +90,26 @@ def test_director_selflift_long_uhd_preserves_selected_sr(director_runtime, monk
     assert guide["sampling_method"] == "selflift"
 
 
+def test_selflift_does_not_send_legacy_speed_profile_to_vosr2(director_runtime, monkeypatch):
+    from nodes import two_stage_assets
+
+    monkeypatch.setattr(two_stage_assets, "_comfy_node_mappings", lambda: {
+        name: object() for name in (
+            "TESpeedVOSR2Loader", "TESpeedVOSR2Settings", "TESpeedVOSR2Video",
+        )
+    })
+    guide = build_director(
+        duration=15,
+        resolution_preset="2K QHD",
+        postprocess_mode="vosr2",
+        sampling_method="selflift",
+        vosr2_profile="legacy",
+    )
+
+    assert guide["vosr2_profile"] == "manual_baseline"
+    assert any("SelfLift" in warning and "speed" in warning for warning in guide["warnings"])
+
+
 @pytest.mark.parametrize("method", ["ai_upscale", "video_sr"])
 def test_explicit_sr_wins_over_quality_two_stage_downscale(director_runtime, method):
     guide = build_director(postprocess_mode=method)
