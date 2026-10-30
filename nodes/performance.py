@@ -1417,7 +1417,10 @@ def _apply_ref_detail_loras(model, guide):
     # removing DMAD/Mystic.  Standard two-stage jobs still respect the router
     # switch and only use the U22 chain when it is explicitly selected.
     u22_profile_override = profile == "off" and (mode == "仅 U22 细节链" or selflift)
-    if profile != "legacy" and not u22_profile_override:
+    # The SelfLift recipe must stay the same when optional motion is toggled.
+    # Previously continuity/combat skipped this recipe branch and silently
+    # dropped Mystic, so the action control also changed the core model stack.
+    if not selflift and profile != "legacy" and not u22_profile_override:
         chain.extend(motion_lora_chain(profile))
     else:
         detail_on = _env_flag("MMH3_DETAIL_LORAS", True) and (
@@ -1455,6 +1458,8 @@ def _apply_ref_detail_loras(model, guide):
             LOGGER.info("[H3 two-stage models] 社区 LoRA 开关=%s（节点控件设置）", mode)
         if extra_on:
             chain.extend(REF_EXTRA_LORA_CHAIN)
+    if selflift:
+        chain.extend(motion_lora_chain(profile))
     for names, strength in chain:
         candidates = (names,) if isinstance(names, str) else tuple(names)
         resolved = _resolve_first_registered("loras", candidates)

@@ -942,20 +942,30 @@ def test_ref_two_stage_applies_u22_detail_loras_when_registered(monkeypatch):
     assert "4 个社区 LoRA" in result[1]
 
 
-def test_selflift_prefers_u22_dmad_and_mystic_without_extra_stack(monkeypatch):
+@pytest.mark.parametrize("profile,motion_chain", [
+    ("off", []),
+    ("continuity", [("Motion_Repair.safetensors", 0.25)]),
+    ("combat", [("Motion_Repair.safetensors", 0.25), ("H3_Combat_V2.safetensors", 0.5)]),
+    ("legacy", []),
+])
+@pytest.mark.parametrize("core_name,core_strength", [(SELFLIFT_DMAD_LORA, 0.8), (V4_TURBO_LORA, 1.0)])
+@pytest.mark.parametrize("voice_mode", ["none", "h3_reference"])
+@pytest.mark.parametrize("community_mode", ["全部关闭", "仅 U22 细节链", "全部自动叠加"])
+def test_selflift_motion_profiles_preserve_core_recipe(
+    monkeypatch, profile, motion_chain, core_name, core_strength, voice_mode, community_mode
+):
     calls = []
-
-    class FakeSolNode:
-        def execute(self, model, *args, **kwargs):
-            return (model,)
+    monkeypatch.delenv("MMH3_DETAIL_LORAS", raising=False)
+    monkeypatch.setenv("MMH3_EXTRA_LORAS", "1")
+    core_kind = "u22_dmad_mystic" if core_name == SELFLIFT_DMAD_LORA else "v4_mystic_fallback"
 
     monkeypatch.setattr(
         performance,
         "resolve_selflift_lora_recipe",
         lambda: {
-            "kind": "u22_dmad_mystic",
-            "lora_name": SELFLIFT_DMAD_LORA,
-            "lora_strength": 0.8,
+            "kind": core_kind,
+            "lora_name": core_name,
+            "lora_strength": core_strength,
             "detail_name": SELFLIFT_MYSTIC_LORA,
             "detail_strength": 0.45,
         },
@@ -964,27 +974,31 @@ def test_selflift_prefers_u22_dmad_and_mystic_without_extra_stack(monkeypatch):
         performance, "resolve_registered_model_name",
         lambda category, name, comfy_root=None: name,
     )
-    monkeypatch.setattr(
-        performance,
-        "_load_lightx2v_lora",
-        lambda model, name, strength=1.0, low_vram=False: calls.append((name, strength)) or model,
-    )
+
+    def load_lora(model, name, strength=1.0, low_vram=False):
+        calls.append((name, strength))
+        return (*model, (name, strength))
+
+    monkeypatch.setattr(performance, "_load_lightx2v_lora", load_lora)
     monkeypatch.setattr(performance, "_apply_minimax_reuse_attention", lambda model, guide: model)
     monkeypatch.setattr(performance, "_apply_sol_attention", lambda model, guide: model)
     guide = {
-        "mode": "REF2VA", "voice_mode": "none", "duration": 5,
+        "mode": "REF2VA", "voice_mode": voice_mode, "duration": 5,
         "performance_preset": "quality_two_stage", "resolved_backend": "ref2va_model",
-        "sampling_method": "selflift", "community_lora_profile": "off",
-        "community_lora_mode": "仅 U22 细节链",
+        "sampling_method": "selflift", "community_lora_profile": profile,
+        "community_lora_mode": community_mode,
         "total_vram_gb": 32.0, "free_vram_gb": 26.0,
         "sol_attn_available": True,
     }
     first, _, ready, second = MiniMaxH3AccelerationRouter().apply(
-        "model", guide, community_loras="仅 U22 细节链"
+        (), guide, community_loras=community_mode
     )
+    expected = [(core_name, core_strength), (SELFLIFT_MYSTIC_LORA, 0.45), *motion_chain]
     assert ready and first is second
-    assert calls == [(SELFLIFT_DMAD_LORA, 0.8), (SELFLIFT_MYSTIC_LORA, 0.45)]
-    assert guide["selflift_lora_kind"] == "u22_dmad_mystic"
+    assert calls == expected
+    assert first == tuple(expected)
+    assert guide["community_loras_applied"] == [f"{name}@{strength}" for name, strength in expected[1:]]
+    assert guide["selflift_lora_kind"] == core_kind
     assert guide["sol_attn_applied"] is True
 
 
