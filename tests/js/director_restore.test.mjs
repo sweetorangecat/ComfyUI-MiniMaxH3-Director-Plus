@@ -17,8 +17,18 @@ class Element {
   }
   append(...children) { this.children.push(...children); }
   appendChild(child) { this.append(child); }
-  replaceChildren(...children) { this.children = children; }
+  replaceChildren(...children) {
+    this.replaceChildrenCount = (this.replaceChildrenCount || 0) + 1;
+    this.children = children;
+  }
   setAttribute(name, value) { this[name] = value; }
+  closest(selector) {
+    if (selector === "[data-h3p-value-widget]"
+      || selector === ".h3p [data-h3p-value-widget]"
+      || selector === '.h3p [data-h3p-value-widget]:not(select)') return this;
+    return null;
+  }
+  matches(selector) { return selector === "select" && this.tag === "select"; }
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
   set innerHTML(value) {
     if (value.includes('class="h3p-fish-body"')) {
@@ -302,6 +312,30 @@ test("wrapped widget callbacks preserve host arguments and return values", () =>
   assert.equal(seed.callback(42, canvas, node), "host-result");
   assert.equal(calls[0].receiver, seed);
   assert.deepEqual(calls[0].args, [42, canvas, node]);
+});
+
+test("typing a seed keeps the editor mounted until the value is committed", () => {
+  let callbackCalls = 0;
+  const seed = {
+    name: "seed", value: 0,
+    callback(value) {
+      callbackCalls += 1;
+      this.value = value;
+    },
+  };
+  const { node } = installedDirector("off", [seed]);
+  const input = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "seed");
+  assert.ok(input, "seed editor is rendered");
+  const beforeRender = node.root.replaceChildrenCount;
+  input.value = "100372459382532";
+  const event = { target: input, stopPropagation() {} };
+  for (const handler of node.root.listeners.input || []) handler(event);
+  assert.equal(seed.value, 100372459382532);
+  assert.equal(callbackCalls, 0, "typing must not invoke the native callback");
+  assert.equal(node.root.replaceChildrenCount, beforeRender, "typing must not rebuild the editor");
+
+  for (const handler of node.root.listeners.change || []) handler(event);
+  assert.equal(callbackCalls, 1, "committing the field still invokes the native callback");
 });
 
 test("smart mode retains 480p selection and synchronizes actual output dimensions", () => {

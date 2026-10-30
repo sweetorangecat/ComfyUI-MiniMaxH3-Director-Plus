@@ -210,7 +210,7 @@ function protectDirectorComputeSize(node) {
 
 function setWidget(node, name, value, notify = true) {
   const item = widget(node, name);
-  if (!item || item.value === value) return;
+  if (!item || (item.value === value && !notify)) return;
   const previous = item.value;
   item.value = value;
   if (notify) item.callback?.(value);
@@ -787,7 +787,11 @@ function bindDomControls(element, node, render) {
     event.stopPropagation();
     const value = valueInput.dataset.h3pNumber === "true" ? Number.parseInt(valueInput.value, 10) : valueInput.value;
     if (Number.isNaN(value)) return;
-    setWidget(node, valueInput.dataset.h3pValueWidget, value);
+    // Keep the editor mounted while a number/text field is being typed. Native
+    // widget callbacks can trigger a render, which replaces the DOM and steals
+    // focus after the first seed digit. The change handler commits the callback
+    // once the user leaves the field or presses Enter.
+    setWidget(node, valueInput.dataset.h3pValueWidget, value, false);
   }, true);
 }
 
@@ -852,7 +856,7 @@ function bindDocumentControls() {
     if (!controller || !valueInput) return;
     event.stopPropagation();
     const value = valueInput.dataset.h3pNumber === "true" ? Number.parseInt(valueInput.value, 10) : valueInput.value;
-    if (!Number.isNaN(value)) setWidget(controller.node, valueInput.dataset.h3pValueWidget, value);
+    if (!Number.isNaN(value)) setWidget(controller.node, valueInput.dataset.h3pValueWidget, value, false);
   }, true);
 }
 
