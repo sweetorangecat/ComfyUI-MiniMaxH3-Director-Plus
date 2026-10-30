@@ -477,6 +477,41 @@ def _rebuild_socket_links(nodes, links):
             target["inputs"][int(link[4])]["link"] = link[0]
 
 
+def upgrade_additional_lora_chain(workflow):
+    """Move the existing optional loader before acceleration, preserving IDs/UI.
+
+    Both acceleration outputs must inherit the same optional adapters. Keeping
+    the loader after output zero leaves the second stage and legacy SelfLift
+    model selection without those adapters.
+    """
+    nodes = workflow.get("nodes", [])
+    lora = _find_node(nodes, node_type="DaSiWa_LTX2LoraLoader")
+    acceleration = _find_node(nodes, node_type="MiniMaxH3AccelerationRouter")
+    router = _find_node(nodes, node_type="MiniMaxH3ModelRouter")
+    if not all((lora, acceleration, router)):
+        return False
+    links = workflow.get("links", [])
+    lora_input = next((raw for raw in links if _link_value(raw)[3:6] == [lora["id"], 0, "MODEL"]), None)
+    acceleration_input = next((raw for raw in links if _link_value(raw)[3:6] == [acceleration["id"], 0, "MODEL"]), None)
+    if lora_input is None or acceleration_input is None:
+        return False
+    if _link_value(lora_input)[1:3] != [acceleration["id"], 0]:
+        return False  # Already upgraded, or a user-authored route we cannot infer.
+    if _link_value(acceleration_input)[1:3] != [router["id"], 0]:
+        return False
+    downstream = [raw for raw in links if _link_value(raw)[1:3] == [lora["id"], 0]
+                  and _link_value(raw)[5] == "MODEL"]
+    for raw in downstream:
+        _set_link_field(raw, 1, acceleration["id"])
+        _set_link_field(raw, 2, 0)
+    _set_link_field(lora_input, 1, router["id"])
+    _set_link_field(lora_input, 2, 0)
+    _set_link_field(acceleration_input, 1, lora["id"])
+    _set_link_field(acceleration_input, 2, 0)
+    _rebuild_socket_links([lora, acceleration, router], links)
+    return True
+
+
 def _disable_legacy_acceleration_switches(subgraph):
     """Detach obsolete frontend switches from the old, dead H3 model branches.
 
@@ -983,6 +1018,7 @@ def build_workflow(source):
         second_model_slot = _append_input(settings, "second_model", "MODEL")
         _add_link(workflow, allocate_link, acceleration, 3, settings, second_model_slot, "MODEL")
 
+    upgrade_additional_lora_chain(workflow)
     _upgrade_subgraphs(workflow)
     _replace_video_vae_decoders(workflow)
     workflow = _strip_model_path_prefixes(workflow)

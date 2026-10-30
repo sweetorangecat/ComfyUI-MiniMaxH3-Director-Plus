@@ -48,6 +48,19 @@ def test_docs_describe_trained_two_stage_assets_and_routes():
     assert "双线性放大后的最后 2 步" not in api
 
 
+def test_docs_describe_mystic_v5_additional_lora_contract():
+    usage = (DOCS / "使用说明.md").read_text(encoding="utf-8")
+    for text in (
+        "MysticXXX_MMH3-V5-ref2va.safetensors",
+        "MysticXXX_MMH3-V5.safetensors",
+        "附加 LoRA",
+        "model_type",
+        "不要同时选择 Mystic V1 和 V5",
+        "--mystic-v5",
+    ):
+        assert text in usage
+
+
 def test_docs_explain_vram_limits_true_2k_4k_and_install_commands():
     usage = (DOCS / "使用说明.md").read_text(encoding="utf-8")
     troubleshooting = (DOCS / "故障排查.md").read_text(encoding="utf-8")

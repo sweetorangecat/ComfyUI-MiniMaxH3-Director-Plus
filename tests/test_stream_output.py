@@ -258,6 +258,18 @@ def test_output_reports_completed_stages_without_mutating_cached_guide(monkeypat
     assert "execution_report" not in guide and "video_sr_plan" not in guide
 
 
+def test_output_metadata_records_requested_additional_lora(monkeypatch):
+    filename = "minimax/MysticXXX_MMH3-V5-ref2va.safetensors"
+    requested = [{"name": filename, "strength": 0.45}]
+    guide = {"target_width": 4, "target_height": 4, "postprocess_path": "native_bypass",
+             "additional_loras_requested": requested, "detail_lora_override": filename}
+    result = _combine(monkeypatch, guide, torch.zeros(2, 4, 4, 3), [])
+    ui = result["ui"]
+    assert ui["images"][0]["additional_loras_requested"] == requested
+    assert ui["gifs"][0]["detail_lora_override"] == filename
+    assert ui["execution_report"][0]["plan"]["additional_loras_requested"] == requested
+
+
 def test_vosr2_profile_and_diagnostics_forwarded_for_current_output(monkeypatch):
     received = []
     def video_sr(images, width, height, **kwargs):

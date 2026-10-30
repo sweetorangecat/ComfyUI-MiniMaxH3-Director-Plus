@@ -24,6 +24,7 @@ from .schema import (
     allowed_performance_presets,
 )
 from .sampling_experiments import motion_lora_chain, validate_sampling_options
+from .additional_loras import lora_basename, mystic_v5_override, upstream_loras
 from .sampling_recipes import (
     BALANCED_PRESET, BALANCED_LABEL, balanced_recipe, apply_balanced_shift,
     prepare_balanced_guider, validate_balanced_sampling,
@@ -1460,6 +1461,14 @@ def _apply_ref_detail_loras(model, guide):
             chain.extend(REF_EXTRA_LORA_CHAIN)
     if selflift:
         chain.extend(motion_lora_chain(profile))
+    if guide.get("detail_lora_override"):
+        # V5 is already on the upstream MODEL from the existing optional
+        # loader. Keep acceleration/motion adapters, but do not stack V1 too.
+        chain = [
+            (names, strength) for names, strength in chain
+            if not any(lora_basename(name) == lora_basename(SELFLIFT_MYSTIC_LORA)
+                       for name in ((names,) if isinstance(names, str) else names))
+        ]
     for names, strength in chain:
         candidates = (names,) if isinstance(names, str) else tuple(names)
         resolved = _resolve_first_registered("loras", candidates)
@@ -1989,6 +1998,7 @@ class MiniMaxH3AccelerationRouter:
                     },
                 ),
             },
+            "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
 
     RETURN_TYPES = ("MODEL", "STRING", "BOOLEAN", "MODEL")
@@ -2003,7 +2013,20 @@ class MiniMaxH3AccelerationRouter:
         community_loras="全部自动叠加",
         second_stage_noise="注入新噪声（U22 同配方）",
         attention_chunks="自动（按显存）",
+        prompt=None,
+        unique_id=None,
     ):
+        rows = upstream_loras(prompt, unique_id)
+        override = mystic_v5_override(rows, guide.get("resolved_backend", "fl2va_model"))
+        guide["additional_loras_requested"] = [
+            {"name": row["name"], "strength": row["strength"]} for row in rows
+        ]
+        guide.pop("detail_lora_override", None)
+        if override:
+            if resolve_registered_model_name("loras", override) is None:
+                raise ValueError(f"附加 Mystic V5 未安装或未注册：{override}")
+            guide["detail_lora_override"] = override
+            LOGGER.info("[H3 additional LoRA] 上游选择 %s，自动细节链跳过 Mystic V1", override)
         guide["community_lora_mode"] = community_loras
         guide["second_stage_noise_mode"] = second_stage_noise
         selected_chunks = "".join(char for char in attention_chunks if char.isdigit())

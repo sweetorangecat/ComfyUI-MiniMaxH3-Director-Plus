@@ -1,4 +1,5 @@
 import json
+import copy
 from pathlib import Path
 
 import pytest
@@ -8,8 +9,58 @@ from tools.build_u11_workflow import (
     _disable_legacy_acceleration_switches,
     _prune_legacy_bypass_nodes,
     _upgrade_subgraphs,
+    upgrade_additional_lora_chain,
 )
 from tools.validate_workflow import WorkflowError, validate_workflow
+
+
+def test_existing_additional_lora_precedes_both_acceleration_models():
+    path = next(Path("examples").glob("U11-*.json"))
+    workflow = json.loads(path.read_text(encoding="utf-8"))
+    nodes = workflow["nodes"]
+    lora = next(n for n in nodes if n["id"] == 2678)
+    acceleration = next(n for n in nodes if n["type"] == "MiniMaxH3AccelerationRouter")
+    model_router = next(n for n in nodes if n["type"] == "MiniMaxH3ModelRouter")
+    model_inputs = {(link[3], link[4]): (link[1], link[2]) for link in workflow["links"] if link[5] == "MODEL"}
+    assert model_inputs[(lora["id"], 0)] == (model_router["id"], 0)
+    assert model_inputs[(acceleration["id"], 0)] == (lora["id"], 0)
+    settings = next(n for n in nodes if n["id"] == 1512)
+    slots = {item["name"]: index for index, item in enumerate(settings["inputs"])}
+    assert model_inputs[(1512, slots["model"])] == (acceleration["id"], 0)
+    assert model_inputs[(1512, slots["second_model"])] == (acceleration["id"], 3)
+
+
+def test_additional_lora_upgrade_preserves_user_settings_and_is_idempotent():
+    workflow = json.loads(next(Path("examples").glob("U11-*.json")).read_text(encoding="utf-8"))
+    nodes = {node["id"]: node for node in workflow["nodes"]}
+    lora = nodes[2678]
+    acceleration = next(n for n in nodes.values() if n["type"] == "MiniMaxH3AccelerationRouter")
+    router = next(n for n in nodes.values() if n["type"] == "MiniMaxH3ModelRouter")
+    # Recreate the old optional-loader position independently of the example.
+    for link in workflow["links"]:
+        if link[5] != "MODEL":
+            continue
+        if link[3:5] == [2678, 0]:
+            link[1:3] = [acceleration["id"], 0]
+        elif link[3:5] == [acceleration["id"], 0]:
+            link[1:3] = [router["id"], 0]
+        elif link[3:5] == [1512, 14]:
+            link[1:3] = [2678, 0]
+    lora["properties"]["stack_data"] = [{"on": True, "lora": "user-choice.safetensors", "str": 0.35}]
+    snapshots = {key: copy.deepcopy(lora[key]) for key in ("id", "type", "title", "properties", "widgets_values")}
+    director = copy.deepcopy(nodes[2693])
+    clip_links = [copy.deepcopy(link) for link in workflow["links"] if link[5] == "CLIP"]
+
+    assert upgrade_additional_lora_chain(workflow)
+    assert all(lora[key] == value for key, value in snapshots.items())
+    assert nodes[2693] == director
+    assert [link for link in workflow["links"] if link[5] == "CLIP"] == clip_links
+    upgraded = copy.deepcopy(workflow)
+    assert upgrade_additional_lora_chain(workflow) is False
+    assert workflow == upgraded
+    for link in workflow["links"]:
+        assert nodes[link[3]]["inputs"][link[4]]["link"] == link[0]
+        assert link[0] in nodes[link[1]]["outputs"][link[2]]["links"]
 
 
 def test_upgrading_legacy_samplers_connects_the_conditioning_video_vae():

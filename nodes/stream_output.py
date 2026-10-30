@@ -1709,6 +1709,7 @@ class MiniMaxH3StreamingVideoCombine:
                 "two_stage_second_sigma_count", "two_stage_second_stage_path",
                 "first_stage_width", "first_stage_height", "second_stage_width",
                 "second_stage_height", "community_lora_profile", "community_loras_applied",
+                "additional_loras_requested", "detail_lora_override",
                 "selflift_lora_kind",
                 "attention_backend", "sol_attn_applied", "sol_attn_error", "sol_attn_tau",
                 "sol_attn_min_tokens", "sol_attn_extra_tokens_requested", "sol_attn_extra_tokens_applied",

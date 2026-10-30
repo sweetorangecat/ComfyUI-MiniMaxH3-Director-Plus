@@ -31,6 +31,7 @@ _PLAN_KEYS = (
     "video_shift", "audio_shift", "two_stage_enabled",
     "resolved_two_stage_route", "first_lora_name", "second_lora_name", "vosr2_profile",
     "selflift_lora_kind",
+    "detail_lora_override",
     "first_lora_strength", "second_lora_strength", "postprocess_mode", "postprocess_path",
     "ref_image_size", "requested_ref_image_size",
     "sage_requested", "sage_applied", "sage_error", "sage_disabled_reason",
@@ -79,10 +80,32 @@ def _scalars(source, keys):
     return result
 
 
+def _additional_lora_snapshot(source):
+    rows = source.get("additional_loras_requested") if isinstance(source, dict) else None
+    if not isinstance(rows, (list, tuple)):
+        return None
+    result = []
+    for row in rows[:16]:
+        if not isinstance(row, dict) or not isinstance(row.get("name"), str):
+            continue
+        strength = row.get("strength")
+        if isinstance(strength, bool):
+            continue
+        if isinstance(strength, int):
+            strength = float(strength)
+        if not isinstance(strength, float) or not math.isfinite(strength):
+            continue
+        result.append({"name": row["name"][:256], "strength": strength})
+    return result
+
+
 def execution_plan(guide):
     """Describe routing and endpoint semantics without serializing references."""
     guide = guide or {}
     plan = _scalars(guide, _PLAN_KEYS)
+    additional_loras = _additional_lora_snapshot(guide)
+    if additional_loras is not None:
+        plan["additional_loras_requested"] = additional_loras
     preprocessing = guide.get("reference_preprocessing")
     if isinstance(preprocessing, (list, tuple)):
         plan["reference_preprocessing"] = [str(item)[:256] for item in preprocessing[:8]]
@@ -124,6 +147,9 @@ def _plan_snapshot(source):
     if not isinstance(source, dict):
         return {}
     plan = _scalars(source, (*_PLAN_KEYS, "route"))
+    additional_loras = _additional_lora_snapshot(source)
+    if additional_loras is not None:
+        plan["additional_loras_requested"] = additional_loras
     preprocessing = source.get("reference_preprocessing")
     if isinstance(preprocessing, (list, tuple)):
         plan["reference_preprocessing"] = [str(item)[:256] for item in preprocessing[:8]]

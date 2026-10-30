@@ -69,6 +69,23 @@ def test_fl_endpoints_are_hard_constraints():
     assert plan["endpoints"] == {"first": "hard_anchor", "last": "absent"}
 
 
+def test_additional_lora_requests_survive_report_handoff_without_claiming_application():
+    rows = [{"name": "minimax/MysticXXX_MMH3-V5-ref2va.safetensors", "strength": 0.45,
+             "private": "do not serialize", "weights": torch.zeros(1)}]
+    guide = {"additional_loras_requested": rows, "detail_lora_override": rows[0]["name"]}
+    report = evidence.new_report(guide)
+    source = {evidence.REPORT_KEY: report}
+    inherited = evidence.new_report({}, source)
+    expected = [{"name": rows[0]["name"], "strength": 0.45}]
+    assert report["plan"]["additional_loras_requested"] == expected
+    assert inherited["plan"]["additional_loras_requested"] == expected
+    assert inherited["plan"]["detail_lora_override"] == rows[0]["name"]
+    rows[0]["strength"] = 0.9
+    assert report["plan"]["additional_loras_requested"] == expected
+    serialized = json.dumps(inherited, allow_nan=False)
+    assert "additional_loras_applied" not in serialized and "do not serialize" not in serialized
+
+
 def test_attention_evidence_distinguishes_requested_and_applied_after_fallback():
     guide = dict(sage_requested=True, sage_applied=False,
                  attention_backend='native_fallback', sage_error='Sage unavailable',
