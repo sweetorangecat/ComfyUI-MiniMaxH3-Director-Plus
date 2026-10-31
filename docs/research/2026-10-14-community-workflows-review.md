@@ -60,7 +60,7 @@ Semantic Bridge 配置84启用0.1，并经83、85分别应用到LOW/HIGH conditi
 | SelfLift 渐进采样 | 未接入 | 建立明确标为实验的可选路线，不静默替换现有二采 |
 | TST | 未接入 | 独立变量测试，关闭空间分块时再验证是否实际生效 |
 | 完整 AV latent 接续 | 有61秒规划/磁盘检查点代码，但缺少 `nodes/longfilm_backend.py`，不能实际完成长片生成 | U40 可作为补齐接续后端的参考；应独立立项 |
-| 色彩保护 | 有硬首帧曝光保护；REF/T2V 没有绝对锚点时保持原曝光 | 与 U37 的 LAB 颜色分布迁移不同；只能对同场景接缝选择性补充 |
+| 色彩保护 | 有硬首帧曝光保护；REF2VA 无硬首帧时只按普通参考图的全片色度统计做保守保护，T2VA 无参考仍保持原始色彩 | 与 U37 的 LAB 颜色分布迁移不同；只做一次全片色度系数，避免逐帧调色和时序闪烁 |
 | VOSR2 | 已有显式分支，但当前二采菜单/校验只允许 SeedVR2 或 RTX VSR；回退后仍有路线限制 | 若接入新二采，要同时处理最终超分选择，确保所选 VOSR2 真正执行并留证 |
 
 代码依据：`nodes/performance.py` 的 preset、`scheduler_plan`、`_apply_ref_detail_loras`；`nodes/two_stage.py` 的音频保护/网格适配/二采执行；`nodes/two_stage_assets.py` 的可选 LoRA 和模型契约；`nodes/h3_reuse_attention.py`；`nodes/color_guard.py`；`nodes/schema.py` 的 `POSTPROCESS_MODES_BY_PERFORMANCE`；`nodes/longfilm.py` 的后端导入。

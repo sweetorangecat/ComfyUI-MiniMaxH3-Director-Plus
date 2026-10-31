@@ -12,6 +12,11 @@ class MiniMaxH3ColorGuard:
     """Keep generated frames close to the scene exposure without changing motion."""
 
     GPU_OUTPUT_LIMIT_BYTES = 512 * 1024**2
+    COLOR_SAMPLE_FRAMES = 24
+    COLOR_SAMPLE_EDGE = 128
+    CHROMA_EXCESS_THRESHOLD = 1.08
+    CHROMA_SCALE_EXPONENT = 0.65
+    MIN_CHROMA_SCALE = 0.85
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -61,6 +66,101 @@ class MiniMaxH3ColorGuard:
         return None
 
     @staticmethod
+    def _sample_indices(frame_count, device):
+        count = min(int(frame_count), MiniMaxH3ColorGuard.COLOR_SAMPLE_FRAMES)
+        if count <= 0:
+            return None
+        return torch.linspace(
+            0,
+            max(0, int(frame_count) - 1),
+            steps=count,
+            device=device,
+        ).round().long().unique()
+
+    @staticmethod
+    def _chroma_metric(images):
+        """Return a small global RGB chroma statistic for a clip or reference.
+
+        The metric is deliberately scene-level rather than a per-frame grade.
+        It ignores near-black/near-white pixels and downsamples before doing
+        any arithmetic, so a long 2K clip never receives a second full-sized
+        working tensor.  The returned value is used only to choose one global
+        chroma scale; it cannot alter geometry or frame timing.
+        """
+        if not torch.is_tensor(images):
+            return None
+        if images.ndim == 3:
+            images = images.unsqueeze(0)
+        if images.ndim != 4 or images.shape[-1] < 3 or not images.shape[0]:
+            return None
+        sample_indices = MiniMaxH3ColorGuard._sample_indices(images.shape[0], images.device)
+        if sample_indices is None:
+            return None
+        sample = images.index_select(0, sample_indices)[..., :3].to(dtype=torch.float32)
+        sample = sample.movedim(-1, 1)
+        height, width = int(sample.shape[-2]), int(sample.shape[-1])
+        edge = max(height, width)
+        if edge > MiniMaxH3ColorGuard.COLOR_SAMPLE_EDGE:
+            scale = MiniMaxH3ColorGuard.COLOR_SAMPLE_EDGE / float(edge)
+            sample = F.interpolate(
+                sample,
+                size=(max(8, int(round(height * scale))), max(8, int(round(width * scale)))),
+                mode="area",
+            )
+        sample = sample.movedim(1, -1)
+        luma = MiniMaxH3ColorGuard._luma(sample)
+        chroma = (sample - luma.unsqueeze(-1)).abs().mean(-1)
+        valid = (luma > 0.05) & (luma < 0.95)
+        if int(valid.sum()) >= 32:
+            chroma = chroma[valid]
+        if not chroma.numel():
+            return None
+        return float(chroma.mean().detach().cpu())
+
+    @classmethod
+    def _reference_chroma_metric(cls, images, guide):
+        """Find a conservative scene-color target from ordinary references."""
+        if not isinstance(guide, dict):
+            return None
+        references = guide.get("ref_images")
+        if not isinstance(references, dict):
+            return None
+        metrics = []
+        for reference in references.values():
+            metric = cls._chroma_metric(reference)
+            if metric is not None and metric > 1e-5:
+                metrics.append(metric)
+        if not metrics:
+            return None
+        # Median avoids letting one white-background identity sheet force the
+        # entire generated clip toward gray.
+        return float(torch.tensor(metrics, dtype=torch.float32).median())
+
+    @classmethod
+    def _resolve_chroma_scale(cls, images, guide, strength, anchor=None):
+        if float(strength) <= 0:
+            return None, None
+        target = cls._chroma_metric(anchor) if anchor is not None else cls._reference_chroma_metric(images, guide)
+        if target is None or target <= 1e-5:
+            return None, None
+        current = cls._chroma_metric(images)
+        if current is None or current <= target * cls.CHROMA_EXCESS_THRESHOLD:
+            return None, (current, target)
+        ratio = max(0.0, min(1.0, target / current))
+        # Use a fractional exponent and a hard floor: this is a gentle
+        # correction for the plastic/saturated look, never a desaturation pass.
+        base_scale = max(cls.MIN_CHROMA_SCALE, ratio ** cls.CHROMA_SCALE_EXPONENT)
+        scale = 1.0 - (1.0 - base_scale) * min(1.0, float(strength))
+        return float(scale), (current, target)
+
+    @staticmethod
+    def _apply_chroma_scale(frames, scale):
+        if scale is None or abs(float(scale) - 1.0) < 1e-6:
+            return frames
+        luma = MiniMaxH3ColorGuard._luma(frames)
+        return luma.unsqueeze(-1) + (frames - luma.unsqueeze(-1)) * float(scale)
+
+    @staticmethod
     def _fast4_finish(frames, strength):
         """Apply a conservative lift and detail recovery for four-step output."""
         if strength <= 0:
@@ -95,7 +195,10 @@ class MiniMaxH3ColorGuard:
             "cpu" if self._requires_cpu_output(output_bytes, images.is_cuda) else images.device
         )
         anchor = self._anchor(images, guide)
-        if anchor is None and not fast4:
+        chroma_scale, chroma_stats = self._resolve_chroma_scale(
+            images, guide, strength, anchor=anchor
+        )
+        if anchor is None and not fast4 and chroma_scale is None:
             # There is no reliable absolute exposure reference for text-only
             # or reference-only generation. Return before any dtype conversion
             # so long videos keep their original memory footprint.
@@ -117,6 +220,8 @@ class MiniMaxH3ColorGuard:
                 frame_luma = self._luma(frames).mean(dim=(1, 2), keepdim=True).clamp_min(1e-4)
                 ratio = (target_luma / frame_luma).pow(float(strength)).clamp(0.45, 1.38)
                 frames = frames * ratio.unsqueeze(-1)
+            if chroma_scale is not None:
+                frames = self._apply_chroma_scale(frames, chroma_scale)
             if fast4:
                 frames = self._fast4_finish(frames, strength)
             corrected[start:end, ..., :3] = frames.clamp(0.0, 1.0).to(dtype=images.dtype)
@@ -126,8 +231,14 @@ class MiniMaxH3ColorGuard:
         report = report_from(images)
         if report is not None:
             attach_report(corrected, report)
+        chroma_note = ""
+        if chroma_scale is not None and chroma_stats is not None:
+            current, target = chroma_stats
+            chroma_note = (
+                f"；已按参考色度轻度保护（{current:.4f}->{target:.4f}，系数 {chroma_scale:.3f}）"
+            )
         if fast4:
-            return corrected, "极速4步已启用轻度提亮与细节恢复；未将生成第1帧当作曝光基准"
+            return corrected, "极速4步已启用轻度提亮与细节恢复；未将生成第1帧当作曝光基准" + chroma_note
         if anchor is None:
-            return corrected, "未发现硬首帧，保持原始曝光；未将生成第1帧当作曝光基准"
-        return corrected, "已锁定场景曝光与色彩连续性；REF2VA 未将第一张参考图视为首帧"
+            return corrected, "未发现硬首帧，保持原始曝光；未将生成第1帧当作曝光基准" + chroma_note
+        return corrected, "已锁定场景曝光与色彩连续性；REF2VA 未将第一张参考图视为首帧" + chroma_note
