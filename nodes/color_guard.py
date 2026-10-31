@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from .execution_report import attach_report, report_from
+from .execution_report import attach_report, new_report, report_from, stage_timer
 
 
 class MiniMaxH3ColorGuard:
@@ -17,6 +17,8 @@ class MiniMaxH3ColorGuard:
     CHROMA_EXCESS_THRESHOLD = 1.08
     CHROMA_SCALE_EXPONENT = 0.65
     MIN_CHROMA_SCALE = 0.85
+    SCENE_MATCH_THRESHOLD = 0.40
+    SCENE_MATCH_MARGIN = 0.06
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -77,38 +79,34 @@ class MiniMaxH3ColorGuard:
             device=device,
         ).round().long().unique()
 
-    @staticmethod
-    def _chroma_metric(images):
-        """Return a small global RGB chroma statistic for a clip or reference.
-
-        The metric is deliberately scene-level rather than a per-frame grade.
-        It ignores near-black/near-white pixels and downsamples before doing
-        any arithmetic, so a long 2K clip never receives a second full-sized
-        working tensor.  The returned value is used only to choose one global
-        chroma scale; it cannot alter geometry or frame timing.
-        """
+    @classmethod
+    def _small_samples(cls, images):
+        """Downsample one frame at a time, before gathering or float32 copying."""
         if not torch.is_tensor(images):
-            return None
+            return None, []
         if images.ndim == 3:
             images = images.unsqueeze(0)
         if images.ndim != 4 or images.shape[-1] < 3 or not images.shape[0]:
+            return None, []
+        indices = cls._sample_indices(images.shape[0], device="cpu").tolist()
+        height, width = map(int, images.shape[1:3])
+        scale = min(1.0, cls.COLOR_SAMPLE_EDGE / float(max(height, width)))
+        size = (max(1, round(height * scale)), max(1, round(width * scale)))
+        samples = []
+        for index in indices:
+            frame = images[index:index + 1, ..., :3].detach().movedim(-1, 1)
+            if size != (height, width):
+                frame = F.interpolate(frame, size=size, mode="area")
+            samples.append(frame.to(device="cpu", dtype=torch.float32).movedim(1, -1))
+        return torch.cat(samples), indices
+
+    @classmethod
+    def _chroma_metric(cls, images):
+        """One clip-level statistic; no full-resolution multi-frame scratch."""
+        sample, _ = cls._small_samples(images)
+        if sample is None:
             return None
-        sample_indices = MiniMaxH3ColorGuard._sample_indices(images.shape[0], images.device)
-        if sample_indices is None:
-            return None
-        sample = images.index_select(0, sample_indices)[..., :3].to(dtype=torch.float32)
-        sample = sample.movedim(-1, 1)
-        height, width = int(sample.shape[-2]), int(sample.shape[-1])
-        edge = max(height, width)
-        if edge > MiniMaxH3ColorGuard.COLOR_SAMPLE_EDGE:
-            scale = MiniMaxH3ColorGuard.COLOR_SAMPLE_EDGE / float(edge)
-            sample = F.interpolate(
-                sample,
-                size=(max(8, int(round(height * scale))), max(8, int(round(width * scale)))),
-                mode="area",
-            )
-        sample = sample.movedim(1, -1)
-        luma = MiniMaxH3ColorGuard._luma(sample)
+        luma = cls._luma(sample)
         chroma = (sample - luma.unsqueeze(-1)).abs().mean(-1)
         valid = (luma > 0.05) & (luma < 0.95)
         if int(valid.sum()) >= 32:
@@ -116,6 +114,115 @@ class MiniMaxH3ColorGuard:
         if not chroma.numel():
             return None
         return float(chroma.mean().detach().cpu())
+
+    @classmethod
+    def _scene_color_plan(cls, images, guide, strength, fast4=False):
+        """Fit one grade to a matching scene, never average identity references.
+
+        Coarse normalized luminance identifies matching layouts independently
+        of exposure. Only those generated frames enter the fit: a later warm
+        interior must not dictate the opening daylight grade. A single bounded
+        tone curve and chroma transform then apply to the whole clip, retaining
+        its lighting changes without per-frame normalization or frame blending.
+        """
+        references = guide.get("ref_images") if isinstance(guide, dict) else None
+        if not isinstance(references, dict) or not references or strength <= 0:
+            return None
+        sample, indices = cls._small_samples(images)
+        if sample is None or not torch.isfinite(sample).all():
+            return None
+        if fast4:
+            sample = cls._fast4_finish(sample, strength)
+
+        def layout(rgb):
+            values = F.interpolate(cls._luma(rgb).unsqueeze(1), size=(24, 32), mode="area").flatten(1)
+            values = values - values.mean(1, keepdim=True)
+            textured = values.square().mean(1, keepdim=True).sqrt() > 0.01
+            return values / values.norm(dim=1, keepdim=True).clamp_min(1e-6) * textured
+
+        source_layout = layout(sample)
+        candidates = []
+        for key, reference in list(references.items())[:16]:
+            reference_sample, _ = cls._small_samples(reference[:1] if torch.is_tensor(reference) and reference.ndim == 4 else reference)
+            if reference_sample is None or not torch.isfinite(reference_sample).all():
+                continue
+            reference_layout = layout(reference_sample[:1])
+            scores = (source_layout * reference_layout).sum(1)
+            score = float(scores.topk(min(3, len(scores))).values.median())
+            candidates.append((score, str(key), reference_sample[:1], scores, reference_layout))
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        if not candidates or candidates[0][0] < cls.SCENE_MATCH_THRESHOLD:
+            return None
+        best = candidates[0]
+        if len(candidates) > 1 and best[0] - candidates[1][0] < cls.SCENE_MATCH_MARGIN:
+            # Equivalent references may repeat an image. Otherwise ambiguous
+            # scenes receive only the legacy conservative chroma protection.
+            other = candidates[1]
+            if best[2].shape != other[2].shape or not torch.allclose(best[2], other[2], atol=0.01):
+                return None
+        matched = (best[3] >= max(cls.SCENE_MATCH_THRESHOLD, best[0] - 0.10)).nonzero().flatten()[:6]
+        if not len(matched):
+            return None
+        source = sample[matched]
+        reference = best[2]
+        source_luma, reference_luma = cls._luma(source), cls._luma(reference)
+        quantiles = torch.tensor([0.25, 0.5, 0.75])
+        source_q = torch.quantile(source_luma.flatten(), quantiles)
+        reference_q = torch.quantile(reference_luma.flatten(), quantiles)
+        # Pin deep shadows/highlights rather than lifting black hair based on
+        # its changing area in the frame, which creates a gray veil.
+        tone_input, tone_output = [0.0, 0.08], [0.0, 0.08]
+        for current, target in zip(source_q.tolist(), reference_q.tolist()):
+            if current <= tone_input[-1] + 0.02 or current >= 0.90:
+                continue
+            value = current + max(-0.12, min(0.12, target - current)) * strength
+            lower = tone_output[-1] + 0.25 * (current - tone_input[-1])
+            upper = 0.92 - 0.25 * (0.92 - current)
+            tone_input.append(current)
+            tone_output.append(max(lower, min(upper, value)))
+        tone_input.extend([0.92, 1.0])
+        tone_output.extend([0.92, 1.0])
+
+        def chroma_stats(rgb, luma):
+            chroma = rgb - luma.unsqueeze(-1)
+            valid = (luma > 0.08) & (luma < 0.92)
+            values = chroma[valid] if int(valid.sum()) >= 32 else chroma.reshape(-1, 3)
+            center = values.mean(0)
+            spread = (values - center).square().mean().sqrt()
+            return center, spread
+
+        source_center, source_spread = chroma_stats(source, source_luma)
+        reference_center, reference_spread = chroma_stats(reference, reference_luma)
+        scale = float((reference_spread / source_spread.clamp_min(1e-5)).clamp(0.75, 1.25)) if source_spread > 1e-4 else 1.0
+        offset = (reference_center - source_center * scale).clamp(-0.035, 0.035) * strength
+        # Keep the cast vector on the constant-luminance plane after bounding.
+        offset = offset - cls._luma(offset)
+        scale = 1.0 + (scale - 1.0) * strength
+        if max(abs(a - b) for a, b in zip(tone_input, tone_output)) < 0.005 and abs(scale - 1.0) < 0.02 and float(offset.abs().max()) < 0.002:
+            return None
+        return {
+            "method": "scene_reference_v1", "reference": best[1],
+            "reference_match_score": round(best[0], 6), "strength": float(strength),
+            "fit_frame_indices": [indices[i] for i in matched.tolist()],
+            "tone_input": tone_input, "tone_output": tone_output,
+            "chroma_scale": scale, "chroma_offset": offset.tolist(),
+            "source_luma": float(source_luma.mean()), "reference_luma": float(reference_luma.mean()),
+            "placement": "before_reconstruction", "temporal_policy": "fixed_clip_transform",
+        }
+
+    @classmethod
+    def _apply_scene_color(cls, frames, plan):
+        luma = cls._luma(frames)
+        x, y = frames.new_tensor(plan["tone_input"]), frames.new_tensor(plan["tone_output"])
+        index = torch.bucketize(luma, x[1:-1])
+        slope = (y[1:] - y[:-1]) / (x[1:] - x[:-1])
+        mapped_luma = y[index] + (luma - x[index]) * slope[index]
+        # Taper only the small white-balance offset at the endpoints; preserve
+        # true black/white and avoid adding a colored veil to the deepest hair.
+        weight = (luma / 0.08).clamp(0, 1) * ((1.0 - luma) / 0.08).clamp(0, 1)
+        chroma = (frames - luma.unsqueeze(-1)) * plan["chroma_scale"]
+        chroma = chroma + weight.unsqueeze(-1) * frames.new_tensor(plan["chroma_offset"])
+        return mapped_luma.unsqueeze(-1) + chroma
 
     @classmethod
     def _reference_chroma_metric(cls, images, guide):
@@ -195,6 +302,23 @@ class MiniMaxH3ColorGuard:
             "cpu" if self._requires_cpu_output(output_bytes, images.is_cuda) else images.device
         )
         anchor = self._anchor(images, guide)
+        scene_plan = self._scene_color_plan(images, guide, float(strength), fast4) if anchor is None else None
+        if scene_plan is not None:
+            report = new_report(guide, images)
+            with stage_timer(report, "color_guard", path=scene_plan["method"],
+                             scope="apply one scene-reference grade; no frame blending"):
+                corrected = torch.empty(images.shape, dtype=images.dtype, device=output_device)
+                for start, end in self._chunk_ranges(images.shape[0], chunk_size=4):
+                    frames = images[start:end, ..., :3].to(device=output_device, dtype=torch.float32)
+                    if fast4:
+                        frames = self._fast4_finish(frames, strength)
+                    frames = self._apply_scene_color(frames, scene_plan).clamp(0, 1)
+                    corrected[start:end, ..., :3] = frames.to(dtype=images.dtype)
+                    if images.shape[-1] > 3:
+                        corrected[start:end, ..., 3:] = images[start:end, ..., 3:].to(output_device)
+            report["color_guard"] = scene_plan
+            attach_report(corrected, report)
+            return corrected, f"已按匹配场景参考 {scene_plan['reference']} 还原明暗、色偏与色度；全片固定校正，保留动作和自然光线变化"
         chroma_scale, chroma_stats = self._resolve_chroma_scale(
             images, guide, strength, anchor=anchor
         )

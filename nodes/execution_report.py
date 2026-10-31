@@ -245,6 +245,17 @@ def new_report(guide=None, source=None):
         reconstruction = reconstruction_diagnostics(upstream.get("reconstruction"))
         if reconstruction:
             report["reconstruction"] = reconstruction
+        color = upstream.get("color_guard")
+        if isinstance(color, dict):
+            report["color_guard"] = _scalars(color, (
+                "method", "reference", "reference_match_score", "strength", "chroma_scale",
+                "source_luma", "reference_luma", "placement", "temporal_policy",
+            ))
+            for key in ("fit_frame_indices", "tone_input", "tone_output", "chroma_offset"):
+                values = color.get(key)
+                if isinstance(values, (list, tuple)):
+                    report["color_guard"][key] = [v for v in values[:24]
+                        if isinstance(v, (float, int)) and not isinstance(v, bool) and math.isfinite(v)]
         if isinstance(upstream.get("sampling_settings"), dict):
             report["sampling_settings"] = _sampling_snapshot(upstream["sampling_settings"])
             report["sampling_settings"]["origin"] = "upstream_artifact"
