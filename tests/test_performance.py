@@ -942,6 +942,34 @@ def test_ref_two_stage_applies_u22_detail_loras_when_registered(monkeypatch):
     assert "4 个社区 LoRA" in result[1]
 
 
+def test_selflift_replaces_upstream_mystic_v5_with_clean_parent():
+    class Model:
+        def __init__(self, parent=None):
+            self.parent = parent
+
+        def clone(self):
+            return self
+
+    base = Model()
+    loaded_v5 = Model(parent=base)
+    guide = {
+        "sampling_method": "selflift",
+        "resolved_backend": "ref2va_model",
+        "detail_lora_override": "minimax/MysticXXX_MMH3-V5-ref2va.safetensors",
+        "additional_loras_requested": [{
+            "name": "minimax/MysticXXX_MMH3-V5-ref2va.safetensors",
+            "strength": 0.45,
+        }],
+    }
+
+    result = performance._restore_selflift_natural_texture_base(loaded_v5, guide)
+
+    assert result is base
+    assert guide["detail_lora_override"] is None
+    assert guide["natural_texture_policy"] == "selflift_u22_baseline"
+    assert guide["natural_texture_source"] == "upstream_mystic_v5_replaced"
+
+
 @pytest.mark.parametrize("profile,motion_chain", [
     ("off", []),
     ("continuity", [("Motion_Repair.safetensors", 0.25)]),

@@ -32,6 +32,7 @@ _PLAN_KEYS = (
     "resolved_two_stage_route", "first_lora_name", "second_lora_name", "vosr2_profile",
     "selflift_lora_kind",
     "detail_lora_override",
+    "natural_texture_policy", "natural_texture_source",
     "first_lora_strength", "second_lora_strength", "postprocess_mode", "postprocess_path",
     "ref_image_size", "requested_ref_image_size",
     "sage_requested", "sage_applied", "sage_error", "sage_disabled_reason",

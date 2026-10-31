@@ -24,7 +24,13 @@ from .schema import (
     allowed_performance_presets,
 )
 from .sampling_experiments import motion_lora_chain, validate_sampling_options
-from .additional_loras import lora_basename, mystic_v5_override, upstream_loras
+from .additional_loras import (
+    MYSTIC_V5_FL,
+    MYSTIC_V5_REF,
+    lora_basename,
+    mystic_v5_override,
+    upstream_loras,
+)
 from .sampling_recipes import (
     BALANCED_PRESET, BALANCED_LABEL, balanced_recipe, apply_balanced_shift,
     prepare_balanced_guider, validate_balanced_sampling,
@@ -1489,6 +1495,63 @@ def _apply_ref_detail_loras(model, guide):
     return model
 
 
+def _restore_selflift_natural_texture_base(model, guide):
+    """Replace an upstream V5 patch with the clean parent on SelfLift.
+
+    Mystic V5 is an optional community candidate for the standard H3 routes.
+    The validated SelfLift recipe already supplies its own U22 Mystic detail
+    adapter.  When a saved workflow carries only the optional V5 loader into
+    SelfLift, use the ModelPatcher parent as the unmodified base so the normal
+    U22 detail adapter can be applied once.  Keeping this at the router seam
+    also makes old workflows self-healing without adding another UI control.
+    """
+    if not isinstance(guide, dict) or guide.get("sampling_method") != "selflift":
+        return model
+    override = guide.get("detail_lora_override")
+    v5_names = {lora_basename(MYSTIC_V5_REF), lora_basename(MYSTIC_V5_FL)}
+    if not override or lora_basename(override) not in v5_names:
+        return model
+    rows = guide.get("additional_loras_requested")
+    if not isinstance(rows, (list, tuple)) or len(rows) != 1:
+        return model
+    row = rows[0]
+    if not isinstance(row, dict) or lora_basename(row.get("name")) not in v5_names:
+        return model
+
+    parent = getattr(model, "parent", None)
+    clone = getattr(parent, "clone", None)
+    if parent is None or parent is model or not callable(clone):
+        guide["natural_texture_policy"] = "selflift_u22_baseline_unavailable"
+        LOGGER.warning(
+            "[H3 natural texture] SelfLift 检测到上游 Mystic V5，但当前模型没有可恢复的干净 parent；"
+            "保留 V5 并记录降级状态"
+        )
+        return model
+    try:
+        clean_model = clone()
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        guide["natural_texture_policy"] = "selflift_u22_baseline_unavailable"
+        LOGGER.warning("[H3 natural texture] 无法恢复 SelfLift 干净模型 parent：%s", exc)
+        return model
+    if clean_model is model or clean_model is None:
+        guide["natural_texture_policy"] = "selflift_u22_baseline_unavailable"
+        LOGGER.warning("[H3 natural texture] ModelPatcher parent clone 无效；保留 V5")
+        return model
+
+    # The U22 route will now add its normal Mystic V1 detail adapter exactly
+    # once.  Keep the requested V5 in metadata while making the effective
+    # route explicit for the execution report.
+    guide["detail_lora_override"] = None
+    guide["natural_texture_policy"] = "selflift_u22_baseline"
+    guide["natural_texture_source"] = "upstream_mystic_v5_replaced"
+    LOGGER.info(
+        "[H3 natural texture] SelfLift 已将上游 Mystic V5@%s 替换为 U22 基线；"
+        "标准 REF2VA/FL2VA 路线仍保留 V5 可选行为",
+        row.get("strength"),
+    )
+    return clean_model
+
+
 # SHA-256 of the raw adaln_t_table tensor bytes in the stock H3 diffusion
 # checkpoints (measured locally on the safetensors payload).  The b25-49
 # hybrid keeps the FL2VA table; the REF2VA pruned checkpoint is the one that
@@ -2027,6 +2090,7 @@ class MiniMaxH3AccelerationRouter:
                 raise ValueError(f"附加 Mystic V5 未安装或未注册：{override}")
             guide["detail_lora_override"] = override
             LOGGER.info("[H3 additional LoRA] 上游选择 %s，自动细节链跳过 Mystic V1", override)
+        model = _restore_selflift_natural_texture_base(model, guide)
         guide["community_lora_mode"] = community_loras
         guide["second_stage_noise_mode"] = second_stage_noise
         selected_chunks = "".join(char for char in attention_chunks if char.isdigit())

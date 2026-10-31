@@ -41,6 +41,16 @@ def test_plan_records_safe_reference_preprocessing_notes():
     assert plan["minimax_mlp_chunks"] == 2
 
 
+def test_plan_records_selflift_natural_texture_policy():
+    plan = evidence.execution_plan({
+        "natural_texture_policy": "selflift_u22_baseline",
+        "natural_texture_source": "upstream_mystic_v5_replaced",
+    })
+
+    assert plan["natural_texture_policy"] == "selflift_u22_baseline"
+    assert plan["natural_texture_source"] == "upstream_mystic_v5_replaced"
+
+
 def test_plan_records_sol_attn_execution_evidence():
     plan = evidence.execution_plan({
         "sol_attn_applied": True,
