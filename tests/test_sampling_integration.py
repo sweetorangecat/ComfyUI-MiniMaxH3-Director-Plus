@@ -117,6 +117,23 @@ def test_explicit_sr_wins_over_quality_two_stage_downscale(director_runtime, met
     assert guide["postprocess_mode"] == method
 
 
+def test_two_stage_ai_upscale_bypasses_reconstruction_at_exact_target(director_runtime):
+    guide = build_director(
+        width=1344,
+        height=768,
+        resolution_preset="768p H3",
+        postprocess_mode="ai_upscale",
+    )
+
+    assert guide["two_stage_enabled"] is True
+    assert (guide["target_width"], guide["target_height"]) == (
+        guide["second_stage_width"],
+        guide["second_stage_height"],
+    )
+    assert guide["postprocess_path"] == "native_bypass"
+    assert guide["upscale_required"] is False
+
+
 def test_selected_seedvr2_missing_is_an_error(director_runtime, monkeypatch):
     monkeypatch.setattr(director, "_seedvr2_dependency_report", lambda: {"ready": False, "missing": ["SeedVR2"]})
     with pytest.raises(RequestError, match="SeedVR2"):

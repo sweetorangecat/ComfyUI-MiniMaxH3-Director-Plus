@@ -1132,6 +1132,17 @@ class MiniMaxH3DirectorPlus:
                 raise RequestError("VOSR2 节点未就绪，请安装 TE-Speed-VOSR2 并重启，或选择 SeedVR2：" + "、".join(missing))
             request["video_sr_plan"] = {"engine": "vosr2"}
             postprocess_path = "video_sr"
+        elif (
+            two_stage_plan is not None
+            and request["postprocess_mode"] == "ai_upscale"
+            and requested_width == postprocess_source_width
+            and requested_height == postprocess_source_height
+        ):
+            # The trained latent second stage already produced the requested
+            # canvas.  Running the default generic AI upscaler at a 1x target
+            # only loads RRDBNet, then round-trips every frame without adding
+            # pixels; bypass it so the two-stage output stays fast and intact.
+            postprocess_path = "native_bypass"
         elif request["postprocess_mode"] in {"video_sr", "ai_upscale"}:
             postprocess_path = request["postprocess_mode"]
         elif two_stage_plan is not None and (
