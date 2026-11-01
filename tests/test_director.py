@@ -6,6 +6,7 @@ import pytest
 from nodes.director import (
     MiniMaxH3DirectorPlus,
     _canonicalize_voice_audio,
+    _rewrite_storyboard_prompt,
     _sanitize_h3_composite_refs,
     align_frame_count,
     native_resolution_for_request,
@@ -128,6 +129,28 @@ def test_storyboard_reference_is_preserved_and_plain_images_are_untouched():
     assert cropped is sheet
     assert references[0] is sheet
     assert notes == []
+
+
+def test_storyboard_asset_is_removed_from_visual_refs_when_filename_identifies_it():
+    torch = pytest.importorskip("torch")
+    identity = torch.zeros(1, 2048, 3072, 3)
+    storyboard = torch.ones(1, 2048, 3072, 3)
+    cropped, references, notes = _sanitize_h3_composite_refs(
+        "Picture 3 is this unit's six-phase storyboard.",
+        identity,
+        [storyboard],
+        first_image_source="C01_identity.png",
+        reference_sources=["D12_温牛奶六格动作板_v3.png"],
+    )
+
+    assert cropped is identity
+    assert references == []
+    assert notes and "动作板" in notes[0]
+    rewritten = _rewrite_storyboard_prompt(
+        "<Picture 3> is this unit's six-phase storyboard."
+    )
+    assert "<Picture 3>" not in rewritten
+    assert "written six-phase action plan for this unit" in rewritten
 
 
 def test_smart_free_1080p_resolves_base_backend_to_sage_and_x2(monkeypatch):

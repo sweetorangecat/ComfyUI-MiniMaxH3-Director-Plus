@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import os
+import re
 from pathlib import Path
 
 from .prompting import build_reference_prompt, ensure_visual_text_policy, without_voice_references
@@ -213,26 +214,102 @@ def _crop_reference_tensor(image, width_fraction, height_fraction):
         return image
 
 
-def _sanitize_h3_composite_refs(prompt, first_image, references, first_image_source=""):
+_STORYBOARD_SOURCE_MARKERS = (
+    "六格动作板",
+    "动作板",
+    "六格故事板",
+    "storyboard",
+    "action_board",
+    "actionboard",
+    "six_panel",
+    "six-panel",
+    "six_phase",
+    "six-phase",
+)
+
+
+def _is_storyboard_source(source):
+    value = str(source or "").replace("\\", "/").lower()
+    return bool(value) and any(marker in value for marker in _STORYBOARD_SOURCE_MARKERS)
+
+
+def _rewrite_storyboard_prompt(prompt):
+    """Keep the written action plan while removing a dangling image binding."""
+    text = str(prompt or "")
+    replacements = (
+        ("<Picture 3>", "the written six-phase action plan"),
+        ("<picture 3>", "the written six-phase action plan"),
+        ("六格动作板", "文字六阶段动作计划"),
+        ("六格故事板", "文字六阶段动作计划"),
+    )
+    for source, target in replacements:
+        text = text.replace(source, target)
+    text = re.sub(
+        r"\b(?:six[- ]phase\s+)?storyboard\b",
+        "the written six-phase action plan",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"the written six-phase action plan\s+is\s+this unit(?:'s)?\s+the written six-phase action plan",
+        "the written six-phase action plan for this unit",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = text.replace("the the written six-phase action plan", "the written six-phase action plan")
+    return text.replace(
+        "the written six-phase action plan grid",
+        "the written action-plan grid",
+    )
+
+
+def _sanitize_h3_composite_refs(
+    prompt,
+    first_image,
+    references,
+    first_image_source="",
+    reference_sources=None,
+):
     """Return H3-safe image refs and a record of automatic sheet handling.
 
     A multi-view identity sheet is a human-facing layout, not a single visual
     reference.  H3 can treat the other visible poses as additional people and
     produce a translucent duplicate.  The Director's five-view convention
     keeps the identity portrait in the left panel, so only that panel is sent
-    to H3.  Storyboards stay intact: their temporal information is valuable
-    and the prompt already tells H3 to read them as sequential evidence.
+    to H3.  Storyboard sheets are planning assets, so when an upload name
+    identifies one, keep its action order in text but remove the sheet from
+    H3's visual conditions.  Otherwise each visible pose can become a
+    translucent extra person.
     """
     text = f"{prompt or ''} {first_image_source or ''}".lower()
     notes = []
     first = first_image
     refs = list(references or [])
+    sources = list(reference_sources or [])
     has_five_view = any(marker in text for marker in ("五视图", "five-view", "five view", "5-view"))
     if has_five_view and first is not None:
         cropped = _crop_reference_tensor(first, 0.30, 0.88)
         if cropped is not first:
             first = cropped
             notes.append("五视图已取左侧主身份 panel，避免其他视角被生成成半透明人物")
+    filtered = []
+    dropped = []
+    for index, reference in enumerate(refs):
+        if reference is None:
+            continue
+        source = sources[index] if index < len(sources) else ""
+        if _is_storyboard_source(source):
+            dropped.append(str(source))
+            continue
+        filtered.append(reference)
+    if dropped:
+        refs = filtered
+        notes.append(
+            "已将六格动作板从 H3 视觉条件移除，保留文字动作计划，"
+            "避免多姿态人物被生成成半透明重影（来源："
+            + "、".join(dropped)
+            + "）"
+        )
     return first, refs, notes
 
 
@@ -680,11 +757,14 @@ class MiniMaxH3DirectorPlus:
             first_image,
             reference_images,
             first_image_file,
+            reference_sources=uploaded_reference_files,
         )
         first_image = composite_first
         reference_images = composite_references
         if reference_preprocessing:
             LOGGER.info("[H3 director] 复合参考图预处理：%s", "；".join(reference_preprocessing))
+            if any("六格动作板" in note for note in reference_preprocessing):
+                prompt = _rewrite_storyboard_prompt(prompt)
         if mode == "REF2VA" and (first_image is not None or last_image is not None):
             require_contiguous_slots((first_image, last_image, *reference_images), "参考图")
         else:
