@@ -168,7 +168,8 @@ def _selflift_callable(registry):
 
 
 def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
-                          latent, sampler, sigmas, seed, upscaler_name):
+                          latent, sampler, sigmas, seed, upscaler_name,
+                          native_sparse_attention=False):
     """Build the SelfLift call for both legacy and current upstream nodes.
 
     Recent SelfLift releases add the ``global_stream`` high-resolution path,
@@ -189,7 +190,11 @@ def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
     # intentionally not applied to the global stream: the same correction
     # made skin and hair look waxy in 2K clips.
     avatar = node_id == "SelfLiftAvatarH3Sampler"
-    supports_global_stream = avatar and "highres_tiling_mode" in parameters
+    supports_global_stream = (
+        avatar
+        and "highres_tiling_mode" in parameters
+        and bool(native_sparse_attention)
+    )
     artifact_guard = (
         dict(name="avatar_global_stream_learned_only", rho=0.0, w_min=0.5, w_max=1.0,
              highres_tiling_mode="global_stream", global_stream_supported=True,
@@ -199,6 +204,9 @@ def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
              rho=0.6, w_min=0.5, w_max=1.0, highres_tiling_mode="spatial",
              global_stream_supported=False,
              speed_warning=(
+                 "当前环境未确认原生 Sol-Attn 已应用；已关闭 global_stream，"
+                 "高分辨率改用空间兼容路径，避免 SelfLift-Avatar 直接报错。"
+                 if avatar and "highres_tiling_mode" in parameters else
                  "当前 SelfLift 节点不支持 global_stream；高分辨率会按空间块重复执行，"
                  "请更新 selflift-Avatar 后再测长片速度"
              ))
@@ -350,6 +358,10 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
             sigmas=sigmas,
             seed=seed,
             upscaler_name=upscaler_name,
+            native_sparse_attention=(
+                str(guide.get("attention_backend", "")).lower() == "sol_attn"
+                and bool(guide.get("sol_attn_applied"))
+            ),
         )
         guide["selflift_highres_tiling"] = bool(call_kwargs.get("highres_tiling", False))
         guide["selflift_highres_tiling_mode"] = (

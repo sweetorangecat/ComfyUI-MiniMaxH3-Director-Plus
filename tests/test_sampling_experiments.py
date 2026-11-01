@@ -143,6 +143,22 @@ class AvatarSamplerWithoutLegacyUnload(AvatarSamplerNode):
         return (latent_image.copy(),)
 
 
+class AvatarRequiresNativeSolAttentionNode(AvatarSamplerNode):
+    """Reproduce the current Avatar guard when global attention is absent."""
+
+    def sample(self, low_res_model, positive, negative, vae, latent_image, sampler, sigmas,
+               seed, cfg, transition_step, lowres_scale, rho, w_min, w_max,
+               upscaler_model, high_res_model=None, highres_tiling=False,
+               upscaler_unload=True, highres_tiling_mode="spatial",
+               highres_token_chunk=4096, highres_weight_cache_gb=4.0):
+        if highres_tiling_mode == "global_stream":
+            raise ValueError(
+                "selflift-Avatar global_stream requires native Model Sparse Attention"
+            )
+        self.received = locals()
+        return (latent_image.copy(),)
+
+
 class AvatarSpatialCompatibilityNode:
     """Pre-global-stream Avatar API: spatial tiling only."""
 
@@ -156,7 +172,8 @@ class AvatarSpatialCompatibilityNode:
 
 def test_selflift_prefers_avatar_sampler_and_uses_global_context_recipe():
     node = AvatarSamplerNode()
-    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors")
+    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors",
+                 attention_backend="sol_attn", sol_attn_applied=True)
     latent = {"samples": AV()}
     result = experiments.run_selflift(
         model=object(), positive=[], vae=object(), sampler=euler_sampler(),
@@ -205,7 +222,8 @@ def test_adapter_unwraps_comfy_node_output_mapping():
 
 def test_avatar_sampler_does_not_require_legacy_unload_argument():
     node = AvatarSamplerWithoutLegacyUnload()
-    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors")
+    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors",
+                 attention_backend="sol_attn", sol_attn_applied=True)
     experiments.run_selflift(
         model=object(), positive=[], vae=object(), sampler=euler_sampler(),
         sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
@@ -213,6 +231,27 @@ def test_avatar_sampler_does_not_require_legacy_unload_argument():
         registry={"SelfLiftAvatarH3Sampler": lambda: node},
     )
     assert node.received["highres_tiling_mode"] == "global_stream"
+
+
+def test_avatar_global_stream_is_disabled_without_applied_sol_attention():
+    node = AvatarRequiresNativeSolAttentionNode()
+    guide = {
+        "sampling_method": "selflift",
+        "selflift_upscaler_model": "h3_fp16.safetensors",
+        "attention_backend": "h3_reuse",
+        "sol_attn_applied": False,
+    }
+    experiments.run_selflift(
+        model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+        sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
+        latent={"samples": AV()}, seed=42, guide=guide,
+        registry={"SelfLiftAvatarH3Sampler": lambda: node},
+    )
+    assert node.received["highres_tiling_mode"] == "spatial"
+    assert node.received["rho"] == 0.6
+    assert guide["selflift_node_variant"] == "avatar_spatial_compat_guard"
+    assert guide["selflift_global_stream_supported"] is False
+    assert "Sol-Attn" in guide["selflift_speed_warning"]
 
 
 def test_pre_global_avatar_uses_spatial_compatibility_contract():
