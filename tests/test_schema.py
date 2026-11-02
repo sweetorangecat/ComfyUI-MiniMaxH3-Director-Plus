@@ -107,7 +107,7 @@ def test_audio_marker_with_bound_reference_passes():
     assert request["resolved_backend"] == "ref2va_model"
 
 
-def test_multi_speaker_prompt_rejects_subject_order_used_as_speaker_order():
+def test_multi_speaker_prompt_keeps_nonsequential_speaker_ids_and_warns():
     prompt = """subject_definitions:
 <Audio 1> is the voice-timbre reference for <Subject 2> (S2).
 <Audio 2> is the voice-timbre reference for <Subject 1> (S1).
@@ -124,14 +124,16 @@ non_diegetic_music:
 N/A
 """
 
-    with pytest.raises(RequestError, match="首次发声顺序.*S2.*S1.*S3"):
-        normalize_request({
-            "mode": "REF2VA",
-            "duration": 15,
-            "voice_mode": "h3_reference",
-            "voice_reference_audios": [object(), object(), object()],
-            "prompt": prompt,
-        })
+    request = normalize_request({
+        "mode": "REF2VA",
+        "duration": 15,
+        "voice_mode": "h3_reference",
+        "voice_reference_audios": ["audio-1", "audio-2", "audio-3"],
+        "prompt": prompt,
+    })
+
+    assert request["voice_reference_audios"] == ["audio-1", "audio-2", "audio-3"]
+    assert any("S2 → S1 → S3" in warning for warning in request["warnings"])
 
 
 def test_multi_speaker_prompt_accepts_first_vocal_event_order():

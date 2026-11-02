@@ -48,23 +48,23 @@ def _speaker_order_from_dialogue(prompt):
     return order
 
 
-def _validate_first_vocal_event_order(prompt, audio_reference_count):
-    """Enforce H3's speaker IDs, which are independent from Subject IDs."""
+def _speaker_order_warning(prompt, audio_reference_count):
+    """Describe a nonsequential first-vocal order without changing bindings."""
     if audio_reference_count < 2:
-        return
+        return None
     speaker_order = _speaker_order_from_dialogue(prompt)
     if len(speaker_order) < 2:
-        return
+        return None
     expected = list(range(1, len(speaker_order) + 1))
     if speaker_order != expected:
         detected = " → ".join(f"S{speaker_id}" for speaker_id in speaker_order)
         correct = " → ".join(f"S{speaker_id}" for speaker_id in expected)
-        raise RequestError(
-            "H3 说话者编号必须按首次发声顺序排列；"
-            f"当前检测到 {detected}，应为 {correct}。"
-            "(S1)/(S2) 不是 <Subject N> 的人物顺序。请在 subject_definitions "
-            "和 detailed_description 中同步修改同一人物的 (Sx)，<Audio N> 编号保持上传槽位不变。"
+        return (
+            f"H3 多角色对白的首次发声顺序检测到 {detected}，推荐顺序为 {correct}。"
+            "已保留原始 (Sx) 与 <Audio N> 绑定，不再阻止生成；"
+            "如出现串音，可按首次发声顺序重编号，并在 subject_definitions 与 detailed_description 中同步修改。"
         )
+    return None
 
 
 def _prompt_shot_count(prompt):
@@ -419,8 +419,11 @@ def normalize_request(raw=None):
             "请将音色模式切换为 H3 原生参考或 Fish 高级音色锁定并上传样本，"
             "或删除提示词中的 <Audio N> 标记。"
         )
+    speaker_order_warning = None
     if request["voice_mode"] == "h3_reference":
-        _validate_first_vocal_event_order(request.get("prompt"), len(audio_references))
+        speaker_order_warning = _speaker_order_warning(
+            request.get("prompt"), len(audio_references)
+        )
     if request["voice_mode"] == "fish_lock" and not str(request["target_dialogue"]).strip():
         raise RequestError("Fish 高级音色锁定需要目标对白")
     preset = PERFORMANCE_PRESETS.get(request["performance_preset"])
@@ -435,6 +438,8 @@ def normalize_request(raw=None):
         raise RequestError(str(exc)) from exc
 
     request["warnings"] = []
+    if speaker_order_warning:
+        request["warnings"].append(speaker_order_warning)
     shot_count = _prompt_shot_count(request.get("prompt"))
     if request["mode"] == "REF2VA" and shot_count >= 2:
         request["warnings"].append(
