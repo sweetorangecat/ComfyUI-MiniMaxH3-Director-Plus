@@ -99,8 +99,6 @@ def test_disconnected_v5_cannot_suppress_the_active_recipe(monkeypatch):
 
 
 @pytest.mark.parametrize("backend,rows,mode,error", [
-    ("ref2va_model", [{"on": True, "lora": FL_V5, "str": 0.45}], "Basic", "REF2VA"),
-    ("fl2va_model", [{"on": True, "lora": REF_V5, "str": 0.45}], "Basic", "FL2VA"),
     ("ref2va_model", [{"on": True, "lora": REF_V5, "str": 0.45}], "LTX-2.3", "Basic"),
     ("ref2va_model", [{"on": True, "lora": REF_V5, "str": 0.45},
                       {"on": True, "lora": SELFLIFT_MYSTIC_LORA, "str": 0.45}], "Basic", "叠加"),
@@ -113,10 +111,60 @@ def test_invalid_mystic_combinations_stop_before_acceleration(monkeypatch, backe
         )
 
 
+def test_mismatched_mystic_v5_is_reloaded_for_resolved_backend(monkeypatch):
+    calls = []
+
+    class Parent:
+        def clone(self):
+            return self
+
+    class LoadedModel:
+        def __init__(self, parent):
+            self.parent = parent
+
+    base = Parent()
+    loaded = LoadedModel(base)
+    monkeypatch.setattr(performance, "resolve_registered_model_name", lambda category, name, **kw: name)
+    monkeypatch.setattr(
+        performance,
+        "_load_lightx2v_lora",
+        lambda model, name, strength=1.0, **kw: calls.append((model, name, strength)) or "corrected-model",
+    )
+    monkeypatch.setattr(
+        performance,
+        "_apply_acceleration",
+        lambda model, guide: (model, "ok", True, model),
+    )
+
+    guide = {"mode": "REF2VA", "resolved_backend": "ref2va_model"}
+    result = performance.MiniMaxH3AccelerationRouter().apply(
+        loaded,
+        guide,
+        prompt=lora_prompt([{"on": True, "lora": FL_V5, "str": 0.45}]),
+        unique_id="router",
+    )
+
+    assert result == ("corrected-model", "ok", True, "corrected-model")
+    assert calls == [(base, REF_V5, 0.45)]
+    assert guide["detail_lora_override"] == REF_V5
+    assert guide["mystic_v5_requested"] == FL_V5
+    assert guide["mystic_v5_effective"] == REF_V5
+    assert guide["mystic_v5_auto_switched"] is True
+
+
 def test_missing_v5_stops_instead_of_suppressing_v1(monkeypatch):
     monkeypatch.setattr(performance, "resolve_registered_model_name", lambda *args, **kw: None)
     with pytest.raises(ValueError, match="未安装|缺少"):
         performance.MiniMaxH3AccelerationRouter().apply(
             object(), {"resolved_backend": "ref2va_model"},
             prompt=lora_prompt([{"on": True, "lora": REF_V5, "str": 0.45}]), unique_id="router"
+        )
+
+
+def test_mismatched_v5_reports_missing_backend_variant(monkeypatch):
+    monkeypatch.setattr(performance, "resolve_registered_model_name", lambda *args, **kw: None)
+    with pytest.raises(ValueError, match="MysticXXX_MMH3-V5-ref2va"):
+        performance.MiniMaxH3AccelerationRouter().apply(
+            object(), {"resolved_backend": "ref2va_model"},
+            prompt=lora_prompt([{"on": True, "lora": FL_V5, "str": 0.45}]), unique_id="router"
         )

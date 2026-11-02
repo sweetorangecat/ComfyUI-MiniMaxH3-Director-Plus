@@ -28,7 +28,7 @@ from .additional_loras import (
     MYSTIC_V5_FL,
     MYSTIC_V5_REF,
     lora_basename,
-    mystic_v5_override,
+    mystic_v5_selection,
     upstream_loras,
 )
 from .sampling_recipes import (
@@ -1495,6 +1495,74 @@ def _apply_ref_detail_loras(model, guide):
     return model
 
 
+def _clone_mystic_parent_or_raise(model, selection, backend):
+    """Return the clean model that preceded an upstream Mystic V5 loader."""
+    parent = getattr(model, "parent", None)
+    clone = getattr(parent, "clone", None)
+    if parent is None or parent is model or not callable(clone):
+        mode = "REF2VA" if backend == "ref2va_model" else "FL2VA"
+        raise ValueError(
+            f"上游 Mystic V5 ({selection['requested_name']}) 与当前 {mode} 路由不匹配，"
+            f"且无法恢复干净模型；请在附加 LoRA 节点选择 {selection['effective_name']}"
+        )
+    try:
+        clean_model = clone()
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"上游 Mystic V5 与当前路由不匹配，无法恢复干净模型：{exc}；"
+            f"请在附加 LoRA 节点选择 {selection['effective_name']}"
+        ) from exc
+    if clean_model is model or clean_model is None:
+        raise ValueError(
+            f"上游 Mystic V5 与当前路由不匹配，无法恢复干净模型；"
+            f"请在附加 LoRA 节点选择 {selection['effective_name']}"
+        )
+    return clean_model
+
+
+def _reconcile_mismatched_mystic_v5(model, guide, selection, resolved_name, backend):
+    """Replace a wrong upstream V5 variant before acceleration starts."""
+    if not selection or not selection.get("auto_switched"):
+        return model
+
+    clean_model = _clone_mystic_parent_or_raise(model, selection, backend)
+    guide["mystic_v5_auto_switched"] = True
+    guide["mystic_v5_requested"] = selection["requested_name"]
+    guide["mystic_v5_effective"] = resolved_name
+
+    # SelfLift deliberately replaces any optional Mystic V5 with its own U22
+    # detail recipe.  The clean parent is therefore the effective model and
+    # there is no need to load the corrected V5 just to remove it again.
+    if guide.get("sampling_method") == "selflift":
+        guide["detail_lora_override"] = None
+        guide["natural_texture_policy"] = "selflift_u22_baseline"
+        guide["natural_texture_source"] = "upstream_mystic_v5_replaced"
+        LOGGER.info(
+            "[H3 natural texture] SelfLift 已移除不匹配的上游 Mystic V5@%s，使用 U22 基线",
+            selection.get("strength"),
+        )
+        return clean_model
+
+    try:
+        corrected_model = _load_lightx2v_lora(
+            clean_model,
+            resolved_name,
+            strength=float(selection["strength"]),
+        )
+    except H3LoRAApplicationError as exc:
+        raise ValueError(
+            f"已找到正确的 Mystic V5 ({resolved_name})，但自动重载失败：{exc}"
+        ) from exc
+    LOGGER.info(
+        "[H3 additional LoRA] 上游选择 %s，已按 %s 路由自动切换为 %s@%s",
+        selection["requested_name"],
+        backend,
+        resolved_name,
+        selection["strength"],
+    )
+    return corrected_model
+
+
 def _restore_selflift_natural_texture_base(model, guide):
     """Replace an upstream V5 patch with the clean parent on SelfLift.
 
@@ -2080,16 +2148,35 @@ class MiniMaxH3AccelerationRouter:
         unique_id=None,
     ):
         rows = upstream_loras(prompt, unique_id)
-        override = mystic_v5_override(rows, guide.get("resolved_backend", "fl2va_model"))
+        backend = guide.get("resolved_backend", "fl2va_model")
+        selection = mystic_v5_selection(rows, backend)
         guide["additional_loras_requested"] = [
             {"name": row["name"], "strength": row["strength"]} for row in rows
         ]
         guide.pop("detail_lora_override", None)
-        if override:
-            if resolve_registered_model_name("loras", override) is None:
-                raise ValueError(f"附加 Mystic V5 未安装或未注册：{override}")
-            guide["detail_lora_override"] = override
-            LOGGER.info("[H3 additional LoRA] 上游选择 %s，自动细节链跳过 Mystic V1", override)
+        guide.pop("mystic_v5_auto_switched", None)
+        guide.pop("mystic_v5_requested", None)
+        guide.pop("mystic_v5_effective", None)
+        if selection:
+            effective_name = selection["effective_name"]
+            resolved_name = resolve_registered_model_name("loras", effective_name)
+            if resolved_name is None:
+                mode = "REF2VA" if backend == "ref2va_model" else "FL2VA"
+                raise ValueError(
+                    f"当前 {mode} 路由需要附加 LoRA {effective_name}，但该文件未安装或未注册"
+                )
+            guide["mystic_v5_requested"] = selection["requested_name"]
+            guide["mystic_v5_effective"] = resolved_name
+            model = _reconcile_mismatched_mystic_v5(
+                model, guide, selection, resolved_name, backend
+            )
+            if (not selection.get("auto_switched")) or guide.get("sampling_method") != "selflift":
+                guide["detail_lora_override"] = resolved_name
+            LOGGER.info(
+                "[H3 additional LoRA] 上游选择 %s，当前有效 Mystic V5=%s",
+                selection["requested_name"],
+                resolved_name,
+            )
         model = _restore_selflift_natural_texture_base(model, guide)
         guide["community_lora_mode"] = community_loras
         guide["second_stage_noise_mode"] = second_stage_noise

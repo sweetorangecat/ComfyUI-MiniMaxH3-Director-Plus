@@ -68,8 +68,13 @@ def upstream_loras(prompt, unique_id):
     return [row for stack in reversed(stacks) for row in stack]
 
 
-def mystic_v5_override(rows, backend):
-    """Validate mode-specific Mystic selections before applying acceleration."""
+def mystic_v5_selection(rows, backend):
+    """Resolve the Mystic V5 variant required by the selected H3 backend.
+
+    The upstream DaSiWa loader may have already applied the other V5 variant
+    to the MODEL.  Keep the original selection and strength in the result so
+    the acceleration router can rebuild that small part of the model safely.
+    """
     mystic = [row for row in rows if lora_basename(row["name"]) in {
         lora_basename(MYSTIC_V5_REF), lora_basename(MYSTIC_V5_FL), lora_basename(MYSTIC_V1),
     }]
@@ -82,7 +87,19 @@ def mystic_v5_override(rows, backend):
     if row["model_type"] != "Basic":
         raise ValueError("H3 的 Mystic V5 请在原附加 LoRA 节点选择 Basic 模式")
     expected = MYSTIC_V5_REF if backend == "ref2va_model" else MYSTIC_V5_FL
-    if lora_basename(row["name"]) != lora_basename(expected):
-        mode = "REF2VA" if backend == "ref2va_model" else "FL2VA"
-        raise ValueError(f"当前 {mode} 模型需要附加 LoRA {expected}，请切换对应版本")
-    return row["name"]
+    requested_path = str(row["name"]).replace("\\", "/")
+    if "/" in requested_path:
+        expected = f"{requested_path.rsplit('/', 1)[0]}/{expected}"
+    switched = lora_basename(row["name"]) != lora_basename(expected)
+    return {
+        "requested_name": row["name"],
+        "effective_name": expected if switched else row["name"],
+        "strength": row["strength"],
+        "auto_switched": switched,
+    }
+
+
+def mystic_v5_override(rows, backend):
+    """Return the backend-compatible Mystic V5 name, if one was requested."""
+    selection = mystic_v5_selection(rows, backend)
+    return selection["effective_name"] if selection else None
