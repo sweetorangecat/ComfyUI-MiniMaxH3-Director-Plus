@@ -1,7 +1,33 @@
 import pytest
 
 
-from nodes.vram_budget import plan_two_stage_dimensions, split_tile_plan
+from nodes.vram_budget import (
+    is_near_target_postprocess_source,
+    is_redundant_fhd_vosr2,
+    plan_two_stage_dimensions,
+    split_tile_plan,
+)
+
+
+def test_near_target_source_skips_expensive_diffusion_vsr():
+    assert is_near_target_postprocess_source(1920, 1080, 1920, 1056)
+    assert is_near_target_postprocess_source(1920, 1080, 2016, 1152)
+
+
+def test_far_target_source_keeps_explicit_vsr_route():
+    assert not is_near_target_postprocess_source(2560, 1440, 1920, 1056)
+
+
+def test_fhd_vosr2_is_bypassed_only_for_near_target_two_stage_output():
+    assert is_redundant_fhd_vosr2("vosr2", 1920, 1080, 1920, 1056)
+    assert is_redundant_fhd_vosr2("vosr2", 1920, 1080, 2016, 1152)
+    assert not is_redundant_fhd_vosr2("video_sr", 1920, 1080, 1920, 1056)
+    assert not is_redundant_fhd_vosr2("vosr2", 2560, 1440, 1920, 1056)
+
+
+@pytest.mark.parametrize("values", [(0, 1080, 1920, 1056), (1920, 1080, 0, 1056), ("bad", 1080, 1920, 1056)])
+def test_near_target_source_rejects_invalid_canvas(values):
+    assert not is_near_target_postprocess_source(*values)
 
 
 def test_32gb_15s_2k_keeps_neural_basis_near_1080p():

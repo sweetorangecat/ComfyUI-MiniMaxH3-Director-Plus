@@ -17,6 +17,62 @@ BALANCED_FHD_LANDSCAPE = (1920, 1080)
 # 24GB route below remains 1280x704 to keep its memory bound unchanged.
 BALANCED_FHD_FIRST_LANDSCAPE = (1344, 768)
 BALANCED_FHD_SECOND_SCALE = 1.5
+NEAR_TARGET_POSTPROCESS_MAX_SCALE = 1.05
+
+
+def is_near_target_postprocess_source(
+    final_width,
+    final_height,
+    source_width,
+    source_height,
+    *,
+    max_scale=NEAR_TARGET_POSTPROCESS_MAX_SCALE,
+):
+    """Return whether a source canvas is already close enough to the target.
+
+    A diffusion VSR pass adds little value when the trained second-stage
+    canvas is already at (or just below) the requested dimensions.  The
+    caller can finish with a cheap aspect-aware resize instead of rebuilding
+    every video frame.  Keep this helper independent of ComfyUI so the route
+    decision is testable without loading model dependencies.
+    """
+    try:
+        final_width = int(final_width)
+        final_height = int(final_height)
+        source_width = int(source_width)
+        source_height = int(source_height)
+        max_scale = float(max_scale)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if min(final_width, final_height, source_width, source_height) <= 0:
+        return False
+    if not math.isfinite(max_scale) or max_scale <= 0:
+        return False
+    scale = max(
+        float(final_width) / float(source_width),
+        float(final_height) / float(source_height),
+    )
+    return scale <= max_scale
+
+
+def is_redundant_fhd_vosr2(
+    postprocess_mode,
+    final_width,
+    final_height,
+    source_width,
+    source_height,
+):
+    """Return whether FHD VOSR2 would be a near-1x reconstruction."""
+    return (
+        str(postprocess_mode or "") == "vosr2"
+        and {int(final_width), int(final_height)} == {1920, 1080}
+        and is_near_target_postprocess_source(
+            final_width,
+            final_height,
+            source_width,
+            source_height,
+        )
+    )
 
 
 def split_tile_plan(free_vram_gb):

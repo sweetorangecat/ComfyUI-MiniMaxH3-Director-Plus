@@ -902,9 +902,16 @@ def _iter_vsr_frame_stream(
 def _resolve_postprocess_path(guide, source_width, source_height):
     """Resolve explicit guide paths while retaining legacy guide behavior."""
     selected = guide.get("postprocess_mode")
+    resolved_path = guide.get("postprocess_path")
+    # Director has already resolved these paths after comparing the actual
+    # two-stage canvas with the final target.  Honor that decision even when
+    # an older workflow still carries an explicit ai_upscale/VOSR2 selector;
+    # otherwise the selector would silently re-enable the expensive engine.
+    if resolved_path in {"native_bypass", "balanced_fhd_downscale"}:
+        return resolved_path
     if selected in {"vosr2", "video_sr", "ai_upscale"}:
         return "ai_upscale" if selected == "ai_upscale" else "video_sr"
-    path = guide.get("postprocess_path")
+    path = resolved_path
     if path in {
         "native_bypass",
         "downscale",

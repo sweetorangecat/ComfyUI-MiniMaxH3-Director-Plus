@@ -37,7 +37,11 @@ from .upscale import (
     is_x4_upscale_model_name,
     resolve_upscale_model_name,
 )
-from .vram_budget import plan_two_stage_dimensions, split_tile_plan
+from .vram_budget import (
+    is_redundant_fhd_vosr2,
+    plan_two_stage_dimensions,
+    split_tile_plan,
+)
 from .vosr2_profiles import resolve_vosr2_profile_for_sampling
 
 
@@ -1124,7 +1128,28 @@ class MiniMaxH3DirectorPlus:
             two_stage_plan["second_stage_height"] if two_stage_plan else native_height
         )
         # Preserve near-FHD H3 detail without another diffusion reconstruction.
-        if request["postprocess_mode"] == "vosr2":
+        fhd_vosr2_is_redundant = bool(
+            two_stage_plan is not None
+            and is_redundant_fhd_vosr2(
+                request["postprocess_mode"],
+                requested_width,
+                requested_height,
+                postprocess_source_width,
+                postprocess_source_height,
+            )
+        )
+        if fhd_vosr2_is_redundant:
+            # A 24GB FHD two-stage plan ends at 1920x1056 (32px aligned),
+            # while the 32GB plan is slightly larger than FHD.  Running VOSR2
+            # at this near-1x ratio rebuilds every frame without adding a
+            # meaningful pixel level, which was the dominant source of the
+            # reported 54-minute I2VA run.
+            postprocess_path = "balanced_fhd_downscale"
+            request["warnings"].append(
+                "FHD 二采结果已接近 1920×1080，已自动跳过近 1 倍 VOSR2 逐帧重建；"
+                "改用等比裁切与 Lanczos 对齐，保留 2K/4K 的显式 VOSR2 路线。"
+            )
+        elif request["postprocess_mode"] == "vosr2":
             from .two_stage_assets import _comfy_node_mappings
             mappings = _comfy_node_mappings()
             missing = [n for n in ("TESpeedVOSR2Loader", "TESpeedVOSR2Settings", "TESpeedVOSR2Video") if n not in mappings]
