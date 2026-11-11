@@ -41,13 +41,13 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def safe_project_dir(output_root, project_name):
+def safe_project_dir(output_root, project_name, namespace='h3_longfilm'):
     name = str(project_name)
     reserved = {'CON', 'PRN', 'AUX', 'NUL', *(f'COM{i}' for i in range(1, 10)), *(f'LPT{i}' for i in range(1, 10))}
     if not re.fullmatch(r'[\w-][\w .-]{0,99}', name) or name.endswith(('.', ' ')) or name.split('.')[0].upper() in reserved:
         raise ValueError('project_name must be one safe directory name')
     root = Path(output_root).resolve()
-    base = root / 'h3_longfilm'
+    base = root / namespace
     target = base / name
     for candidate in (base, target):
         # Reject junctions/symlinks, including ones resolving within the root.

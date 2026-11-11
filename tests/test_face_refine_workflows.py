@@ -13,7 +13,7 @@ def test_main_workflow_has_no_face_branch_and_preserves_output():
                    n["type"].startswith("MiniMaxH3Face") for n in workflow["nodes"])
     assert not any("FaceRefine" in g.get("title", "") for g in workflow.get("groups", []))
     by_id = {n["id"]: n for n in workflow["nodes"]}
-    output = next(n for n in workflow["nodes"] if n["type"] == "MiniMaxH3StreamingVideoCombine")
+    output = next(n for n in workflow["nodes"] if n["type"] == "MiniMaxH3U11Output")
     image = next(i for i in output["inputs"] if i["name"] == "images")
     edge = next(e for e in workflow["links"] if e[0] == image["link"])
     assert by_id[edge[1]]["type"] == "MiniMaxH3ColorGuard"

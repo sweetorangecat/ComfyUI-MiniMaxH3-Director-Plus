@@ -21,6 +21,12 @@ if __package__:
     from .nodes.stream_output import MiniMaxH3StreamingVideoCombine
     from .nodes.vae_decode import MiniMaxH3SafeVAEDecode
     from .nodes.longfilm import MiniMaxH3LongFilm61
+    from .nodes.long_video_entry import MiniMaxH3LongVideoConfig, MiniMaxH3U11Output, MiniMaxH3LongVideoAssetName
+    from .nodes.long_video_runtime import (
+        MiniMaxH3LongVideoWindow, MiniMaxH3LongVideoContext, MiniMaxH3LongVideoCheckpoint,
+        MiniMaxH3LongVideoLoadAV, MiniMaxH3LongVideoExport,
+    )
+    from .api.long_video import register_long_video_routes
     from .nodes.local_prompt import MiniMaxH3LocalPromptDraft
     from .nodes.face_refine import (
         NODE_CLASS_MAPPINGS as FACE_NODE_CLASS_MAPPINGS,
@@ -46,6 +52,14 @@ if __package__:
         "MiniMaxH3StreamingVideoCombine": MiniMaxH3StreamingVideoCombine,
         "MiniMaxH3SafeVAEDecode": MiniMaxH3SafeVAEDecode,
         "MiniMaxH3LongFilm61": MiniMaxH3LongFilm61,
+        "MiniMaxH3LongVideoConfig": MiniMaxH3LongVideoConfig,
+        "MiniMaxH3LongVideoAssetName": MiniMaxH3LongVideoAssetName,
+        "MiniMaxH3U11Output": MiniMaxH3U11Output,
+        "MiniMaxH3LongVideoWindow": MiniMaxH3LongVideoWindow,
+        "MiniMaxH3LongVideoContext": MiniMaxH3LongVideoContext,
+        "MiniMaxH3LongVideoCheckpoint": MiniMaxH3LongVideoCheckpoint,
+        "MiniMaxH3LongVideoLoadAV": MiniMaxH3LongVideoLoadAV,
+        "MiniMaxH3LongVideoExport": MiniMaxH3LongVideoExport,
         "MiniMaxH3LocalPromptDraft": MiniMaxH3LocalPromptDraft,
     }
 
@@ -66,6 +80,8 @@ if __package__:
         "MiniMaxH3ColorGuard": "H3 曝光与色彩连续性保护",
         "MiniMaxH3VideoUpscale": "H3 低显存 CPU 分块放大",
         "MiniMaxH3StreamingVideoCombine": "H3 低显存流式放大与 MP4 输出",
+        "MiniMaxH3U11Output": "H3 U11 视频输出（短片 / 原生长视频）",
+        "MiniMaxH3LongVideoConfig": "H3 长视频（按需开启）",
         "MiniMaxH3SafeVAEDecode": "H3 安全视频 VAE 解码（GPU计算 / CPU帧缓存 FP16）",
     }
 
@@ -73,6 +89,7 @@ if __package__:
     NODE_DISPLAY_NAME_MAPPINGS.update(FACE_NODE_DISPLAY_NAME_MAPPINGS)
 
     register_routes()
+    register_long_video_routes()
 else:
     NODE_CLASS_MAPPINGS = {}
     NODE_DISPLAY_NAME_MAPPINGS = {}

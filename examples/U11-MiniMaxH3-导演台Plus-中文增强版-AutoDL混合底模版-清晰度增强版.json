@@ -1,8 +1,8 @@
 {
   "id": "92cc2937-1602-5bb6-9edd-1686668d1545",
   "revision": 0,
-  "last_node_id": 2751,
-  "last_link_id": 65,
+  "last_node_id": 2752,
+  "last_link_id": 66,
   "nodes": [
     {
       "id": 1,
@@ -1406,7 +1406,7 @@
     },
     {
       "id": 2568,
-      "type": "MiniMaxH3StreamingVideoCombine",
+      "type": "MiniMaxH3U11Output",
       "pos": [
         1525,
         470
@@ -1590,6 +1590,12 @@
           "shape": 7,
           "type": "AUDIO",
           "link": 65
+        },
+        {
+          "name": "long_video",
+          "type": "MINIMAX_H3_LONG_VIDEO",
+          "link": 66,
+          "shape": 7
         }
       ],
       "outputs": [
@@ -1610,7 +1616,7 @@
       "properties": {
         "aux_id": "jtydhr88/ComfyUI-Workflow-Encrypt",
         "ver": "5ec45fdac73d8bd6d732af76bbe81c94413b3e36",
-        "Node name for S&R": "MiniMaxH3StreamingVideoCombine",
+        "Node name for S&R": "MiniMaxH3U11Output",
         "cnr_id": "ComfyUI-MiniMaxH3-Director-Plus",
         "ue_properties": {
           "widget_ue_connectable": {},
@@ -2326,6 +2332,48 @@
       },
       "color": "#24353d",
       "bgcolor": "#344b55"
+    },
+    {
+      "id": 2752,
+      "type": "MiniMaxH3LongVideoConfig",
+      "title": "长视频（按需开启）",
+      "pos": [
+        2530,
+        470
+      ],
+      "size": [
+        480,
+        760
+      ],
+      "flags": {},
+      "order": 26,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "长视频配置",
+          "type": "MINIMAX_H3_LONG_VIDEO",
+          "links": [
+            66
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "MiniMaxH3LongVideoConfig",
+        "cnr_id": "ComfyUI-MiniMaxH3-Director-Plus",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        false,
+        30.0,
+        "h3-native-av",
+        "{}",
+        "target"
+      ]
     }
   ],
   "links": [
@@ -2536,6 +2584,14 @@
       2568,
       19,
       "AUDIO"
+    ],
+    [
+      66,
+      2752,
+      0,
+      2568,
+      20,
+      "MINIMAX_H3_LONG_VIDEO"
     ]
   ],
   "groups": [
@@ -2609,6 +2665,19 @@
         760
       ],
       "color": "#4c6f62",
+      "flags": {}
+    },
+    {
+      "id": "u11-long-video",
+      "title": "长视频（按需开启）",
+      "bounding": [
+        2500,
+        400,
+        540,
+        900
+      ],
+      "color": "#4c806b",
+      "font_size": 24,
       "flags": {}
     }
   ],

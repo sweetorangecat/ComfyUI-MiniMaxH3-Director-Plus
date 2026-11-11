@@ -202,6 +202,9 @@ def test_selflift_scheduler_ignores_stale_connected_step_count(monkeypatch):
 def test_selflift_model_route_shares_one_exact_attention_model(monkeypatch):
     from nodes import performance
     calls = []
+    # Model application is stubbed below. Make the optional detail adapter's
+    # registration explicit too, instead of depending on installed host files.
+    monkeypatch.setattr(performance, "_resolve_first_registered", lambda category, candidates: candidates[0])
     monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda model, name, **kw: calls.append(name) or "v4-model")
     monkeypatch.setattr(performance, "_apply_minimax_reuse_attention", lambda model, guide: model + ":exact")
     monkeypatch.setattr(performance, "_kj_ltx_class", lambda *args: pytest.fail("SelfLift must disable Sage"))

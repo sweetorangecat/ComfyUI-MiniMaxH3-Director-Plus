@@ -500,7 +500,7 @@
     }
   },
   "24": {
-    "class_type": "MiniMaxH3StreamingVideoCombine",
+    "class_type": "MiniMaxH3U11Output",
     "inputs": {
       "images": [
         "29",
@@ -529,10 +529,24 @@
       "audio": [
         "23",
         0
+      ],
+      "long_video": [
+        "30",
+        0
       ]
     },
     "_meta": {
       "title": "预览与输出"
+    }
+  },
+  "30": {
+    "class_type": "MiniMaxH3LongVideoConfig",
+    "inputs": {
+      "enabled": false,
+      "target_seconds": 30.0,
+      "project_name": "h3-native-av",
+      "scene_contract": "{}",
+      "stop_condition": "target"
     }
   }
 }

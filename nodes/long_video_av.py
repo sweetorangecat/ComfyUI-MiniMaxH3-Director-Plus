@@ -106,6 +106,13 @@ def _repair_ranges(repair, count, head):
     return canonical
 
 
+def validate_repair(window, repair):
+    """Return canonical open video ranges using only the native window plan."""
+    w = validate_window(window)
+    head = video_steps(w['context_frames']) if w['context_frames'] else 0
+    return _repair_ranges(repair, video_steps(w['sample_frames']), head)
+
+
 def prepare_av(target, window, source=None, repair=None, nested_factory=None):
     """Clone the target, copy true parent history, and always emit both masks.
 
@@ -144,7 +151,7 @@ def prepare_av(target, window, source=None, repair=None, nested_factory=None):
         _same_geometry(tv, ta, sv, sa, exact=True)
         _finite(sv, 'Source video')
         _finite(sa, 'Source audio')
-        ranges = _repair_ranges(repair, int(video.shape[2]), cv)
+        ranges = validate_repair(w, repair)
         video.copy_(sv.to(device=video.device))
         audio.copy_(sa.to(device=audio.device))
         vm.zero_()

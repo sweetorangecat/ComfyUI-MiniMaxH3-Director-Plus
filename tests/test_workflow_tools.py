@@ -256,7 +256,7 @@ def test_built_workflow_has_single_director_output_and_frame_export_toggles():
     }
     built = build_workflow(source)
     assert sum(node["type"] == "MiniMaxH3DirectorPlus" for node in built["nodes"]) == 1
-    outputs = [node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine"]
+    outputs = [node for node in built["nodes"] if node["type"] == "MiniMaxH3U11Output"]
     assert len(outputs) == 1
     output = outputs[0]
     values = output["widgets_values"]
@@ -304,7 +304,7 @@ def test_director_and_output_groups_contain_nodes_with_horizontal_gutter():
         return x, y, x + width, y + height
 
     director = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3DirectorPlus")
-    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3U11Output")
     for node, group_id in ((director, "u11-director"), (output, "u11-output")):
         left, top, right, bottom = bounds(node)
         group_left, group_top, group_width, group_height = groups[group_id]["bounding"]
@@ -401,7 +401,7 @@ def test_built_workflow_routes_fish_dialogue_to_output_override():
     }
     built = build_workflow(source)
     fish = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3FishVoiceBridge")
-    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3U11Output")
     override_slot = next(index for index, item in enumerate(output["inputs"]) if item["name"] == "audio_override")
 
     assert any(link[1:6] == [fish["id"], 0, output["id"], override_slot, "AUDIO"] for link in built["links"])
@@ -606,7 +606,7 @@ def test_builder_routes_color_guard_through_streaming_output():
     built = build_workflow(source)
     director = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3DirectorPlus")
     guard = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3ColorGuard")
-    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3U11Output")
 
     assert any(link[1:5] == [guard["id"], 0, output["id"], 0] for link in built["links"])
     assert any(link[1:5] == [director["id"], 0, output["id"], 1] for link in built["links"])
@@ -658,7 +658,7 @@ def test_builder_preserves_audio_and_frame_rate_slots_when_upgrading_output():
     }
 
     built = build_workflow(source)
-    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3U11Output")
     slots = {item["name"]: index for index, item in enumerate(output["inputs"])}
 
     assert slots["audio"] > slots["frame_rate"]
@@ -820,7 +820,7 @@ def test_api_template_streams_final_target_into_output_node():
 
     output = build_api_template()["24"]
 
-    assert output["class_type"] == "MiniMaxH3StreamingVideoCombine"
+    assert output["class_type"] == "MiniMaxH3U11Output"
     assert output["inputs"]["images"] == ["29", 0]
     assert output["inputs"]["guide"] == ["10", 0]
     assert output["inputs"]["quality"] == 20
@@ -851,7 +851,7 @@ def test_builder_keeps_visible_stream_output_quality_at_20_for_other_routes():
     }
 
     built = build_workflow(source)
-    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3U11Output")
 
     assert output["widgets_values"][1:5] == ["H.264", "MP4", "Auto", 20]
 
@@ -967,5 +967,5 @@ def test_builder_forces_mp4_h264_output_for_u11():
     }
 
     built = build_workflow(source)
-    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3StreamingVideoCombine")
+    output = next(node for node in built["nodes"] if node["type"] == "MiniMaxH3U11Output")
     assert output["widgets_values"][1:3] == ["H.264", "MP4"]

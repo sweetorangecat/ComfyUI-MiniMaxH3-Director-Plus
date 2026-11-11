@@ -106,6 +106,12 @@ def test_repair_copies_entire_failed_take_locks_audio_and_demands_changed_open_v
         av.validate_result(sampled, out)
 
 
+def test_repair_plan_can_be_validated_without_loading_av_or_changing_input():
+    repair = {'video_ranges': [[28, 30], [20, 24]], 'lock_audio': True}
+    assert module().validate_repair(plan().plan_windows(720)[1], repair) == [[20, 24], [28, 30]]
+    assert repair == {'video_ranges': [[28, 30], [20, 24]], 'lock_audio': True}
+
+
 @pytest.mark.parametrize('repair', [
     {'video_ranges': [[11, 14]], 'lock_audio': True},
     {'video_ranges': [[20, 98]], 'lock_audio': True},

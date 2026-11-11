@@ -307,7 +307,9 @@ def test_low_vram_smart_768p_ten_seconds_uses_tiled_trained_redraw(monkeypatch):
     assert guide["two_stage_enabled"] is True
     assert guide["resolved_two_stage_route"] == "trained_latent_fl"
     assert guide["two_stage_tiled"] is True
-    assert guide["postprocess_path"] == "ai_upscale"
+    # The redraw already reaches the requested canvas; do not reload a 1x
+    # reconstruction engine after the existing exact-size bypass policy.
+    assert guide["postprocess_path"] == "native_bypass"
     assert (guide["target_width"], guide["target_height"]) == (1344, 768)
 
 

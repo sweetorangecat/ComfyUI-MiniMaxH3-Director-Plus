@@ -327,9 +327,16 @@ def test_same_size_rtx_request_is_reported_as_native_bypass(monkeypatch):
 @pytest.mark.parametrize('engine,path', [('vosr2', 'video_sr'), ('video_sr', 'video_sr'), ('ai_upscale', 'ai_upscale')])
 @pytest.mark.parametrize('source', [(1920, 1080), (2688, 1536)])
 def test_selected_sr_runs_even_at_or_above_target_dimensions(engine, path, source):
-    guide = {'postprocess_mode': engine, 'postprocess_path': 'balanced_fhd_downscale',
-             'target_width': 1920, 'target_height': 1080}
+    guide = {'postprocess_mode': engine, 'target_width': 1920, 'target_height': 1080}
     assert stream_output._resolve_postprocess_path(guide, *source) == path
+
+
+@pytest.mark.parametrize('engine', ['vosr2', 'video_sr', 'ai_upscale'])
+@pytest.mark.parametrize('resolved', ['native_bypass', 'balanced_fhd_downscale'])
+def test_resolved_fhd_export_does_not_reenable_redundant_sr(engine, resolved):
+    guide = {'postprocess_mode': engine, 'postprocess_path': resolved,
+             'target_width': 1920, 'target_height': 1080}
+    assert stream_output._resolve_postprocess_path(guide, 2688, 1536) == resolved
 
 
 @pytest.mark.parametrize('engine,expected', [('vosr2', 'vosr2'), ('video_sr', 'seedvr2')])

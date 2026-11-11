@@ -900,6 +900,36 @@ def _upgrade_subgraphs(workflow):
     align_h3_scheduler_models(workflow)
 
 
+def upgrade_long_video_entry(workflow):
+    """Upgrade only the original output; retain every saved short-film choice."""
+    nodes = workflow.get('nodes', [])
+    output = next((n for n in nodes if n.get('type') in {
+        'MiniMaxH3StreamingVideoCombine','MiniMaxH3U11Output'}), None)
+    if output is None:
+        return workflow
+    output['type'] = 'MiniMaxH3U11Output'
+    output['properties'] = {**output.get('properties', {}), 'Node name for S&R': 'MiniMaxH3U11Output'}
+    config = next((n for n in nodes if n.get('type') == 'MiniMaxH3LongVideoConfig'), None)
+    if config is None:
+        config = {'id': _new_id_factory(workflow)(), 'type': 'MiniMaxH3LongVideoConfig',
+                  'title': '长视频（按需开启）', 'pos': [2530,470], 'size': [480,760],
+                  'flags': {}, 'order': max((n.get('order',0) for n in nodes), default=0)+1, 'mode': 0,
+                  'inputs': [], 'outputs': [_output('长视频配置','MINIMAX_H3_LONG_VIDEO',[])],
+                  'properties': _properties('MiniMaxH3LongVideoConfig'),
+                  'widgets_values': [False,30.0,'h3-native-av','{}','target']}
+        nodes.append(config)
+    slot = _append_input(output, 'long_video', 'MINIMAX_H3_LONG_VIDEO')
+    output['inputs'][slot]['shape'] = 7
+    if output['inputs'][slot].get('link') is None:
+        connection = _add_link(workflow, _new_link_factory(workflow), config, 0, output, slot, 'MINIMAX_H3_LONG_VIDEO')
+        output['inputs'][slot]['link'] = connection
+        config['outputs'][0].setdefault('links', []).append(connection)
+    if not any(g.get('id') == 'u11-long-video' for g in workflow.get('groups', [])):
+        workflow.setdefault('groups', []).append({'id':'u11-long-video','title':'长视频（按需开启）',
+            'bounding':[2500,400,540,900],'color':'#4c806b','font_size':24,'flags':{}})
+    return workflow
+
+
 def build_workflow(source):
     workflow = remove_face_refine(source)
     workflow["id"] = str(uuid.uuid5(uuid.NAMESPACE_URL, "minimax-h3-director-plus-u11"))
@@ -1093,7 +1123,7 @@ def build_workflow(source):
         "source": "U10-DaSiWa-MiniMaxH3-MythicAlchemy-v12导演台.json",
         "voice_semantics": "official_h3_audio_reference_fish_clone_or_full_audio_reuse",
     }
-    return workflow
+    return upgrade_long_video_entry(workflow)
 
 
 def build_api_template():
@@ -1141,7 +1171,9 @@ def build_api_template():
         "22": {"class_type": "MiniMaxH3SafeVAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 安全视频 VAE 解码（GPU计算 / CPU帧缓存 FP16）"}},
         "23": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["21", 1], "vae": ["5", 0]}, "_meta": {"title": "API 音频解码"}},
         "29": {"class_type": "MiniMaxH3ColorGuard", "inputs": {"images": ["22", 0], "guide": ["10", 0], "enabled": True, "strength": 1.0}, "_meta": {"title": "曝光与色彩连续性保护"}},
-        "24": {"class_type": "MiniMaxH3StreamingVideoCombine", "inputs": {"images": ["29", 0], "guide": ["10", 0], "frame_rate": 24.0, "codec": "H.264", "container": "MP4", "bit_depth": "Auto", "quality": 20, "log_level": "Standard", "pingpong": False, "save_metadata": True, "filename_prefix": "DirectorPlus", "save_output": True, "pass_frames": False, "crop_to_audio": False, "audio_codec": "Auto", "audio_bitrate": "320k", "save_first_frame": False, "save_last_frame": False, "audio": ["23", 0]}, "_meta": {"title": "预览与输出"}},
+        "24": {"class_type": "MiniMaxH3U11Output", "inputs": {"images": ["29", 0], "guide": ["10", 0], "frame_rate": 24.0, "codec": "H.264", "container": "MP4", "bit_depth": "Auto", "quality": 20, "log_level": "Standard", "pingpong": False, "save_metadata": True, "filename_prefix": "DirectorPlus", "save_output": True, "pass_frames": False, "crop_to_audio": False, "audio_codec": "Auto", "audio_bitrate": "320k", "save_first_frame": False, "save_last_frame": False, "audio": ["23", 0], "long_video": ["30",0]}, "_meta": {"title": "预览与输出"}},
+        "30": {"class_type": "MiniMaxH3LongVideoConfig", "inputs": {"enabled": False,
+            "target_seconds": 30.0, "project_name": "h3-native-av", "scene_contract": "{}", "stop_condition": "target"}},
     }
 
 
