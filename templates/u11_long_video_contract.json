@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "fps": 24,
+  "total_frames": 720,
+  "review_zh": "30秒合同示例。素材槽位为待填占位；未绑定实际已审资产前不可当作生产提交。换窗并不自动切镜。",
+  "reference_assets": [
+    {"slot": "Picture 1", "responsibility": "Subject 1 face, hairstyle and costume", "asset_path": "", "approved": false, "mounted": false},
+    {"slot": "Picture 2", "responsibility": "Subject 2 face, hairstyle and costume", "asset_path": "", "approved": false, "mounted": false},
+    {"slot": "Picture 3", "responsibility": "courtyard layout, lighting and table", "asset_path": "", "approved": false, "mounted": false},
+    {"slot": "Picture 4", "responsibility": "approved same-scale subjects, cup and table", "asset_path": "", "approved": false, "mounted": false},
+    {"slot": "Audio 1", "responsibility": "Subject 1 timbre only, not recording words", "asset_path": "", "approved": false, "mounted": false},
+    {"slot": "Audio 2", "responsibility": "Subject 2 timbre only, not recording words", "asset_path": "", "approved": false, "mounted": false}
+  ],
+  "scale_reference": {"slot": "Picture 4", "version": "REPLACE_WITH_REVIEWED_VERSION", "approved": false, "mounted": false},
+  "subject_definitions": "<Subject 1> (S1): adult wearing a blue jacket, identity and costume assigned to <Picture 1>; <Audio 1> is voice timbre reference only. <Subject 2> (S2): adult wearing a cream cardigan, identity and costume assigned to <Picture 2>; <Audio 2> is voice timbre reference only. <Picture 3> defines the courtyard and table. <Picture 4> defines the reviewed same-scale layout after its actual replacement, review and mounting. These are reference responsibilities; they do not imply first or last frames.",
+  "summary": "Two adults walk through a sunlit courtyard, discuss a cup, and gently set it on a table in one continuous tracking shot. Use normal-speed causal actions and only the scheduled words.",
+  "retention_analysis": "Preserve the same faces, hair, costumes, cup, courtyard, daylight and proportions from the actually mounted versions. Keep one cup in Subject 1's right hand until it makes contact with the table. Audio references define timbre only. No inferred subtitles or added visible text.",
+  "scale_contract": "Subject 1 height 1.70 m; Subject 2 height 1.62 m; cup height 0.12 m and diameter 0.08 m; table height 0.75 m. Exactly 2 adults and 1 cup. Preserve relative sizes with depth and perspective. The right hand of Subject 1 owns the cup until table contact.",
+  "overall_soundscape": "Continuous courtyard air, distant birds and synchronized footsteps; one gentle cup-to-table contact only in its scheduled action. No unscheduled speech. Inherit actual sound decay across continuation windows.",
+  "non_diegetic_music": "None.",
+  "speaker_policy": "S1 and S2 are scene identity assignments inherited through real AV history. Check actual backend speaker and reference binding; audio slot order alone is not evidence of speaker continuity.",
+  "beats": [
+    {"id": "approach", "start_frame": 0, "end_frame": 240, "action": "The two adults walk toward the table at a relaxed normal pace. Subject 1 holds the single cup upright in the right hand. Subject 2 looks toward the cup, then meets Subject 1's gaze.", "camera": "Eye-level medium two-shot, tracking with their movement. Keep hands, cup and shoulder-to-elbow-to-wrist paths visible.", "sound": "Footsteps follow the actual steps; the courtyard bed remains continuous.", "indivisible": false},
+    {"id": "explain", "start_frame": 240, "end_frame": 480, "action": "They continue their approach and exchange a brief smile. Subject 1 keeps the cup in the same right hand; the empty left hand makes a small open-palm gesture without touching the cup.", "camera": "Continue the existing tracking composition and speed, without a new establishing shot.", "indivisible": false},
+    {"id": "place-cup", "start_frame": 480, "end_frame": 528, "action": "Subject 1 lowers the single cup onto the table, visible right fingers maintaining contact until the cup base rests stably, then releasing it. Subject 2 observes the completed contact before reacting.", "sound": "One soft ceramic contact synchronized with the cup base reaching the table.", "indivisible": true},
+    {"id": "reaction", "start_frame": 528, "end_frame": 720, "action": "Subject 1 withdraws the empty right hand naturally. The two adults look from the stable cup to each other and smile. Finish with a readable live reaction at normal speed; no added freeze or black frame.", "camera": "Continue the same two-shot with the table and cup visible. Let the movement settle naturally.", "indivisible": false}
+  ],
+  "dialogues": [
+    {"id": "ask", "start_frame": 96, "end_frame": 144, "speaker": "<Subject 1> (S1)", "text": "Shall we put it over here?", "language": "English", "audio_slot": 1},
+    {"id": "answer", "start_frame": 336, "end_frame": 384, "speaker": "<Subject 2> (S2)", "text": "Yes, right beside the flowers.", "language": "English", "audio_slot": 2},
+    {"id": "finish", "start_frame": 600, "end_frame": 648, "speaker": "<Subject 1> (S1)", "text": "There. That's perfect.", "language": "English", "audio_slot": 1}
+  ]
+}
