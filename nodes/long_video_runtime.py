@@ -164,8 +164,8 @@ def _source(store, request):
             raise ValueError("Continuation parent must be the current accepted adjacent window")
         store.verify_accepted(record)
         source = load_clean(store, parent["take_id"])
-        digest = slice_fingerprint(source, window["source_endpoint"], window["context_frames"])
-        if digest != parent["history_sha256"]:
+        parent_history_sha256 = slice_fingerprint(source, window["source_endpoint"], window["context_frames"])
+        if parent_history_sha256 != parent["history_sha256"]:
             raise ValueError("Actual parent history SHA-256 differs from the immutable request")
     elif parent is not None:
         raise ValueError("A first window cannot have a continuation parent")
@@ -176,7 +176,14 @@ def _source(store, request):
         original = _take_record(store, repair["source_take"])
         if original["window"] != window:
             raise ValueError("Repair source must use the same physical and delivery window")
-        source = load_clean(store, repair["source_take"])
+        repair_source = load_clean(store, repair["source_take"])
+        if window["context_frames"]:
+            # Repair locks this existing prefix, so it must also match the
+            # actual history consumed from the current accepted parent.
+            head = window["context_frames"]
+            if slice_fingerprint(repair_source, head, head) != parent_history_sha256:
+                raise ValueError("Repair source protected AV history differs from the actual current parent; regenerate this window")
+        source = repair_source
     return source
 
 

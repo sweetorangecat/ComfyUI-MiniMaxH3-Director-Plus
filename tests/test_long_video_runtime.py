@@ -264,6 +264,53 @@ def test_bounded_repair_uses_superseded_clean_take_and_preserves_all_audio(envir
     assert environment.read()["windows"][0]["status"] == "awaiting_review"
 
 
+@pytest.mark.parametrize("parent_change", ["video_history", "audio_history", "outside_history", "unchanged"])
+def test_continuation_repair_binds_its_locked_prefix_to_actual_current_parent(environment, parent_change):
+    from nodes.long_video_av import slice_fingerprint
+    old_parent, old_av = native_take(environment)
+    environment.review(old_parent["take_id"], True, "old observed state", "full native review")
+    window = plan_windows(720)[1]
+    old_child, child_av = native_take(environment, window,
+        parent={"take_id": old_parent["take_id"], "history_sha256": slice_fingerprint(old_av, 294, 39)})
+    environment.review(old_child["take_id"], True, "old child state", "full continuation review")
+    old_records = environment.read()["windows"]
+    environment.invalidate_from(0, "Replace the parent before repairing its child")
+
+    new_parent = request(environment, seed=8, fingerprint=fingerprint({"seed": 8}))
+    prepared = runtime().MiniMaxH3LongVideoContext().prepare(latent(), guide(), json.dumps(new_parent), model())[0]
+    parent_av = sample(prepared)
+    video, audio = parent_av["samples"].unbind()
+    if parent_change == "video_history":
+        video[:, :, 75, 0, 0].add_(1)
+    elif parent_change == "audio_history":
+        audio[..., 425].add_(1)
+    elif parent_change == "outside_history":
+        video[:, :, 0].add_(1)
+        audio[..., 0].add_(1)
+    runtime().MiniMaxH3LongVideoCheckpoint().save(parent_av, prepared, sampled_guide(), VideoVAE(), object(), json.dumps(new_parent))
+    environment.review(new_parent["take_id"], True, "new observed state", "new parent and contact reviewed")
+    current_parent = environment.read()["windows"][0]
+    immutable_sources = {f"{record['take_id']}:{key}": artifact
+                         for record in [*old_records, current_parent]
+                         for key, artifact in record["artifacts"].items()}
+    repair = request(environment, window,
+        parent={"take_id": new_parent["take_id"], "history_sha256": slice_fingerprint(parent_av, 294, 39)},
+        repair={"source_take": old_child["take_id"], "video_ranges": [[20, 24]], "lock_audio": True})
+    repair_request = environment.artifact(environment.path(f"takes/{repair['take_id']}/request.json"))
+    if parent_change in {"video_history", "audio_history"}:
+        with pytest.raises(ValueError, match="Repair source protected AV history.*current parent"):
+            runtime().MiniMaxH3LongVideoContext().prepare(latent(), guide(), json.dumps(repair), model())
+        assert not environment.path(f"takes/{repair['take_id']}/prepared_context.json").exists()
+    else:
+        fixed = runtime().MiniMaxH3LongVideoContext().prepare(latent(), guide(), json.dumps(repair), model())[0]
+        fixed_video, fixed_audio = fixed["samples"].unbind()
+        assert torch.equal(fixed_video[:, :, :12], video[:, :, 75:87])
+        assert torch.equal(fixed_audio[..., :65], audio[..., 425:490])
+        runtime().MiniMaxH3LongVideoCheckpoint().save(sample(fixed), fixed, sampled_guide(), VideoVAE(), object(), json.dumps(repair))
+        assert torch.equal(runtime().load_clean(environment, repair["take_id"])["samples"].unbind()[1], child_av["samples"].unbind()[1])
+    environment.verify({**immutable_sources, "repair_request": repair_request})
+
+
 def test_partial_preview_publication_resumes_from_staged_media_without_decoding(environment, monkeypatch):
     import os
     req = request(environment)
