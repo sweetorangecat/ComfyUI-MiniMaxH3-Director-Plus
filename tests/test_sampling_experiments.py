@@ -199,6 +199,82 @@ def test_selflift_prefers_avatar_sampler_and_uses_global_context_recipe():
     assert guide["selflift_speed_warning"] is None
 
 
+@pytest.mark.parametrize("factory,attention", [
+    (SamplerNode, True), (AvatarSpatialCompatibilityNode, True), (AvatarSamplerNode, False),
+])
+def test_long_video_refuses_spatial_or_unconfirmed_attention_before_sampling(factory, attention):
+    import torch
+
+    class NativeAV:
+        is_nested = True
+
+        def __init__(self, values):
+            self.values = values
+
+        def unbind(self):
+            return self.values
+
+    node = factory()
+    native = {"samples": NativeAV((torch.zeros(1, 4, 97, 2, 3), torch.zeros(1, 8, 2, 547))),
+              "noise_mask": NativeAV((torch.ones(1, 1, 97, 2, 3), torch.ones(1, 1, 2, 547)))}
+    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors",
+                 attention_backend="sol_attn", sol_attn_applied=attention, long_video_window={"sample_frames": 328})
+    node_id = "SelfLiftH3Sampler" if factory is SamplerNode else "SelfLiftAvatarH3Sampler"
+    with pytest.raises((ValueError, RuntimeError), match="global_stream|Sol-Attn"):
+        experiments.run_selflift(
+            model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+            sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
+            latent=native, seed=42, guide=guide, registry={node_id: lambda: node})
+    assert not hasattr(node, "received")
+
+
+@pytest.mark.parametrize("mask_case", ["missing", "video_only", "wrong_shape", "soft", "nonfinite", "valid"])
+def test_long_video_requires_both_exact_native_masks_and_passes_them_intact(mask_case):
+    import torch
+
+    class NativeAV:
+        is_nested = True
+
+        def __init__(self, values):
+            self.values = tuple(values)
+
+        def unbind(self):
+            return self.values
+
+    video, audio = torch.zeros(1, 4, 97, 2, 3), torch.zeros(1, 8, 2, 547)
+    vm, am = torch.ones(1, 1, 97, 2, 3), torch.ones(1, 1, 2, 547)
+    masks = NativeAV((vm, am))
+    if mask_case == "video_only":
+        masks = NativeAV((vm,))
+    elif mask_case == "wrong_shape":
+        masks = NativeAV((vm[:, :, :-1], am))
+    elif mask_case == "soft":
+        am[..., 0] = .5
+    elif mask_case == "nonfinite":
+        vm[:, :, 0] = float("nan")
+    native = {"samples": NativeAV((video, audio))}
+    if mask_case != "missing":
+        native["noise_mask"] = masks
+    node = AvatarSamplerNode()
+    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors",
+                 attention_backend="sol_attn", sol_attn_applied=True, long_video_window={"sample_frames": 328})
+
+    def run():
+        return experiments.run_selflift(model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+            sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
+            latent=native, seed=42, guide=guide, registry={"SelfLiftAvatarH3Sampler": lambda: node})
+
+    if mask_case == "valid":
+        result = run()
+        assert result["noise_mask"] is masks
+        assert node.received["latent_image"]["noise_mask"] is masks
+        assert guide["sampling_actual_method"] == "selflift" and guide["selflift_highres_tiling_mode"] == "global_stream"
+    else:
+        with pytest.raises((ValueError, RuntimeError), match="mask|掩码"):
+            run()
+        assert not hasattr(node, "received")
+
+
 def test_adapter_unwraps_comfy_node_output_mapping():
     class ComfyOutputAvatarSampler(AvatarSamplerNode):
         def sample(self, low_res_model, positive, negative, vae, latent_image, sampler, sigmas,

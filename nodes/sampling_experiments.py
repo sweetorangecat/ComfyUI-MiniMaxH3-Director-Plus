@@ -333,6 +333,16 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         raise ValueError("SelfLift 需要有效的 10 步 sigma 轨迹并以 sigma=0 结束")
     _validate_euler(sampler)
     shapes = _av_shapes(latent)
+    if guide.get("long_video_window"):
+        from .long_video_av import streams
+        try:
+            actual_streams = streams(latent)
+            masks = streams({"samples": latent.get("noise_mask")})
+        except ValueError as exc:
+            raise ValueError("Native long-video requires both video and audio noise masks") from exc
+        for stream, mask in zip(actual_streams, masks):
+            if tuple(mask.shape) != (1, 1, *stream.shape[2:]) or not bool(((mask == 0) | (mask == 1)).all().item()):
+                raise ValueError("Native long-video AV masks require exact stream geometry and hard zero/one values")
     expected = (guide.get("second_stage_height"), guide.get("second_stage_width"))
     if all(value is not None for value in expected) and tuple(int(value) // 16 for value in expected) != shapes[0][-2:]:
         raise ValueError("SelfLift 初始 latent 必须使用目标 target 网格，不能传入首采小网格")
@@ -363,6 +373,13 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
                 and bool(guide.get("sol_attn_applied"))
             ),
         )
+        if guide.get("long_video_window") and (
+            node_id != "SelfLiftAvatarH3Sampler"
+            or not artifact_guard["global_stream_supported"]
+            or call_kwargs.get("highres_tiling_mode") != "global_stream"
+            or not call_kwargs.get("highres_tiling")
+        ):
+            raise RuntimeError("原生长视频必须使用支持 global_stream 的 SelfLift Avatar 和已应用的 Sol-Attn，不能切换空间分块")
         guide["selflift_highres_tiling"] = bool(call_kwargs.get("highres_tiling", False))
         guide["selflift_highres_tiling_mode"] = (
             artifact_guard["highres_tiling_mode"]
