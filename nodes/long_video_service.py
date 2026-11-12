@@ -14,10 +14,11 @@ import time
 import uuid
 
 from .long_video_graph import (build_window_graph, generation_settings, roles,
-                               output_canvas, freeze_assets)
-from .long_video_plan import target_frame_count, validate_contract, protected_intervals, plan_windows, compile_window
-from .long_video_store import ProjectStore, fingerprint
-from .long_video_media import assemble
+                               output_canvas, freeze_assets, apply_window_reference_policy)
+from .long_video_plan import (target_frame_count, validate_contract, protected_intervals, plan_windows,
+                              compile_window, validate_window_overrides)
+from .long_video_store import ProjectStore, StaleCoordination, fingerprint
+from .long_video_media import assemble, resolve_encoding, encoder_capabilities
 from .long_video_assets import (freeze_native_assets, freeze_export_assets,
                                 native_asset_choices, export_asset_choices)
 
@@ -94,7 +95,7 @@ def _asset_stats(records):
 
 
 def configure_project(store, base_graph, raw, asset_freezer=current_assets,
-                      export_asset_freezer=current_export_assets):
+                      export_asset_freezer=current_export_assets, encoder_checker=encoder_capabilities):
     config = deepcopy(raw)
     total = target_frame_count(config.get('target_seconds', 30))
     if config.get('project_name', store.name) != store.name:
@@ -103,8 +104,12 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
         raise ValueError('Choose a finite target or explicit manual continuation')
     contract = validate_contract(config.get('scene_contract'), total)
     plan = plan_windows(total, protected_intervals=protected_intervals(contract))
+    validate_window_overrides(contract, plan)
     graph, director, _, _, output = roles(base_graph)
     output_settings = graph[output]['inputs']
+    # Fail before asset hashing, take creation or any model/queue work.
+    encoding = resolve_encoding(output_settings)
+    encoder_checker()
     if (float(output_settings.get('frame_rate', 24)) != 24
             or output_settings.get('pingpong', False) or output_settings.get('crop_to_audio', False)):
         raise ValueError('Long-video delivery uses 24 fps, with no pingpong or audio-driven frame removal')
@@ -118,11 +123,12 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
     assets = native_assets['records']
     export_assets = _asset_bundle(export_asset_freezer(graph))
     native_code = _code_identity(['long_video_plan','long_video_av','long_video_runtime','long_video_graph',
+                                 'long_video_references',
                                  'director','guide','schema','prompting','voice_guard','resolution',
                                  'sampling_experiments','two_stage','performance','two_stage_assets','vram_budget',
                                  'additional_loras','long_video_assets','long_video_entry'])
     generation = fingerprint({'graph': generation_settings(graph), 'assets': native_assets, 'code': native_code})
-    export_settings = {'target': list(output_canvas(graph[director]['inputs'])),
+    export_settings = {'target': list(output_canvas(graph[director]['inputs'])), 'encoding': encoding,
                        'output': {k:v for k,v in output_settings.items()
                                   if k not in {'images','guide','audio','audio_override','long_video'}},
                        'director': {k:graph[director]['inputs'].get(k) for k in
@@ -144,8 +150,10 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
 def consumed_history(store, parent, window):
     from .long_video_runtime import load_clean
     from .long_video_av import slice_fingerprint
+    required = store.required_forward_review(parent)
+    forward = required['forward_frames'] if required and required['next_window'] == window else 0
     return slice_fingerprint(load_clean(store, parent['take_id']),
-                             window['source_endpoint'], window['context_frames'])
+                             window['source_endpoint'], window['context_frames'], forward)
 
 
 def delivery_identity(config, records):
@@ -210,45 +218,72 @@ class Coordinator:
         if status in {'queued', 'running'}:
             return True
         with self.store.transaction() as current:
+            if current.get('active_job') != job:
+                raise StaleCoordination('Queue ownership changed before reconciliation')
+            take = deepcopy(self.store.active(current, job['take_id']))
             current.pop('active_job', None)
             current['jobs'].append({**job, 'queue_status': status, 'finished_at': time.time()})
-        take = self.store.active(self.store.read(), job['take_id'])
+            index = take['window']['index']
+            expected_snapshot = self.store.coordination_snapshot(current, index)
         stage = job['stage']
         if (stage == 'native' and take['status'] in {'queued','running'}
                 and self.store.path(f"takes/{take['take_id']}/clean_receipt.json").is_file()):
             from .long_video_runtime import load_clean
-            load_clean(self.store, take['take_id'])
-            take = self.store.active(self.store.read(), job['take_id'])
-        usable = (take['status'] in {'sampled','awaiting_review','accepted'} if stage in {'native','preview'}
+            try:
+                load_clean(self.store, take['take_id'])
+            except ValueError:
+                # Only a changed reservation converts this known recovery
+                # failure into stale work. Unchanged corrupt evidence still fails.
+                self.store.check_coordination(self.store.read(), index, expected_snapshot)
+                raise
+            recovered = self.store.read()
+            try:
+                take = deepcopy(self.store.active(recovered, job['take_id']))
+            except ValueError as exc:
+                raise StaleCoordination('Source chain changed during clean recovery') from exc
+            expected_snapshot = self.store.coordination_snapshot(recovered, index)
+        # A completed decode may already have a negative content review before
+        # its queue entry is reconciled. Rejection retains the technical source;
+        # only an explicit retry or repair may replace that reviewed take.
+        usable = (take['status'] in {'sampled','awaiting_review','accepted','rejected'} if stage in {'native','preview'}
                   else self.store.read()['config']['export_fingerprint'] in take['exports'])
         if not usable:
             if stage == 'native':
                 # Partial prepared files are diagnostics. A new take on resume
                 # avoids overwriting them after an interrupted sampler.
-                self.store.invalidate_from(take['window']['index'], _SAMPLER_INCOMPLETE)
+                expected_snapshot = self.store.invalidate_from(index, _SAMPLER_INCOMPLETE,
+                                                                 expected_snapshot=expected_snapshot)
             if status == 'missing':
                 # Server restart removed the queue entry. Explicit resume can
                 # retry this step immediately; it cannot duplicate a live job.
                 return False
-            self.store.set_status('failed', error=f'{stage} job {status}; checkpoints retained, resume to retry')
+            self.store.coordinator_status('failed', index, expected_snapshot,
+                error=f'{stage} job {status}; checkpoints retained, resume to retry')
             return None
         return False
 
-    def schedule(self, request, stage):
+    def schedule(self, request, stage, *, expected_snapshot=None):
         prompt_id = str(uuid.uuid4())
         # A resumed journal record also contains status, media and reviews.
         # Only the immutable generation spec belongs in the runtime payload.
         request = json.loads(self.store.path(f"takes/{request['take_id']}/request.json").read_text(encoding='utf-8'))
-        request['export_fingerprint'] = self.store.read()['config']['export_fingerprint']
-        graph = build_window_graph(self.store.read()['config']['base_graph'], request, stage)
+        state = self.store.read()
+        index = request['window']['index']
+        if expected_snapshot is None:
+            expected_snapshot = self.store.coordination_snapshot(state, index)
+        request['export_fingerprint'] = state['config']['export_fingerprint']
+        graph = build_window_graph(state['config']['base_graph'], request, stage)
         graph_file = self.store.write_once(f'jobs/{prompt_id}.json', graph)
         job = {'prompt_id': prompt_id, 'take_id': request['take_id'], 'stage': stage,
                'graph': self.store.artifact(graph_file), 'submitted_at': time.time()}
         with self.store.transaction() as current:
+            self.store.check_coordination(current, index, expected_snapshot)
             if current.get('active_job'):
-                raise ValueError('A project already has a queued or running window')
+                raise StaleCoordination('A project already has a queued or running window')
             if current['stop_requested']:
                 return False
+            ProjectStore.active(current, request['take_id'])
+            self.store.validate_parent_binding(current, request)
             current['active_job'] = job
             current['status'] = 'enhancing' if stage == 'finish' else 'generating'
         try:
@@ -260,6 +295,14 @@ class Coordinator:
         return True
 
     def step(self):
+        try:
+            return self._step()
+        except StaleCoordination:
+            # A newer control/config/proof is already durable. Re-read it on
+            # the next driver iteration; do not overwrite its status or error.
+            return True
+
+    def _step(self):
         busy = self.reconcile_job()
         if busy is True:
             return True
@@ -267,11 +310,16 @@ class Coordinator:
             return False
         state = self.store.read()
         if state['stop_requested']:
-            self.store.set_status('stopped')
+            self.store.coordinator_status('stopped', 0, self.store.coordination_snapshot(state, 0))
             return False
         config = state['config']
+        validate_window_overrides(config['scene_contract'], state['plan'])
         if config.get('native_code') != _code_identity(config['native_code']):
             raise ValueError('Generation code changed; re-queue the original U11 to validate this project against the new version')
+        export_code = config.get('export', {}).get('code', {})
+        if (not config.get('export', {}).get('encoding')
+                or not export_code or export_code != _code_identity(export_code)):
+            raise ValueError('Export code changed; re-queue the original U11 to refresh the export fingerprint before continuing')
         for name, stat in config.get('asset_stats', {}).items():
             file = Path(name)
             if not file.is_file() or [file.stat().st_size, file.stat().st_mtime_ns] != stat:
@@ -289,53 +337,105 @@ class Coordinator:
         parts, accepted_records = [], []
         parent = None
         for window in state['plan']:
-            context = '' if parent is None else parent['observed_outgoing_state']
-            compiled = compile_window(config['scene_contract'], window, context)
-            history = None if parent is None else {
-                'take_id': parent['take_id'],
-                'history_sha256': self.history_provider(self.store, parent, window)}
-            seed = (config['seed'] + window['index'] * 1009) % (2**64)
-            key = fingerprint({'generation': config['generation_key'], 'window': window,
-                               'prompt': compiled['prompt'], 'seed': seed,
-                               'parent_history': history['history_sha256'] if history else None})
             index = window['index']
-            records = self.store.read()['windows']
+            expected_snapshot = self.store.coordination_snapshot(state, index)
+            context = '' if parent is None else parent['observed_outgoing_state']
+            forward = next((item.get('forward_frames', 0) for item in config['scene_contract'].get('window_overrides', [])
+                            if (item['new_start'], item['new_end']) == (window['new_start'], window['new_end'])), 0)
+            proof = None
+            if forward:
+                try:
+                    if parent is None:
+                        raise ValueError('Forward AV requires an actual accepted adjacent parent')
+                    proof = self.store.verify_forward_review(parent)
+                    if (proof['requirement']['next_window'] != window
+                            or proof['requirement']['forward_frames'] != forward):
+                        raise ValueError('Actual forward review does not match this next window')
+                except ValueError as exc:
+                    self.store.coordinator_status('awaiting_forward_review', index, expected_snapshot,
+                                                  forward_review_error=str(exc))
+                    return False
+                context = proof['observed_state']
+            compiled = compile_window(config['scene_contract'], window, context)
+            active, director, *_ = roles(config['base_graph'])
+            settings = active[director]['inputs']
+            settings['prompt'] = compiled['prompt']
+            bindings = apply_window_reference_policy(settings, compiled, active)
+            history = None
+            if parent is not None:
+                try:
+                    history_hash = self.history_provider(self.store, parent, window)
+                except ValueError:
+                    # The production loader may fail while a legitimate retry
+                    # removes this parent. Convert only a changed reservation;
+                    # unchanged corrupt/missing clean evidence must still fail.
+                    self.store.check_coordination(self.store.read(), index, expected_snapshot)
+                    raise
+                history = {'take_id': parent['take_id'], 'history_sha256': history_hash}
+            if proof is not None:
+                history['forward_review'] = deepcopy(parent['forward_review'])
+            current = state
+            attempt = current.get('content_attempts', {}).get(str(index), 0)
+            seed = (config['seed'] + index * 1009 + attempt * 1000003) % (2**64)
+            # Freeze the whole compiler result in request.json, but only model
+            # inputs affect reuse. Audit/mapped metadata can describe a beat's
+            # later endpoint when a target is extended; it is not sampled here.
+            model_compiled = {key: compiled[key] for key in
+                              ('prompt', 'dialogue_ids', 'reference_selection', 'voice_policy', 'forward_frames')}
+            base_key = fingerprint({'generation': config['generation_key'], 'window': window,
+                                    'compiled': model_compiled, 'reference_bindings': bindings, 'seed': seed,
+                                    'parent': history})
+            records = current['windows']
             record = records[index] if index < len(records) else None
+            repair = current.get('repair')
+            repair = repair if repair and repair['index'] == index else None
+            if repair and current.get('repair_base_fingerprint', base_key) != base_key:
+                raise ValueError('Repair generation inputs or current parent changed; select the current source and request repair again')
+            if (not repair and record and record.get('base_fingerprint') == base_key
+                    and record.get('repair') and (record['status'] != 'invalidated'
+                    or record.get('invalidation_reason') == _SAMPLER_INCOMPLETE)):
+                # Recovery and accepted repaired takes keep the same immutable
+                # bounds/locks. The base recipe is separate from the repair key.
+                repair = record['repair']
+            key = fingerprint({'base': base_key, 'repair': repair}) if repair else base_key
             if record and record['fingerprint'] != key:
-                self.store.invalidate_from(index, 'Actual generation inputs or consumed history changed')
-                record = self.store.read()['windows'][index]
+                expected_snapshot = self.store.invalidate_from(index,
+                    'Actual generation inputs or consumed history changed', expected_snapshot=expected_snapshot)
+                record = {**record, 'status': 'invalidated',
+                          'invalidation_reason': 'Actual generation inputs or consumed history changed'}
             if record is None or record['status'] == 'invalidated':
-                spec = {'window': window, 'prompt': compiled['prompt'], 'seed': seed,
-                        'fingerprint': key, 'parent': history, 'dialogue_ids': compiled['dialogue_ids'],
+                spec = {'window': window, **deepcopy(compiled), 'reference_bindings': bindings, 'seed': seed,
+                        'content_attempt': attempt, 'base_fingerprint': base_key,
+                        'fingerprint': key, 'parent': history,
                         'asset_revision': config['generation_key']}
-                repair = self.store.read().get('repair')
-                if (not repair and record and record['fingerprint'] == key
-                        and record.get('invalidation_reason') == _SAMPLER_INCOMPLETE):
-                    # A failed bounded repair is still the same requested
-                    # operation. Keep its protected video/audio on retry.
-                    # Changed inputs and an explicit full retry do not inherit it.
-                    repair = record.get('repair')
                 if repair and repair['index'] == index:
                     spec['repair'] = repair
-                request = self.store.create_take(spec)
-                if 'repair' in spec:
-                    with self.store.transaction() as current:
-                        current.pop('repair', None)
-                return self.schedule(request, 'native')
+                request = self.store.create_take(spec, require_current_parent=True,
+                                                 expected_snapshot=expected_snapshot)
+                return self.schedule(request, 'native', expected_snapshot=request['_coordination_snapshot'])
             if record['status'] in {'queued','running'}:
-                return self.schedule(record, 'native')
+                return self.schedule(record, 'native', expected_snapshot=expected_snapshot)
             if record['status'] == 'sampled':
                 self.store.verify(record['artifacts'])
-                return self.schedule(record, 'preview')
+                return self.schedule(record, 'preview', expected_snapshot=expected_snapshot)
             if record['status'] in {'awaiting_review', 'rejected'}:
-                self.store.set_status(record['status'])
+                self.store.coordinator_status(record['status'], index, expected_snapshot)
                 return False
             if record['status'] != 'accepted':
                 raise ValueError('Unrecognized native take state: ' + record['status'])
             self.store.verify_accepted(record)
+            try:
+                if self.store.required_forward_review(record) is not None:
+                    self.store.verify_forward_review(record)
+            except ValueError as exc:
+                # Review surplus before spending VOSR2 work: a bad source tail
+                # may require replacing this still-accepted parent delivery.
+                self.store.coordinator_status('awaiting_forward_review', index, expected_snapshot,
+                                              forward_review_error=str(exc))
+                return False
             export = record['exports'].get(config['export_fingerprint'])
             if export is None:
-                return self.schedule(record, 'finish')
+                return self.schedule(record, 'finish', expected_snapshot=expected_snapshot)
             self.store.verify({k:export[k] for k in ('video','audio')})
             if export.get('receipt'):
                 self.store.verify({'receipt': export['receipt']})
@@ -358,7 +458,8 @@ class Coordinator:
                     return True
                 current['status'] = 'assembling'
             final = self.store.path(f"final/seed{config['seed']}_f{config['total_frames']}_{uuid.uuid4().hex}.mp4")
-            report = self.assembler(parts, final, config['total_frames'], config['export']['target'])
+            report = self.assembler(parts, final, config['total_frames'], config['export']['target'],
+                                    encoding=config['export']['encoding'])
         with self.store.transaction() as current:
             # A review/repair can legally revoke sources while assembly runs.
             # Publish only against the exact accepted source chain, atomically.
@@ -430,6 +531,8 @@ def _start(store, setup=None):
 
 
 def control(store, action, data):
+    if not isinstance(data, dict):
+        raise ValueError('Long-video control data must be an object')
     if action == 'stop':
         store.stop()
     elif action == 'resume':
@@ -442,21 +545,34 @@ def control(store, action, data):
         if data['accepted']:
             store.resume()
             _start(store)
+    elif action == 'review_forward':
+        if set(data) - {'take_id', 'scope', 'observed_state'} or 'take_id' not in data:
+            raise ValueError('Forward review accepts take_id, actual scope and observed_state only')
+        store.review_forward(data['take_id'], data.get('scope'), data.get('observed_state'))
+        store.resume()
+        _start(store)
     elif action == 'repair':
-        store.request_repair(data['index'], data['video_ranges'], data.get('lock_audio', True))
+        normal = {'index', 'take_id', 'start_seconds', 'end_seconds', 'stream'}
+        advanced = {'index', 'take_id', 'video_ranges', 'audio_ranges', 'video_weights', 'lock_audio'}
+        seconds = bool({'start_seconds', 'end_seconds', 'stream'} & set(data))
+        allowed = normal if seconds else advanced
+        if set(data) - allowed or 'index' not in data:
+            raise ValueError('Unknown or mixed repair fields; use film seconds and stream, or bounded native ranges')
+        if seconds:
+            if not {'start_seconds', 'end_seconds'}.issubset(data):
+                raise ValueError('Seconds repair requires start_seconds and end_seconds')
+            store.request_repair_seconds(data['index'], data['start_seconds'], data['end_seconds'],
+                                        data.get('stream', 'video'), take_id=data.get('take_id'))
+        else:
+            store.request_repair(data['index'], data.get('video_ranges'), data.get('lock_audio', True),
+                                 audio_ranges=data.get('audio_ranges'), video_weights=data.get('video_weights'),
+                                 take_id=data.get('take_id'))
         store.resume()
         _start(store)
     elif action == 'retry':
-        index = data['index']
-        with store.transaction() as current:
-            if current.get('active_job'):
-                raise ValueError('Wait for the running window before replacing a source take')
-            if (type(index) is not int or not 0 <= index < len(current['windows'])
-                    or current['windows'][index]['status'] not in {'rejected', 'invalidated'}):
-                raise ValueError('Only a rejected or invalidated window needs a new full take')
-            if current.get('repair', {}).get('index') == index:
-                current.pop('repair', None)
-            store._invalidate(current, index, 'Explicitly retry native content without bounded repair')
+        if set(data) - {'index', 'replace_accepted', 'take_id'} or 'index' not in data:
+            raise ValueError('Unknown retry fields')
+        store.request_retry(data['index'], replace_accepted=data.get('replace_accepted', False), take_id=data.get('take_id'))
         store.resume()
         _start(store)
     else:

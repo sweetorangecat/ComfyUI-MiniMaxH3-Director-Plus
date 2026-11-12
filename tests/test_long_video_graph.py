@@ -95,6 +95,294 @@ def test_payload_records_stage_and_reserved_names_cannot_collide():
         build_window_graph(base, request())
 
 
+def voice_graph():
+    base = base_graph()
+    base['10']['inputs'].update(voice_mode='h3_reference',
+        voice_reference_audio=['13', 0], voice_reference_audio_2_file='second.wav',
+        voice_reference_audio_3_file='third.wav', voice_reference_name_1='First speaker',
+        voice_reference_name_2='Second speaker', voice_reference_name_3='Third speaker',
+        reference_transcript='Historical sample words.')
+    return base
+
+
+@pytest.mark.parametrize('stage', ['native', 'preview', 'finish'])
+def test_noncontiguous_selection_compacts_actual_files_links_and_records_binding_maps(stage):
+    base = voice_graph()
+    base['10']['inputs']['reference_image_7_file'] = 'stale-shadowed.png'
+    value = request()
+    value.update(reference_selection={'pictures': [9, 2], 'audios': [3, 1]},
+        prompt='<Subject 8> (S2) from <Picture 9>, scene <Picture 2>, timbre <Audio 3>. '
+               '<d><Picture 9> <Audio 3></d>')
+    before = deepcopy(base)
+    graph = build_window_graph(base, value, stage)
+    settings = graph['10']['inputs']
+    assert base == before
+    assert settings['first_image'] == ['37', 0] and settings['last_image'] == ['12', 0]
+    assert not any(key.startswith('reference_image_') for key in settings)
+    assert settings['voice_reference_audio_file'] == 'third.wav'
+    assert settings['voice_reference_audio_2'] == ['13', 0]
+    assert settings['voice_reference_name_1'] == 'Third speaker'
+    assert settings['voice_reference_name_2'] == 'First speaker'
+    assert not any('audio_3' in key or key == 'voice_reference_name_3' for key in settings)
+    assert settings['reference_transcript'] == ''
+    assert '<Subject 8> (S2) from <Picture 1>, scene <Picture 2>, timbre <Audio 1>.' in settings['prompt']
+    assert '<d><Picture 9> <Audio 3></d>' in settings['prompt']
+    trace = graph['10']['_meta']['h3_long_video_reference_bindings']
+    assert trace['maps'] == {'pictures': {'9': 1, '2': 2}, 'audios': {'3': 1, '1': 2}}
+    assert trace['original']['pictures'][0]['slot'] == 'first_image'
+    assert trace['original']['pictures'][8]['slot'] == 'reference_image_7'
+    assert trace['selected']['pictures'][0]['original_id'] == 9
+    node = '24' if stage == 'finish' else 'h3long_native'
+    payload = json.loads(graph[node]['inputs']['request_json'])
+    assert {key: val for key, val in payload.items() if key != 'stage'} == value
+    assert '31' not in graph and '37' in graph
+
+
+def test_compiled_prompt_reference_maps_are_not_applied_twice():
+    value = request()
+    value.update(reference_selection={'pictures': [9, 2], 'audios': [3]},
+                 prompt='<Subject 8> (S2) uses <Picture 1> and <Audio 1>.',
+                 audit={'prompt_reference_space': 'window',
+                        'reference_maps': {'pictures': {'9': 1, '2': 2}, 'audios': {'3': 1}}})
+    graph = build_window_graph(voice_graph(), value)
+    assert graph['10']['inputs']['prompt'] == value['prompt']
+
+
+@pytest.mark.parametrize('selection', [
+    {'pictures': [12], 'audios': []}, {'pictures': [1, 1], 'audios': []},
+    {'pictures': [True], 'audios': []}, {'pictures': [1], 'audios': [4]},
+    {'pictures': [1], 'audios': [], 'guess': True},
+])
+def test_invalid_or_missing_selected_bindings_fail(selection):
+    value = {**request(), 'reference_selection': selection}
+    with pytest.raises(ValueError):
+        build_window_graph(voice_graph(), value)
+
+
+def test_original_reference_gaps_and_dangling_directing_markers_fail():
+    base = voice_graph()
+    base['10']['inputs'].pop('reference_image_2')
+    with pytest.raises(ValueError, match='gap|contiguous'):
+        build_window_graph(base, {**request(), 'reference_selection': {'pictures': [1], 'audios': []}})
+    with pytest.raises(ValueError, match='Picture 11|dangling'):
+        build_window_graph(voice_graph(), {**request(), 'prompt': 'Use <Picture 11>.',
+            'reference_selection': {'pictures': [1], 'audios': []}})
+
+
+@pytest.mark.parametrize('stage', ['native', 'preview', 'finish'])
+def test_quiet_owned_dialogue_contract_omits_all_local_voice_fields(stage):
+    value = request()
+    value.update(voice_policy='dialogue_only', dialogue_ids=[],
+        prompt='<Subject 1> (S1): same adult; <Audio 1> is voice timbre reference only.')
+    graph = build_window_graph(voice_graph(), value, stage)
+    settings = graph['10']['inputs']
+    assert settings['voice_mode'] == 'none'
+    assert not any(key.startswith('voice_reference_') for key in settings)
+    assert settings['reference_transcript'] == ''
+    assert '<Subject 1> (S1): same adult' in settings['prompt']
+    assert '<Audio' not in settings['prompt'] and 'automatically generated' not in settings['prompt']
+    assert '13' not in graph
+
+
+def test_legacy_and_owned_speech_inherit_original_reference_bindings():
+    base = voice_graph()
+    legacy = build_window_graph(base, request())
+    spoken = build_window_graph(base, {**request(), 'voice_policy': 'dialogue_only', 'dialogue_ids': ['line']})
+    assert legacy['10']['inputs'] == spoken['10']['inputs']
+    assert legacy['10']['inputs']['voice_mode'] == 'h3_reference'
+
+
+def test_quiet_policy_requires_an_explicit_owned_dialogue_list():
+    with pytest.raises(ValueError, match='dialogue_ids'):
+        build_window_graph(voice_graph(), {**request(), 'voice_policy': 'dialogue_only'})
+
+
+@pytest.mark.parametrize('endpoint,source', [('first_image', '11'), ('last_image', '12')])
+def test_explicit_selection_flattens_independently_optional_endpoint_slots(endpoint, source):
+    base = voice_graph()
+    for field in ('first_image', 'last_image'):
+        if field != endpoint:
+            base['10']['inputs'].pop(field)
+    value = {**request(), 'reference_selection': {'pictures': [2, 1], 'audios': [1]},
+             'prompt': '<Picture 2> is the person; <Picture 1> is the scene.'}
+    graph = build_window_graph(base, value)
+    settings = graph['10']['inputs']
+    assert settings['first_image'] == ['31', 0] and settings['last_image'] == [source, 0]
+    trace = graph['10']['_meta']['h3_long_video_reference_bindings']
+    assert [r['slot'] for r in trace['original']['pictures'][:2]] == [endpoint, 'reference_image_1']
+
+
+def test_selection_preserves_transcript_only_if_original_first_audio_stays_first():
+    value = {**request(), 'reference_selection': {'pictures': [], 'audios': [1, 3]}}
+    graph = build_window_graph(voice_graph(), value)
+    assert graph['10']['inputs']['reference_transcript'] == 'Historical sample words.'
+    trace = graph['10']['_meta']['h3_long_video_reference_bindings']
+    assert trace['original']['audios'][0]['transcript'] == 'Historical sample words.'
+
+
+@pytest.mark.parametrize('marker', ['<Picture 0>', '<Audio -1>', '<Picture 1.5>', '<Audio x>',
+                                  'Use <Picture 1', 'Use <Audio 1', 'Use <Picture1>'])
+def test_malformed_directing_reference_markers_fail_without_touching_literal_speech(marker):
+    with pytest.raises(ValueError, match='marker|reference'):
+        build_window_graph(voice_graph(), {**request(), 'prompt': marker})
+    graph = build_window_graph(voice_graph(), {**request(), 'prompt': '<d>' + marker + '</d>'})
+    assert graph['10']['inputs']['prompt'] == '<d>' + marker + '</d>'
+
+
+def test_compiled_quiet_selection_cannot_claim_a_missing_original_audio_binding():
+    value = {**request(), 'reference_selection': {'pictures': [1], 'audios': []},
+        'voice_policy': 'dialogue_only', 'dialogue_ids': [],
+        'audit': {'prompt_reference_space': 'window',
+                  'reference_maps': {'pictures': {'1': 1}, 'audios': {}},
+                  'original_reference_selection': {'pictures': [1], 'audios': [3]}}}
+    with pytest.raises(ValueError, match='missing|binding'):
+        build_window_graph(base_graph(), value)
+
+
+def test_missing_graph_links_and_original_audio_gaps_are_rejected():
+    base = voice_graph()
+    base['10']['inputs'].pop('voice_reference_audio_2_file')
+    with pytest.raises(ValueError, match='gap|contiguous'):
+        build_window_graph(base, request())
+    base = voice_graph()
+    base['10']['inputs']['reference_image_1'] = ['missing-node', 0]
+    with pytest.raises(ValueError, match='missing|binding'):
+        build_window_graph(base, request())
+
+
+def test_supplied_immutable_binding_snapshot_must_match_actual_base_bindings():
+    from nodes.long_video_graph import roles, apply_window_reference_policy
+    base, value = voice_graph(), request()
+    value.update(reference_selection={'pictures': [9], 'audios': [3]},
+                 prompt='<Picture 9> and <Audio 3> define this window.')
+    active, director, *_ = roles(base)
+    settings = active[director]['inputs']
+    settings['prompt'] = value['prompt']
+    trace = apply_window_reference_policy(settings, value, active)
+    immutable = {**value, 'reference_bindings': json.loads(json.dumps(trace))}
+    build_window_graph(base, immutable)
+    changed = deepcopy(base)
+    changed['10']['inputs']['voice_reference_audio_3_file'] = 'replacement.wav'
+    with pytest.raises(ValueError, match='binding|snapshot'):
+        build_window_graph(changed, immutable)
+
+
+def test_direct_empty_audio_selection_safely_removes_reference_only_prose():
+    value = {**request(), 'reference_selection': {'pictures': [1], 'audios': []},
+        'prompt': '<Subject 1> (S1): same adult; <Audio 1> is voice timbre reference only.\n'
+                  'Keep the same person. <d>Say <Audio 1> literally.</d>'}
+    graph = build_window_graph(voice_graph(), value)
+    settings = graph['10']['inputs']
+    assert settings['voice_mode'] == 'none'
+    assert 'reference only' not in settings['prompt']
+    assert '<Subject 1> (S1): same adult' in settings['prompt']
+    assert '<d>Say <Audio 1> literally.</d>' in settings['prompt']
+    assert '\nKeep the same person.' in settings['prompt']
+
+
+@pytest.mark.parametrize('marker', ['<Audio 0>', '<Audio -1>', '<Audio 1.5>', '<Audio x>',
+                                  '<Audio1>', '<Audio 1'])
+def test_direct_empty_audio_selection_rejects_malformed_marker_before_voice_omission(marker):
+    value = {**request(), 'reference_selection': {'pictures': [], 'audios': []},
+             'prompt': '<Subject 1> (S1): same adult; ' + marker + ' is voice timbre reference only.'}
+    with pytest.raises(ValueError, match='reference|marker'):
+        build_window_graph(voice_graph(), value)
+    value['prompt'] = '<d>' + marker + ' is voice timbre reference only.</d>'
+    assert build_window_graph(voice_graph(), value)['10']['inputs']['prompt'] == value['prompt']
+
+
+@pytest.mark.parametrize('linked', [False, True])
+def test_selection_rejects_storyboard_that_actual_director_would_filter(linked):
+    import torch
+    from nodes.director import _sanitize_h3_composite_refs
+    base = base_graph()
+    settings = base['10']['inputs']
+    if not linked:
+        settings.pop('reference_image_1')
+    settings['reference_image_1_file'] = 'six_phase_storyboard.png'
+    image = torch.zeros((1, 100, 100, 3), device='cpu')
+    _, ordinary, _ = _sanitize_h3_composite_refs('Current scene.', None, [image], '',
+                                               [settings['reference_image_1_file']])
+    assert ordinary == []
+    value = {**request(), 'prompt': 'Current scene.',
+             'reference_selection': {'pictures': [3], 'audios': []}}
+    with pytest.raises(ValueError, match='storyboard|preprocess|individual'):
+        build_window_graph(base, value)
+
+
+@pytest.mark.parametrize('prompt,source', [('Use the five-view identity convention.', 'scene.png'),
+                                        ('Use the current scene.', 'five-view-identity.png')])
+def test_selection_rejects_new_first_slot_crop_using_actual_compiled_prompt(prompt, source):
+    import torch
+    from nodes.director import _sanitize_h3_composite_refs
+    base = base_graph()
+    base['10']['inputs'].update(prompt='Old story without the current convention.', reference_image_1_file=source)
+    image = torch.zeros((1, 100, 100, 3), device='cpu')
+    _, ordinary, _ = _sanitize_h3_composite_refs(prompt, None, [image], '', [source])
+    relocated, _, _ = _sanitize_h3_composite_refs(prompt, image, [], source, [])
+    assert ordinary[0] is image and relocated.shape != image.shape
+    value = {**request(), 'prompt': prompt, 'reference_selection': {'pictures': [3], 'audios': []}}
+    with pytest.raises(ValueError, match='crop|preprocess|compatible|individual'):
+        build_window_graph(base, value)
+
+
+def test_compatible_first_slot_keeps_filename_crop_hint_even_when_link_wins():
+    import torch
+    from nodes.director import _sanitize_h3_composite_refs
+    base = base_graph()
+    base['10']['inputs']['first_image_file'] = 'five-view-identity.png'
+    value = {**request(), 'prompt': 'Current identity and scene.',
+             'reference_selection': {'pictures': [1, 3], 'audios': []}}
+    graph = build_window_graph(base, value)
+    settings = graph['10']['inputs']
+    assert settings['first_image'] == ['11', 0]
+    assert settings['first_image_file'] == 'five-view-identity.png'
+    trace = graph['10']['_meta']['h3_long_video_reference_bindings']
+    assert trace['original']['pictures'][0]['preprocessing_source'] == 'five-view-identity.png'
+    image = torch.zeros((1, 100, 100, 3), device='cpu')
+    cropped, _, _ = _sanitize_h3_composite_refs(settings['prompt'], image, [], settings['first_image_file'])
+    assert tuple(cropped.shape) == (1, 88, 32, 3)
+    # No selection retains the existing graph input cleanup behavior.
+    assert 'first_image_file' not in build_window_graph(base, request())['10']['inputs']
+
+
+def test_uncropped_ordinary_images_still_reorder_under_current_compiled_prompt():
+    import torch
+    from nodes.director import _sanitize_h3_composite_refs
+    base = base_graph()
+    base['10']['inputs'].update(prompt='The old base story mentions five-view.', reference_image_1_file='scene.png')
+    value = {**request(), 'prompt': 'Current plain scene.',
+             'reference_selection': {'pictures': [3, 4], 'audios': []}}
+    graph = build_window_graph(base, value)
+    settings = graph['10']['inputs']
+    assert settings['first_image'] == ['31', 0] and settings['last_image'] == ['32', 0]
+    assert settings['first_image_file'] == 'scene.png'
+    image = torch.zeros((1, 100, 100, 3), device='cpu')
+    first, _, notes = _sanitize_h3_composite_refs(settings['prompt'], image, [], settings['first_image_file'])
+    assert first is image and notes == []
+
+
+def test_static_reference_trace_cannot_substitute_for_production_sanitizer_validation():
+    from nodes.long_video_graph import roles, apply_window_reference_policy
+    from nodes.long_video_references import apply_reference_policy
+    base = base_graph()
+    value = {**request(), 'prompt': 'Current scene.', 'reference_selection': {'pictures': [3], 'audios': []}}
+    active, director, *_ = roles(base)
+    settings = active[director]['inputs']
+    settings['prompt'] = value['prompt']
+    static_trace = apply_reference_policy(settings, value, active)
+    assert static_trace['preprocessing_validation'] == 'not_performed_static'
+    with pytest.raises(ValueError, match='immutable|snapshot|binding'):
+        build_window_graph(base, {**value, 'reference_bindings': static_trace})
+    active, director, *_ = roles(base)
+    settings = active[director]['inputs']
+    settings['prompt'] = value['prompt']
+    production_trace = apply_window_reference_policy(settings, value, active)
+    assert production_trace['preprocessing_validation'] == 'director_policy_checked'
+    graph = build_window_graph(base, {**value, 'reference_bindings': production_trace})
+    assert graph['10']['_meta']['h3_long_video_reference_bindings'] == production_trace
+
+
 @pytest.mark.parametrize('serialized', [False, True])
 def test_asset_fingerprint_tracks_active_lora_stack_weights(tmp_path, serialized):
     from types import SimpleNamespace

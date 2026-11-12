@@ -16,10 +16,14 @@ import time
 import uuid
 
 from .longfilm_media import atomic_write_json, sha256_file, safe_project_dir
-from .long_video_av import validate_repair
+from .long_video_av import conditioning_geometry, normalize_repair, repair_seconds, slice_fingerprint
 
 _LOCKS = {}
 _LOCKS_GUARD = threading.Lock()
+
+
+class StaleCoordination(ValueError):
+    """A legitimate newer journal input superseded a coordinator reservation."""
 
 
 def fingerprint(value):
@@ -152,12 +156,74 @@ class ProjectStore:
             # Changes are compared per window by the coordinator. A new export
             # size or an appended target does not revoke native reviews here.
 
-    def create_take(self, spec):
+    def validate_parent_binding(self, state, request):
+        """Check the source chain while the caller holds this journal's kernel lock."""
+        window, parent = request['window'], request.get('parent')
+        forward = request.get('forward_frames', 0)
+        conditioning_geometry(window, forward)
+        if not window['context_frames']:
+            if parent is not None:
+                raise ValueError('A first native window cannot have a continuation parent')
+            return
+        if not isinstance(parent, dict) or not parent.get('take_id') or not parent.get('history_sha256'):
+            raise ValueError('Continuation requires its current accepted parent and consumed AV hash')
+        try:
+            source = self.active(state, parent['take_id'])
+        except ValueError as exc:
+            raise StaleCoordination('Current parent source chain changed') from exc
+        previous = source['window']
+        if (source['status'] != 'accepted' or previous['index'] != window['index'] - 1
+                or previous['new_end'] != window['new_start']
+                or previous['local_new_end'] != window['source_endpoint']):
+            raise StaleCoordination('Continuation parent is no longer the current accepted adjacent source')
+        self.verify_accepted(source)
+        if forward:
+            if not parent.get('forward_review'):
+                raise ValueError('Forward AV needs its explicit actual source-tail review')
+            if source.get('forward_review') != parent['forward_review']:
+                raise StaleCoordination('Actual forward source review changed')
+            proof = self.verify_forward_review(source, parent['forward_review'])
+            if (proof['requirement']['next_window'] != window
+                    or proof['requirement']['forward_frames'] != forward
+                    or proof['consumed_av_sha256'] != parent['history_sha256']):
+                raise ValueError('Forward review or consumed AV differs from the immutable child binding')
+
+    @staticmethod
+    def coordination_snapshot(state, index):
+        """Reservation identity, separate from the reusable model recipe.
+
+        Include the selected target and consumed source records, durable retry
+        attempts, config/plan, pending repair and stop/job controls. Omit status
+        messages, timestamps and the reservation token itself so normal driver
+        bookkeeping does not invalidate its own reservation.
+        """
+        records = [{k: v for k, v in record.items() if k != '_coordination_snapshot'}
+                   for record in state['windows'][:index + 1]]
+        return fingerprint({'index': index, 'records': records, 'config': state.get('config'),
+                            'plan': state.get('plan'), 'attempts': state.get('content_attempts', {}),
+                            'repair': state.get('repair'), 'repair_base': state.get('repair_base_fingerprint'),
+                            'stop': state['stop_requested'], 'active_job': state.get('active_job')})
+
+    @classmethod
+    def check_coordination(cls, state, index, expected_snapshot):
+        if expected_snapshot is None or cls.coordination_snapshot(state, index) != expected_snapshot:
+            raise StaleCoordination('Coordinator inputs or source chain changed; re-evaluate current project state')
+
+    def coordinator_status(self, status, index, expected_snapshot, **fields):
+        with self.transaction() as state:
+            self.check_coordination(state, index, expected_snapshot)
+            state.update(status=status, **fields)
+
+    def create_take(self, spec, *, require_current_parent=False, expected_snapshot=None):
         take_id = uuid.uuid4().hex
         request = {**deepcopy(spec), "take_id": take_id, "project_name": self.name}
-        self.write_once(f"takes/{take_id}/request.json", request)
         index = int(spec["window"]["index"])
         with self.transaction() as state:
+            if require_current_parent:
+                self.check_coordination(state, index, expected_snapshot)
+                if state.get('active_job'):
+                    raise StaleCoordination('A project already has a queued or running window')
+                self.validate_parent_binding(state, request)
             if index > len(state["windows"]):
                 raise ValueError("A take cannot skip a window")
             record = {**request, "status": "queued", "artifacts": {}, "exports": {}}
@@ -167,6 +233,13 @@ class ProjectStore:
                 state.setdefault("superseded", []).append(deepcopy(state["windows"][index]))
                 state["windows"][index] = record
             state["status"] = "queued"
+            if require_current_parent:
+                if request.get('repair') and state.get('repair') == request['repair']:
+                    state.pop('repair', None)
+                    state.pop('repair_base_fingerprint', None)
+                token = self.coordination_snapshot(state, index)
+                request['_coordination_snapshot'] = record['_coordination_snapshot'] = token
+            self.write_once(f"takes/{take_id}/request.json", request)
         return request
 
     @staticmethod
@@ -185,7 +258,9 @@ class ProjectStore:
             cursor = w["window"]["new_end"]
         state["completed_frames"] = cursor
         state["generated_frames"] = max((w["window"]["new_end"] for w in state["windows"]
-                                         if w["status"] in {"awaiting_review", "accepted"}), default=0)
+                                         if (w["status"] in {"awaiting_review", "accepted"}
+                                             or w["status"] == "rejected" and
+                                             {'native', 'preview'} & set(w.get('artifacts', {})))), default=0)
 
     def record_clean(self, take_id, receipt):
         self.verify(receipt["artifacts"])
@@ -205,9 +280,9 @@ class ProjectStore:
             self.progress(state)
 
     def review(self, take_id, accepted, observed_outgoing_state, scope):
-        if type(accepted) is not bool or not str(scope).strip():
+        if type(accepted) is not bool or not isinstance(scope, str) or not scope.strip():
             raise ValueError("Record the actual native review scope")
-        if accepted and not str(observed_outgoing_state).strip():
+        if accepted and (not isinstance(observed_outgoing_state, str) or not observed_outgoing_state.strip()):
             raise ValueError("Continuation needs the observed actual outgoing state")
         with self.transaction() as state:
             record = self.active(state, take_id)
@@ -224,9 +299,12 @@ class ProjectStore:
             state["status"] = "ready" if accepted else "rejected"
             self.progress(state)
 
-    def invalidate_from(self, index, reason):
+    def invalidate_from(self, index, reason, *, expected_snapshot=None):
         with self.transaction() as state:
+            if expected_snapshot is not None:
+                self.check_coordination(state, index, expected_snapshot)
             self._invalidate(state, index, reason)
+            return self.coordination_snapshot(state, index)
 
     @staticmethod
     def _invalidate(state, index, reason):
@@ -236,20 +314,172 @@ class ProjectStore:
         state["status"] = "ready"
         ProjectStore.progress(state)
 
-    def request_repair(self, index, video_ranges, lock_audio=True):
+    def _repair_source(self, state, index, take_id=None):
         if type(index) is not int:
             raise ValueError("Repair window index must be an integer")
+        if state.get('active_job'):
+            raise ValueError('Wait for the running window before repairing its source chain')
+        if not 0 <= index < len(state['windows']):
+            raise ValueError('Unknown repair window')
+        record = state['windows'][index]
+        if take_id is not None and take_id != record['take_id']:
+            raise ValueError('Selected repair source is stale; select the current decoded take')
+        artifacts = record.get('artifacts', {})
+        if (record['status'] not in {'accepted', 'rejected'}
+                or not {'native', 'preview'} & set(artifacts)
+                or not {'clean_video', 'latent'} & set(artifacts)):
+            raise ValueError('Repair needs the current decoded accepted or rejected native source')
+        self.verify(artifacts)
+        if record['status'] == 'accepted':
+            self.verify_accepted(record)
+        elif record.get('review'):
+            self.verify({'review': record['review']})
+        return record
+
+    def _queue_repair(self, state, record, recipe):
+        index = record['window']['index']
+        state['repair'] = {'index': index, 'source_take': record['take_id'], **recipe}
+        state['repair_base_fingerprint'] = record.get('base_fingerprint', record['fingerprint'])
+        self._invalidate(state, index, 'Native repair replaces an actual parent source')
+
+    def request_repair(self, index, video_ranges=None, lock_audio=True, *, audio_ranges=None,
+                       video_weights=None, take_id=None):
+        """Legacy video ranges plus explicit audio ranges / temporal video weights."""
+        with self.transaction() as state:
+            record = self._repair_source(state, index, take_id)
+            raw = {'video_ranges': ([] if video_ranges is None and
+                    (audio_ranges is not None or video_weights is not None) else video_ranges),
+                   'lock_audio': lock_audio}
+            if audio_ranges is not None:
+                raw['audio_ranges'] = audio_ranges
+            if video_weights is not None:
+                raw['video_weights'] = video_weights
+            recipe = normalize_repair(record['window'], raw, record.get('forward_frames', 0))
+            self._queue_repair(state, record, recipe)
+
+    def request_repair_seconds(self, index, start_seconds, end_seconds, stream='video', *, take_id=None):
+        """Atomic normal-user repair: film seconds mapped against the current take."""
+        with self.transaction() as state:
+            record = self._repair_source(state, index, take_id)
+            recipe = repair_seconds(record['window'], start_seconds, end_seconds, stream,
+                                    record.get('forward_frames', 0))
+            self._queue_repair(state, record, recipe)
+
+    def request_retry(self, index, *, replace_accepted=False, take_id=None):
+        """A content retry changes its durable attempt; automatic recovery does not."""
+        if type(replace_accepted) is not bool:
+            raise ValueError('replace_accepted must be an explicit boolean')
         with self.transaction() as state:
             if state.get('active_job'):
-                raise ValueError('Wait for the running window before repairing its source chain')
-            if not 0 <= index < len(state["windows"]):
-                raise ValueError("Unknown repair window")
-            record = state["windows"][index]
-            ranges = validate_repair(record["window"], {"video_ranges": video_ranges, "lock_audio": lock_audio})
-            self.verify(record["artifacts"])
-            state["repair"] = {"index": index, "source_take": record["take_id"],
-                               "video_ranges": ranges, "lock_audio": True}
-            self._invalidate(state, index, "Native repair replaces an actual parent source")
+                raise ValueError('Wait for the running window before replacing a source take')
+            if type(index) is not int or not 0 <= index < len(state['windows']):
+                raise ValueError('Unknown retry window')
+            record = state['windows'][index]
+            if take_id is not None and take_id != record['take_id']:
+                raise ValueError('Selected retry source is stale')
+            if record['status'] == 'accepted':
+                if not replace_accepted or take_id != record['take_id']:
+                    raise ValueError('Replacing an accepted parent requires replace_accepted:true and its current take_id')
+                self.verify_accepted(record)
+            elif record['status'] not in {'rejected', 'invalidated'}:
+                raise ValueError('Only a rejected or invalidated window needs a new full take')
+            attempts = state.setdefault('content_attempts', {})
+            attempts[str(index)] = attempts.get(str(index), record.get('content_attempt', 0)) + 1
+            if state.get('repair', {}).get('index') == index:
+                state.pop('repair', None)
+                state.pop('repair_base_fingerprint', None)
+            self._invalidate(state, index, 'Explicitly retry native content without bounded repair')
+
+    @staticmethod
+    def _forward_requirement(state, record):
+        index = record['window']['index'] + 1
+        plan = state.get('plan', [])
+        if index >= len(plan):
+            return None
+        window = plan[index]
+        contract = state.get('config', {}).get('scene_contract', {})
+        overrides = contract.get('window_overrides', [])
+        f = next((item.get('forward_frames', 0) for item in overrides
+                  if (item.get('new_start'), item.get('new_end')) ==
+                  (window['new_start'], window['new_end'])), 0)
+        if not f:
+            return None
+        previous = record['window']
+        if (window['index'] != index or previous['new_end'] != window['new_start']
+                or previous['local_new_end'] != window['source_endpoint']):
+            raise ValueError('Forward source must be the actual adjacent delivery parent')
+        geometry = conditioning_geometry(window, f, previous['sample_frames'])
+        return {'next_index': index, 'next_window': deepcopy(window), **geometry}
+
+    def required_forward_review(self, record):
+        """Return the next planned actual tail requirement; users never enter indices."""
+        state = self.read()
+        current = self.active(state, record['take_id'])
+        return self._forward_requirement(state, current)
+
+    def verify_forward_review(self, record, expected=None):
+        """Revalidate receipt, actual artifacts, geometry and all consumed AV bytes."""
+        from .long_video_runtime import load_clean
+        state = self.read()
+        current = self.active(state, record['take_id'])
+        if current['status'] != 'accepted':
+            raise ValueError('Forward source must be the current accepted adjacent parent')
+        requirement = self._forward_requirement(state, current)
+        artifact = current.get('forward_review')
+        if requirement is None or not artifact or expected is not None and expected != artifact:
+            raise ValueError('Actual source tail needs an explicit matching forward review')
+        self.verify_accepted(current)
+        self.verify({'forward_review': artifact})
+        receipt = json.loads(self.path(artifact['name']).read_text(encoding='utf-8'))
+        if (receipt.get('take_id') != current['take_id'] or receipt.get('requirement') != requirement
+                or receipt.get('source_artifacts') != current['artifacts']
+                or receipt.get('source_review') != current['review']
+                or not isinstance(receipt.get('scope'), str) or not receipt['scope'].strip()
+                or not isinstance(receipt.get('observed_state'), str) or not receipt['observed_state'].strip()):
+            raise ValueError('Forward review does not bind this actual source, range and observed free-phase state')
+        window = requirement['next_window']
+        actual = slice_fingerprint(load_clean(self, current['take_id']), window['source_endpoint'],
+                                   window['context_frames'], requirement['forward_frames'])
+        if receipt.get('consumed_av_sha256') != actual:
+            raise ValueError('Forward review consumed AV hash differs from the actual current parent')
+        return receipt
+
+    def review_forward(self, take_id, scope, observed_state):
+        """Explicit immutable review of generated surplus, separate from delivery approval."""
+        from .long_video_runtime import load_clean
+        if not isinstance(scope, str) or not scope.strip():
+            raise ValueError('Record the actual source-tail review scope')
+        if not isinstance(observed_state, str) or not observed_state.strip():
+            raise ValueError('Record the observed actual forward endpoint state, not an expected state object')
+        with self.transaction() as state:
+            if state.get('active_job'):
+                raise ValueError('Wait for the running window before reviewing its source tail')
+            record = self.active(state, take_id)
+            if record['status'] != 'accepted':
+                raise ValueError('Forward review requires the current accepted source delivery')
+            requirement = self._forward_requirement(state, record)
+            if requirement is None:
+                raise ValueError('The actual next planned window does not request a source tail')
+            if not {'clean_video', 'clean_audio', 'native', 'request'}.issubset(record['artifacts']):
+                raise ValueError('Forward review requires actual clean AV and its decoded native preview')
+            self.verify_accepted(record)
+            window = requirement['next_window']
+            receipt = {'take_id': take_id, 'requirement': requirement, 'scope': scope,
+                       'observed_state': observed_state, 'source_artifacts': deepcopy(record['artifacts']),
+                       'source_review': deepcopy(record['review']),
+                       'consumed_av_sha256': slice_fingerprint(load_clean(self, take_id),
+                           window['source_endpoint'], window['context_frames'], requirement['forward_frames'])}
+            if record.get('forward_review'):
+                try:
+                    previous = self.verify_forward_review(record)
+                    if {k: v for k, v in previous.items() if k != 'time'} == receipt:
+                        return
+                except ValueError:
+                    pass  # A fresh explicit review may replace an unusable old proof.
+            receipt['time'] = time.time()
+            path = self.write_once(f'reviews/forward-{uuid.uuid4().hex}.json', receipt)
+            record['forward_review'] = self.artifact(path)
+            self._invalidate(state, window['index'], 'Actual reviewed forward source proof changed')
 
     def set_status(self, status, **fields):
         with self.transaction() as state:
@@ -270,5 +500,6 @@ class ProjectStore:
         self.verify({'review': record['review']})
         review = json.loads(self.path(record['review']['name']).read_text(encoding='utf-8'))
         if (review.get('accepted') is not True or review.get('take_id') != record['take_id']
-                or review.get('source_artifacts') != record['artifacts']):
+                or review.get('source_artifacts') != record['artifacts']
+                or review.get('observed_outgoing_state') != record.get('observed_outgoing_state')):
             raise ValueError('Native acceptance does not bind these actual artifacts')

@@ -13,7 +13,7 @@ from nodes.long_video_store import ProjectStore
 from nodes.long_video_service import Coordinator, ComfyQueue, configure_project as _configure_project
 
 
-configure_project = partial(_configure_project, export_asset_freezer=lambda _: {})
+configure_project = partial(_configure_project, export_asset_freezer=lambda _: {}, encoder_checker=lambda: {})
 
 
 def graph():
@@ -37,6 +37,62 @@ def config(seconds=30):
                            'action': 'Walk naturally carrying the same cup.'}], 'dialogues': []}}
 
 
+def test_unsupported_complete_encoding_rejects_before_asset_freeze_or_take(tmp_path):
+    store = ProjectStore(tmp_path,'test')
+    base = graph()
+    base['24']['inputs']['bit_depth'] = '10-bit'
+    with pytest.raises(ValueError,match='8-bit'):
+        configure_project(store,base,config(),asset_freezer=lambda _: pytest.fail('hashed before rejecting encoding'))
+    assert store.read()['windows'] == []
+
+
+def test_resolved_encoding_is_fingerprinted_and_audio_quality_are_not_lost(tmp_path):
+    store = ProjectStore(tmp_path,'test')
+    base = graph(); base['24']['inputs'].update(quality=11,audio_bitrate='96k')
+    first = configure_project(store,base,config(),asset_freezer=lambda _: {})
+    assert first['export']['encoding']['crf'] == 11
+    assert first['export']['encoding']['audio_bitrate'] == 96000
+    base['24']['inputs']['audio_bitrate'] = '128k'
+    second = configure_project(store,base,config(),asset_freezer=lambda _: {})
+    assert second['export_fingerprint'] != first['export_fingerprint']
+    assert second['generation_key'] == first['generation_key']
+
+
+def test_export_code_change_stops_before_new_queue_work(tmp_path,monkeypatch):
+    import nodes.long_video_service as service
+    store,backend,runner = setup(tmp_path)
+    original = service._code_identity
+    def changed(names):
+        result = original(names)
+        if 'long_video_media' in result:
+            result['long_video_media'] = 'new-encoder-version'
+        return result
+    monkeypatch.setattr(service,'_code_identity',changed)
+    with pytest.raises(ValueError,match='original U11.*export|export.*original U11'):
+        runner.step()
+    assert backend.submitted == []
+
+
+def test_original_requeue_refreshes_export_code_while_preserving_valid_native(tmp_path,monkeypatch):
+    import nodes.long_video_service as service
+    store,backend,runner = setup(tmp_path,seconds=5)
+    runner.step(); complete(store,backend); runner.step(); approve(store)
+    native_id = store.read()['windows'][0]['take_id']
+    original = service._code_identity
+    def changed(names):
+        result = original(names)
+        if 'long_video_media' in result:
+            result['long_video_media'] = 'new-encoder-version'
+        return result
+    monkeypatch.setattr(service,'_code_identity',changed)
+    with pytest.raises(ValueError,match='original U11'):
+        runner.step()
+    configure_project(store,graph(),config(5),asset_freezer=lambda _: {})
+    assert runner.step()
+    assert store.read()['active_job']['stage'] == 'finish'
+    assert store.read()['windows'][0]['take_id'] == native_id
+
+
 class Backend:
     def __init__(self):
         self.jobs = {}
@@ -55,10 +111,10 @@ def setup(tmp_path, seconds=30):
     configure_project(store, graph(), config(seconds), asset_freezer=lambda _: {})
     backend = Backend()
 
-    def assemble(parts, output, total_frames, target):
+    def assemble(parts, output, total_frames, target, *, encoding=None):
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         Path(output).write_bytes(b'assembled fixture')
-        return {'frames': total_frames, 'source_parts': len(parts), 'content_review': 'technical_only'}
+        return {'frames': total_frames, 'source_parts': len(parts), 'content_review': 'technical_only', 'encoding': encoding}
 
     runner = Coordinator(store, backend, history_provider=lambda s, p, w: 'history-' + p['take_id'],
                          assembler=assemble)
@@ -128,6 +184,7 @@ def test_completed_project_assembles_exact_target_and_can_resume_without_new_h3(
     assert runner.step() is False
     assert store.read()['status'] == 'complete'
     assert store.read()['assembly']['frames'] == 720
+    assert store.read()['assembly']['encoding'] == store.read()['config']['export']['encoding']
     count = len(backend.submitted)
     configure_project(store, graph(), config(), asset_freezer=lambda _: {})
     assert runner.step() is False
@@ -351,8 +408,8 @@ def test_repair_during_assembly_cannot_publish_or_reuse_revoked_film(tmp_path):
     original_assembler = runner.assembler
     assembled = []
 
-    def concurrent_repair(parts, output, frames, target):
-        result = original_assembler(parts, output, frames, target)
+    def concurrent_repair(parts, output, frames, target, *, encoding=None):
+        result = original_assembler(parts, output, frames, target, encoding=encoding)
         assembled.append(output)
         if len(assembled) == 1:
             store.request_repair(0, [[20, 30]], lock_audio=True)

@@ -26,10 +26,12 @@ class MiniMaxH3LongVideoConfig:
     @classmethod
     def INPUT_TYPES(cls):
         return {'required': {
-            'enabled': ('BOOLEAN', {'default': False}),
-            'target_seconds': ('FLOAT', {'default': 30.0, 'min': 0.05, 'step': 1.0}),
-            'project_name': ('STRING', {'default': 'h3-native-av'}),
-            'scene_contract': ('STRING', {'multiline': True, 'default': '{}'}),
+            'enabled': ('BOOLEAN', {'default': False, 'tooltip': '开启后使用原 U11 长片面板；关闭时保持原短片路径。'}),
+            'target_seconds': ('FLOAT', {'default': 30.0, 'min': 0.05, 'step': 1.0,
+                'tooltip': '总时长（秒）：30/60/90 为便捷选择，也可输入其他正的有限秒数；按 24 FPS 舍入，不缩放剧情。'}),
+            'project_name': ('STRING', {'default': 'h3-native-av', 'tooltip': '同一项目名从已保存检查点恢复。'}),
+            'scene_contract': ('STRING', {'multiline': True, 'default': '{}',
+                'tooltip': '导入 H3 技能的 U11 单语 scene_contract JSON；默认 {} 不是剧情。先预检，再普通排队。'}),
             'stop_condition': (['target','manual'], {'default': 'target',
                 'tooltip': 'target 在目标时长结束；manual 到已编排剧情末尾暂停，可增加剧情和时长继续。'}),
         }}
@@ -40,6 +42,10 @@ class MiniMaxH3LongVideoConfig:
     CATEGORY = 'MiniMax H3 导演台 Plus'
 
     def configure(self, enabled, target_seconds, project_name, scene_contract, stop_condition='target'):
+        if enabled:
+            from .long_video_plan import target_frame_count
+            from .long_video_preflight import read_contract
+            read_contract(scene_contract, target_frame_count(target_seconds))
         return ({'enabled': bool(enabled), 'target_seconds': target_seconds,
                  'project_name': project_name, 'scene_contract': scene_contract,
                  'stop_condition': stop_condition},)

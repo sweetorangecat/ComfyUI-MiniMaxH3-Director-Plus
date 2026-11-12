@@ -13,7 +13,7 @@ import re
 import uuid
 import wave
 
-from .long_video_av import prepare_av, slice_fingerprint, streams, validate_result
+from .long_video_av import conditioning_geometry, prepare_av, slice_fingerprint, streams, validate_result
 from .long_video_plan import FPS, audio_ticks, video_steps, validate_window
 from .long_video_store import ProjectStore
 from .stream_output import MiniMaxH3StreamingVideoCombine
@@ -151,6 +151,8 @@ def _load_prepared(store, take_id):
 
 def _source(store, request):
     window = request["window"]
+    forward = request.get('forward_frames', 0)
+    conditioning_geometry(window, forward)
     parent = request.get("parent")
     source = None
     if window["context_frames"]:
@@ -163,8 +165,15 @@ def _source(store, request):
                 or previous["local_new_end"] != window["source_endpoint"]):
             raise ValueError("Continuation parent must be the current accepted adjacent window")
         store.verify_accepted(record)
+        if forward:
+            if not parent.get('forward_review'):
+                raise ValueError('Forward AV requires an explicit immutable actual source-tail review')
+            proof = store.verify_forward_review(record, parent['forward_review'])
+            if (proof['requirement']['next_window'] != window
+                    or proof['requirement']['forward_frames'] != forward):
+                raise ValueError('Forward source review geometry differs from the immutable request')
         source = load_clean(store, parent["take_id"])
-        parent_history_sha256 = slice_fingerprint(source, window["source_endpoint"], window["context_frames"])
+        parent_history_sha256 = slice_fingerprint(source, window["source_endpoint"], window["context_frames"], forward)
         if parent_history_sha256 != parent["history_sha256"]:
             raise ValueError("Actual parent history SHA-256 differs from the immutable request")
     elif parent is not None:
@@ -181,7 +190,7 @@ def _source(store, request):
             # Repair locks this existing prefix, so it must also match the
             # actual history consumed from the current accepted parent.
             head = window["context_frames"]
-            if slice_fingerprint(repair_source, head, head) != parent_history_sha256:
+            if slice_fingerprint(repair_source, head, head, forward) != parent_history_sha256:
                 raise ValueError("Repair source protected AV history differs from the actual current parent; regenerate this window")
         source = repair_source
     return source
@@ -290,7 +299,7 @@ class MiniMaxH3LongVideoContext:
             raise RuntimeError("Native H3 model does not support both AV denoise masks")
         store = _bound_store(request)
         prepared = prepare_av(_cpu_latent(latent), request["window"], source=_source(store, request),
-                              repair=request.get("repair"))
+                              repair=request.get("repair"), forward_frames=request.get('forward_frames', 0))
         video, audio = streams(prepared)
         vm, am = prepared["noise_mask"].unbind()
         base = f"takes/{request['take_id']}"

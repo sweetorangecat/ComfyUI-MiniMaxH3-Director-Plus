@@ -1,0 +1,925 @@
+{
+  "schema_version": 1,
+  "fps": 24,
+  "total_frames": 2160,
+  "not_ready_for_video": true,
+  "review_zh": "H3唯一导演合同的派生U11视图。仅CPU兼容检查；资产审批/挂载与真实AV均待核验，不可据此标记可生成或内容通过。",
+  "reference_assets": [
+    {
+      "slot": "Picture 1",
+      "responsibility": "Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.",
+      "asset_path": "",
+      "approved": false,
+      "mounted": false
+    },
+    {
+      "slot": "Picture 2",
+      "responsibility": "Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.",
+      "asset_path": "",
+      "approved": false,
+      "mounted": false
+    },
+    {
+      "slot": "Picture 3",
+      "responsibility": "Original bedroom, pillow, duvet and one alarm at image left; white tee and loose hair without crown. Supply scene geometry, wardrobe and props, not a forced return to lying down.",
+      "asset_path": "",
+      "approved": false,
+      "mounted": false
+    },
+    {
+      "slot": "Picture 4",
+      "responsibility": "Original kitchen and oblique medium view; white tee, low bun, one toast, the original single mug on its coaster and egg plate. Toast begins intact; only the timed bites change it.",
+      "asset_path": "",
+      "approved": false,
+      "mounted": false
+    },
+    {
+      "slot": "Picture 5",
+      "responsibility": "Original office-street entrance, pale-blue V-neck top, white skirt, silver-blue crown/earrings and one bag. Keep natural arm-length selfie geometry; phone outside frame, no breakfast props.",
+      "asset_path": "",
+      "approved": false,
+      "mounted": false
+    },
+    {
+      "slot": "Picture 6",
+      "responsibility": "Original fixed office medium view, gray laptop, empty A3 board, horizontal pencil and three swatches; one woman with two connected arms in the same work wardrobe.",
+      "asset_path": "",
+      "approved": false,
+      "mounted": false
+    },
+    {
+      "slot": "Picture 7",
+      "responsibility": "Same office axis and objects after a finish-work time ellipsis. Blue-gray card already lies on A3, two other cards stay desk right, laptop open; no renewed card pickup.",
+      "asset_path": "",
+      "approved": false,
+      "mounted": false
+    },
+    {
+      "slot": "Picture 8",
+      "responsibility": "Original night bedroom, lamp, cork coaster and one milk mug; pale-blue pajamas, loose tied hair, no crown/earrings. The right hand already holds the mug at scene entry; no new table pickup.",
+      "asset_path": "",
+      "approved": false,
+      "mounted": false
+    },
+    {
+      "slot": "Audio 1",
+      "responsibility": "Nangong Wan timbre reference belonging to <Subject 1>, voice_gender=female. Use the voice for new dialogue, not the sample words.",
+      "asset_path": "",
+      "approved": false,
+      "mounted": false
+    }
+  ],
+  "scale_reference": {
+    "slot": "Picture 2",
+    "version": "example-v1",
+    "approved": false,
+    "mounted": false
+  },
+  "subject_definitions": "Nangong Wan <Subject 1> (S1): <Picture 1>; One and the same adult woman. Identity reference controls the original face/body identity; current scene controls wardrobe/hair, never duplicated views as people.\n<Picture 1>: Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.\n<Picture 2>: Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.\n<Picture 3>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 4>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 5>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 6>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 7>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 8>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Subject 1> (S1), voice_gender=female; <Audio 1> is timbre reference only, not its recorded words.",
+  "summary": "A natural workday vlog of the same registered adult, normal real-time actions, advancing only the registered events on this local timeline.",
+  "retention_analysis": "fully_preserved: the same character identity, current wardrobe/hair, original scene and prop structure/count, shared proportions and custody. Allow only the timeline phases/state changes; ordinary phase images are neither hard endpoints nor extra people.",
+  "scale_contract": "Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.",
+  "overall_soundscape": "Clear natural registered on-screen speech with the actual timbre reference. No extra lines outside its windows; location/contact sounds follow the timeline, no BGM.",
+  "non_diegetic_music": "N/A",
+  "speaker_policy": "Single new speaker S1; inherit only verified actual AV identity. Subject and original Audio slot identities remain independent. Runtime backend mapping still requires verification.",
+  "voice_policy": "dialogue_only",
+  "beats": [
+    {
+      "id": "B01",
+      "start_frame": 0,
+      "end_frame": 19,
+      "action": "She lies sideways asleep, both eyes fully closed. Only the near arm is visible, continuously connected to its shoulder, with the hand on the duvet at her chest. The other arm is entirely under the duvet. One cream alarm is already audibly ringing from the first frame.",
+      "indivisible": false
+    },
+    {
+      "id": "B02",
+      "start_frame": 19,
+      "end_frame": 86,
+      "action": "The ringing reaches her: a tiny nose wrinkle, breath and a brief nestle into the pillow precede her first complaint. Eyes remain shut; no reaching. The alarm remains audible beneath speech.",
+      "indivisible": false
+    },
+    {
+      "id": "B03",
+      "start_frame": 86,
+      "end_frame": 144,
+      "action": "With eyes and lips closed she gives the duvet one small tug toward her chest, two short natural leg kicks under it, then stops to listen. The same one visible hand returns to her chest. Real-time little movements, not slow motion. Alarm continues alone.",
+      "indivisible": false
+    },
+    {
+      "id": "B04",
+      "start_frame": 144,
+      "end_frame": 161,
+      "action": "Still closed-eyed, she exhales and gives the brief resigned answer, without moving either hand toward the alarm.",
+      "indivisible": false
+    },
+    {
+      "id": "B05",
+      "start_frame": 161,
+      "end_frame": 185,
+      "action": "One full second of closed lips and closed eyes, listening to the unchanged alarm; no silent speaking mouth movements.",
+      "indivisible": false
+    },
+    {
+      "id": "B06",
+      "start_frame": 185,
+      "end_frame": 221,
+      "action": "She completes her final concession by {{frame:209}}, closes her lips and only then opens her eyes and orients toward the alarm.",
+      "indivisible": false
+    },
+    {
+      "id": "B07",
+      "start_frame": 221,
+      "end_frame": 266,
+      "action": "The existing near arm reaches continuously from the visible shoulder to the original clock. At {{frame:254}} her index fingertip makes actual CONTACT and presses the wide gray top key DOWN once. Hold the depressed key briefly, then RELEASE it: contact, depression and release must be visible. The real key press stops the already-running loud repeated alarm at {{frame:254}}, with one soft mechanical click. No ringing afterward. Her other arm stays under the duvet until {{frame:266}}.",
+      "indivisible": false
+    },
+    {
+      "id": "B08",
+      "start_frame": 266,
+      "end_frame": 294,
+      "action": "The original pressing hand returns to the front duvet. Both connected original arms begin a half-rise; stay halfway up at the boundary, lips quiet and alarm off.",
+      "indivisible": false
+    },
+    {
+      "id": "B09",
+      "start_frame": 294,
+      "end_frame": 360,
+      "action": "Soften the same arm supports and recline low into the original pillow in the same fixed view. Keep the complete face readable and duvet over the lap; the alarm stays untouched.",
+      "indivisible": false
+    },
+    {
+      "id": "B10",
+      "start_frame": 360,
+      "end_frame": 384,
+      "action": "At the planned morning-to-breakfast cut she is seated at the original kitchen table in the white tee and low bun, no crown. Her right hand already holds ONE intact toast at chest level by its lower half; left hand rests at the table. One coffee mug is on its coaster, one egg on one plate.",
+      "indivisible": false
+    },
+    {
+      "id": "B11",
+      "start_frame": 384,
+      "end_frame": 418,
+      "action": "She brings the same toast to her mouth and takes exactly one bite from its upper edge. A readable missing notch and pale bread interior form at contact. No speech.",
+      "indivisible": false
+    },
+    {
+      "id": "B12",
+      "start_frame": 418,
+      "end_frame": 547,
+      "action": "Lower the same toast to chest height, face toward camera, holding the same lower grip. Its first upper-edge notch stays visible. She chews with closed lips, looking naturally at breakfast and the room, without staring into the lens or taking another bite.",
+      "indivisible": false
+    },
+    {
+      "id": "B13",
+      "start_frame": 547,
+      "end_frame": 580,
+      "action": "Complete chewing, then one natural swallow; relax the mouth completely before speaking. Keep the single bitten toast away from her lips and the left hand on the table.",
+      "indivisible": false
+    },
+    {
+      "id": "B14",
+      "start_frame": 580,
+      "end_frame": 659,
+      "action": "She lightly addresses the recording phone with her playful complete sentence, the bitten toast held still below the chin, no chewing or drinking while speaking.",
+      "indivisible": false
+    },
+    {
+      "id": "B15",
+      "start_frame": 659,
+      "end_frame": 679,
+      "action": "After the sentence ends, lift the same toast for one second bite adjacent to the first notch. Two adjacent upper-edge notches now remain; no reset to intact bread.",
+      "indivisible": false
+    },
+    {
+      "id": "B16",
+      "start_frame": 679,
+      "end_frame": 720,
+      "action": "Lower the same right-hand toast below the mouth and above the plate, both notches facing camera. Chew with lips closed. No new line and no toast replacement.",
+      "indivisible": false
+    },
+    {
+      "id": "B17",
+      "start_frame": 720,
+      "end_frame": 754,
+      "action": "Planned cut to the existing commute selfie: pale-blue top, white skirt, same silver-blue crown and earrings, one tote on her left shoulder. Her right arm holds the unseen phone at natural selfie distance; her left hand grips the tote strap. Street is on her left and glass offices on her right; entrance is roughly 5 m ahead off-screen. Walk forward at a normal cadence.",
+      "indivisible": false
+    },
+    {
+      "id": "B18",
+      "start_frame": 754,
+      "end_frame": 828,
+      "action": "Continue the same normal forward walking rhythm while speaking the complete first goal sentence to the phone. Natural arm proportions and small footfall-induced camera motion; background progresses continuously.",
+      "indivisible": false
+    },
+    {
+      "id": "B19",
+      "start_frame": 828,
+      "end_frame": 900,
+      "action": "She keeps moving toward the entrance, slows gradually and stops outside at {{frame:893}}. No reverse walking, no doorway crossing yet. Lips closed between the two sentences.",
+      "indivisible": false
+    },
+    {
+      "id": "B20",
+      "start_frame": 900,
+      "end_frame": 979,
+      "action": "Stationary OUTSIDE the entrance, she delivers the entire second sentence with a wry smile, facing the selfie phone. Do not begin turning or crossing until the last word is complete.",
+      "indivisible": false
+    },
+    {
+      "id": "B21",
+      "start_frame": 979,
+      "end_frame": 1003,
+      "action": "Once the sentence is complete, turn body and phone together toward the real entrance; let its door become visible before walking through. Maintain one right arm and the same left-hand tote strap.",
+      "indivisible": false
+    },
+    {
+      "id": "B22",
+      "start_frame": 1003,
+      "end_frame": 1080,
+      "action": "Step forward at {{frame:1003}}, cross the original doorway around {{frame:1018}}, then move another 1.5–2 m INSIDE the office lobby. One forward entrance only; no sudden exterior reset. Only footsteps and lobby ambience.",
+      "indivisible": false
+    },
+    {
+      "id": "B23",
+      "start_frame": 1080,
+      "end_frame": 1128,
+      "action": "Planned cut to the existing office desk in daylight. Same commute clothes, crown and earrings. One open gray brandless laptop faces HER, not the camera; ONE empty A3 board and pencil remain on the table. Exactly three swatches start to her right: cream, blue-gray, warm gray. She compares them with her eyes, hands empty.",
+      "indivisible": false
+    },
+    {
+      "id": "B24",
+      "start_frame": 1128,
+      "end_frame": 1188,
+      "action": "Her anatomical LEFT thumb and index finger take the blue-gray swatch from the right-side group along one continuous path. Count: two cards stay on desk, one card in her left hand. Right hand rests clear of the board.",
+      "indivisible": false
+    },
+    {
+      "id": "B25",
+      "start_frame": 1188,
+      "end_frame": 1263,
+      "action": "Carry the same blue-gray swatch in the original left grip above the front-right part of the A3 board. At the boundary it is still angled and held; the other two cards remain on the desk.",
+      "indivisible": false
+    },
+    {
+      "id": "B26",
+      "start_frame": 1263,
+      "end_frame": 1301,
+      "action": "Lower the already-held blue-gray swatch a short distance, establish flat contact, then release and withdraw the original left fingers. The right hand stays clear and the three-card count is unchanged.",
+      "indivisible": false
+    },
+    {
+      "id": "B27",
+      "start_frame": 1301,
+      "end_frame": 1380,
+      "action": "Look at the placed blue-gray choice, then deliver the one satisfied sentence with natural lip movement. Both hands are free and away from the card. Do not talk before placing it.",
+      "indivisible": false
+    },
+    {
+      "id": "B28",
+      "start_frame": 1380,
+      "end_frame": 1440,
+      "action": "With the three-card state unchanged, return attention to the open laptop and begin a few real purposeful key presses. No card movement, no new words.",
+      "indivisible": false
+    },
+    {
+      "id": "B29",
+      "start_frame": 1440,
+      "end_frame": 1552,
+      "action": "In the same office medium view after the narrative time ellipsis, the two original hands make short real keyboard presses. The laptop stays open and all three cards retain their places.",
+      "indivisible": false
+    },
+    {
+      "id": "B30",
+      "start_frame": 1552,
+      "end_frame": 1584,
+      "action": "The original anatomical right hand moves continuously from keyboard to trackpad, slides briefly and makes one click at {{frame:1570}}. The left hand stays beside the base.",
+      "indivisible": false
+    },
+    {
+      "id": "B31",
+      "start_frame": 1584,
+      "end_frame": 1627,
+      "action": "Check the screen result and exhale gently with relaxed hands. The original lid remains open; there is no spoken device cue or premature closure.",
+      "indivisible": false
+    },
+    {
+      "id": "B32",
+      "start_frame": 1627,
+      "end_frame": 1714,
+      "action": "Keep the original laptop open while looking toward the recording phone for the brisk finish-work thought. Neither hand starts closing it until the complete line ends.",
+      "indivisible": false
+    },
+    {
+      "id": "B33",
+      "start_frame": 1714,
+      "end_frame": 1766,
+      "action": "Only after the complete sentence, left hand stabilizes the original laptop base while the right hand grasps the original lid edge and closes it steadily. One soft closure click around {{frame:1762}}. No brand mark appears, no third hand and no duplicate lid.",
+      "indivisible": false
+    },
+    {
+      "id": "B34",
+      "start_frame": 1766,
+      "end_frame": 1800,
+      "action": "Release the now-closed original laptop, lean back a little and exhale. The selected blue-gray card stays on the board and two cards stay on the right side. No additional speech.",
+      "indivisible": false
+    },
+    {
+      "id": "B35",
+      "start_frame": 1800,
+      "end_frame": 1836,
+      "action": "Planned cut to the night bedroom. Same C01 face, loose tied hair, pale-blue button pajamas, NO crown or earrings. She sits at the bed and ALREADY holds the one warm-milk mug by its handle in her RIGHT hand at chest height, matching the real opening reference. Her left hand rests on her knee; the one cork coaster is empty. Raise that already-held mug, without a second pickup.",
+      "indivisible": false
+    },
+    {
+      "id": "B36",
+      "start_frame": 1836,
+      "end_frame": 1874,
+      "action": "The rim of the same mug touches the lips for one small sip of warm milk. No speech, no oversized mug, no spilled liquid. Left hand remains on knee.",
+      "indivisible": false
+    },
+    {
+      "id": "B37",
+      "start_frame": 1874,
+      "end_frame": 1910,
+      "action": "Move the same mug away from the lips, close the mouth and swallow completely. No dialogue overlaps sipping or swallowing.",
+      "indivisible": false
+    },
+    {
+      "id": "B38",
+      "start_frame": 1910,
+      "end_frame": 1977,
+      "action": "Lower the one original mug toward its cork coaster in the same right-hand handle grip. At the visible boundary its base remains 1–2 cm above the coaster, unreleased; the left hand stays on the lap, sip and swallow complete.",
+      "indivisible": false
+    },
+    {
+      "id": "B39",
+      "start_frame": 1977,
+      "end_frame": 2011,
+      "action": "Finish only the last lowering, bottom contact, stable landing, release and hand return, then look toward the phone. This phase is planned to be supplied by real forward AV conditioning.",
+      "indivisible": false
+    },
+    {
+      "id": "B40",
+      "start_frame": 2011,
+      "end_frame": 2016,
+      "action": "Both empty hands rest on the lap and the original mug is stationary on its coaster. Breathe gently in the same view before the one closing line.",
+      "indivisible": false
+    },
+    {
+      "id": "B41",
+      "start_frame": 2016,
+      "end_frame": 2117,
+      "action": "Speak naturally toward the phone with an empty mouth; accompany the last words with one low empty-right-palm gesture. The left hand stays on the lap and the stationary mug is background dressing.",
+      "indivisible": false
+    },
+    {
+      "id": "B42",
+      "start_frame": 2117,
+      "end_frame": 2160,
+      "action": "After the complete final syllable close the lips, smile softly and relax the shoulders. Let the empty right palm remain low in natural after-motion; the mug stays on its coaster and no new line begins.",
+      "indivisible": false
+    }
+  ],
+  "dialogues": [
+    {
+      "id": "L01",
+      "start_frame": 34,
+      "end_frame": 84,
+      "speaker": "Nangong Wan <Subject 1> (S1), voice_gender=female; sleepy close-to-pillow complaint, clear conversational words; natural visible lip synchronization, then closed lips after the complete line. Retrospective words do not command a new physical operation.",
+      "text": "唔……别吵嘛，再睡五分钟。",
+      "language": "Chinese",
+      "audio_slot": 1
+    },
+    {
+      "id": "L02",
+      "start_frame": 144,
+      "end_frame": 161,
+      "speaker": "Nangong Wan <Subject 1> (S1), voice_gender=female; one short resigned answer; natural visible lip synchronization, then closed lips after the complete line. Retrospective words do not command a new physical operation.",
+      "text": "行吧。",
+      "language": "Chinese",
+      "audio_slot": 1
+    },
+    {
+      "id": "L03",
+      "start_frame": 185,
+      "end_frame": 209,
+      "speaker": "Nangong Wan <Subject 1> (S1), voice_gender=female; soft defeat, then close the lips; natural visible lip synchronization, then closed lips after the complete line. Retrospective words do not command a new physical operation.",
+      "text": "你赢了。",
+      "language": "Chinese",
+      "audio_slot": 1
+    },
+    {
+      "id": "L04",
+      "start_frame": 580,
+      "end_frame": 659,
+      "speaker": "Nangong Wan <Subject 1> (S1), voice_gender=female; light teasing to herself, only after chewing and swallowing; natural visible lip synchronization, then closed lips after the complete line. Retrospective words do not command a new physical operation.",
+      "text": "上班先等等，我跟吐司还有点事。",
+      "language": "Chinese",
+      "audio_slot": 1
+    },
+    {
+      "id": "L05",
+      "start_frame": 754,
+      "end_frame": 828,
+      "speaker": "Nangong Wan <Subject 1> (S1), voice_gender=female; upbeat walking selfie speech at a natural pace; natural visible lip synchronization, then closed lips after the complete line. Retrospective words do not command a new physical operation.",
+      "text": "今日目标，准点下班。",
+      "language": "Chinese",
+      "audio_slot": 1
+    },
+    {
+      "id": "L06",
+      "start_frame": 900,
+      "end_frame": 979,
+      "speaker": "Nangong Wan <Subject 1> (S1), voice_gender=female; amused resignation, standing outside the entrance; natural visible lip synchronization, then closed lips after the complete line. Retrospective words do not command a new physical operation.",
+      "text": "不过，要先开始熬完这艰难的一天。",
+      "language": "Chinese",
+      "audio_slot": 1
+    },
+    {
+      "id": "L07",
+      "start_frame": 1304,
+      "end_frame": 1376,
+      "speaker": "Nangong Wan <Subject 1> (S1), voice_gender=female; small satisfied smile at the chosen color; natural visible lip synchronization, then closed lips after the complete line. Retrospective words do not command a new physical operation.",
+      "text": "就你了，今天不跟蓝色较劲。",
+      "language": "Chinese",
+      "audio_slot": 1
+    },
+    {
+      "id": "L08",
+      "start_frame": 1627,
+      "end_frame": 1709,
+      "speaker": "Nangong Wan <Subject 1> (S1), voice_gender=female; brisk happy relief, without shouting; natural visible lip synchronization, then closed lips after the complete line. Retrospective words do not command a new physical operation.",
+      "text": "收工！剩下的灵感，明天再来。",
+      "language": "Chinese",
+      "audio_slot": 1
+    },
+    {
+      "id": "L09",
+      "start_frame": 2016,
+      "end_frame": 2117,
+      "speaker": "Nangong Wan <Subject 1> (S1), voice_gender=female; easy intimate goodnight after the same mug has landed and the original right hand has released it; conversational timing with one small empty-right-palm gesture during the last words; natural visible lip synchronization, then closed lips after the complete line. Retrospective words do not command a new physical operation.",
+      "text": "喝完这口，今天就真的打烊啦。晚安。",
+      "language": "Chinese",
+      "audio_slot": 1
+    }
+  ],
+  "window_overrides": [
+    {
+      "new_start": 0,
+      "new_end": 294,
+      "forward_frames": 0,
+      "voice_policy": "dialogue_only",
+      "reference_selection": {
+        "pictures": [
+          1,
+          3,
+          2
+        ],
+        "audios": [
+          1
+        ]
+      },
+      "sections": {
+        "summary": "A natural workday vlog of the same registered adult, normal real-time actions, advancing only the registered events on this local timeline.",
+        "retention_analysis": "fully_preserved: the same character identity, current wardrobe/hair, original scene and prop structure/count, shared proportions and custody. Allow only the timeline phases/state changes; ordinary phase images are neither hard endpoints nor extra people.",
+        "overall_soundscape": "Clear natural registered on-screen speech with the actual timbre reference. No extra lines outside its windows; location/contact sounds follow the timeline, no BGM.",
+        "non_diegetic_music": "N/A",
+        "subject_definitions": "Nangong Wan <Subject 1> (S1): <Picture 1>; One and the same adult woman. Identity reference controls the original face/body identity; current scene controls wardrobe/hair, never duplicated views as people.\n<Picture 1>: Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.\n<Picture 3>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 2>: Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.\n<Subject 1> (S1), voice_gender=female; <Audio 1> is timbre reference only, not its recorded words.",
+        "detailed_description": "Natural live action, landscape16:9 and normal1x speed. Keep the original identity, two connected arms, object count and perspective scale. Contact, outcome and reactions stay readable; finish occupied-mouth eating/drinking/swallowing before clear speech. Voice only the registered exact lines; remain non-speaking otherwise with appropriate breathing/contact sound. No captions, narrator, BGM or decorative text. A physical continuation never re-establishes the camera; only registered story cuts change scene.\n{{frame:0}}: New opening: same adult in white tee/loose hair lies on original bed with eyes shut, near hand on chest duvet and other arm under it; original alarm already rings, fixed wide-medium view."
+      },
+      "remaining_beats": [
+        {
+          "id": "B01",
+          "action": "She lies sideways asleep, both eyes fully closed. Only the near arm is visible, continuously connected to its shoulder, with the hand on the duvet at her chest. The other arm is entirely under the duvet. One cream alarm is already audibly ringing from the first frame.",
+          "camera": "Reluctance becoming acceptance; the same adult; Fixed wide-medium bedside framing with face, near arm and alarm contact visible; Original bed, pillow, duvet and one alarm at image left; Soft morning side light retaining face and button readability; Natural skin, cotton tee/duvet and a solid alarm button"
+        },
+        {
+          "id": "B02",
+          "action": "The ringing reaches her: a tiny nose wrinkle, breath and a brief nestle into the pillow precede her first complaint. Eyes remain shut; no reaching. The alarm remains audible beneath speech.",
+          "camera": "Reluctance becoming acceptance; the same adult; Fixed wide-medium bedside framing with face, near arm and alarm contact visible; Original bed, pillow, duvet and one alarm at image left; Soft morning side light retaining face and button readability; Natural skin, cotton tee/duvet and a solid alarm button"
+        },
+        {
+          "id": "B03",
+          "action": "With eyes and lips closed she gives the duvet one small tug toward her chest, two short natural leg kicks under it, then stops to listen. The same one visible hand returns to her chest. Real-time little movements, not slow motion. Alarm continues alone.",
+          "camera": "Reluctance becoming acceptance; the same adult; Fixed wide-medium bedside framing with face, near arm and alarm contact visible; Original bed, pillow, duvet and one alarm at image left; Soft morning side light retaining face and button readability; Natural skin, cotton tee/duvet and a solid alarm button"
+        },
+        {
+          "id": "B04",
+          "action": "Still closed-eyed, she exhales and gives the brief resigned answer, without moving either hand toward the alarm.",
+          "camera": "Reluctance becoming acceptance; the same adult; Fixed wide-medium bedside framing with face, near arm and alarm contact visible; Original bed, pillow, duvet and one alarm at image left; Soft morning side light retaining face and button readability; Natural skin, cotton tee/duvet and a solid alarm button"
+        },
+        {
+          "id": "B05",
+          "action": "One full second of closed lips and closed eyes, listening to the unchanged alarm; no silent speaking mouth movements.",
+          "camera": "Reluctance becoming acceptance; the same adult; Fixed wide-medium bedside framing with face, near arm and alarm contact visible; Original bed, pillow, duvet and one alarm at image left; Soft morning side light retaining face and button readability; Natural skin, cotton tee/duvet and a solid alarm button"
+        },
+        {
+          "id": "B06",
+          "action": "She completes her final concession by {{frame:209}}, closes her lips and only then opens her eyes and orients toward the alarm.",
+          "camera": "Reluctance becoming acceptance; the same adult; Fixed wide-medium bedside framing with face, near arm and alarm contact visible; Original bed, pillow, duvet and one alarm at image left; Soft morning side light retaining face and button readability; Natural skin, cotton tee/duvet and a solid alarm button"
+        },
+        {
+          "id": "B07",
+          "action": "The existing near arm reaches continuously from the visible shoulder to the original clock. At {{frame:254}} her index fingertip makes actual CONTACT and presses the wide gray top key DOWN once. Hold the depressed key briefly, then RELEASE it: contact, depression and release must be visible. The real key press stops the already-running loud repeated alarm at {{frame:254}}, with one soft mechanical click. No ringing afterward. Her other arm stays under the duvet until {{frame:266}}.",
+          "camera": "Reluctance becoming acceptance; the same adult; Fixed wide-medium bedside framing with face, near arm and alarm contact visible; Original bed, pillow, duvet and one alarm at image left; Soft morning side light retaining face and button readability; Natural skin, cotton tee/duvet and a solid alarm button"
+        },
+        {
+          "id": "B08",
+          "action": "The original pressing hand returns to the front duvet. Both connected original arms begin a half-rise; stay halfway up at the boundary, lips quiet and alarm off.",
+          "camera": "Reluctance becoming acceptance; the same adult; Fixed wide-medium bedside framing with face, near arm and alarm contact visible; Original bed, pillow, duvet and one alarm at image left; Soft morning side light retaining face and button readability; Natural skin, cotton tee/duvet and a solid alarm button"
+        }
+      ]
+    },
+    {
+      "new_start": 294,
+      "new_end": 549,
+      "forward_frames": 0,
+      "voice_policy": "dialogue_only",
+      "reference_selection": {
+        "pictures": [
+          1,
+          3,
+          4,
+          2
+        ],
+        "audios": []
+      },
+      "sections": {
+        "summary": "A natural workday vlog of the same registered adult, normal real-time actions, advancing only the registered events on this local timeline.",
+        "retention_analysis": "fully_preserved: the same character identity, current wardrobe/hair, original scene and prop structure/count, shared proportions and custody. Allow only the timeline phases/state changes; ordinary phase images are neither hard endpoints nor extra people.",
+        "overall_soundscape": "No dialogue or unplanned vocalization in the free interval; only current location tone, breath, cloth, footsteps and specified contacts. Stopped devices stay stopped.",
+        "non_diegetic_music": "N/A",
+        "subject_definitions": "Nangong Wan <Subject 1> (S1): <Picture 1>; One and the same adult woman. Identity reference controls the original face/body identity; current scene controls wardrobe/hair, never duplicated views as people.\n<Picture 1>: Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.\n<Picture 3>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 4>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 2>: Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.",
+        "detailed_description": "Natural live action, landscape16:9 and normal1x speed. Keep the original identity, two connected arms, object count and perspective scale. Contact, outcome and reactions stay readable; finish occupied-mouth eating/drinking/swallowing before clear speech. Voice only the registered exact lines; remain non-speaking otherwise with appropriate breathing/contact sound. No captions, narrator, BGM or decorative text. A physical continuation never re-establishes the camera; only registered story cuts change scene.\n{{frame:294}}: Same fixed bed view, halfway up on the two original supports, duvet over lap, pressing hand back on front mattress, alarm off and lips quiet."
+      },
+      "remaining_beats": [
+        {
+          "id": "B09",
+          "action": "Soften the same arm supports and recline low into the original pillow in the same fixed view. Keep the complete face readable and duvet over the lap; the alarm stays untouched.",
+          "camera": "Reluctance becoming acceptance; the same adult; Fixed wide-medium bedside framing with face, near arm and alarm contact visible; Original bed, pillow, duvet and one alarm at image left; Soft morning side light retaining face and button readability; Natural skin, cotton tee/duvet and a solid alarm button"
+        },
+        {
+          "id": "B10",
+          "action": "At the planned morning-to-breakfast cut she is seated at the original kitchen table in the white tee and low bun, no crown. Her right hand already holds ONE intact toast at chest level by its lower half; left hand rests at the table. One coffee mug is on its coaster, one egg on one plate.",
+          "camera": "[Shot 2] {{frame:360}}: <Picture 4>; Original kitchen and oblique medium view; white tee, low bun, one toast, the original single mug on its coaster and egg plate. Toast begins intact; only the timed bites change it. A playful breakfast with physically changing food; Fixed oblique medium with full head, hands and tabletop contact visible; Original kitchen, one toast, coffee mug/coaster and egg plate; Natural morning light with soft fill keeping notches readable; Toast crust/pale crumb, ceramic mug and wood at consistent scale"
+        },
+        {
+          "id": "B11",
+          "action": "She brings the same toast to her mouth and takes exactly one bite from its upper edge. A readable missing notch and pale bread interior form at contact. No speech.",
+          "camera": "A playful breakfast with physically changing food; Fixed oblique medium with full head, hands and tabletop contact visible; Original kitchen, one toast, coffee mug/coaster and egg plate; Natural morning light with soft fill keeping notches readable; Toast crust/pale crumb, ceramic mug and wood at consistent scale"
+        },
+        {
+          "id": "B12",
+          "action": "Lower the same toast to chest height, face toward camera, holding the same lower grip. Its first upper-edge notch stays visible. She chews with closed lips, looking naturally at breakfast and the room, without staring into the lens or taking another bite.",
+          "camera": "A playful breakfast with physically changing food; Fixed oblique medium with full head, hands and tabletop contact visible; Original kitchen, one toast, coffee mug/coaster and egg plate; Natural morning light with soft fill keeping notches readable; Toast crust/pale crumb, ceramic mug and wood at consistent scale"
+        },
+        {
+          "id": "B13",
+          "action": "Keep the right-held notched toast away from lips; only the remaining small closed-lip chew, left hand at table, no speech in this window.",
+          "camera": "A playful breakfast with physically changing food; Fixed oblique medium with full head, hands and tabletop contact visible; Original kitchen, one toast, coffee mug/coaster and egg plate; Natural morning light with soft fill keeping notches readable; Toast crust/pale crumb, ceramic mug and wood at consistent scale"
+        }
+      ]
+    },
+    {
+      "new_start": 549,
+      "new_end": 753,
+      "forward_frames": 17,
+      "voice_policy": "dialogue_only",
+      "reference_selection": {
+        "pictures": [
+          1,
+          4,
+          5,
+          2
+        ],
+        "audios": [
+          1
+        ]
+      },
+      "sections": {
+        "summary": "A natural workday vlog of the same registered adult, normal real-time actions, advancing only the registered events on this local timeline.",
+        "retention_analysis": "fully_preserved: the same character identity, current wardrobe/hair, original scene and prop structure/count, shared proportions and custody. Allow only the timeline phases/state changes; ordinary phase images are neither hard endpoints nor extra people.",
+        "overall_soundscape": "Clear natural registered on-screen speech with the actual timbre reference. No extra lines outside its windows; location/contact sounds follow the timeline, no BGM.",
+        "non_diegetic_music": "N/A",
+        "subject_definitions": "Nangong Wan <Subject 1> (S1): <Picture 1>; One and the same adult woman. Identity reference controls the original face/body identity; current scene controls wardrobe/hair, never duplicated views as people.\n<Picture 1>: Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.\n<Picture 4>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 5>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 2>: Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.\n<Subject 1> (S1), voice_gender=female; <Audio 1> is timbre reference only, not its recorded words.",
+        "detailed_description": "Natural live action, landscape16:9 and normal1x speed. Keep the original identity, two connected arms, object count and perspective scale. Contact, outcome and reactions stay readable; finish occupied-mouth eating/drinking/swallowing before clear speech. Voice only the registered exact lines; remain non-speaking otherwise with appropriate breathing/contact sound. No captions, narrator, BGM or decorative text. A physical continuation never re-establishes the camera; only registered story cuts change scene.\n{{frame:566}}: Same breakfast camera, same first-notched toast in right hand at chest; finish only remaining closed-lip swallow before the one full sentence."
+      },
+      "remaining_beats": [
+        {
+          "id": "B13",
+          "action": "Finish only the last small closed-lip swallow with the same notched toast at chest, away from lips; speak the timed whole line only with an empty mouth.",
+          "camera": "A playful breakfast with physically changing food; Fixed oblique medium with full head, hands and tabletop contact visible; Original kitchen, one toast, coffee mug/coaster and egg plate; Natural morning light with soft fill keeping notches readable; Toast crust/pale crumb, ceramic mug and wood at consistent scale"
+        },
+        {
+          "id": "B14",
+          "action": "She lightly addresses the recording phone with her playful complete sentence, the bitten toast held still below the chin, no chewing or drinking while speaking.",
+          "camera": "A playful breakfast with physically changing food; Fixed oblique medium with full head, hands and tabletop contact visible; Original kitchen, one toast, coffee mug/coaster and egg plate; Natural morning light with soft fill keeping notches readable; Toast crust/pale crumb, ceramic mug and wood at consistent scale"
+        },
+        {
+          "id": "B15",
+          "action": "After the sentence ends, lift the same toast for one second bite adjacent to the first notch. Two adjacent upper-edge notches now remain; no reset to intact bread.",
+          "camera": "A playful breakfast with physically changing food; Fixed oblique medium with full head, hands and tabletop contact visible; Original kitchen, one toast, coffee mug/coaster and egg plate; Natural morning light with soft fill keeping notches readable; Toast crust/pale crumb, ceramic mug and wood at consistent scale"
+        },
+        {
+          "id": "B16",
+          "action": "Lower the same right-hand toast below the mouth and above the plate, both notches facing camera. Chew with lips closed. No new line and no toast replacement.",
+          "camera": "A playful breakfast with physically changing food; Fixed oblique medium with full head, hands and tabletop contact visible; Original kitchen, one toast, coffee mug/coaster and egg plate; Natural morning light with soft fill keeping notches readable; Toast crust/pale crumb, ceramic mug and wood at consistent scale"
+        },
+        {
+          "id": "B17",
+          "action": "After the planned street cut, walk forward normally with right arm to off-frame phone and left hand on bag strap. Continue these visible steps; the next complete line belongs to its owner window.",
+          "camera": "[Shot 3] {{frame:720}}: <Picture 5>; Original office-street entrance, pale-blue V-neck top, white skirt, silver-blue crown/earrings and one bag. Keep natural arm-length selfie geometry; phone outside frame, no breakfast props. A commute goal and gentle self-irony; Normal arm-length medium selfie with light gait motion, phone off-frame; Original street, office building, entrance and one shoulder bag; Daylight with steady facial exposure; Natural fabric/building materials without enlarged wide-angle arms"
+        }
+      ]
+    },
+    {
+      "new_start": 753,
+      "new_end": 1008,
+      "forward_frames": 0,
+      "voice_policy": "dialogue_only",
+      "reference_selection": {
+        "pictures": [
+          1,
+          5,
+          2
+        ],
+        "audios": [
+          1
+        ]
+      },
+      "sections": {
+        "summary": "A natural workday vlog of the same registered adult, normal real-time actions, advancing only the registered events on this local timeline.",
+        "retention_analysis": "fully_preserved: the same character identity, current wardrobe/hair, original scene and prop structure/count, shared proportions and custody. Allow only the timeline phases/state changes; ordinary phase images are neither hard endpoints nor extra people.",
+        "overall_soundscape": "Clear natural registered on-screen speech with the actual timbre reference. No extra lines outside its windows; location/contact sounds follow the timeline, no BGM.",
+        "non_diegetic_music": "N/A",
+        "subject_definitions": "Nangong Wan <Subject 1> (S1): <Picture 1>; One and the same adult woman. Identity reference controls the original face/body identity; current scene controls wardrobe/hair, never duplicated views as people.\n<Picture 1>: Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.\n<Picture 5>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 2>: Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.\n<Subject 1> (S1), voice_gender=female; <Audio 1> is timbre reference only, not its recorded words.",
+        "detailed_description": "Natural live action, landscape16:9 and normal1x speed. Keep the original identity, two connected arms, object count and perspective scale. Contact, outcome and reactions stay readable; finish occupied-mouth eating/drinking/swallowing before clear speech. Voice only the registered exact lines; remain non-speaking otherwise with appropriate breathing/contact sound. No captions, narrator, BGM or decorative text. A physical continuation never re-establishes the camera; only registered story cuts change scene.\n{{frame:753}}: Existing forward walking selfie in work top/skirt/crown/earrings, left hand on bag strap, right arm to off-frame phone, street left/building right, quiet before the next line."
+      },
+      "remaining_beats": [
+        {
+          "id": "B17",
+          "action": "Continue the already-started walking selfie without a new start or establishing view; preserve hand custody and moving background.",
+          "camera": "A commute goal and gentle self-irony; Normal arm-length medium selfie with light gait motion, phone off-frame; Original street, office building, entrance and one shoulder bag; Daylight with steady facial exposure; Natural fabric/building materials without enlarged wide-angle arms"
+        },
+        {
+          "id": "B18",
+          "action": "Continue the same normal forward walking rhythm while speaking the complete first goal sentence to the phone. Natural arm proportions and small footfall-induced camera motion; background progresses continuously.",
+          "camera": "A commute goal and gentle self-irony; Normal arm-length medium selfie with light gait motion, phone off-frame; Original street, office building, entrance and one shoulder bag; Daylight with steady facial exposure; Natural fabric/building materials without enlarged wide-angle arms"
+        },
+        {
+          "id": "B19",
+          "action": "She keeps moving toward the entrance, slows gradually and stops outside at {{frame:893}}. No reverse walking, no doorway crossing yet. Lips closed between the two sentences.",
+          "camera": "A commute goal and gentle self-irony; Normal arm-length medium selfie with light gait motion, phone off-frame; Original street, office building, entrance and one shoulder bag; Daylight with steady facial exposure; Natural fabric/building materials without enlarged wide-angle arms"
+        },
+        {
+          "id": "B20",
+          "action": "Stationary OUTSIDE the entrance, she delivers the entire second sentence with a wry smile, facing the selfie phone. Do not begin turning or crossing until the last word is complete.",
+          "camera": "A commute goal and gentle self-irony; Normal arm-length medium selfie with light gait motion, phone off-frame; Original street, office building, entrance and one shoulder bag; Daylight with steady facial exposure; Natural fabric/building materials without enlarged wide-angle arms"
+        },
+        {
+          "id": "B21",
+          "action": "Once the sentence is complete, turn body and phone together toward the real entrance; let its door become visible before walking through. Maintain one right arm and the same left-hand tote strap.",
+          "camera": "A commute goal and gentle self-irony; Normal arm-length medium selfie with light gait motion, phone off-frame; Original street, office building, entrance and one shoulder bag; Daylight with steady facial exposure; Natural fabric/building materials without enlarged wide-angle arms"
+        },
+        {
+          "id": "B22",
+          "action": "Cross the original doorway forward once with the same camera arm and bag custody; the next window continues this step without a new camera setup.",
+          "camera": "A commute goal and gentle self-irony; Normal arm-length medium selfie with light gait motion, phone off-frame; Original street, office building, entrance and one shoulder bag; Daylight with steady facial exposure; Natural fabric/building materials without enlarged wide-angle arms"
+        }
+      ]
+    },
+    {
+      "new_start": 1008,
+      "new_end": 1263,
+      "forward_frames": 0,
+      "voice_policy": "dialogue_only",
+      "reference_selection": {
+        "pictures": [
+          1,
+          5,
+          6,
+          2
+        ],
+        "audios": []
+      },
+      "sections": {
+        "summary": "A natural workday vlog of the same registered adult, normal real-time actions, advancing only the registered events on this local timeline.",
+        "retention_analysis": "fully_preserved: the same character identity, current wardrobe/hair, original scene and prop structure/count, shared proportions and custody. Allow only the timeline phases/state changes; ordinary phase images are neither hard endpoints nor extra people.",
+        "overall_soundscape": "No dialogue or unplanned vocalization in the free interval; only current location tone, breath, cloth, footsteps and specified contacts. Stopped devices stay stopped.",
+        "non_diegetic_music": "N/A",
+        "subject_definitions": "Nangong Wan <Subject 1> (S1): <Picture 1>; One and the same adult woman. Identity reference controls the original face/body identity; current scene controls wardrobe/hair, never duplicated views as people.\n<Picture 1>: Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.\n<Picture 5>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 6>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 2>: Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.",
+        "detailed_description": "Natural live action, landscape16:9 and normal1x speed. Keep the original identity, two connected arms, object count and perspective scale. Contact, outcome and reactions stay readable; finish occupied-mouth eating/drinking/swallowing before clear speech. Voice only the registered exact lines; remain non-speaking otherwise with appropriate breathing/contact sound. No captions, narrator, BGM or decorative text. A physical continuation never re-establishes the camera; only registered story cuts change scene.\n{{frame:1008}}: Same commuter crossing the original entrance forward, same arm/bag custody and entering camera motion, no new words."
+      },
+      "remaining_beats": [
+        {
+          "id": "B22",
+          "action": "Continue only the remaining indoor steps from the actual doorway gait, never return outside or cross the threshold again; keep phone and bag custody.",
+          "camera": "A commute goal and gentle self-irony; Normal arm-length medium selfie with light gait motion, phone off-frame; Original street, office building, entrance and one shoulder bag; Daylight with steady facial exposure; Natural fabric/building materials without enlarged wide-angle arms"
+        },
+        {
+          "id": "B23",
+          "action": "Planned cut to the existing office desk in daylight. Same commute clothes, crown and earrings. One open gray brandless laptop faces HER, not the camera; ONE empty A3 board and pencil remain on the table. Exactly three swatches start to her right: cream, blue-gray, warm gray. She compares them with her eyes, hands empty.",
+          "camera": "[Shot 4] {{frame:1080}}: <Picture 6>; Original fixed office medium view, gray laptop, empty A3 board, horizontal pencil and three swatches; one woman with two connected arms in the same work wardrobe. A considered color choice; Fixed office medium showing face, left hand, A3 and three cards; Original gray laptop, blank A3, pencil and three cards; Soft daytime office light without dramatic changes; Real paper edges, matte unbranded laptop and wood"
+        },
+        {
+          "id": "B24",
+          "action": "Her anatomical LEFT thumb and index finger take the blue-gray swatch from the right-side group along one continuous path. Count: two cards stay on desk, one card in her left hand. Right hand rests clear of the board.",
+          "camera": "A considered color choice; Fixed office medium showing face, left hand, A3 and three cards; Original gray laptop, blank A3, pencil and three cards; Soft daytime office light without dramatic changes; Real paper edges, matte unbranded laptop and wood"
+        },
+        {
+          "id": "B25",
+          "action": "Carry the same blue-gray swatch in the original left grip above the front-right part of the A3 board. At the boundary it is still angled and held; the other two cards remain on the desk.",
+          "camera": "A considered color choice; Fixed office medium showing face, left hand, A3 and three cards; Original gray laptop, blank A3, pencil and three cards; Soft daytime office light without dramatic changes; Real paper edges, matte unbranded laptop and wood"
+        }
+      ]
+    },
+    {
+      "new_start": 1263,
+      "new_end": 1518,
+      "forward_frames": 0,
+      "voice_policy": "dialogue_only",
+      "reference_selection": {
+        "pictures": [
+          1,
+          6,
+          7,
+          2
+        ],
+        "audios": [
+          1
+        ]
+      },
+      "sections": {
+        "summary": "A natural workday vlog of the same registered adult, normal real-time actions, advancing only the registered events on this local timeline.",
+        "retention_analysis": "fully_preserved: the same character identity, current wardrobe/hair, original scene and prop structure/count, shared proportions and custody. Allow only the timeline phases/state changes; ordinary phase images are neither hard endpoints nor extra people.",
+        "overall_soundscape": "Clear natural registered on-screen speech with the actual timbre reference. No extra lines outside its windows; location/contact sounds follow the timeline, no BGM.",
+        "non_diegetic_music": "N/A",
+        "subject_definitions": "Nangong Wan <Subject 1> (S1): <Picture 1>; One and the same adult woman. Identity reference controls the original face/body identity; current scene controls wardrobe/hair, never duplicated views as people.\n<Picture 1>: Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.\n<Picture 6>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 7>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 2>: Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.\n<Subject 1> (S1), voice_gender=female; <Audio 1> is timbre reference only, not its recorded words.",
+        "detailed_description": "Natural live action, landscape16:9 and normal1x speed. Keep the original identity, two connected arms, object count and perspective scale. Contact, outcome and reactions stay readable; finish occupied-mouth eating/drinking/swallowing before clear speech. Voice only the registered exact lines; remain non-speaking otherwise with appropriate breathing/contact sound. No captions, narrator, BGM or decorative text. A physical continuation never re-establishes the camera; only registered story cuts change scene.\n{{frame:1263}}: Original office medium, left hand still holds the blue-gray swatch above front-right A3, unreleased; two neutral cards desk right, right hand clear, laptop open."
+      },
+      "remaining_beats": [
+        {
+          "id": "B26",
+          "action": "Lower the already-held blue-gray swatch a short distance, establish flat contact, then release and withdraw the original left fingers. The right hand stays clear and the three-card count is unchanged.",
+          "camera": "A considered color choice; Fixed office medium showing face, left hand, A3 and three cards; Original gray laptop, blank A3, pencil and three cards; Soft daytime office light without dramatic changes; Real paper edges, matte unbranded laptop and wood"
+        },
+        {
+          "id": "B27",
+          "action": "Look at the placed blue-gray choice, then deliver the one satisfied sentence with natural lip movement. Both hands are free and away from the card. Do not talk before placing it.",
+          "camera": "A considered color choice; Fixed office medium showing face, left hand, A3 and three cards; Original gray laptop, blank A3, pencil and three cards; Soft daytime office light without dramatic changes; Real paper edges, matte unbranded laptop and wood"
+        },
+        {
+          "id": "B28",
+          "action": "With the three-card state unchanged, return attention to the open laptop and begin a few real purposeful key presses. No card movement, no new words.",
+          "camera": "A considered color choice; Fixed office medium showing face, left hand, A3 and three cards; Original gray laptop, blank A3, pencil and three cards; Soft daytime office light without dramatic changes; Real paper edges, matte unbranded laptop and wood"
+        },
+        {
+          "id": "B29",
+          "action": "After the time ellipsis continue purposeful short typing with the two original hands, laptop open and three cards fixed; no premature lid closure.",
+          "camera": "[Shot 5] {{frame:1440}}: <Picture 7>; Same office axis and objects after a finish-work time ellipsis. Blue-gray card already lies on A3, two other cards stay desk right, laptop open; no renewed card pickup. Relief after completing work; Same office-axis fixed medium with whole lid and both arms visible; Gray laptop and three-card state retain the color-choice result; Keep established office light; time ellipsis does not shift the camera; Original lid/base thickness, paper cards and fabric"
+        }
+      ]
+    },
+    {
+      "new_start": 1518,
+      "new_end": 1773,
+      "forward_frames": 34,
+      "voice_policy": "dialogue_only",
+      "reference_selection": {
+        "pictures": [
+          1,
+          7,
+          2
+        ],
+        "audios": [
+          1
+        ]
+      },
+      "sections": {
+        "summary": "A natural workday vlog of the same registered adult, normal real-time actions, advancing only the registered events on this local timeline.",
+        "retention_analysis": "fully_preserved: the same character identity, current wardrobe/hair, original scene and prop structure/count, shared proportions and custody. Allow only the timeline phases/state changes; ordinary phase images are neither hard endpoints nor extra people.",
+        "overall_soundscape": "Clear natural registered on-screen speech with the actual timbre reference. No extra lines outside its windows; location/contact sounds follow the timeline, no BGM.",
+        "non_diegetic_music": "N/A",
+        "subject_definitions": "Nangong Wan <Subject 1> (S1): <Picture 1>; One and the same adult woman. Identity reference controls the original face/body identity; current scene controls wardrobe/hair, never duplicated views as people.\n<Picture 1>: Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.\n<Picture 7>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 2>: Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.\n<Subject 1> (S1), voice_gender=female; <Audio 1> is timbre reference only, not its recorded words.",
+        "detailed_description": "Natural live action, landscape16:9 and normal1x speed. Keep the original identity, two connected arms, object count and perspective scale. Contact, outcome and reactions stay readable; finish occupied-mouth eating/drinking/swallowing before clear speech. Voice only the registered exact lines; remain non-speaking otherwise with appropriate breathing/contact sound. No captions, narrator, BGM or decorative text. A physical continuation never re-establishes the camera; only registered story cuts change scene.\n{{frame:1552}}: Same office medium, original two hands/open laptop/three cards; forward AV carries the typing phase. Begin only the still-pending trackpad action and subsequent finish-work line."
+      },
+      "remaining_beats": [
+        {
+          "id": "B30",
+          "action": "The original anatomical right hand moves continuously from keyboard to trackpad, slides briefly and makes one click at {{frame:1570}}. The left hand stays beside the base.",
+          "camera": "Relief after completing work; Same office-axis fixed medium with whole lid and both arms visible; Gray laptop and three-card state retain the color-choice result; Keep established office light; time ellipsis does not shift the camera; Original lid/base thickness, paper cards and fabric"
+        },
+        {
+          "id": "B31",
+          "action": "Check the screen result and exhale gently with relaxed hands. The original lid remains open; there is no spoken device cue or premature closure.",
+          "camera": "Relief after completing work; Same office-axis fixed medium with whole lid and both arms visible; Gray laptop and three-card state retain the color-choice result; Keep established office light; time ellipsis does not shift the camera; Original lid/base thickness, paper cards and fabric"
+        },
+        {
+          "id": "B32",
+          "action": "Keep the original laptop open while looking toward the recording phone for the brisk finish-work thought. Neither hand starts closing it until the complete line ends.",
+          "camera": "Relief after completing work; Same office-axis fixed medium with whole lid and both arms visible; Gray laptop and three-card state retain the color-choice result; Keep established office light; time ellipsis does not shift the camera; Original lid/base thickness, paper cards and fabric"
+        },
+        {
+          "id": "B33",
+          "action": "Only after the complete sentence, left hand stabilizes the original laptop base while the right hand grasps the original lid edge and closes it steadily. One soft closure click around {{frame:1762}}. No brand mark appears, no third hand and no duplicate lid.",
+          "camera": "Relief after completing work; Same office-axis fixed medium with whole lid and both arms visible; Gray laptop and three-card state retain the color-choice result; Keep established office light; time ellipsis does not shift the camera; Original lid/base thickness, paper cards and fabric"
+        },
+        {
+          "id": "B34",
+          "action": "The original laptop is already fully closed. Only soften the existing hand contacts and begin leaning back; cards stay fixed, no reopening or new words.",
+          "camera": "Relief after completing work; Same office-axis fixed medium with whole lid and both arms visible; Gray laptop and three-card state retain the color-choice result; Keep established office light; time ellipsis does not shift the camera; Original lid/base thickness, paper cards and fabric"
+        }
+      ]
+    },
+    {
+      "new_start": 1773,
+      "new_end": 1977,
+      "forward_frames": 0,
+      "voice_policy": "dialogue_only",
+      "reference_selection": {
+        "pictures": [
+          1,
+          7,
+          8,
+          2
+        ],
+        "audios": []
+      },
+      "sections": {
+        "summary": "A natural workday vlog of the same registered adult, normal real-time actions, advancing only the registered events on this local timeline.",
+        "retention_analysis": "fully_preserved: the same character identity, current wardrobe/hair, original scene and prop structure/count, shared proportions and custody. Allow only the timeline phases/state changes; ordinary phase images are neither hard endpoints nor extra people.",
+        "overall_soundscape": "No dialogue or unplanned vocalization in the free interval; only current location tone, breath, cloth, footsteps and specified contacts. Stopped devices stay stopped.",
+        "non_diegetic_music": "N/A",
+        "subject_definitions": "Nangong Wan <Subject 1> (S1): <Picture 1>; One and the same adult woman. Identity reference controls the original face/body identity; current scene controls wardrobe/hair, never duplicated views as people.\n<Picture 1>: Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.\n<Picture 7>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 8>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 2>: Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.",
+        "detailed_description": "Natural live action, landscape16:9 and normal1x speed. Keep the original identity, two connected arms, object count and perspective scale. Contact, outcome and reactions stay readable; finish occupied-mouth eating/drinking/swallowing before clear speech. Voice only the registered exact lines; remain non-speaking otherwise with appropriate breathing/contact sound. No captions, narrator, BGM or decorative text. A physical continuation never re-establishes the camera; only registered story cuts change scene.\n{{frame:1773}}: Original laptop fully closed, right hand still on original lid, left at base, both arms connected, three cards unchanged, quiet after full finish-work line."
+      },
+      "remaining_beats": [
+        {
+          "id": "B34",
+          "action": "Only release the current right-lid and left-base contacts, lean back and exhale; preserve the already-closed laptop and three cards.",
+          "camera": "Relief after completing work; Same office-axis fixed medium with whole lid and both arms visible; Gray laptop and three-card state retain the color-choice result; Keep established office light; time ellipsis does not shift the camera; Original lid/base thickness, paper cards and fabric"
+        },
+        {
+          "id": "B35",
+          "action": "Planned cut to the night bedroom. Same C01 face, loose tied hair, pale-blue button pajamas, NO crown or earrings. She sits at the bed and ALREADY holds the one warm-milk mug by its handle in her RIGHT hand at chest height, matching the real opening reference. Her left hand rests on her knee; the one cork coaster is empty. Raise that already-held mug, without a second pickup.",
+          "camera": "[Shot 6] {{frame:1800}}: <Picture 8>; Original night bedroom, lamp, cork coaster and one milk mug; pale-blue pajamas, loose tied hair, no crown/earrings. The right hand already holds the mug at scene entry; no new table pickup. An intimate, settled end to the workday; Fixed night medium with head, empty hands and coaster readable; Original bedroom, lamp, cork coaster and one milk mug; Soft warm practical lamp light retaining lips and mug contact; Natural skin, pajamas, ceramic and cork textures"
+        },
+        {
+          "id": "B36",
+          "action": "The rim of the same mug touches the lips for one small sip of warm milk. No speech, no oversized mug, no spilled liquid. Left hand remains on knee.",
+          "camera": "An intimate, settled end to the workday; Fixed night medium with head, empty hands and coaster readable; Original bedroom, lamp, cork coaster and one milk mug; Soft warm practical lamp light retaining lips and mug contact; Natural skin, pajamas, ceramic and cork textures"
+        },
+        {
+          "id": "B37",
+          "action": "Move the same mug away from the lips, close the mouth and swallow completely. No dialogue overlaps sipping or swallowing.",
+          "camera": "An intimate, settled end to the workday; Fixed night medium with head, empty hands and coaster readable; Original bedroom, lamp, cork coaster and one milk mug; Soft warm practical lamp light retaining lips and mug contact; Natural skin, pajamas, ceramic and cork textures"
+        },
+        {
+          "id": "B38",
+          "action": "Lower the one original mug toward its cork coaster in the same right-hand handle grip. At the visible boundary its base remains 1–2 cm above the coaster, unreleased; the left hand stays on the lap, sip and swallow complete.",
+          "camera": "An intimate, settled end to the workday; Fixed night medium with head, empty hands and coaster readable; Original bedroom, lamp, cork coaster and one milk mug; Soft warm practical lamp light retaining lips and mug contact; Natural skin, pajamas, ceramic and cork textures"
+        }
+      ]
+    },
+    {
+      "new_start": 1977,
+      "new_end": 2160,
+      "forward_frames": 34,
+      "voice_policy": "dialogue_only",
+      "reference_selection": {
+        "pictures": [
+          1,
+          8,
+          2
+        ],
+        "audios": [
+          1
+        ]
+      },
+      "sections": {
+        "summary": "A natural workday vlog of the same registered adult, normal real-time actions, advancing only the registered events on this local timeline.",
+        "retention_analysis": "fully_preserved: the same character identity, current wardrobe/hair, original scene and prop structure/count, shared proportions and custody. Allow only the timeline phases/state changes; ordinary phase images are neither hard endpoints nor extra people.",
+        "overall_soundscape": "Clear natural registered on-screen speech with the actual timbre reference. No extra lines outside its windows; location/contact sounds follow the timeline, no BGM.",
+        "non_diegetic_music": "N/A",
+        "subject_definitions": "Nangong Wan <Subject 1> (S1): <Picture 1>; One and the same adult woman. Identity reference controls the original face/body identity; current scene controls wardrobe/hair, never duplicated views as people.\n<Picture 1>: Only the same C01 adult face, body identity and forehead mark. Hair/clothes follow the current scene; multiple views represent one person.\n<Picture 8>: Scene layout, wardrobe/hair, light and prop design only. Actual AV and remaining phase own pose, custody and changed state; do not reenact the source image opening.\n<Picture 2>: Same-version common-scale design: adult height 165 cm, hand length 17.5 cm, mug body diameter 8.5 cm/height 9.5 cm, toast 11 x 10.5 cm, alarm 12 x 7.5 cm, laptop 32 x 22 cm, A3 42 x 29.7 cm, swatch 7 x 12 cm, bed width 150 cm. Respect depth/perspective; never render the chart or extra subjects.\n<Subject 1> (S1), voice_gender=female; <Audio 1> is timbre reference only, not its recorded words.",
+        "detailed_description": "Natural live action, landscape16:9 and normal1x speed. Keep the original identity, two connected arms, object count and perspective scale. Contact, outcome and reactions stay readable; finish occupied-mouth eating/drinking/swallowing before clear speech. Voice only the registered exact lines; remain non-speaking otherwise with appropriate breathing/contact sound. No captions, narrator, BGM or decorative text. A physical continuation never re-establishes the camera; only registered story cuts change scene.\n{{frame:2011}}: Mug stationary on original coaster, both empty hands on lap, mouth empty and gaze to recording phone; same view, only the pending full line and low empty-palm gesture."
+      },
+      "remaining_beats": [
+        {
+          "id": "B40",
+          "action": "Both empty hands rest on the lap and the original mug is stationary on its coaster. Breathe gently in the same view before the one closing line.",
+          "camera": "An intimate, settled end to the workday; Fixed night medium with head, empty hands and coaster readable; Original bedroom, lamp, cork coaster and one milk mug; Soft warm practical lamp light retaining lips and mug contact; Natural skin, pajamas, ceramic and cork textures"
+        },
+        {
+          "id": "B41",
+          "action": "Speak naturally toward the phone with an empty mouth; accompany the last words with one low empty-right-palm gesture. The left hand stays on the lap and the stationary mug is background dressing.",
+          "camera": "An intimate, settled end to the workday; Fixed night medium with head, empty hands and coaster readable; Original bedroom, lamp, cork coaster and one milk mug; Soft warm practical lamp light retaining lips and mug contact; Natural skin, pajamas, ceramic and cork textures"
+        },
+        {
+          "id": "B42",
+          "action": "After the complete final syllable close the lips, smile softly and relax the shoulders. Let the empty right palm remain low in natural after-motion; the mug stays on its coaster and no new line begins.",
+          "camera": "An intimate, settled end to the workday; Fixed night medium with head, empty hands and coaster readable; Original bedroom, lamp, cork coaster and one milk mug; Soft warm practical lamp light retaining lips and mug contact; Natural skin, pajamas, ceramic and cork textures"
+        }
+      ]
+    }
+  ]
+}

@@ -12,8 +12,13 @@ import re
 from decimal import Decimal, ROUND_HALF_UP
 from fractions import Fraction
 
+from .long_video_references import (directing_text, reference_maps, remap_references,
+                                    validate_reference_syntax, validate_selection, without_local_voice_bindings)
+
 FPS = 24
 _MIN_SAMPLE_FRAMES = 107  # First 17k+5 length inside the native 4–15 second budget.
+SECTIONS = ('subject_definitions', 'summary', 'retention_analysis', 'detailed_description',
+            'overall_soundscape', 'non_diegetic_music')
 
 
 def _integer(value, label, minimum=0):
@@ -153,6 +158,103 @@ def _item_interval(item, total, label):
     return a, b
 
 
+def _known(item, keys, label):
+    unknown = set(item) - set(keys)
+    if unknown:
+        raise ValueError(f'{label} has unknown fields: {", ".join(sorted(unknown))}')
+
+
+def _phase_prose(item, label, start, end):
+    _text(item.get('action'), label + '.action')
+    if re.search(r'</?d(?:\s|>)', item['action'], re.I):
+        raise ValueError('Place complete dialogue in the top-level dialogues list')
+    for key in ('camera', 'sound'):
+        if key in item:
+            _text(item[key], label + '.' + key)
+    if 'timed_actions' in item:
+        actions = item['timed_actions']
+        if not isinstance(actions, list) or not actions:
+            raise ValueError(label + '.timed_actions must be a nonempty list')
+        for action in actions:
+            if not isinstance(action, dict):
+                raise ValueError(label + '.timed_actions entries must be objects')
+            _known(action, ('start_frame', 'end_frame', 'action', 'camera', 'sound'), label + '.timed_actions')
+            a = _integer(action.get('start_frame'), label + '.timed_actions.start_frame')
+            b = _integer(action.get('end_frame'), label + '.timed_actions.end_frame', 1)
+            if not start <= a < b <= end:
+                raise ValueError(label + '.timed_actions interval must lie inside its beat or remaining window')
+            _phase_prose(action, label + '.timed_actions', a, b)
+
+
+def _voice_policy(value):
+    if not isinstance(value, str) or value not in {'inherit', 'dialogue_only'}:
+        raise ValueError('voice_policy must be inherit or dialogue_only')
+    return value
+
+
+def _validate_overrides(s, total):
+    if 'voice_policy' in s:
+        _voice_policy(s['voice_policy'])
+    if 'reference_selection' in s:
+        s['reference_selection'] = validate_selection(s['reference_selection'])
+    misplaced = {'forward_frames', 'remaining_beats', 'sections', 'anchors'} & set(s)
+    if misplaced:
+        raise ValueError('Unsupported top-level phase fields; use exact window_overrides: ' + ', '.join(sorted(misplaced)))
+    overrides = s.get('window_overrides', [])
+    if not isinstance(overrides, list):
+        raise ValueError('window_overrides must be a list of exact new_start/new_end objects')
+    intervals = []
+    by_id = {beat['id']: beat for beat in s['beats']}
+    for override in overrides:
+        if not isinstance(override, dict):
+            raise ValueError('window_overrides entries must be objects')
+        _known(override, ('new_start', 'new_end', 'remaining_beats', 'sections',
+                          'reference_selection', 'voice_policy', 'forward_frames'), 'window_override')
+        a = _integer(override.get('new_start'), 'window_override.new_start')
+        b = _integer(override.get('new_end'), 'window_override.new_end', 1)
+        if not a < b <= total:
+            raise ValueError('window_override interval must lie inside the contract timeline')
+        if any(a < y and x < b for x, y in intervals):
+            raise ValueError('Duplicate or overlapping window_overrides are ambiguous')
+        intervals.append((a, b))
+        if len(override) == 2:
+            raise ValueError('window_override requires an explicit phase, reference or forward override')
+        if 'forward_frames' in override:
+            forward = _integer(override['forward_frames'], 'window_override.forward_frames')
+            if forward % 17 or forward >= b - a:
+                raise ValueError('window_override.forward_frames must be 0 or a positive multiple of 17 shorter than its new interval')
+        if 'voice_policy' in override:
+            _voice_policy(override['voice_policy'])
+        if 'reference_selection' in override:
+            override['reference_selection'] = validate_selection(override['reference_selection'])
+        if 'sections' in override:
+            sections = override['sections']
+            if not isinstance(sections, dict) or not sections:
+                raise ValueError('window_override.sections must be a nonempty object')
+            _known(sections, SECTIONS, 'window_override.sections')
+            for key, value in sections.items():
+                _text(value, 'window_override.sections.' + key)
+        if 'remaining_beats' in override:
+            remaining = override['remaining_beats']
+            if not isinstance(remaining, list) or not remaining:
+                raise ValueError('remaining_beats must be a nonempty list keyed by existing beat id')
+            seen = set()
+            for beat in remaining:
+                if not isinstance(beat, dict):
+                    raise ValueError('remaining_beats entries must be objects')
+                _known(beat, ('id', 'action', 'camera', 'sound', 'timed_actions'), 'remaining_beat')
+                identity = _text(beat.get('id'), 'remaining_beat.id')
+                if identity in seen or identity not in by_id:
+                    raise ValueError('remaining_beats ids must be unique known beat IDs')
+                seen.add(identity)
+                original = by_id[identity]
+                x, y = max(a, original['start_frame']), min(b, original['end_frame'])
+                if x >= y:
+                    raise ValueError('remaining_beat does not intersect its exact override window')
+                _phase_prose(beat, 'remaining_beat', x, y)
+    return overrides
+
+
 def validate_contract(raw, total_frames):
     """Return a detached canonical scene contract with a fully covered action line.
 
@@ -182,12 +284,9 @@ def validate_contract(raw, total_frames):
         if beat['id'] in seen:
             raise ValueError('Beat ids must be unique')
         seen.add(beat['id'])
-        _text(beat.get('action'), 'beat.action')
+        _phase_prose(beat, 'beat', a, b)
         if '<d' in beat['action'].lower():
             raise ValueError('Place complete dialogue in the top-level dialogues list')
-        for key in ('camera', 'sound'):
-            if key in beat:
-                _text(beat[key], 'beat.' + key)
         if type(beat.get('indivisible', False)) is not bool:
             raise ValueError('beat.indivisible must be boolean')
         beat.setdefault('indivisible', False)
@@ -220,8 +319,11 @@ def validate_contract(raw, total_frames):
                 raise ValueError('dialogue.language must be a plain language name')
         if 'audio_slot' in dialogue:
             _integer(dialogue['audio_slot'], 'dialogue.audio_slot', 1)
+            if dialogue['audio_slot'] > 3:
+                raise ValueError('dialogue.audio_slot must refer to an original Audio slot in 1..3')
     s['beats'] = sorted(beats, key=lambda b: (b['start_frame'], b['end_frame'], b['id']))
     s['dialogues'] = sorted(dialogues, key=lambda d: (d['start_frame'], d['end_frame'], d['id']))
+    _validate_overrides(s, total)
     return s
 
 
@@ -262,8 +364,113 @@ def validate_window(window):
     return w
 
 
+def validate_window_overrides(contract, windows):
+    """Validate every exact override against the actual plan before queueing.
+
+    This preflight needs no hypothetical incoming AV state. Individual window
+    compilation repeats its own exact-boundary check as a defense on resume.
+    """
+    raw = _object(contract)
+    s = validate_contract(raw, raw.get('total_frames'))
+    try:
+        planned = [validate_window(window) for window in windows]
+    except TypeError as exc:
+        raise ValueError('windows must be an iterable of physical window objects') from exc
+    pairs = {(window['new_start'], window['new_end']) for window in planned}
+    if any(window['new_end'] > s['total_frames'] for window in planned):
+        raise ValueError('Planned window extends beyond the contract')
+    for override in s.get('window_overrides', []):
+        if (override['new_start'], override['new_end']) not in pairs:
+            raise ValueError('window_overrides must match exact planned new_start/new_end boundaries')
+    return copy.deepcopy(s.get('window_overrides', []))
+
+
 def _time(frame):
     return f'{frame / FPS:.3f}'
+
+
+_CLOCK_PREFIX = r'\b(?:at|by|until|through)\s+|(?:在|于|到|至|截至|直到)\s*'
+_CLOCK_NUMBER = r'-?\d+(?:\.\d+)?'
+_CLOCK_UNIT = r'\s*(?:(?:seconds?|secs?|s)\b|秒(?:钟)?|时)'
+_CLOCK = re.compile(
+    # Paired range endpoints both need explicit time units. Bare from/to/and
+    # numbers remain ordinary counts, dimensions or relative durations.
+    r'(?P<range>(?P<range_prefix>\b(?:from|between)\s+|从\s*)'
+    r'(?P<range_a>' + _CLOCK_NUMBER + r')(?P<range_unit_a>' + _CLOCK_UNIT + r')'
+    r'(?P<range_join>\s+(?:to|and)\s+|\s*(?:到|至)\s*)'
+    r'(?P<range_b>' + _CLOCK_NUMBER + r')(?P<range_unit_b>' + _CLOCK_UNIT + r'))|'
+    r'(?P<frame>\{\{frame:(?P<frame_number>\d+)\}\})|'
+    r'(?P<prefix>' + _CLOCK_PREFIX + r')(?P<number>' + _CLOCK_NUMBER + r')'
+    r'(?P<unit>' + _CLOCK_UNIT + r')|'
+    r'(?P<bare_prefix>' + _CLOCK_PREFIX + r')(?P<bare>-?\d+\.\d{3})'
+    r'(?=\s*(?:[.,;:!?。；，！？\n]|$))(?!\.\d)', re.I)
+
+
+def _local_clocks(text, start, end, offset):
+    """Remap explicit global event clocks, never measurements or spoken words.
+
+    Arbitrary prose is not semantically inferred. A known past/future event in
+    active prose requires an explicit current-phase replacement instead.
+    """
+    def transform(part):
+        if re.search(r'\{\{frame', _CLOCK.sub('', part), re.I):
+            raise ValueError('Malformed frame clock; use {{frame:N}} with a nonnegative integer global frame')
+        def local_time(frame):
+            if not start <= frame <= end:
+                raise ValueError('An explicit action clock lies outside the current phase; use remaining_beats '
+                                 'or a current phase sections override instead of issuing completed/future actions')
+            return f'{float((frame + offset) / FPS):.3f}'
+        def clock(match):
+            if match.group('range'):
+                first = local_time(Fraction(Decimal(match.group('range_a'))) * FPS)
+                last = local_time(Fraction(Decimal(match.group('range_b'))) * FPS)
+                return (match.group('range_prefix') + first + match.group('range_unit_a')
+                        + match.group('range_join') + last + match.group('range_unit_b'))
+            if match.group('frame'):
+                frame = Fraction(int(match.group('frame_number')))
+            else:
+                frame = Fraction(Decimal(match.group('number') or match.group('bare'))) * FPS
+            local = local_time(frame)
+            return (match.group('prefix') or match.group('bare_prefix') or '') + local + (match.group('unit') or '')
+        return _CLOCK.sub(clock, part)
+    return directing_text(text, transform)
+
+
+def _mapped_phase(beat, x, y, offset, free_start, window_end):
+    item = {'id': beat['id'], 'global_start': x, 'global_end': y,
+            'local_start': offset + x, 'local_end': offset + y,
+            'partial_start': x > beat['start_frame'], 'partial_end': y < beat['end_frame']}
+    if 'timed_actions' in beat:
+        timed = []
+        for action in beat['timed_actions']:
+            start, end = max(x, action['start_frame']), min(y, action['end_frame'])
+            if start >= end:
+                continue
+            phase = {'global_start': start, 'global_end': end,
+                     'local_start': offset + start, 'local_end': offset + end,
+                     'partial_start': start > action['start_frame'],
+                     'partial_end': end < action['end_frame']}
+            for key in ('action', 'camera', 'sound'):
+                if key in action:
+                    text = action[key]
+                elif key != 'action' and key in beat:
+                    text = beat[key]
+                else:
+                    continue
+                phase[key] = _local_clocks(text, free_start, window_end, offset)
+            timed.append(phase)
+        if not timed:
+            return None
+        timed.sort(key=lambda action: (action['global_start'], action['global_end']))
+        end = max(action['global_end'] for action in timed)
+        item.update(global_start=timed[0]['global_start'], global_end=end,
+                    local_start=timed[0]['local_start'], local_end=offset + end, timed_actions=timed,
+                    action='\n'.join(action['action'] for action in timed))
+    else:
+        for key in ('action', 'camera', 'sound'):
+            if key in beat:
+                item[key] = _local_clocks(beat[key], free_start, window_end, offset)
+    return item
 
 
 def compile_window(contract, window, incoming_state=''):
@@ -286,6 +493,25 @@ def compile_window(contract, window, incoming_state=''):
     for x, y in protected_intervals(s):
         if x < a < y or x < b < y:
             raise ValueError('Window cuts an indivisible action or complete dialogue; re-plan at a shared AV endpoint')
+    override = None
+    for candidate in s.get('window_overrides', []):
+        if candidate['new_start'] < b and a < candidate['new_end']:
+            if (candidate['new_start'], candidate['new_end']) != (a, b):
+                raise ValueError('window_overrides must match exact planned new_start/new_end boundaries')
+            override = candidate
+    override = override or {}
+    forward = override.get('forward_frames', 0)
+    if forward and not c:
+        raise ValueError('forward_frames requires a continuation with actual source history; compilation does not approve a source tail')
+    free_start, free_local, offset = a + forward, c + forward, c - a
+    for x, y in protected_intervals(s):
+        if x < free_start < y:
+            raise ValueError('forward_frames cuts an indivisible action or complete dialogue; supply a safe remaining phase')
+    selection = override.get('reference_selection', s.get('reference_selection'))
+    selection = copy.deepcopy(selection)
+    policy = override.get('voice_policy', s.get('voice_policy', 'inherit'))
+    local_sections = override.get('sections', {})
+    replacements = {beat['id']: beat for beat in override.get('remaining_beats', [])}
     detail = [s['scale_contract'], 'All times below are local seconds at 24 fps; frame intervals are end-exclusive.']
     if c:
         detail.extend([
@@ -297,45 +523,89 @@ def compile_window(contract, window, incoming_state=''):
         ])
     else:
         detail.append('Establish the scene according to the first action and camera directions.')
-    detail.append(f'New visible content occupies local {_time(c)}–{_time(w["local_new_end"])} seconds. '
+    if forward:
+        detail.append(f'Local {_time(c)}–{_time(free_local)} seconds are supplied forward conditioning, '
+                      'not free action instructions. This compiler does not authorize or approve their source tail.')
+    detail.append(f'New visible content occupies local {_time(free_local)}–{_time(w["local_new_end"])} seconds. '
                   'The physical window boundary creates no camera cut or new shot.')
+    if 'detailed_description' in local_sections:
+        detail.append(_local_clocks(local_sections['detailed_description'], free_start, b, offset))
     mapped = []
     for beat in s['beats']:
-        x, y = max(a, beat['start_frame']), min(b, beat['end_frame'])
+        x, y = max(free_start, beat['start_frame']), min(b, beat['end_frame'])
         if x >= y:
             continue
-        local_a, local_b = c + x - a, c + y - a
-        item = {'id': beat['id'], 'global_start': x, 'global_end': y,
-                'local_start': local_a, 'local_end': local_b,
-                'action': beat['action'], 'partial_start': x > beat['start_frame'],
-                'partial_end': y < beat['end_frame']}
-        phase = 'Continue the ongoing portion without replaying its onset: ' if item['partial_start'] else ''
-        lines = [f'{_time(local_a)}–{_time(local_b)} seconds (local frames {local_a}–{local_b}): {phase}{beat["action"]}']
-        for key in ('camera', 'sound'):
-            if key in beat:
-                item[key] = beat[key]
-                lines.append(f'{key.capitalize()} in this interval: {beat[key]}')
-        if item['partial_end']:
-            lines.append('This action continues beyond the visible interval; keep its natural motion in progress.')
+        original = beat
+        if beat['id'] in replacements:
+            # Replace the complete prose group: omitted old camera/sound are
+            # deliberately absent, so completed pickup/sip cues cannot leak.
+            beat = {key: original[key] for key in ('id', 'start_frame', 'end_frame')}
+            beat.update(replacements[original['id']])
+        item = _mapped_phase(beat, x, y, offset, free_start, b)
+        if item is None:
+            continue
+        parts = item.get('timed_actions', [item])
+        lines = []
+        for part in parts:
+            local_a, local_b = part['local_start'], part['local_end']
+            phase = 'Continue the ongoing portion without replaying its onset: ' if part['partial_start'] else ''
+            lines.append(f'{_time(local_a)}–{_time(local_b)} seconds (local frames {local_a}–{local_b}): {phase}{part["action"]}')
+            for key in ('camera', 'sound'):
+                if key in part:
+                    lines.append(f'{key.capitalize()} in this interval: {part[key]}')
+            if part['partial_end']:
+                lines.append('This action continues beyond the visible interval; keep its natural motion in progress.')
         detail.append('\n'.join(lines))
         mapped.append(item)
     owned = []
     for dialogue in s['dialogues']:
         x, y = dialogue['start_frame'], dialogue['end_frame']
-        if x >= b or y <= a:
+        if x >= b or y <= free_start:
             continue
-        if not a <= x < y <= b:
+        if not free_start <= x < y <= b:
             raise ValueError('Window cuts a complete dialogue; re-plan before compilation')
         owned.append(dialogue['id'])
-        voice = f' using <Audio {dialogue["audio_slot"]}> for voice timbre only' if 'audio_slot' in dialogue else ''
+        voice = (f' using <Audio {dialogue["audio_slot"]}> for voice timbre only'
+                 if 'audio_slot' in dialogue and (selection is None or selection['audios']) else '')
         language = f'[{dialogue["language"]}] ' if 'language' in dialogue else ''
         detail.append(f'{_time(c + x - a)}–{_time(c + y - a)} seconds: {dialogue["speaker"]}{voice} '
                       f'says exactly <d>{language}{dialogue["text"]}</d>')
     detail.append('Only the scheduled utterances in the new visible interval are newly spoken. '
                   'Do not replay historical dialogue or speak future lines in the unused tail. '
                   'Continue natural motion and sound through the unused generated remainder; do not loop or freeze to fill time.')
-    sections = [('subject_definitions', s['subject_definitions']), ('summary', s['summary']),
-                ('retention_analysis', s['retention_analysis']), ('detailed_description', '\n'.join(detail)),
-                ('overall_soundscape', s['overall_soundscape']), ('non_diegetic_music', s['non_diegetic_music'])]
-    return {'prompt': '\n\n'.join(name + ':\n' + text for name, text in sections),
-            'dialogue_ids': owned, 'mapped_beats': mapped}
+    source_sections = {key: local_sections.get(key, s[key]) for key in SECTIONS if key != 'detailed_description'}
+    if replacements and 'summary' not in local_sections:
+        source_sections['summary'] = ('Perform only this window\'s current action phase and scheduled dialogue, '
+                                      'as specified in detailed_description.')
+    sections = {key: _local_clocks(text, free_start, b, offset) for key, text in source_sections.items()}
+    sections['detailed_description'] = '\n'.join(detail)
+    quiet = policy == 'dialogue_only' and not owned
+    omit_voice = quiet or (selection is not None and not selection['audios'])
+    if omit_voice:
+        sections = {key: without_local_voice_bindings(text) for key, text in sections.items()}
+    if quiet and selection is not None:
+        selection['audios'] = []
+    maps = reference_maps(selection) if selection is not None else None
+    if maps is not None:
+        sections = {key: remap_references(text, maps) for key, text in sections.items()}
+    for item in mapped:
+        for part in [item, *item.get('timed_actions', [])]:
+            for key in ('action', 'camera', 'sound'):
+                if key in part:
+                    text = without_local_voice_bindings(part[key]) if omit_voice else part[key]
+                    part[key] = remap_references(text, maps) if maps is not None else text
+    audit = {
+        'original_sections': {key: s[key] for key in SECTIONS if key in s},
+        'original_beats': [copy.deepcopy(beat) for beat in s['beats'] if beat['start_frame'] < b and a < beat['end_frame']],
+        'completed_beats': [copy.deepcopy(beat) for beat in s['beats'] if beat['end_frame'] <= a],
+        'original_dialogues': [copy.deepcopy(line) for line in s['dialogues'] if line['start_frame'] < b and a < line['end_frame']],
+        'window_override': copy.deepcopy(override) or None,
+        'original_reference_selection': copy.deepcopy(override.get('reference_selection', s.get('reference_selection'))),
+        'reference_maps': maps, 'prompt_reference_space': 'window' if maps is not None else 'original',
+        'free_global_start': free_start, 'free_local_start': free_local,
+    }
+    prompt = '\n\n'.join(name + ':\n' + sections[name] for name in SECTIONS)
+    validate_reference_syntax(prompt)
+    return {'prompt': prompt,
+            'dialogue_ids': owned, 'mapped_beats': mapped, 'reference_selection': selection,
+            'voice_policy': policy, 'forward_frames': forward, 'audit': audit}

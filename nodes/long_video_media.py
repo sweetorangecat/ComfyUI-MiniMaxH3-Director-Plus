@@ -5,8 +5,80 @@ import os
 from pathlib import Path
 import uuid
 import wave
+import hashlib
+import json
 
 FPS = 24
+
+
+def resolve_encoding(settings):
+    """The bounded complete-film path: honest H264/MP4/8-bit/AAC only."""
+    if not isinstance(settings, dict):
+        raise ValueError('Long-video encoding settings must be an object')
+    for field, allowed in (
+            ('codec', {'Auto', 'H.264'}), ('container', {'Auto', 'MP4'}),
+            ('bit_depth', {'Auto', '8-bit'}), ('audio_codec', {'Auto', 'AAC'})):
+        value = settings.get(field, 'Auto')
+        if not isinstance(value, str) or value not in allowed:
+            raise ValueError(f'长片完整文件当前仅支持 H.264 / MP4 / 8-bit / AAC；{field}={value!r} 不支持，请在原输出节点明确选择。')
+    quality = settings.get('quality', 20)
+    bitrate = settings.get('audio_bitrate', '320k')
+    if type(quality) is not int or not 0 <= quality <= 51:
+        raise ValueError('quality must be an integer CRF in 0..51')
+    if not isinstance(bitrate, str) or bitrate not in {'64k','96k','128k','160k','192k','256k','320k'}:
+        raise ValueError('audio_bitrate must be one of 64k..320k U11 choices')
+    try:
+        rate = float(settings.get('frame_rate', 24))
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Long-video delivery requires 24 fps') from exc
+    if (rate != FPS or settings.get('pingpong', False) or settings.get('crop_to_audio', False)
+            or not settings.get('save_output', True)):
+        raise ValueError('长片完整文件要求 24 fps、保存输出；不支持来回播放或按音频裁帧。')
+    return {'codec': 'H.264', 'encoder': 'libx264', 'container': 'MP4', 'bit_depth': '8-bit',
+            'pixel_format': 'yuv420p', 'requested_quality': quality, 'crf': min(quality, 16),
+            'audio_codec': 'AAC', 'audio_bitrate': int(bitrate[:-1]) * 1000,
+            'color_matrix': 'BT.709', 'color_primaries': 'BT.709', 'color_transfer': 'BT.709',
+            'color_range': 'limited', 'rgb_input_range': 'full'}
+
+
+def encoder_capabilities():
+    """No models, downloads, files or queue work; require real encoder support."""
+    try:
+        import av
+        from av.video.reformatter import VideoReformatter
+        av.Codec('libx264', 'w')
+        av.Codec('aac', 'w')
+        if 'dst_color_range' not in (VideoReformatter.reformat.__doc__ or ''):
+            raise ValueError('PyAV lacks explicit RGB/YUV color range conversion')
+    except (ImportError, ValueError, RuntimeError) as exc:
+        raise ValueError('长片需要支持 libx264/AAC 与显式色域/范围转换的 PyAV；参见 requirements-long-video.txt。不会自动安装或下载。' + str(exc)) from exc
+    return {'checked': True, 'pyav_version': av.__version__, 'video_encoder': 'libx264',
+            'audio_encoder': 'aac', 'explicit_bt709_conversion': True}
+
+
+def _encoding(value):
+    if value is None:
+        return resolve_encoding({})
+    if not isinstance(value, dict):
+        raise ValueError('Resolved long-video encoding must be an object')
+    # Revalidate even an injected assembly recipe; never silently downgrade it.
+    candidate = dict(value, quality=value.get('requested_quality', value.get('crf', 20)),
+                     audio_bitrate=str(value.get('audio_bitrate', 320000) // 1000) + 'k')
+    result = resolve_encoding(candidate)
+    if result != value:
+        raise ValueError('Assembly requires the validated, resolved long-video encoding recipe')
+    return result
+
+
+def _bt709(frame):
+    """Convert actual full-range RGB with a 709 matrix before tagging it."""
+    from av.video.reformatter import VideoReformatter
+    result = VideoReformatter().reformat(frame, format='yuv420p',
+        src_colorspace='ITU709', dst_colorspace='ITU709',
+        src_color_range='JPEG', dst_color_range='MPEG')
+    result.colorspace = result.color_primaries = result.color_trc = 1
+    result.color_range = 1
+    return result
 
 
 def _mux(dest, stream, frame):
@@ -14,20 +86,24 @@ def _mux(dest, stream, frame):
         dest.mux(packet)
 
 
-def _video_stream(dest, width, height):
+def _video_stream(dest, width, height, encoding=None):
+    encoding = _encoding(encoding)
     stream = dest.add_stream('libx264', rate=FPS)
     stream.width, stream.height, stream.pix_fmt = width, height, 'yuv420p'
-    stream.options = {'crf': '16', 'preset': 'medium'}
+    stream.options = {'crf': str(encoding['crf']), 'preset': 'medium'}
     stream.time_base = Fraction(1, FPS)
+    stream.codec_context.colorspace = stream.codec_context.color_primaries = stream.codec_context.color_trc = 1
+    stream.codec_context.color_range = 1
     return stream
 
 
-def _audio_stream(dest, rate, channels):
+def _audio_stream(dest, rate, channels, encoding=None):
+    encoding = _encoding(encoding)
     if channels not in (1, 2):
         raise ValueError('Long-video audio must be mono or stereo')
     stream = dest.add_stream('aac', rate=rate)
     stream.layout = 'mono' if channels == 1 else 'stereo'
-    stream.bit_rate = 320000
+    stream.bit_rate = encoding['audio_bitrate']
     return stream
 
 
@@ -39,10 +115,11 @@ def _audio_frame(values, rate, offset, layout):
     return frame
 
 
-def encode_preview(path, images, audio):
+def encode_preview(path, images, audio, *, encoding=None):
     """Encode just one physical window. No RGB survives beyond this job."""
     import av
     import numpy as np
+    encoding = _encoding(encoding)
     path = Path(path)
     temporary = path.with_name('.' + uuid.uuid4().hex + '.mp4')
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -52,10 +129,11 @@ def encode_preview(path, images, audio):
     rate, channels = int(audio['sample_rate']), int(values.shape[1])
     try:
         with av.open(str(temporary), 'w', options={'movie_timescale': str(lcm(FPS, rate))}) as dest:
-            video = _video_stream(dest, int(images.shape[2]), int(images.shape[1]))
-            sound = _audio_stream(dest, rate, channels)
+            video = _video_stream(dest, int(images.shape[2]), int(images.shape[1]), encoding)
+            sound = _audio_stream(dest, rate, channels, encoding)
             for i, image in enumerate(images):
                 frame = av.VideoFrame.from_ndarray(np.round(image.detach().float().cpu().clamp(0, 1).numpy() * 255).astype('uint8'), format='rgb24')
+                frame = _bt709(frame)
                 frame.pts, frame.time_base = i, Fraction(1, FPS)
                 _mux(dest, video, frame)
             _mux(dest, video, None)
@@ -128,7 +206,7 @@ def inspect_movie(path, total_frames, target=None, *, audio_sample_tolerance=1):
             'content_review': 'not_granted_by_technical_validation'}
 
 
-def assemble(parts, output, total_frames, target):
+def assemble(parts, output, total_frames, target, *, encoding=None):
     """Decode/re-encode one frame and bounded PCM blocks, in source order.
 
     No frame skipping, speed change, interpolation or padding is permitted.
@@ -136,6 +214,7 @@ def assemble(parts, output, total_frames, target):
     """
     import av
     import numpy as np
+    encoding = _encoding(encoding)
     if not parts or sum(x['frames'] for x in parts) != total_frames:
         raise ValueError('Assembly index does not cover the target')
     width, height = map(int, target)
@@ -150,7 +229,7 @@ def assemble(parts, output, total_frames, target):
         # to milliseconds. Use a common clock for whole frames and PCM samples.
         with av.open(str(temporary), 'w', options={
                 'movflags': '+faststart', 'movie_timescale': str(lcm(FPS, rate))}) as dest:
-            video, sound = _video_stream(dest, width, height), _audio_stream(dest, rate, channels)
+            video, sound = _video_stream(dest, width, height, encoding), _audio_stream(dest, rate, channels, encoding)
             for item in parts:
                 local = 0
                 with av.open(str(item['video'])) as source:
@@ -164,6 +243,7 @@ def assemble(parts, output, total_frames, target):
                         image = frame.to_ndarray(format='rgb24')
                         x, y = (frame.width - width) // 2, (frame.height - height) // 2
                         frame = av.VideoFrame.from_ndarray(np.ascontiguousarray(image[y:y+height, x:x+width]), format='rgb24')
+                        frame = _bt709(frame)
                         frame.pts, frame.time_base = cursor, Fraction(1, FPS)
                         _mux(dest, video, frame)
                         cursor += 1
@@ -186,9 +266,74 @@ def assemble(parts, output, total_frames, target):
             _mux(dest, video, None)
             _mux(dest, sound, None)
         report = inspect_movie(temporary, total_frames, target)
-        report.update(source_audio_samples=samples, source_parts=len(parts),
+        report.update(source_audio_samples=samples, source_parts=len(parts), encoding=encoding,
                       temporal_edits='none; contiguous approved net-new ranges only')
         os.replace(temporary, output)
         return report
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def seam_contact_sheet(segments, directory):
+    """At most three small rows of four actual frames; no full-film RGB load.
+
+    Source hashes and actual end-exclusive ranges key an immutable cache. This
+    optional explicit review request hashes MP4 files, never clean AV tensors.
+    """
+    import av
+    from PIL import Image, ImageDraw
+    if not isinstance(segments, list) or not 2 <= len(segments) <= 3:
+        raise ValueError('Seam evidence requires two or three actual source segments')
+    identity = []
+    for item in segments:
+        a, b = item['local_frames']
+        if type(a) is not int or type(b) is not int or not 0 <= a < b or b-a > 8:
+            raise ValueError('Seam evidence is limited to eight frames per actual range')
+        digest = hashlib.sha256()
+        with Path(item['path']).open('rb') as source:
+            for block in iter(lambda: source.read(1024*1024), b''):
+                digest.update(block)
+        actual = digest.hexdigest()
+        if actual != item['artifact']['sha256']:
+            raise ValueError('Actual seam preview source no longer matches its immutable artifact')
+        identity.append({'sha256': actual, 'range': [a,b], 'role': item['role'],
+                         'take_id': item['take_id'], 'film_seconds': item['film_seconds']})
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    output = directory / (key + '.jpg')
+    if output.is_file():
+        return output
+    cells = max(b-a for a,b in (item['local_frames'] for item in segments))
+    sheet = Image.new('RGB', (cells*256, len(segments)*190), '#161a20')
+    draw = ImageDraw.Draw(sheet)
+    for row, item in enumerate(segments):
+        a, b = item['local_frames']
+        top = row*190
+        draw.text((6,top+3), f'{item["role"]} {item["take_id"][:28]} local [{a},{b}) film {item["film_seconds"][0]:.3f}-{item["film_seconds"][1]:.3f}s', fill='white')
+        found = set()
+        with av.open(item['path']) as source:
+            stream = source.streams.video[0]
+            source.seek(int(Fraction(a,FPS) / stream.time_base), stream=stream, backward=True)
+            for frame in source.decode(video=0):
+                if frame.pts is None:
+                    raise ValueError('Actual preview has no frame time evidence')
+                index = round(frame.pts*frame.time_base*FPS)
+                if index >= b:
+                    break
+                if index < a:
+                    continue
+                found.add(index)
+                image = frame.to_image()
+                image.thumbnail((252,140))
+                sheet.paste(image, ((index-a)*256,top+27))
+                draw.text(((index-a)*256+5,top+171), f'f{index} = {index/FPS:.3f}s', fill='white')
+        if found != set(range(a,b)):
+            raise ValueError('Actual seam preview does not contain every requested frame')
+    temporary = directory / ('.'+uuid.uuid4().hex+'.jpg')
+    try:
+        sheet.save(temporary, quality=92)
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return output

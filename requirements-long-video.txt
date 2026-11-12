@@ -1,0 +1,5 @@
+# Optional U11 complete-film/seam-preview dependencies. No automatic installation.
+# PyAV must expose VideoReformatter src/dst_color_range and libx264/AAC encoders.
+av>=17.0.0
+numpy>=1.24
+Pillow>=10.0

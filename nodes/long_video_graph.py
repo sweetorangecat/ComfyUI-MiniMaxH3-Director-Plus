@@ -6,8 +6,56 @@ from copy import deepcopy
 import json
 import math
 
+from .long_video_references import apply_reference_policy, PICTURE_SLOTS, SOURCE_FILES_META
+
 
 OUTPUT_TYPES = {"MiniMaxH3StreamingVideoCombine", "MiniMaxH3U11Output"}
+
+
+class _ReferenceShapeProbe:
+    """Exercise the Director's crop/filter decisions without loading an asset."""
+    shape = (1, 100, 100, 3)
+
+    def __getitem__(self, key):
+        return object()
+
+
+def _picture_preprocessing(prompt, slot, source):
+    from .director import _sanitize_h3_composite_refs
+    image = _ReferenceShapeProbe()
+    first = image if slot == 'first_image' else None
+    refs = [image] if slot.startswith('reference_image_') else []
+    actual_first, actual_refs, _ = _sanitize_h3_composite_refs(
+        prompt, first, refs, source if first is not None else '', [source] if refs else [])
+    return {'cropped': first is not None and actual_first is not image,
+            'dropped': bool(refs) and not actual_refs}
+
+
+def _validate_picture_relocation(prompt, original, chosen):
+    for local, original_id in enumerate(chosen):
+        record = original[original_id - 1]
+        before = _picture_preprocessing(prompt, record['slot'], record['preprocessing_source'])
+        after = _picture_preprocessing(prompt, PICTURE_SLOTS[local], record['preprocessing_source'])
+        if before['dropped']:
+            raise ValueError(f'Picture {original_id} is an auto-dropped storyboard reference; use reviewed '
+                             'individual reference images instead of selecting a filtered planning sheet')
+        if before != after:
+            raise ValueError(f'Picture {original_id} relocation changes Director crop/filter preprocessing; '
+                             'use reviewed individual reference images or preserve compatible Director roles')
+
+
+def apply_window_reference_policy(settings, request, graph):
+    """Production binding handshake; validate actual Director relocation policy.
+
+    Call this same wrapper before fingerprint/create_take and during graph
+    compilation. The pure helper's default static trace is not a production
+    preprocessing check and cannot substitute for this immutable take snapshot.
+    """
+    trace = apply_reference_policy(settings, request, graph,
+                                   preprocessing_validator=_validate_picture_relocation)
+    if request.get('reference_selection') is not None:
+        trace['preprocessing_validation'] = 'director_policy_checked'
+    return trace
 
 
 def link(value, graph):
@@ -69,6 +117,12 @@ def roles(graph):
         for key in list(settings):
             if key.startswith('voice_reference_audio'):
                 settings.pop(key)
+    source_files = {field: settings[field + '_file'] for field in PICTURE_SLOTS if field + '_file' in settings}
+    if source_files:
+        # A connected image wins loading, but the Director still reads its file
+        # widget as a crop/filter hint. Retain that hint for explicit selection
+        # checks while preserving legacy no-selection input cleanup below.
+        graph[directors[0]].setdefault('_meta', {})[SOURCE_FILES_META] = source_files
     for key in list(settings):
         if key.endswith('_file') and key[:-5] in settings and link(settings[key[:-5]], graph):
             settings.pop(key)
@@ -96,10 +150,16 @@ def build_window_graph(base, request, stage="native"):
         raise ValueError('U11 graph uses reserved h3long_ node IDs')
     graph, director, sampler, conditioning, output = roles(base)
     window = request["window"]
-    payload = json.dumps({**request, 'stage': stage}, ensure_ascii=False, allow_nan=False)
     settings = graph[director]["inputs"]
     settings.update(prompt=request["prompt"], duration=max(4, math.ceil(window["sample_frames"] / 24)),
                     seed=request["seed"])
+    bindings = apply_window_reference_policy(settings, request, graph)
+    if 'reference_bindings' in request and request['reference_bindings'] != bindings:
+        raise ValueError('Actual reference bindings no longer match the immutable take snapshot')
+    graph[director].setdefault('_meta', {})['h3_long_video_reference_bindings'] = bindings
+    # Runtime consumes the exact immutable take specification. Binding trace is
+    # node metadata; callers may snapshot the helper result before saving a take.
+    payload = json.dumps({**request, 'stage': stage}, ensure_ascii=False, allow_nan=False)
     revision = request.get('asset_revision')
     if revision:
         # Built-in file loaders cache by name, not weight bytes. Introduce a

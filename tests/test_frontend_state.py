@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize("script", ["media_slot_state.test.mjs", "director_restore.test.mjs"])
+@pytest.mark.parametrize("script", ["media_slot_state.test.mjs", "director_restore.test.mjs", "long_video.test.mjs"])
 def test_media_slot_state_node_contract(script):
     node = shutil.which("node")
     if node is None:

@@ -547,6 +547,9 @@
       "project_name": "h3-native-av",
       "scene_contract": "{}",
       "stop_condition": "target"
+    },
+    "_meta": {
+      "title": "长视频（总时长 / H3 剧情导入 / 独立预检）"
     }
   }
 }

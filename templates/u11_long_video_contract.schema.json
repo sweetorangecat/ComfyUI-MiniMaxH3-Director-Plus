@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "U11 canonical scene_contract v1 (24 fps)",
+  "description": "H3 U11单语导出合同。允许保留来源审批/挂载等元数据；schema验证不能替代运行时区间覆盖、精确计划边界、实际参考接线、相位和AV来源核验。",
+  "type": "object",
+  "required": ["schema_version", "fps", "subject_definitions", "summary", "retention_analysis", "scale_contract", "overall_soundscape", "non_diegetic_music", "beats"],
+  "properties": {
+    "schema_version": {"const": 1, "type": "integer"},
+    "fps": {"const": 24, "type": "integer"},
+    "total_frames": {"type": "integer", "minimum": 1},
+    "subject_definitions": {"$ref": "#/$defs/text"},
+    "summary": {"$ref": "#/$defs/text"},
+    "retention_analysis": {"$ref": "#/$defs/text"},
+    "scale_contract": {"type": "string", "pattern": "\\d", "description": "实际数值尺寸与相对比例；不是已审批同尺度资产的证明。"},
+    "overall_soundscape": {"$ref": "#/$defs/text"},
+    "non_diegetic_music": {"$ref": "#/$defs/text"},
+    "beats": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/beat"}},
+    "dialogues": {"type": "array", "items": {"$ref": "#/$defs/dialogue"}},
+    "voice_policy": {"enum": ["inherit", "dialogue_only"]},
+    "reference_selection": {"$ref": "#/$defs/reference_selection"},
+    "window_overrides": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "minProperties": 3,
+        "required": ["new_start", "new_end"],
+        "properties": {
+          "new_start": {"type": "integer", "minimum": 0},
+          "new_end": {"type": "integer", "minimum": 1},
+          "forward_frames": {"type": "integer", "minimum": 0, "multipleOf": 17, "description": "仅用于续窗；需小于净新增区间，实际父源余量和独立实际尾部审查证明在运行时校验。"},
+          "voice_policy": {"enum": ["inherit", "dialogue_only"]},
+          "reference_selection": {"$ref": "#/$defs/reference_selection"},
+          "remaining_beats": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/remaining_beat"}},
+          "sections": {
+            "type": "object", "minProperties": 1, "additionalProperties": false,
+            "properties": {
+              "subject_definitions": {"$ref": "#/$defs/text"},
+              "summary": {"$ref": "#/$defs/text"},
+              "retention_analysis": {"$ref": "#/$defs/text"},
+              "detailed_description": {"$ref": "#/$defs/text"},
+              "overall_soundscape": {"$ref": "#/$defs/text"},
+              "non_diegetic_music": {"$ref": "#/$defs/text"}
+            }
+          }
+        }
+      }
+    },
+    "forward_frames": false,
+    "remaining_beats": false,
+    "sections": false,
+    "anchors": false
+  },
+  "$defs": {
+    "text": {"type": "string", "pattern": "\\S"},
+    "action_text": {"type": "string", "pattern": "\\S", "not": {"pattern": "<[dD](?:\\s|>)|</[dD](?:\\s|>)"}},
+    "timed_action": {
+      "type": "object", "additionalProperties": false, "required": ["start_frame", "end_frame", "action"],
+      "properties": {
+        "start_frame": {"type": "integer", "minimum": 0},
+        "end_frame": {"type": "integer", "minimum": 1},
+        "action": {"$ref": "#/$defs/action_text"},
+        "camera": {"$ref": "#/$defs/text"},
+        "sound": {"$ref": "#/$defs/text"}
+      }
+    },
+    "beat": {
+      "type": "object", "required": ["id", "start_frame", "end_frame", "action"],
+      "properties": {
+        "id": {"$ref": "#/$defs/text"},
+        "start_frame": {"type": "integer", "minimum": 0},
+        "end_frame": {"type": "integer", "minimum": 1},
+        "action": {"allOf": [{"$ref": "#/$defs/action_text"}, {"not": {"pattern": "<[dD]"}}]},
+        "camera": {"$ref": "#/$defs/text"}, "sound": {"$ref": "#/$defs/text"},
+        "indivisible": {"type": "boolean"},
+        "timed_actions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/timed_action"}}
+      }
+    },
+    "remaining_beat": {
+      "type": "object", "additionalProperties": false, "required": ["id", "action"],
+      "properties": {
+        "id": {"$ref": "#/$defs/text"}, "action": {"$ref": "#/$defs/action_text"},
+        "camera": {"$ref": "#/$defs/text"}, "sound": {"$ref": "#/$defs/text"},
+        "timed_actions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/timed_action"}}
+      }
+    },
+    "dialogue": {
+      "type": "object", "required": ["id", "start_frame", "end_frame", "speaker", "text"],
+      "properties": {
+        "id": {"$ref": "#/$defs/text"},
+        "start_frame": {"type": "integer", "minimum": 0}, "end_frame": {"type": "integer", "minimum": 1},
+        "speaker": {"type": "string", "allOf": [{"pattern": "\\bS[1-9]\\d*\\b"}, {"pattern": "<Subject\\s+[1-9]\\d*>"}]},
+        "text": {"$ref": "#/$defs/action_text"},
+        "language": {"type": "string", "pattern": "\\S", "not": {"pattern": "[\\[\\]<>\\n\\r]"}},
+        "audio_slot": {"type": "integer", "minimum": 1, "maximum": 3}
+      }
+    },
+    "reference_selection": {
+      "type": ["object", "null"], "additionalProperties": false, "required": ["pictures", "audios"],
+      "properties": {
+        "pictures": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1, "maximum": 11}},
+        "audios": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1, "maximum": 3}}
+      }
+    }
+  }
+}

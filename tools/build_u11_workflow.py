@@ -927,6 +927,12 @@ def upgrade_long_video_entry(workflow):
     if not any(g.get('id') == 'u11-long-video' for g in workflow.get('groups', [])):
         workflow.setdefault('groups', []).append({'id':'u11-long-video','title':'长视频（按需开启）',
             'bounding':[2500,400,540,900],'color':'#4c806b','font_size':24,'flags':{}})
+    workflow.setdefault('extra', {})['u11_long_video_user_entry'] = {
+        'version': 2, 'duration_presets_seconds': [30, 60, 90],
+        'custom_duration': 'positive_finite_seconds',
+        'contract_schema': 'templates/u11_long_video_contract.schema.json',
+        'preflight_path': '/h3-director-plus/long-video/contract/preflight',
+        'entry': 'original_u11_normal_queue', 'default_enabled': False}
     return workflow
 
 
@@ -1173,7 +1179,8 @@ def build_api_template():
         "29": {"class_type": "MiniMaxH3ColorGuard", "inputs": {"images": ["22", 0], "guide": ["10", 0], "enabled": True, "strength": 1.0}, "_meta": {"title": "曝光与色彩连续性保护"}},
         "24": {"class_type": "MiniMaxH3U11Output", "inputs": {"images": ["29", 0], "guide": ["10", 0], "frame_rate": 24.0, "codec": "H.264", "container": "MP4", "bit_depth": "Auto", "quality": 20, "log_level": "Standard", "pingpong": False, "save_metadata": True, "filename_prefix": "DirectorPlus", "save_output": True, "pass_frames": False, "crop_to_audio": False, "audio_codec": "Auto", "audio_bitrate": "320k", "save_first_frame": False, "save_last_frame": False, "audio": ["23", 0], "long_video": ["30",0]}, "_meta": {"title": "预览与输出"}},
         "30": {"class_type": "MiniMaxH3LongVideoConfig", "inputs": {"enabled": False,
-            "target_seconds": 30.0, "project_name": "h3-native-av", "scene_contract": "{}", "stop_condition": "target"}},
+            "target_seconds": 30.0, "project_name": "h3-native-av", "scene_contract": "{}", "stop_condition": "target"},
+            "_meta": {"title": "长视频（总时长 / H3 剧情导入 / 独立预检）"}},
     }
 
 

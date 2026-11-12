@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import struct
+from copy import deepcopy
 from fractions import Fraction
 
 from .long_video_plan import FPS, audio_ticks, video_steps, validate_window
@@ -65,19 +68,50 @@ def _same_geometry(target_video, target_audio, source_video, source_audio, exact
         raise ValueError('Repair source and target must have identical AV shapes')
 
 
-def _history_ranges(source, endpoint, context_frames):
+def _forward(value):
+    if type(value) is not int or value < 0 or value % 17:
+        raise ValueError('forward_frames must be zero or a positive multiple of 17')
+    return value
+
+
+def conditioning_geometry(window, forward_frames=0, source_frames=None):
+    """True native AV clocks for history plus an explicitly reviewed source tail.
+
+    This validates geometry only. It cannot grant a tail review. The source
+    starts at ev-cv / ea-ca; both end clocks advance by the actual frame count.
+    """
+    w = validate_window(window)
+    f, c, e = _forward(forward_frames), w['context_frames'], w['source_endpoint']
+    if f and (not c or f >= w['new_end'] - w['new_start']):
+        raise ValueError('Forward conditioning needs history and must be shorter than the new interval')
+    if source_frames is not None:
+        video_steps(source_frames)
+        if c and e + f > source_frames:
+            raise ValueError('Reviewed forward source has insufficient actual unused tail')
+    head = c + f
+    return {'forward_frames': f, 'protected_frames': head,
+            'video_steps': video_steps(head) if head else 0,
+            'audio_ticks': audio_ticks(head) if head else 0,
+            'source_video_range': [video_steps(e) - video_steps(c), video_steps(e + f)] if c else None,
+            'source_audio_range': [audio_ticks(e) - audio_ticks(c), audio_ticks(e + f)] if c else None,
+            'source_local_range': [e, e + f] if c else None,
+            'consumed_local_range': [e - c, e + f] if c else None}
+
+
+def _history_ranges(source, endpoint, context_frames, forward_frames=0):
     for value, label in ((context_frames, 'context_frames'), (endpoint, 'source_endpoint')):
         if type(value) is not int or value < 39 or (value - 39) % 51:
             raise ValueError(f'{label} must be a shared AV endpoint: 39+51k')
     if endpoint < context_frames:
         raise ValueError('Source endpoint cannot be shorter than the protected history')
+    f = _forward(forward_frames)
     sv, sa = streams(source)
     _native_geometry(sv, sa)
-    ev, cv = video_steps(endpoint), video_steps(context_frames)
-    ea, ca = audio_ticks(endpoint), audio_ticks(context_frames)
+    ev, cv = video_steps(endpoint + f), video_steps(context_frames)
+    ea, ca = audio_ticks(endpoint + f), audio_ticks(context_frames)
     if ev > int(sv.shape[2]) or ea > int(sa.shape[-1]):
         raise ValueError('The requested history extends beyond the source AV')
-    return sv, sa, [ev - cv, ev], [ea - ca, ea]
+    return sv, sa, [video_steps(endpoint) - cv, ev], [audio_ticks(endpoint) - ca, ea]
 
 
 def _finite(tensor, label):
@@ -85,35 +119,140 @@ def _finite(tensor, label):
         raise ValueError(f'{label} must contain only finite values')
 
 
-def _repair_ranges(repair, count, head):
-    if not isinstance(repair, dict) or repair.get('lock_audio') is not True:
-        raise ValueError('Bounded native video repair requires lock_audio=True')
-    ranges = repair.get('video_ranges')
-    if not isinstance(ranges, list) or not ranges:
-        raise ValueError('Repair requires nonempty video_ranges in latent steps')
+def _repair_ranges(ranges, count, head, label):
+    if not isinstance(ranges, list):
+        raise ValueError(f'Repair {label} must be a list of integer pairs')
     canonical = []
     for pair in ranges:
         if (not isinstance(pair, (list, tuple)) or len(pair) != 2
                 or any(type(x) is not int for x in pair)):
-            raise ValueError('Repair video_ranges must be integer latent-step pairs')
+            raise ValueError(f'Repair {label} must be integer pairs')
         a, b = pair
         if not head <= a < b <= count:
-            raise ValueError('Repair video range is outside the target or changes its protected history')
+            raise ValueError(f'Repair {label} is outside the target or changes its protected history/forward prefix')
         canonical.append([a, b])
     canonical.sort()
     if any(a[1] > b[0] for a, b in zip(canonical, canonical[1:])):
-        raise ValueError('Repair video ranges must not overlap')
+        raise ValueError(f'Repair {label} ranges must not overlap')
     return canonical
 
 
-def validate_repair(window, repair):
-    """Return canonical open video ranges using only the native window plan."""
+def normalize_repair(window, repair, forward_frames=0):
+    """Canonical bounded temporal recipe; no external sources or extra anchors.
+
+    video_ranges/audio_ranges are end-exclusive integer native-step/tick pairs.
+    video_weights is [[start_step,end_step,weight], ...], finite weights in
+    [0,1], disjoint from other video spans. Weights are canonical float32 mask
+    values; a requested positive weight that underflows to zero is rejected.
+    Audio ranges require lock_audio=False.
+    At least one stream must contain a positive open region. Internal source,
+    index and seconds-mapping evidence may accompany this immutable recipe.
+    """
     w = validate_window(window)
-    head = video_steps(w['context_frames']) if w['context_frames'] else 0
-    return _repair_ranges(repair, video_steps(w['sample_frames']), head)
+    geometry = conditioning_geometry(w, forward_frames)
+    known = {'video_ranges', 'audio_ranges', 'video_weights', 'lock_audio',
+             'source_take', 'index', 'conditioning_extent'}
+    if not isinstance(repair, dict) or set(repair) - known:
+        raise ValueError('Unsupported repair fields; only bounded temporal video/audio repair is supported')
+    lock = repair.get('lock_audio', True)
+    if type(lock) is not bool:
+        raise ValueError('Repair lock_audio must be a boolean')
+    vr = _repair_ranges(repair.get('video_ranges', []), video_steps(w['sample_frames']),
+                        geometry['video_steps'], 'video_ranges')
+    ar = _repair_ranges(repair.get('audio_ranges', []), audio_ticks(w['sample_frames']),
+                        geometry['audio_ticks'], 'audio_ranges')
+    if (lock and ar) or (not lock and not ar):
+        raise ValueError('Audio repair requires explicit audio_ranges and lock_audio=False')
+    weights = repair.get('video_weights', [])
+    if not isinstance(weights, list):
+        raise ValueError('video_weights must be bounded temporal [start,end,weight] spans')
+    canonical_weights = []
+    for item in weights:
+        if not isinstance(item, (list, tuple)) or len(item) != 3:
+            raise ValueError('video_weights must contain [start,end,weight] spans')
+        a, b, weight = item
+        _repair_ranges([[a, b]], video_steps(w['sample_frames']), geometry['video_steps'], 'video_weights')
+        if type(weight) not in (int, float) or not 0 <= weight <= 1 or not math.isfinite(weight):
+            raise ValueError('video_weights must be finite numbers in [0,1]')
+        effective = struct.unpack('f', struct.pack('f', float(weight)))[0]
+        if weight > 0 and effective == 0:
+            raise ValueError('Positive video weight underflows the actual float32 noise mask')
+        canonical_weights.append([a, b, effective])
+    canonical_weights.sort()
+    spans = sorted([*vr, *[item[:2] for item in canonical_weights]])
+    if any(a[1] > b[0] for a, b in zip(spans, spans[1:])):
+        raise ValueError('Video repair ranges and weights must not overlap')
+    if not vr and not ar and not any(item[2] > 0 for item in canonical_weights):
+        raise ValueError('Repair requires a positive open video or audio region')
+    result = {'video_ranges': vr, 'lock_audio': lock}
+    if ar:
+        result['audio_ranges'] = ar
+    if canonical_weights:
+        result['video_weights'] = canonical_weights
+    for key in ('source_take', 'index', 'conditioning_extent'):
+        if key in repair:
+            result[key] = deepcopy(repair[key])
+    return result
 
 
-def prepare_av(target, window, source=None, repair=None, nested_factory=None):
+def validate_repair(window, repair, forward_frames=0):
+    """Legacy list-returning video-range view; use normalize_repair for both AV."""
+    return normalize_repair(window, repair, forward_frames)['video_ranges']
+
+
+def _seconds_frame(value):
+    """Remove only a float's representation noise at an integer frame boundary."""
+    frames = Fraction(str(value)) * FPS
+    if type(value) is float:
+        nearest = round(frames)
+        # Derived N/24 seconds can land just outside N after decimal roundtrip.
+        # One actual input-float ULP is tiny; genuine sub-frame spans stay exact.
+        if abs(frames - nearest) <= Fraction.from_float(math.ulp(value)) * FPS:
+            return Fraction(nearest)
+    return frames
+
+
+def repair_seconds(window, start_seconds, end_seconds, stream='video', forward_frames=0):
+    """Map film seconds outwards to native groups/ticks, never claim VAE isolation."""
+    w = validate_window(window)
+    g = conditioning_geometry(w, forward_frames)
+    if stream not in {'video', 'audio', 'joint'}:
+        raise ValueError('Repair stream must be video, audio or joint')
+    for value in (start_seconds, end_seconds):
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ValueError('Repair seconds must be finite numbers')
+    a, b = (_seconds_frame(value) for value in (start_seconds, end_seconds))
+    if not w['new_start'] <= a < b <= w['new_end']:
+        raise ValueError('Repair seconds must lie inside the selected decoded delivery window')
+    if a < w['new_start'] + forward_frames:
+        raise ValueError('Requested interval overlaps protected forward AV; regenerate the accepted parent source to replace it')
+    local_a, local_b = (value - w['new_start'] + w['context_frames'] for value in (a, b))
+    floor = lambda value: value.numerator // value.denominator
+    ceil = lambda value: -(-value.numerator // value.denominator)
+    va = 0 if local_a < 5 else 2 + 5 * floor((local_a - 5) / 17)
+    vb = 2 if local_b <= 5 else 2 + 5 * ceil((local_b - 5) / 17)
+    aa, ab = floor(local_a * 40 / FPS), ceil(local_b * 40 / FPS)
+    # Shared boundaries are native group boundaries, so outward snapping never
+    # reopens a protected value when the requested interval starts after them.
+    va, aa = max(va, g['video_steps']), max(aa, g['audio_ticks'])
+    frame_at = lambda step: 0 if step == 0 else 5 + 17 * ((step - 2) // 5)
+    extent = {'requested_seconds': [start_seconds, end_seconds], 'stream': stream,
+              'video_local_frames': [frame_at(va), frame_at(vb)] if stream != 'audio' else None,
+              'audio_local_ticks': [aa, ab] if stream != 'video' else None,
+              'video_seconds': [float(Fraction(w['new_start'] - w['context_frames'] + frame_at(step), FPS))
+                                for step in (va, vb)] if stream != 'audio' else None,
+              'audio_seconds': [float(Fraction(w['new_start'] - w['context_frames'], FPS) + Fraction(tick, 40))
+                                for tick in (aa, ab)] if stream != 'video' else None,
+              'frame_isolation_guaranteed': False,
+              'note': 'Outward native conditioning extent; VAE decoded frame isolation is not guaranteed.'}
+    recipe = {'video_ranges': [[va, vb]] if stream != 'audio' else [], 'lock_audio': stream == 'video',
+              'conditioning_extent': extent}
+    if stream != 'video':
+        recipe['audio_ranges'] = [[aa, ab]]
+    return normalize_repair(w, recipe, forward_frames)
+
+
+def prepare_av(target, window, source=None, repair=None, nested_factory=None, forward_frames=0):
     """Clone the target, copy true parent history, and always emit both masks.
 
     A repair source is the complete failed take with identical shape, rather
@@ -128,7 +267,8 @@ def prepare_av(target, window, source=None, repair=None, nested_factory=None):
     torch = _torch()
     factory = _factory(nested_factory)
     c = w['context_frames']
-    cv, ca = (video_steps(c), audio_ticks(c)) if c else (0, 0)
+    geometry = conditioning_geometry(w, forward_frames)
+    cv, ca = geometry['video_steps'], geometry['audio_ticks']
     if cv >= int(tv.shape[2]) or ca >= int(ta.shape[-1]):
         raise ValueError('The target must include new video and audio after its protected history')
     video, audio = tv.clone(), ta.clone()
@@ -141,7 +281,9 @@ def prepare_av(target, window, source=None, repair=None, nested_factory=None):
         'target_video_steps': int(video.shape[2]), 'target_audio_ticks': int(audio.shape[-1]),
         'source_video_range': None, 'source_audio_range': None,
         'new_start': w['new_start'], 'new_end': w['new_end'],
-        'video_ranges': [], 'lock_audio': False, 'content_review': 'pending',
+        'forward_frames': forward_frames, 'protected_frames': geometry['protected_frames'],
+        'video_ranges': [], 'audio_ranges': [], 'video_weights': [],
+        'lock_audio': False, 'content_review': 'pending',
     }
     if repair is not None:
         if source is None:
@@ -151,19 +293,24 @@ def prepare_av(target, window, source=None, repair=None, nested_factory=None):
         _same_geometry(tv, ta, sv, sa, exact=True)
         _finite(sv, 'Source video')
         _finite(sa, 'Source audio')
-        ranges = validate_repair(w, repair)
+        recipe = normalize_repair(w, repair, forward_frames)
         video.copy_(sv.to(device=video.device))
         audio.copy_(sa.to(device=audio.device))
         vm.zero_()
         am.zero_()
-        for a, b in ranges:
+        for a, b in recipe['video_ranges']:
             vm[:, :, a:b] = 1
-        report.update(video_ranges=ranges, lock_audio=True,
+        for a, b, weight in recipe.get('video_weights', []):
+            vm[:, :, a:b] = weight
+        for a, b in recipe.get('audio_ranges', []):
+            am[..., a:b] = 1
+        report.update(video_ranges=recipe['video_ranges'], audio_ranges=recipe.get('audio_ranges', []),
+                      video_weights=recipe.get('video_weights', []), lock_audio=recipe['lock_audio'],
                       source_video_range=[0, int(sv.shape[2])], source_audio_range=[0, int(sa.shape[-1])])
     elif c:
         if source is None:
             raise ValueError('Continuation requires actual clean source AV history')
-        sv, sa, vr, ar = _history_ranges(source, w['source_endpoint'], c)
+        sv, sa, vr, ar = _history_ranges(source, w['source_endpoint'], c, forward_frames)
         _same_geometry(tv, ta, sv, sa)
         _finite(sv[:, :, vr[0]:vr[1]], 'Source video history')
         _finite(sa[..., ar[0]:ar[1]], 'Source audio history')
@@ -197,8 +344,9 @@ def validate_result(result, prepared, require_change=False):
         expected_mask_shape = (1, 1, *baseline.shape[2:])
         if tuple(mask.shape) != expected_mask_shape:
             raise ValueError(f'Prepared {name} mask shape is inconsistent with the stream')
-        if not bool(((mask == 0) | (mask == 1)).all().item()):
-            raise ValueError(f'Prepared {name} mask must contain only hard zero/one values')
+        _finite(mask, 'Prepared ' + name + ' mask')
+        if not bool(((mask >= 0) & (mask <= 1)).all().item()):
+            raise ValueError(f'Prepared {name} mask must contain only finite values in [0,1]')
         _finite(actual, 'Result ' + name)
         baseline = baseline.to(device=actual.device)
         expanded = mask.to(device=actual.device).expand_as(actual)
@@ -206,11 +354,11 @@ def validate_result(result, prepared, require_change=False):
         preserved = torch.equal(actual[protected], baseline[protected])
         if not preserved:
             raise ValueError(f'Result changed protected clean {name} values')
-        open_region = expanded == 1
+        open_region = expanded > 0
         exact.append(preserved)
         changed.append(not torch.equal(actual[open_region], baseline[open_region]))
-    if context.get('mode') == 'repair' and not changed[0]:
-        raise ValueError('Repair did not change any open video latent element')
+        if context.get('mode') == 'repair' and bool(open_region.any().item()) and not changed[-1]:
+            raise ValueError(f'Repair did not change any open {name} latent element')
     if require_change and not any(changed):
         raise ValueError('Sampling did not change any open AV latent element')
     return {'status': 'pass', 'protected_video_exact': exact[0], 'protected_audio_exact': exact[1],
@@ -218,13 +366,13 @@ def validate_result(result, prepared, require_change=False):
             'shapes': [list(rv.shape), list(ra.shape)], 'content_review': 'pending'}
 
 
-def slice_fingerprint(latent, endpoint, context_frames=39):
+def slice_fingerprint(latent, endpoint, context_frames=39, forward_frames=0):
     """SHA-256 of exactly the two parent slices consumed by a continuation.
 
     Changes outside those slices do not invalidate this fingerprint. Source
     device, dtype and slice shapes are included before contiguous tensor bytes.
     """
-    video, audio, vr, ar = _history_ranges(latent, endpoint, context_frames)
+    video, audio, vr, ar = _history_ranges(latent, endpoint, context_frames, forward_frames)
     digest = hashlib.sha256()
     torch = _torch()
     for name, tensor in [('video', video[:, :, vr[0]:vr[1]]), ('audio', audio[..., ar[0]:ar[1]])]:

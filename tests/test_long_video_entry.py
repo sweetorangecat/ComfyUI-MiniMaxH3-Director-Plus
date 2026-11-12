@@ -1,4 +1,5 @@
 from unittest.mock import patch
+import pytest
 
 from nodes.long_video_entry import MiniMaxH3U11Output, MiniMaxH3LongVideoConfig
 from nodes.stream_output import MiniMaxH3StreamingVideoCombine
@@ -37,3 +38,14 @@ def test_long_launch_returns_without_evaluating_short_sampler_inputs():
                               prompt=graph, unique_id='output', frame_rate=24)
     assert launch.call_args.args == (graph, {'enabled': True,'project_name':'test'})
     assert result['ui']['h3_long_video'][0]['project_name'] == 'test'
+
+
+def test_enabled_empty_contract_fails_before_launch_with_import_help():
+    with pytest.raises(ValueError, match='U11'):
+        MiniMaxH3LongVideoConfig().configure(True,90,'test','{}')
+
+
+def test_disabled_config_does_not_validate_or_reset_saved_short_draft():
+    config = MiniMaxH3LongVideoConfig().configure(False,float('nan'),'saved','unfinished JSON')[0]
+    assert config['scene_contract'] == 'unfinished JSON'
+    assert config['project_name'] == 'saved'

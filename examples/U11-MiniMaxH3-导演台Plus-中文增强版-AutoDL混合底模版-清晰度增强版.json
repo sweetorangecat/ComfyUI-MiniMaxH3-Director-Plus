@@ -5625,7 +5625,20 @@
         "size": 605254808
       }
     },
-    "links_added_by_ue": []
+    "links_added_by_ue": [],
+    "u11_long_video_user_entry": {
+      "version": 2,
+      "duration_presets_seconds": [
+        30,
+        60,
+        90
+      ],
+      "custom_duration": "positive_finite_seconds",
+      "contract_schema": "templates/u11_long_video_contract.schema.json",
+      "preflight_path": "/h3-director-plus/long-video/contract/preflight",
+      "entry": "original_u11_normal_queue",
+      "default_enabled": false
+    }
   },
   "version": 0.4
 }
