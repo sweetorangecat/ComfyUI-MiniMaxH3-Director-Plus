@@ -1,6 +1,8 @@
 # U11 原生 AV 长视频
 
-原 U11 的“预览与输出”现在同时支持短片和原生长视频。“长视频（按需开启）”默认关闭；原来的短片参数、素材上传、音色与输出行为保留。
+本文描述 `codex/u11-native-av-long-video` 开发分支的入口，尚未部署到用户正在使用的本地及远程工作流。当前 90 秒实测使用独立实验脚本，不能当作新生产入口已经通过 GPU 验收。
+
+该分支在原 U11 的“预览与输出”增加原生长视频入口。“长视频（按需开启）”默认关闭；原来的短片参数、素材上传、音色与输出行为保留。
 
 打开原来的 U11 JSON，在长视频节点开启开关，填写目标秒数、项目名和整场合同，然后照常排队。当前接入使用 REF2VA、质量优先二采样、SelfLift，以及 VOSR2 `manual_baseline`。支持无参考音色或 H3 原生参考音色；每窗继承原导演台实际挂载的图片、音频、模型和附加 LoRA。不要把实验用的场景卡替换成另一组固定素材。
 
@@ -23,3 +25,15 @@
 已知 30 秒实验有 720 帧、24 FPS、2560×1440 成片及技术和内容记录；来源仍在原项目 `outputs/diagnostics/long_video_trial_20261112/family30-repair/`。该实验包含生成端返修及编排音轨后锁音频的步骤，不能称为一次未经处理的联合 AV 生成。
 
 本次生产接入的离线检查覆盖 30/60/120 秒计划、AV 保护、局部返修、恢复、停止、队列接线、短片入口及真实媒体编码/解码。新生产入口尚需 GPU 实测；60 秒、120 秒、长片克隆声线连续性和长时间画质均未完成内容验收。离线通过不代表这些时长已经达到 U11 的完整实测画质。
+
+## 南宫婉 90 秒实测续报（2026-11-12）
+
+本节是执行对话本次续报及本地证据的快照，后续任务可能继续推进。证据根目录为源项目的 `outputs/diagnostics/long_video_trial_20261112/nangongwan90/`。实验沿用既有 U11 loader/mask 和 SelfLift 路径，未部署本分支节点或改变全局质量配方。`prompt_compiler_validation_v3.json` 静态验证了 9 窗共 2160 帧；这不表示已生成完整 90 秒。
+
+原生审查区分 `native_continuation_approved`（已审实际末态可用于下游）与 `native_visual_approved`（指定可见交付范围通过画面审查）。前者不能代替后者；技术保护相等也不能代替动作、构图和声音审查。
+
+- `window02-take01-framing01`：仅开放视频 latent steps `[12,32)` 重采样，修复早餐首自由帧的景别突跳。`repair_protection_verified.json` 确认其余受保护视频、全部音频以及已供 window03 使用的 AV 末态逐元素相等；`content_review.json` 记录 f39 接点、约 f105 返修区退出及指定交付范围 `[39,243)` 的画面复核通过。重新编码的下游复用末尾 `[204,243)` 共 39 帧，RGB 平均绝对误差约 `1.438/255`、最低 PSNR `40.08 dB`，并非逐像素相等；实际 f242 对照的构图与持物承接已记录。测量见该窗 `rendered_protection_comparison.json`，工具为源项目 `examples/long_video_lab/compare_ngw_rendered_repair.py`。完整听验和声线比较仍待完成。
+- `window04-take01-audiofix01`：仅开放音频 ticks `[65,547)` 原生重采样，完整视频与前 65 ticks 音频受保护。`repair_protection_verified.json` 确认保护区逐元素相等、自由音频真实改变；`rendered_protection_comparison.json` 确认最终 MP4 解码的全部 328 帧 RGB 与原版逐像素相等。`asr_base.json` 与 `asr_small.json` 均为 `segments: []`；执行对话对实际 `audio_spectrum.png` 的审查记录显示，原两段持续人声谐波消失，替换为步履接触与办公底噪。采用原生音频重采样，没有后期消音、换音轨或删视频帧。此结果支持本次安静 AV 末态续拍，不代表已亲耳听验或通过整片音质验收。
+- `window01-take02-framing01` 仍只获安全末态续拍许可，早段坐起裁头使完整可见范围不合格；续报时 `framing02` 正在原生采样。`window05-take01` 已准备并排队，沿真实左手仍持蓝灰卡的末态，先完成放平、接触、松手与撤手，再说完整选色对白；`reference_inputs_verified.json` 记录原南宫婉音色文件实际挂载并读回 SHA256 一致。准备和排队不能代替生成结果审查。
+
+本次续报仅有开头 12.25 秒 2K 增强样本完成，抽样画面记录见 `window00-take02-resume03/finish/enhancement_review.json`。完整 90 秒尚未完成，仍未通过连续动作、最终装配、完整听验、声线连续性及整片画质验收；不得据此宣称 90 秒通过或与原 U11 单条短片画质等价。
