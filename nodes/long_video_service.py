@@ -14,13 +14,15 @@ import time
 import uuid
 
 from .long_video_graph import (build_window_graph, generation_settings, roles,
-                               output_canvas, freeze_assets, apply_window_reference_policy)
+                               output_canvas, freeze_assets, apply_window_reference_policy, original_voice_settings)
 from .long_video_plan import (target_frame_count, validate_contract, protected_intervals, plan_windows,
                               compile_window, validate_window_overrides)
 from .long_video_store import ProjectStore, StaleCoordination, fingerprint
 from .long_video_media import assemble, resolve_encoding, encoder_capabilities
 from .long_video_assets import (freeze_native_assets, freeze_export_assets,
-                                native_asset_choices, export_asset_choices)
+                                native_asset_choices, export_asset_choices, freeze_audio_assets)
+from .long_video_audio import (AudioCache, CACHE_PROJECT, preparation_spec, preparation_identity,
+                               preparation_files, load_prepared_target, sentence_identity, recipe_for_window)
 
 _DRIVERS = {}
 _DRIVER_LOCK = threading.Lock()
@@ -83,6 +85,11 @@ def current_export_choices(graph):
     return export_asset_choices(graph, folder_paths, source_size=_export_source_size(graph))
 
 
+def current_audio_assets(graph, contract, windows):
+    import folder_paths
+    return freeze_audio_assets(graph, contract, windows, folder_paths)
+
+
 def _asset_bundle(value):
     # Explicit injectors may provide just file records; production freezers
     # also record selection/absence so a newly installed adapter is detected.
@@ -95,11 +102,14 @@ def _asset_stats(records):
 
 
 def configure_project(store, base_graph, raw, asset_freezer=current_assets,
-                      export_asset_freezer=current_export_assets, encoder_checker=encoder_capabilities):
+                      export_asset_freezer=current_export_assets, encoder_checker=encoder_capabilities,
+                      audio_asset_resolver=None):
     config = deepcopy(raw)
     total = target_frame_count(config.get('target_seconds', 30))
     if config.get('project_name', store.name) != store.name:
         raise ValueError('Project identity differs from its disk journal')
+    if store.name == CACHE_PROJECT:
+        raise ValueError('This project name is reserved for the shared whole-sentence cache')
     if config.get('stop_condition', 'target') not in {'target', 'manual'}:
         raise ValueError('Choose a finite target or explicit manual continuation')
     contract = validate_contract(config.get('scene_contract'), total)
@@ -119,6 +129,18 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
     # per-window graph to avoid recursively launching another coordinator.
     graph[output]['inputs'].pop('long_video', None)
     graph = roles(graph)[0]
+    original_voice = original_voice_settings(graph, director)
+    # Policy rejection precedes weight hashing and all internal queue work.
+    recipes = [recipe_for_window(contract, window, original_voice) for window in plan]
+    audio_specs = {}
+    if any(recipe is not None for recipe in recipes):
+        audio_assets = (audio_asset_resolver or current_audio_assets)(graph, contract, plan)
+        for window, recipe in zip(plan, recipes):
+            if recipe is None:
+                continue
+            forward = next((item.get('forward_frames', 0) for item in contract.get('window_overrides', [])
+                            if (item['new_start'], item['new_end']) == (window['new_start'], window['new_end'])), 0)
+            audio_specs[str(window['index'])] = preparation_spec(contract, window, original_voice, audio_assets, forward)
     native_assets = _asset_bundle(asset_freezer(graph))
     assets = native_assets['records']
     export_assets = _asset_bundle(export_asset_freezer(graph))
@@ -126,7 +148,7 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
                                  'long_video_references','long_video_prompt',
                                  'director','guide','schema','prompting','voice_guard','resolution',
                                  'sampling_experiments','two_stage','performance','two_stage_assets','vram_budget',
-                                 'additional_loras','long_video_assets','long_video_entry'])
+                                 'additional_loras','long_video_assets','long_video_entry','long_video_audio','fish'])
     generation = fingerprint({'graph': generation_settings(graph), 'assets': native_assets, 'code': native_code})
     export_settings = {'target': list(output_canvas(graph[director]['inputs'])), 'encoding': encoding,
                        'output': {k:v for k,v in output_settings.items()
@@ -142,7 +164,9 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
                   seed=int(graph[director]['inputs'].get('seed', 0)), native_code=native_code,
                   asset_stats=_asset_stats(assets), native_asset_choices=native_assets['choices'],
                   export_asset_stats=_asset_stats(export_assets['records']),
-                  export_asset_choices=export_assets['choices'])
+                  export_asset_choices=export_assets['choices'], audio_specs=audio_specs,
+                  audio_file_stats=_asset_stats({item['path']: item for spec in audio_specs.values()
+                                                for item in preparation_files(spec)}))
     store.configure(config, plan)
     return config
 
@@ -217,6 +241,21 @@ class Coordinator:
         status = self.backend.status(job['prompt_id'])
         if status in {'queued', 'running'}:
             return True
+        if job['stage'] == 'audio_prepare':
+            spec = json.loads(self.store.path(f"audio/{job['preparation_key']}/request.json").read_text(encoding='utf-8'))
+            if job['operation'] == 'sentence':
+                usable = AudioCache(self.store.output_root).sentence(spec['sentences'][job['sentence_id']]) is not None
+            else:
+                usable = load_prepared_target(self.store, spec) is not None
+            with self.store.transaction() as current:
+                if current.get('active_job') != job:
+                    raise StaleCoordination('Audio preparation ownership changed before reconciliation')
+                current.pop('active_job', None)
+                current['jobs'].append({**job, 'queue_status': status, 'finished_at': time.time()})
+                if not usable and status != 'missing':
+                    current.update(status='failed', error=f'Audio preparation job {status}; immutable evidence retained, resume to retry')
+                    return None
+            return False
         with self.store.transaction() as current:
             if current.get('active_job') != job:
                 raise StaleCoordination('Queue ownership changed before reconciliation')
@@ -261,6 +300,60 @@ class Coordinator:
                 error=f'{stage} job {status}; checkpoints retained, resume to retry')
             return None
         return False
+
+    def schedule_audio(self, spec, operation, index, expected_snapshot, sentence_id=None):
+        """Reserve preparation before native takes exist; serialize shared TTS claims."""
+        key = preparation_identity(spec)
+        cache = AudioCache(self.store.output_root)
+
+        def submit(claims=None):
+            if sentence_id is not None:
+                sentence = spec['sentences'][sentence_id]
+                if cache.sentence(sentence) is not None:
+                    return True
+                sentence_key = sentence_identity(sentence)
+                previous = claims.get(sentence_key)
+                if previous and self.backend.status(previous['prompt_id']) in {'queued', 'running'}:
+                    self.store.coordinator_status('preparing_audio', index, expected_snapshot)
+                    return True
+            prompt_id = str(uuid.uuid4())
+            payload = {'project_name': self.store.name, 'preparation_key': key, 'prompt_id': prompt_id,
+                       'operation': operation, 'sentence_id': sentence_id}
+            graph = {'h3long_audio_prepare': {'class_type': 'MiniMaxH3LongVideoAudioPrepare',
+                     'inputs': {'request_json': json.dumps(payload, ensure_ascii=False, allow_nan=False)}}}
+            with self.store.transaction() as current:
+                self.store.check_coordination(current, index, expected_snapshot)
+                if current.get('active_job'):
+                    raise StaleCoordination('A project already owns queued work')
+                if current['stop_requested']:
+                    return False
+                request_path = self.store.path(f'audio/{key}/request.json')
+                if request_path.is_file():
+                    if json.loads(request_path.read_text(encoding='utf-8')) != spec:
+                        raise ValueError('Immutable audio preparation specification changed')
+                else:
+                    self.store.write_once(f'audio/{key}/request.json', spec)
+                graph_file = self.store.write_once(f'jobs/{prompt_id}.json', graph)
+                job = {**payload, 'stage': 'audio_prepare', 'window_index': index,
+                       'graph': self.store.artifact(graph_file), 'submitted_at': time.time()}
+                current.update(active_job=job, status='preparing_audio')
+            if sentence_id is not None:
+                claims[sentence_key] = {'prompt_id': prompt_id, 'project_name': self.store.name, 'preparation_key': key}
+            try:
+                self.backend.submit(prompt_id, graph)
+            except Exception:
+                with self.store.transaction() as current:
+                    if current.get('active_job') == job:
+                        current.pop('active_job', None)
+                raise
+            return True
+
+        if sentence_id is not None:
+            # This lock remains held through enqueue, so another project cannot
+            # mistake a not-yet-enqueued reservation for a lost queue entry.
+            with cache.store.transaction() as shared:
+                return submit(shared.setdefault('sentence_jobs', {}))
+        return submit()
 
     def schedule(self, request, stage, *, expected_snapshot=None):
         prompt_id = str(uuid.uuid4())
@@ -324,6 +417,10 @@ class Coordinator:
             file = Path(name)
             if not file.is_file() or [file.stat().st_size, file.stat().st_mtime_ns] != stat:
                 raise ValueError('Referenced asset changed; re-queue the project to fingerprint the new file: ' + name)
+        for name, stat in config.get('audio_file_stats', {}).items():
+            file = Path(name)
+            if not file.is_file() or [file.stat().st_size, file.stat().st_mtime_ns] != stat:
+                raise ValueError('Audio preparation source changed; re-queue the original U11 to fingerprint the new bytes: ' + name)
         if (config.get('native_asset_choices') is not None
                 and config['native_asset_choices'] != current_native_choices(config['base_graph'])):
             raise ValueError('Resolved native model selection changed; re-queue the original U11 to fingerprint the new stack')
@@ -357,6 +454,24 @@ class Coordinator:
                     return False
                 context = proof['observed_state']
             compiled = compile_window(config['scene_contract'], window, context)
+            audio_spec = config.get('audio_specs', {}).get(str(index))
+            audio_key = preparation_identity(audio_spec) if audio_spec is not None else None
+            existing = state['windows'][index] if index < len(state['windows']) else None
+            if (existing and existing['status'] != 'invalidated'
+                    and existing.get('audio_preparation_key') != audio_key):
+                self.store.invalidate_from(index, 'Complete target audio inputs changed', expected_snapshot=expected_snapshot)
+                return True
+            immutable_audio_request = None
+            if existing and existing.get('audio_preparation_key') == audio_key and audio_key is not None:
+                immutable_audio_request = json.loads(self.store.path(
+                    f"takes/{existing['take_id']}/request.json").read_text(encoding='utf-8'))
+            target_audio = (load_prepared_target(self.store, audio_spec, immutable_audio_request)
+                            if audio_spec is not None else None)
+            if audio_spec is not None and target_audio is None:
+                for sentence_id, sentence in audio_spec['sentences'].items():
+                    if AudioCache(self.store.output_root).sentence(sentence) is None:
+                        return self.schedule_audio(audio_spec, 'sentence', index, expected_snapshot, sentence_id)
+                return self.schedule_audio(audio_spec, 'compose', index, expected_snapshot)
             active, director, *_ = roles(config['base_graph'])
             settings = active[director]['inputs']
             settings['prompt'] = compiled['prompt']
@@ -384,7 +499,7 @@ class Coordinator:
                               ('prompt', 'dialogue_ids', 'reference_selection', 'voice_policy', 'forward_frames')}
             base_key = fingerprint({'generation': config['generation_key'], 'window': window,
                                     'compiled': model_compiled, 'reference_bindings': bindings, 'seed': seed,
-                                    'parent': history})
+                                    'parent': history, **({'target_audio': target_audio} if target_audio is not None else {})})
             records = current['windows']
             record = records[index] if index < len(records) else None
             repair = current.get('repair')
@@ -408,6 +523,11 @@ class Coordinator:
                         'content_attempt': attempt, 'base_fingerprint': base_key,
                         'fingerprint': key, 'parent': history,
                         'asset_revision': config['generation_key']}
+                if target_audio is not None:
+                    spec.update(target_audio=target_audio, audio_preparation_key=audio_key,
+                                target_dialogues=deepcopy(audio_spec['dialogues']),
+                                target_audio_original_sources=deepcopy(audio_spec['original_sources']),
+                                requested_voice=deepcopy(audio_spec['requested_voice']))
                 if repair and repair['index'] == index:
                     spec['repair'] = repair
                 request = self.store.create_take(spec, require_current_parent=True,

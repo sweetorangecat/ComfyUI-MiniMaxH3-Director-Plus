@@ -4,6 +4,7 @@ if __package__:
     from .api import register_routes
     from .nodes.director import MiniMaxH3DirectorPlus
     from .nodes.fish import MiniMaxH3FishVoiceBridge
+    from .nodes.long_video_audio import MiniMaxH3LongVideoAudioPrepare
     from .nodes.guide import MiniMaxH3DirectorPlusGuide, MiniMaxH3ModelRouter
     from .nodes.performance import (
         MiniMaxH3AccelerationRouter,
@@ -25,6 +26,7 @@ if __package__:
     from .nodes.long_video_runtime import (
         MiniMaxH3LongVideoWindow, MiniMaxH3LongVideoContext, MiniMaxH3LongVideoCheckpoint,
         MiniMaxH3LongVideoLoadAV, MiniMaxH3LongVideoExport,
+        MiniMaxH3LongVideoTargetAudio,
     )
     from .api.long_video import register_long_video_routes
     from .nodes.local_prompt import MiniMaxH3LocalPromptDraft
@@ -37,6 +39,7 @@ if __package__:
         "MiniMaxH3VideoFinish": MiniMaxH3VideoFinish,
         "MiniMaxH3DirectorPlus": MiniMaxH3DirectorPlus,
         "MiniMaxH3FishVoiceBridge": MiniMaxH3FishVoiceBridge,
+        "MiniMaxH3LongVideoAudioPrepare": MiniMaxH3LongVideoAudioPrepare,
         "MiniMaxH3DirectorPlusGuide": MiniMaxH3DirectorPlusGuide,
         "MiniMaxH3ModelRouter": MiniMaxH3ModelRouter,
         "MiniMaxH3PerformancePreset": MiniMaxH3PerformancePreset,
@@ -60,6 +63,7 @@ if __package__:
         "MiniMaxH3LongVideoCheckpoint": MiniMaxH3LongVideoCheckpoint,
         "MiniMaxH3LongVideoLoadAV": MiniMaxH3LongVideoLoadAV,
         "MiniMaxH3LongVideoExport": MiniMaxH3LongVideoExport,
+        "MiniMaxH3LongVideoTargetAudio": MiniMaxH3LongVideoTargetAudio,
         "MiniMaxH3LocalPromptDraft": MiniMaxH3LocalPromptDraft,
     }
 

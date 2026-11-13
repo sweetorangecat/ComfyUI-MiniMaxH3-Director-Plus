@@ -41,6 +41,18 @@ def test_audio_reference_slot_three_valid_four_rejected_without_limiting_speaker
         module().validate_contract(value,720)
 
 
+def test_exact_window_target_recipe_is_carried_separately_from_audio_reference_slots():
+    p = module()
+    value = contract()
+    first, second, *_ = p.plan_windows(720)
+    recipe = {'kind': 'complete_wav', 'sha256': 'a' * 64}
+    value['window_overrides'] = [{'new_start': first['new_start'], 'new_end': first['new_end'], 'target_audio': recipe}]
+    compiled = p.compile_window(value, first)
+    assert compiled['target_audio_recipe'] == recipe
+    assert 'target_audio_recipe' not in p.compile_window(value, second, 'Actual state')
+    assert '<Audio' not in compiled['prompt']
+
+
 def test_native_30_second_geometry_and_handoffs():
     p = module()
     windows = p.plan_windows(720)

@@ -88,6 +88,14 @@ test('actual output event binds the automatic project to its original Director a
   assert.ok(!calls.some(call=>call.url.endsWith('/contract/preflight')));
 });
 
+test('original progress labels the queued whole-audio preparation stage',async()=>{
+  const {director,output,host}=await installOriginalDirector();
+  host.reply=state([], {project_name:'u11-audio',status:'preparing_audio',busy:true});
+  output.onExecuted({h3_long_video:[{project_name:'u11-audio',director_id:'42'}]});
+  await director._h3LongRefresh();
+  assert.match(find(director,'progress-status').textContent,/准备完整音频中/);
+});
+
 test('same local Director id in separate subgraphs binds only the exact full execution path',async()=>{
   const {director,output,context}=await installOriginalDirector();
   const other={id:42,comfyClass:'MiniMaxH3DirectorPlus',properties:{},widgets:[]};

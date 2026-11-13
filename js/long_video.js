@@ -2,7 +2,7 @@ import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
 const BASE = "/h3-director-plus/long-video";
-const LABELS = {new:"尚未开始",preparing:"核对项目和素材中",queued:"等待本窗开始",generating:"原生生成中",decoding:"保存原生预览中",awaiting_review:"待确认本窗",awaiting_forward_review:"待审查衔接素材",enhancing:"沿原 U11 增强中",assembling:"装配完整视频中",complete:"完整成片已完成",awaiting_extension:"已到剧情结尾，可补充后继续",stopped:"已停止续拍",stopping:"本窗保存后停止",failed:"运行失败，已保留检查点",rejected:"本窗需要修正",ready:"等待继续",accepted:"已接受",invalidated:"来源已撤回"};
+const LABELS = {new:"尚未开始",preparing:"核对项目和素材中",preparing_audio:"准备完整音频中",queued:"等待本窗开始",generating:"原生生成中",decoding:"保存原生预览中",awaiting_review:"待确认本窗",awaiting_forward_review:"待审查衔接素材",enhancing:"沿原 U11 增强中",assembling:"装配完整视频中",complete:"完整成片已完成",awaiting_extension:"已到剧情结尾，可补充后继续",stopped:"已停止续拍",stopping:"本窗保存后停止",failed:"运行失败，已保留检查点",rejected:"本窗需要修正",ready:"等待继续",accepted:"已接受",invalidated:"来源已撤回"};
 const number = value => Number(value || 0).toFixed(3).replace(/\.?0+$/, "");
 function widget(node,name) {
   const actual = node.widgets?.find(item=>item.name === name); if (actual) return actual;

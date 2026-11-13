@@ -3,7 +3,7 @@ from copy import deepcopy
 import math
 
 from .stream_output import MiniMaxH3StreamingVideoCombine
-from .long_video_graph import ancestors
+from .long_video_graph import ancestors, adapt_long_voice, original_voice_settings
 from .long_video_service import launch
 from .long_video_preflight import preflight
 from .long_video_store import fingerprint
@@ -40,6 +40,7 @@ def _director_target(prompt, unique_id):
 def _automatic_recipe(target):
     graph, director, seconds = target
     settings = graph[director]['inputs']
+    adapt_long_voice(settings, graph[director].setdefault('_meta', {}))
     if settings.get('community_lora_profile') == 'combat':
         from .schema import PERFORMANCE_PRESETS
         from .sampling_experiments import validate_sampling_options
@@ -69,6 +70,13 @@ def _automatic_recipe(target):
         from .prompting import without_voice_references
         settings['prompt'] = without_voice_references(settings.get('prompt', ''))
     script = contract_from_prompt(settings.get('prompt', ''), seconds, settings=settings)
+    original_voice = original_voice_settings(graph, director)
+    if original_voice.get('voice_mode') == 'fish_lock':
+        from .long_video_audio import recipe_for_window
+        try:
+            script['target_audio'] = recipe_for_window(script, {'new_start': 0, 'new_end': seconds * 24}, original_voice)
+        except ValueError as exc:
+            raise ValueError('Fish 音色长视频需要完整目标音频：' + str(exc)) from exc
     settings.update(mode='REF2VA', performance_preset='质量优先二采样',
                     sampling_method='selflift', postprocess_mode='vosr2',
                     vosr2_profile='manual_baseline', face_refine_mode='off',

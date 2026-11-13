@@ -337,6 +337,8 @@ class ProjectStore:
         return record
 
     def _queue_repair(self, state, record, recipe):
+        if record.get('target_audio') is not None and (recipe.get('lock_audio') is not True or recipe.get('audio_ranges')):
+            raise ValueError('Target-conditioned repair inherits complete audio; changing audio requires a new base generation')
         index = record['window']['index']
         state['repair'] = {'index': index, 'source_take': record['take_id'], **recipe}
         state['repair_base_fingerprint'] = record.get('base_fingerprint', record['fingerprint'])

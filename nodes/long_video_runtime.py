@@ -185,6 +185,8 @@ def _source(store, request):
         original = _take_record(store, repair["source_take"])
         if original["window"] != window:
             raise ValueError("Repair source must use the same physical and delivery window")
+        if original.get('target_audio') != request.get('target_audio'):
+            raise ValueError('Target-conditioned repair must inherit the failed take complete audio; changed audio requires a new base generation')
         repair_source = load_clean(store, repair["source_take"])
         if window["context_frames"]:
             # Repair locks this existing prefix, so it must also match the
@@ -282,13 +284,14 @@ class MiniMaxH3LongVideoContext:
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {"latent": ("LATENT",), "guide": (GUIDE,),
-                             "request_json": ("STRING",), "model": ("MODEL",)}}
+                             "request_json": ("STRING",), "model": ("MODEL",)},
+                "optional": {"target_audio": ("LATENT",)}}
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "prepare"
     CATEGORY = CATEGORY
 
-    def prepare(self, latent, guide, request_json, model):
+    def prepare(self, latent, guide, request_json, model, target_audio=None):
         request = _request(request_json)
         if request["stage"] != "native":
             raise ValueError("AV context preparation requires the native stage")
@@ -298,8 +301,16 @@ class MiniMaxH3LongVideoContext:
         if not callable(getattr(getattr(model, "model", model), "_denoise_mask_conds", None)):
             raise RuntimeError("Native H3 model does not support both AV denoise masks")
         store = _bound_store(request)
+        locked = request.get('target_audio') is not None
+        if locked:
+            _validated_target(request)
+        if not locked and target_audio is not None:
+            raise ValueError('Encoded target audio must be declared in the immutable native request')
         prepared = prepare_av(_cpu_latent(latent), request["window"], source=_source(store, request),
-                              repair=request.get("repair"), forward_frames=request.get('forward_frames', 0))
+                              repair=request.get("repair"), forward_frames=request.get('forward_frames', 0),
+                              target_audio=target_audio, target_audio_locked=locked)
+        if locked:
+            prepared['_h3_long_video_context']['target_audio_sha256'] = request['target_audio']['sha256']
         video, audio = streams(prepared)
         vm, am = prepared["noise_mask"].unbind()
         base = f"takes/{request['take_id']}"
@@ -313,6 +324,31 @@ class MiniMaxH3LongVideoContext:
             "request": store.artifact(store.path(f"{base}/request.json")),
         })
         return (prepared,)
+
+
+def _validated_target(request):
+    from .long_video_audio import validate_target_audio
+    return validate_target_audio(request.get('target_audio'), request['window'],
+                                 request.get('target_dialogues', []), request.get('target_audio_original_sources', {}),
+                                 request.get('forward_frames', 0))
+
+
+class MiniMaxH3LongVideoTargetAudio:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {'required': {'request_json': ('STRING',)}}
+
+    RETURN_TYPES = ('AUDIO',)
+    FUNCTION = 'load'
+    CATEGORY = CATEGORY
+
+    def load(self, request_json):
+        from .long_video_audio import read_wave
+        request = _request(request_json)
+        if request['stage'] != 'native' or request.get('repair'):
+            raise ValueError('Target waveform loading belongs only to a new native base generation')
+        _bound_store(request)
+        return (read_wave(_validated_target(request)),)
 
 
 class MiniMaxH3LongVideoCheckpoint:

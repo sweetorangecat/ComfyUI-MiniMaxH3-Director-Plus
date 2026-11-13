@@ -10,6 +10,31 @@ from .long_video_references import apply_reference_policy, PICTURE_SLOTS, SOURCE
 
 
 OUTPUT_TYPES = {"MiniMaxH3StreamingVideoCombine", "MiniMaxH3U11Output"}
+REQUESTED_VOICE_META = 'h3_long_video_requested_voice'
+
+
+def adapt_long_voice(settings, metadata):
+    """Native-only adapter; the short Director/Fish policy remains unchanged."""
+    if settings.get('voice_mode', 'none') == 'none':
+        metadata.pop(REQUESTED_VOICE_META, None)
+    elif settings.get('voice_mode') == 'fish_lock':
+        requested = {key: deepcopy(settings.get(key, '')) for key in
+                     ('voice_mode', 'target_dialogue', 'reference_transcript', 'fish_model_path')}
+        if metadata.get(REQUESTED_VOICE_META, requested) != requested:
+            raise ValueError('Original Fish voice provenance changed during native adaptation')
+        metadata[REQUESTED_VOICE_META] = requested
+        settings['voice_mode'] = 'h3_reference'
+        for field in ('voice_reference_audio_2', 'voice_reference_audio_3'):
+            settings.pop(field, None)
+            settings.pop(field + '_file', None)
+    return settings
+
+
+def original_voice_settings(graph, director):
+    settings = deepcopy(graph[director]['inputs'])
+    if settings.get('voice_mode', 'none') != 'none':
+        settings.update(deepcopy(graph[director].get('_meta', {}).get(REQUESTED_VOICE_META, {})))
+    return settings
 
 
 class _ReferenceShapeProbe:
@@ -120,6 +145,8 @@ def roles(graph):
             if node['class_type'] == 'MiniMaxH3ModelRouter':
                 inputs.pop('fl2va_model', None)
     settings = graph[directors[0]]['inputs'] if len(directors) == 1 else {}
+    if len(directors) == 1:
+        adapt_long_voice(settings, graph[directors[0]].setdefault('_meta', {}))
     if settings.get('voice_mode', 'none') == 'none':
         for key in list(settings):
             if key.startswith('voice_reference_audio'):
@@ -161,6 +188,9 @@ def build_window_graph(base, request, stage="native"):
     if any(key.startswith('h3long_') for key in base):
         raise ValueError('U11 graph uses reserved h3long_ node IDs')
     graph, director, sampler, conditioning, output = roles(base)
+    if (original_voice_settings(graph, director).get('voice_mode') == 'fish_lock'
+            and request.get('target_audio') is None):
+        raise ValueError('Original long Fish requires prepared complete target audio before native execution')
     window = request["window"]
     settings = graph[director]["inputs"]
     settings.update(prompt=request["prompt"], duration=max(4, math.ceil(window["sample_frames"] / 24)),
@@ -232,6 +262,11 @@ def build_window_graph(base, request, stage="native"):
     graph["h3long_context"] = {"class_type": "MiniMaxH3LongVideoContext", "inputs": {
         "latent": source_input, "guide": ["h3long_window", 0], "request_json": payload,
         "model": graph[sampler]["inputs"]["second_model"]}}
+    if stage == 'native' and request.get('target_audio') is not None and not request.get('repair'):
+        graph['h3long_target_audio'] = {'class_type': 'MiniMaxH3LongVideoTargetAudio', 'inputs': {'request_json': payload}}
+        graph['h3long_audio_encode'] = {'class_type': 'VAEEncodeAudio', 'inputs': {
+            'audio': ['h3long_target_audio', 0], 'vae': graph[conditioning]['inputs']['audio_vae']}}
+        graph['h3long_context']['inputs']['target_audio'] = ['h3long_audio_encode', 0]
     graph[sampler]["inputs"]["latent_image"] = ["h3long_context", 0]
     if stage == "preview":
         graph[sampler] = {"class_type": "MiniMaxH3LongVideoLoadAV", "inputs": {"request_json": payload}}

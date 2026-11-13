@@ -252,7 +252,8 @@ def repair_seconds(window, start_seconds, end_seconds, stream='video', forward_f
     return normalize_repair(w, recipe, forward_frames)
 
 
-def prepare_av(target, window, source=None, repair=None, nested_factory=None, forward_frames=0):
+def prepare_av(target, window, source=None, repair=None, nested_factory=None, forward_frames=0,
+               target_audio=None, target_audio_locked=False):
     """Clone the target, copy true parent history, and always emit both masks.
 
     A repair source is the complete failed take with identical shape, rather
@@ -272,6 +273,18 @@ def prepare_av(target, window, source=None, repair=None, nested_factory=None, fo
     if cv >= int(tv.shape[2]) or ca >= int(ta.shape[-1]):
         raise ValueError('The target must include new video and audio after its protected history')
     video, audio = tv.clone(), ta.clone()
+    conditioned = target_audio is not None or target_audio_locked
+    if target_audio is not None:
+        encoded = target_audio.get('samples') if isinstance(target_audio, dict) else None
+        if not isinstance(encoded, torch.Tensor) or encoded.shape != audio.shape:
+            raise ValueError('Encoded target audio geometry must exactly match the native audio stream')
+        _finite(encoded, 'Encoded target audio')
+        audio.copy_(encoded.to(device=audio.device, dtype=audio.dtype))
+        _finite(audio, 'Installed target audio')
+    elif target_audio_locked and repair is None:
+        raise ValueError('Target audio requires a complete encoded latent before native generation')
+    if conditioned and repair is not None and (repair.get('lock_audio', True) is not True or repair.get('audio_ranges')):
+        raise ValueError('Target-conditioned repair must inherit complete audio; open audio requires a new base generation')
     vm = torch.ones((1, 1, *video.shape[2:]), dtype=torch.float32, device=video.device)
     am = torch.ones((1, 1, *audio.shape[2:]), dtype=torch.float32, device=audio.device)
     report = {
@@ -321,6 +334,13 @@ def prepare_av(target, window, source=None, repair=None, nested_factory=None, fo
         report.update(source_video_range=vr, source_audio_range=ar)
     elif source is not None:
         raise ValueError('A first window accepts a source only for an explicit bounded repair')
+    if conditioned:
+        # Install the planned target first; the exact actual source/forward
+        # history above remains authoritative. The full encoded audio latent,
+        # including the known suffix, is now protected. VAE decoded WAV bytes
+        # are not promised to equal the original target waveform.
+        am.zero_()
+        report.update(method='target_audio_conditioned_native_video', lock_audio=True)
     result = dict(target)
     result.update(samples=factory((video, audio)), noise_mask=factory((vm, am)), _h3_long_video_context=report)
     return result

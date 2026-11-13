@@ -209,7 +209,7 @@ def _validate_overrides(s, total):
         if not isinstance(override, dict):
             raise ValueError('window_overrides entries must be objects')
         _known(override, ('new_start', 'new_end', 'remaining_beats', 'sections',
-                          'reference_selection', 'voice_policy', 'forward_frames'), 'window_override')
+                          'reference_selection', 'voice_policy', 'forward_frames', 'target_audio'), 'window_override')
         a = _integer(override.get('new_start'), 'window_override.new_start')
         b = _integer(override.get('new_end'), 'window_override.new_end', 1)
         if not a < b <= total:
@@ -606,6 +606,12 @@ def compile_window(contract, window, incoming_state=''):
     }
     prompt = '\n\n'.join(name + ':\n' + sections[name] for name in SECTIONS)
     validate_reference_syntax(prompt)
-    return {'prompt': prompt,
+    result = {'prompt': prompt,
             'dialogue_ids': owned, 'mapped_beats': mapped, 'reference_selection': selection,
             'voice_policy': policy, 'forward_frames': forward, 'audit': audit}
+    target = override.get('target_audio', s.get('target_audio'))
+    if target is not None:
+        if not isinstance(target, dict):
+            raise ValueError('target_audio must be an explicit complete audio recipe object')
+        result['target_audio_recipe'] = copy.deepcopy(target)
+    return result

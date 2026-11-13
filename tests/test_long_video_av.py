@@ -202,3 +202,59 @@ def test_cumulative_audio_rounding_avoids_long_timeline_drift_and_never_pads():
     r = av.audio_sample_range(windows[1], 1001)
     with pytest.raises(ValueError, match='audio|samples'):
         av.audio_sample_range(windows[1], 1001, available_samples=r['local_end'] - 1)
+
+
+def test_target_audio_installs_encoded_complete_target_then_restores_exact_actual_history_and_locks_all_ticks():
+    av = module()
+    source, target = latent(offset=100), latent(offset=-500)
+    encoded = {'samples': torch.full_like(av.streams(target)[1], 9.25)}
+    out = av.prepare_av(target, plan().plan_windows(720)[1], source=source,
+                        target_audio=encoded, nested_factory=Nested)
+    video, audio = av.streams(out)
+    sv, sa = av.streams(source)
+    assert torch.equal(audio[..., :65], sa[..., 425:490])
+    assert torch.equal(audio[..., 65:], encoded['samples'][..., 65:])
+    assert torch.equal(video[:, :, :12], sv[:, :, 75:87])
+    vm, am = out['noise_mask'].unbind()
+    assert torch.all(am == 0) and torch.all(vm[:, :, 12:] == 1)
+    assert out['_h3_long_video_context']['method'] == 'target_audio_conditioned_native_video'
+    assert torch.all(encoded['samples'] == 9.25)
+    damaged = clone_latent(out)
+    av.streams(damaged)[1][..., -1] += .5
+    with pytest.raises(ValueError, match='protected clean audio'):
+        av.validate_result(damaged, out)
+
+
+def test_target_audio_forward_conditioning_restores_actual_reviewed_tail_before_full_lock():
+    av = module()
+    source = latent(offset=100)
+    target = latent()
+    window = plan().plan_windows(720)[1]
+    out = av.prepare_av(target, window, source=source, forward_frames=17,
+                        target_audio={'samples': torch.zeros_like(av.streams(target)[1])}, nested_factory=Nested)
+    geometry = av.conditioning_geometry(window, 17)
+    _, audio = av.streams(out)
+    a, b = geometry['source_audio_range']
+    assert torch.equal(audio[..., :geometry['audio_ticks']], av.streams(source)[1][..., a:b])
+    assert torch.all(out['noise_mask'].unbind()[1] == 0)
+
+
+@pytest.mark.parametrize('bad', [torch.zeros(1, 8, 2, 546), torch.zeros(2, 8, 2, 547),
+                                 torch.full((1, 8, 2, 547), float('nan'))])
+def test_target_audio_rejects_wrong_shape_and_nonfinite_encoded_latent(bad):
+    with pytest.raises(ValueError, match='target audio|Target audio|geometry|finite'):
+        module().prepare_av(latent(), plan().plan_windows(720)[0], target_audio={'samples': bad}, nested_factory=Nested)
+
+
+def test_target_conditioned_repair_inherits_complete_failed_audio_without_reencoding():
+    av = module()
+    source = latent(offset=12)
+    window = plan().plan_windows(720)[1]
+    out = av.prepare_av(latent(), window, source=source, target_audio_locked=True,
+                        repair={'video_ranges': [[20, 24]], 'lock_audio': True}, nested_factory=Nested)
+    assert torch.equal(av.streams(out)[1], av.streams(source)[1])
+    assert torch.all(out['noise_mask'].unbind()[1] == 0)
+    for repair in [{'video_ranges': [[20, 24]], 'lock_audio': False, 'audio_ranges': [[100, 110]]},
+                   {'video_ranges': [[20, 24]], 'lock_audio': True, 'audio_ranges': [[100, 110]]}]:
+        with pytest.raises(ValueError, match='target|Target|audio'):
+            av.prepare_av(latent(), window, source=source, target_audio_locked=True, repair=repair, nested_factory=Nested)

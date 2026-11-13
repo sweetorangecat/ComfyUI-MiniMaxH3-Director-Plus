@@ -17,6 +17,7 @@ from copy import deepcopy
 import hashlib
 import os
 from pathlib import Path
+import re
 
 from .additional_loras import mystic_v5_selection, upstream_loras
 from .sampling_experiments import motion_lora_chain, validate_sampling_options
@@ -26,6 +27,82 @@ from .two_stage_assets import (
     SELFLIFT_MYSTIC_LORA, SELFLIFT_MYSTIC_LORA_STRENGTH,
     SELFLIFT_UPSCALER_MODEL_CANDIDATES, V4_TURBO_LORA, V4_TURBO_LORA_PRUNED,
 )
+
+
+def freeze_fish_backend(requested_model, folder_paths, *, node_source=None, speech_source=None):
+    """Inspect installed files only; never call resolve_model_path/load_engine."""
+    from .long_video_audio import file_identity
+    name = re.sub(r' \(auto download\)$', '', str(requested_model))
+    if not re.fullmatch(r'[\w.-]+', name) or name in {'.', '..'}:
+        raise ValueError('Fish requires one installed model directory name')
+    directory = Path(folder_paths.models_dir) / 'fishaudioS2' / name
+    if not directory.is_dir():
+        raise ValueError('Fish model is not installed; native audio preparation never downloads weights: ' + name)
+    weights = sorted(path for path in directory.rglob('*')
+                     if path.is_file() and path.suffix.lower() in {'.safetensors', '.pt', '.pth', '.ckpt', '.bin'})
+    if not weights or not (directory / 'config.json').is_file():
+        raise ValueError('Fish requires actual installed model weights and config.json')
+    decoder = next((root / candidate for root in (directory, directory.parent)
+                    for candidate in ('codec.pth', 'firefly-gan-vq-fsq-8x1024-21hz-generator.pth', 'decoder.pth', 'vocoder.pth')
+                    if (root / candidate).is_file()), None)
+    if decoder is None:
+        raise ValueError('Fish requires an installed codec/decoder checkpoint')
+    model_files = sorted(set([*weights, decoder, *[path for path in directory.rglob('*')
+                        if path.is_file() and path.suffix.lower() in {'.json', '.jinja', '.model', '.tiktoken'}]]))
+    if node_source is None:
+        import inspect
+        import nodes as comfy_nodes
+        node_type = getattr(comfy_nodes, 'NODE_CLASS_MAPPINGS', {}).get('FishS2VoiceCloneTTS')
+        if node_type is None:
+            raise ValueError('FishS2VoiceCloneTTS backend is not installed')
+        node_source = inspect.getsourcefile(node_type)
+    if not node_source or not Path(node_source).is_file():
+        raise ValueError('Fish requires actual installed backend code identity')
+    if speech_source is None:
+        import importlib.util
+        package = importlib.util.find_spec('fish_speech')
+        if package is None or not package.submodule_search_locations:
+            raise ValueError('Installed fish_speech code is missing; model provenance cannot be verified')
+        speech_source = next(iter(package.submodule_search_locations))
+    code_roots = {'plugin': Path(node_source).parent.parent, 'fish_speech': Path(speech_source)}
+    codes = {f'{label}/{file.relative_to(root).as_posix()}': file_identity(file)
+             for label, root in code_roots.items() for file in sorted(root.rglob('*.py')) if file.is_file()}
+    if not codes or not any(name.startswith('fish_speech/') for name in codes):
+        raise ValueError('Fish requires actual backend/inference code identities')
+    return {'backend': 'FishS2VoiceCloneTTS', 'requested_model': str(requested_model),
+            'resolved_model': {'name': name, 'path': str(directory.resolve()),
+                               'weights': [{**file_identity(path), 'name': path.name} for path in model_files]},
+            'code': {name: identity['sha256'] for name, identity in codes.items()}, 'code_files': list(codes.values()),
+            'parameters': {'language': 'auto', 'device': 'auto', 'precision': 'auto', 'attention': 'auto',
+                           'max_new_tokens': 0, 'chunk_length': 200, 'temperature': .8, 'top_p': .8,
+                           'repetition_penalty': 1.1, 'keep_model_loaded': False, 'compile_model': False}}
+
+
+def freeze_audio_assets(graph, contract, windows, folder_paths):
+    from .long_video_audio import file_identity, recipe_for_window
+    from .long_video_graph import original_voice_settings
+    from .long_video_references import snapshot_bindings
+    director = next(key for key, node in graph.items() if node.get('class_type') == 'MiniMaxH3DirectorPlus')
+    settings = original_voice_settings(graph, director)
+    originals = {}
+    for binding in snapshot_bindings(graph[director]['inputs'], graph)['audios']:
+        selected = binding['binding']
+        if 'file' in selected:
+            source = selected['file']
+        else:
+            node_id, socket = selected['link']
+            node = graph[node_id]
+            if node['class_type'] != 'LoadAudio' or socket != 0 or not isinstance(node['inputs'].get('audio'), str):
+                raise ValueError('Prepared speech requires a directly identifiable original LoadAudio/file binding; transformed audio needs a supplied complete target')
+            source = node['inputs']['audio']
+        originals[binding['id']] = file_identity(folder_paths.get_annotated_filepath(source))
+    recipes = [recipe_for_window(contract, window, settings) for window in windows]
+    needs_fish = any(recipe and recipe['kind'] == 'fish' and any(
+        line.get('audio_slot') == 1 and line['id'] not in recipe.get('speech_sources', {})
+        for line in contract['dialogues'] if window['new_start'] <= line['start_frame'] < line['end_frame'] <= window['new_end'])
+        for recipe, window in zip(recipes, windows))
+    backend = freeze_fish_backend(settings.get('fish_model_path') or 's2-pro-w4a16 (auto download)', folder_paths) if needs_fish else None
+    return {'original_sources': originals, 'fish_backend': backend}
 
 
 def _settings(graph):

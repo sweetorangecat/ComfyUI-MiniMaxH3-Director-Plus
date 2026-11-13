@@ -49,6 +49,20 @@ def request(store, window=None, **changes):
     return store.create_take(spec)
 
 
+def silent_target(store):
+    from nodes.long_video_audio import file_identity, physical_samples
+    window = plan_windows(720)[0]
+    path = store.path('complete-silent-target.wav')
+    with wave.open(str(path), 'wb') as sound:
+        sound.setnchannels(2)
+        sound.setsampwidth(2)
+        sound.setframerate(32000)
+        sound.writeframes(b'\0' * physical_samples(window) * 4)
+    return {'kind': 'complete_wav', **file_identity(path), 'sample_rate': 32000, 'channels': 2,
+            'samples': physical_samples(window), 'window': window, 'sources': [], 'utterances': [],
+            'provenance': {'method': 'Supplied complete intentional silence.', 'seed': None}}
+
+
 @pytest.fixture
 def environment(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "folder_paths", types.SimpleNamespace(get_output_directory=lambda: str(tmp_path)))
@@ -136,6 +150,39 @@ def test_context_persists_independent_cpu_baseline_and_two_masks(environment):
     assert saved_v["samples"].device.type == saved_a["samples"].device.type == "cpu"
     with pytest.raises(ValueError, match="immutable"):
         runtime().MiniMaxH3LongVideoContext().prepare(target, guide(), json.dumps(req), model())
+
+
+def test_context_installs_optional_encoded_target_and_persists_full_audio_lock(environment):
+    manifest = silent_target(environment)
+    req = request(environment, target_audio=manifest, target_dialogues=[], target_audio_original_sources={})
+    target = latent()
+    encoded = {'samples': torch.full_like(target['samples'].unbind()[1], .375)}
+    prepared = runtime().MiniMaxH3LongVideoContext().prepare(
+        target, guide(), json.dumps(req), model(), target_audio=encoded)[0]
+    assert torch.all(prepared['samples'].unbind()[1] == .375)
+    assert torch.all(prepared['noise_mask'].unbind()[1] == 0)
+    saved, _ = runtime()._load_prepared(environment, req['take_id'])
+    assert torch.equal(saved['samples'].unbind()[1], encoded['samples'])
+    assert saved['_h3_long_video_context']['target_audio_sha256'] == manifest['sha256']
+    assert saved['_h3_long_video_context']['method'] == 'target_audio_conditioned_native_video'
+
+
+def test_context_requires_target_latent_only_when_immutable_request_declares_it(environment):
+    req = request(environment, target_audio=silent_target(environment))
+    with pytest.raises(ValueError, match='target|Target'):
+        runtime().MiniMaxH3LongVideoContext().prepare(latent(), guide(), json.dumps(req), model())
+
+
+def test_target_loader_checks_immutable_waveform_before_official_vae_encoding(environment):
+    manifest = silent_target(environment)
+    req = request(environment, target_audio=manifest, target_dialogues=[], target_audio_original_sources={})
+    loaded = runtime().MiniMaxH3LongVideoTargetAudio().load(json.dumps(req))[0]
+    assert loaded['waveform'].shape == (1, 2, 437600) and loaded['sample_rate'] == 32000
+    with open(manifest['path'], 'r+b') as stream:
+        stream.seek(-2, 2)
+        stream.write(b'\1\0')
+    with pytest.raises(ValueError, match='hash|SHA'):
+        runtime().MiniMaxH3LongVideoTargetAudio().load(json.dumps(req))
 
 
 def test_checkpoint_saves_clean_before_native_decode_and_keeps_review_pending(environment, monkeypatch):

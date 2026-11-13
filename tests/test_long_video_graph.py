@@ -128,6 +128,85 @@ def test_payload_records_stage_and_reserved_names_cannot_collide():
         build_window_graph(base, request())
 
 
+def test_complete_target_graph_loads_validated_audio_and_uses_official_audio_vae_before_context():
+    value = dict(request(), target_audio={'sha256': 'a' * 64})
+    graph = build_window_graph(base_graph(), value)
+    assert graph['h3long_target_audio']['class_type'] == 'MiniMaxH3LongVideoTargetAudio'
+    assert graph['h3long_audio_encode'] == {'class_type': 'VAEEncodeAudio', 'inputs': {
+        'audio': ['h3long_target_audio', 0], 'vae': graph['16']['inputs']['audio_vae']}}
+    assert graph['h3long_context']['inputs']['target_audio'] == ['h3long_audio_encode', 0]
+    assert not any(node['class_type'] == 'MiniMaxH3FishVoiceBridge' for node in graph.values())
+
+
+@pytest.mark.parametrize('stage', ['preview', 'finish'])
+def test_target_preview_and_finish_never_load_compose_generate_or_encode_target_audio(stage):
+    value = dict(request(), target_audio={'sha256': 'a' * 64})
+    graph = build_window_graph(base_graph(), value, stage)
+    assert not any(node['class_type'] in {'MiniMaxH3LongVideoTargetAudio', 'VAEEncodeAudio',
+        'MiniMaxH3LongVideoAudioPrepare', 'MiniMaxH3FishVoiceBridge'} for node in graph.values())
+
+
+def test_target_repair_inherits_failed_complete_audio_without_target_encode():
+    value = dict(request(), target_audio={'sha256': 'a' * 64},
+                 repair={'video_ranges': [[20, 24]], 'lock_audio': True, 'source_take': 'failed'})
+    graph = build_window_graph(base_graph(), value)
+    assert 'target_audio' not in graph['h3long_context']['inputs']
+    assert not any(node['class_type'] == 'VAEEncodeAudio' for node in graph.values())
+
+
+def test_original_long_fish_is_adapted_internally_while_requested_provenance_and_audio1_are_retained():
+    base = voice_graph()
+    base['10']['inputs'].update(voice_mode='fish_lock', target_dialogue='The whole line.', fish_model_path='s2-pro')
+    before = deepcopy(base)
+    graph = build_window_graph(base, dict(request(), target_audio={'sha256': 'a' * 64}))
+    settings = graph['10']['inputs']
+    assert settings['voice_mode'] == 'h3_reference'
+    assert settings['voice_reference_audio'] == ['13', 0]
+    assert graph['10']['_meta']['h3_long_video_requested_voice']['voice_mode'] == 'fish_lock'
+    assert 'voice_reference_audio_2_file' not in settings
+    assert base == before
+    with pytest.raises(ValueError, match='target|prepared|audio'):
+        build_window_graph(base, request())
+
+
+@pytest.mark.parametrize('adapt_again', [False, True])
+def test_explicit_none_ignores_and_clears_stale_original_fish_provenance(adapt_again):
+    from nodes.long_video_graph import adapt_long_voice, original_voice_settings, REQUESTED_VOICE_META
+    base = voice_graph()
+    settings = base['10']['inputs']
+    settings.update(voice_mode='fish_lock', target_dialogue='The whole line.', fish_model_path='s2-pro')
+    metadata = base['10'].setdefault('_meta', {})
+    metadata['unrelated_binding_evidence'] = 'retained'
+    adapt_long_voice(settings, metadata)
+    assert settings['voice_mode'] == 'h3_reference'
+    assert original_voice_settings(base, '10')['voice_mode'] == 'fish_lock'
+    settings['voice_mode'] = 'none'
+    if adapt_again:
+        adapt_long_voice(settings, metadata)
+        assert REQUESTED_VOICE_META not in metadata
+    assert original_voice_settings(base, '10')['voice_mode'] == 'none'
+    actual = build_window_graph(base, request())
+    assert actual['10']['inputs']['voice_mode'] == 'none'
+    assert actual['10']['_meta']['unrelated_binding_evidence'] == 'retained'
+    assert 'h3long_audio_encode' not in actual
+
+
+def test_resumed_internal_h3_reference_adapter_retains_legitimate_original_fish_provenance():
+    from nodes.long_video_graph import adapt_long_voice, original_voice_settings, REQUESTED_VOICE_META
+    base = voice_graph()
+    settings = base['10']['inputs']
+    settings.update(voice_mode='fish_lock', target_dialogue='The whole line.', fish_model_path='s2-pro')
+    adapt_long_voice(settings, base['10'].setdefault('_meta', {}))
+    resumed = json.loads(json.dumps(base))
+    saved = deepcopy(resumed['10']['_meta'][REQUESTED_VOICE_META])
+    adapt_long_voice(resumed['10']['inputs'], resumed['10']['_meta'])
+    assert resumed['10']['inputs']['voice_mode'] == 'h3_reference'
+    assert resumed['10']['_meta'][REQUESTED_VOICE_META] == saved
+    assert original_voice_settings(resumed, '10')['voice_mode'] == 'fish_lock'
+    with pytest.raises(ValueError, match='target|prepared|audio'):
+        build_window_graph(resumed, request())
+
+
 def voice_graph():
     base = base_graph()
     base['10']['inputs'].update(voice_mode='h3_reference',

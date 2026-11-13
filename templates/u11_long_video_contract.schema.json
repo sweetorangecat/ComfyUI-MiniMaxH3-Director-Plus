@@ -18,6 +18,7 @@
     "dialogues": {"type": "array", "items": {"$ref": "#/$defs/dialogue"}},
     "voice_policy": {"enum": ["inherit", "dialogue_only"]},
     "reference_selection": {"$ref": "#/$defs/reference_selection"},
+    "target_audio": {"$ref": "#/$defs/target_audio"},
     "window_overrides": {
       "type": "array",
       "items": {
@@ -29,6 +30,7 @@
           "forward_frames": {"type": "integer", "minimum": 0, "multipleOf": 17, "description": "仅用于续窗；需小于净新增区间，实际父源余量和独立实际尾部审查证明在运行时校验。"},
           "voice_policy": {"enum": ["inherit", "dialogue_only"]},
           "reference_selection": {"$ref": "#/$defs/reference_selection"},
+          "target_audio": {"$ref": "#/$defs/target_audio"},
           "remaining_beats": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/remaining_beat"}},
           "sections": {
             "type": "object", "minProperties": 1, "additionalProperties": false,
@@ -51,6 +53,111 @@
   },
   "$defs": {
     "text": {"type": "string", "pattern": "\\S"},
+    "audio_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "audio_file_identity": {
+      "type": "object", "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {"$ref": "#/$defs/text"},
+        "sha256": {"$ref": "#/$defs/audio_sha256"},
+        "bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "audio_window": {
+      "type": "object",
+      "description": "完整物理窗；原生17k+5视频几何、共享AV端点、实际样本数和全片/本地边界关系仍需运行时核验。",
+      "required": ["index", "sample_frames", "context_frames", "new_start", "new_end", "endpoint", "source_endpoint", "local_new_start", "local_new_end"],
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "sample_frames": {"type": "integer", "minimum": 107, "maximum": 360},
+        "context_frames": {"type": "integer", "minimum": 0},
+        "new_start": {"type": "integer", "minimum": 0},
+        "new_end": {"type": "integer", "minimum": 1},
+        "endpoint": {"type": "integer", "minimum": 1},
+        "source_endpoint": {"type": "integer", "minimum": 0},
+        "local_new_start": {"type": "integer", "minimum": 0},
+        "local_new_end": {"type": "integer", "minimum": 1}
+      }
+    },
+    "audio_generation_provenance": {
+      "type": "object", "required": ["method"],
+      "properties": {"method": {"$ref": "#/$defs/text"}},
+      "description": "实际制作方法与来源、种子及后端等证据；生产者元数据和schema通过均不授予听感、口型或画面审批。"
+    },
+    "audio_utterance": {
+      "allOf": [{"$ref": "#/$defs/dialogue"}],
+      "type": "object", "required": ["start_sample", "end_sample", "source_sha256", "generation"],
+      "properties": {
+        "start_sample": {"type": "integer", "minimum": 0},
+        "end_sample": {"type": "integer", "minimum": 1},
+        "source_sha256": {"$ref": "#/$defs/audio_sha256"},
+        "original_reference_sha256": {"$ref": "#/$defs/audio_sha256"},
+        "generation": {"type": "object", "minProperties": 1}
+      },
+      "if": {"required": ["audio_slot"]},
+      "then": {"required": ["original_reference_sha256"]}
+    },
+    "complete_audio_wav": {
+      "allOf": [{"$ref": "#/$defs/audio_file_identity"}],
+      "type": "object", "required": ["kind", "window", "sample_rate", "channels", "samples", "sources", "utterances", "provenance"],
+      "properties": {
+        "kind": {"const": "complete_wav"},
+        "window": {"$ref": "#/$defs/audio_window"},
+        "sample_rate": {"const": 32000},
+        "channels": {"const": 2},
+        "samples": {"type": "integer", "minimum": 1},
+        "sources": {"type": "array", "items": {"$ref": "#/$defs/audio_file_identity"}},
+        "utterances": {"type": "array", "items": {"$ref": "#/$defs/audio_utterance"}},
+        "provenance": {"$ref": "#/$defs/audio_generation_provenance"}
+      },
+      "description": "权威完整物理窗PCM16 WAV，含所有声音和已知编码余量。字节哈希、PCM格式、全部对白/原音色绑定、保护前缀与全句时限需运行时核验。"
+    },
+    "supplied_audio_utterance": {
+      "allOf": [{"$ref": "#/$defs/audio_file_identity"}],
+      "type": "object", "required": ["text", "speaker", "provenance"],
+      "properties": {
+        "text": {"$ref": "#/$defs/text"},
+        "speaker": {"$ref": "#/$defs/dialogue/properties/speaker"},
+        "provenance": {
+          "type": "object", "minProperties": 1,
+          "properties": {"original_reference_sha256": {"$ref": "#/$defs/audio_sha256"}}
+        }
+      },
+      "description": "按对白id提供完整一句的PCM16 WAV及明确人物/音色来源；可单/双声道或其他采样率，不可截词、拉伸或自动压缩。"
+    },
+    "fish_audio_parameters": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "language": {"$ref": "#/$defs/text"},
+        "device": {"enum": ["auto", "cuda", "cpu", "mps"]},
+        "precision": {"enum": ["auto", "bfloat16", "float16", "float32"]},
+        "attention": {"enum": ["auto", "sdpa", "sage_attention", "flash_attention"]},
+        "max_new_tokens": {"type": "integer", "minimum": 0},
+        "chunk_length": {"type": "integer", "minimum": 1},
+        "temperature": {"type": "number"},
+        "top_p": {"type": "number"},
+        "repetition_penalty": {"type": "number"},
+        "keep_model_loaded": {"type": "boolean"},
+        "compile_model": {"type": "boolean"}
+      }
+    },
+    "fish_target_audio": {
+      "type": "object", "required": ["kind"],
+      "properties": {
+        "kind": {"const": "fish"},
+        "background": {"oneOf": [
+          {"type": "object", "required": ["kind", "intentional"], "properties": {"kind": {"const": "silence"}, "intentional": {"const": true}}},
+          {"$ref": "#/$defs/complete_audio_wav"}
+        ]},
+        "speech_sources": {"type": "object", "additionalProperties": {"$ref": "#/$defs/supplied_audio_utterance"}},
+        "parameters": {"$ref": "#/$defs/fish_audio_parameters"},
+        "speech_gain": {"type": "number", "exclusiveMinimum": 0, "maximum": 8}
+      },
+      "description": "仅自动生成明确绑定原Audio1的完整台词。省略background仅在本窗有效声场明确为有意静音时可推导静音；否则必须提供完整背景WAV。其他发声者需明确speech_sources。实际原音色、依赖、时限、缓存和媒体审查仍由运行时核验。"
+    },
+    "target_audio": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/complete_audio_wav"}, {"$ref": "#/$defs/fish_target_audio"}],
+      "description": "可选完整目标音轨，不占用新增编号参考槽。null/缺省遵循原音色模式；完整音轨或Fish配方都不能通过schema获得内容审批。"
+    },
     "action_text": {"type": "string", "pattern": "\\S", "not": {"pattern": "<[dD](?:\\s|>)|</[dD](?:\\s|>)"}},
     "timed_action": {
       "type": "object", "additionalProperties": false, "required": ["start_frame", "end_frame", "action"],

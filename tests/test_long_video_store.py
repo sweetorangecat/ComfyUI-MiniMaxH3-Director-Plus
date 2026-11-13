@@ -62,6 +62,21 @@ def test_repair_invalidates_real_descendants_and_preserves_old_files(tmp_path):
     assert state["repair"]["source_take"] == first["take_id"]
 
 
+@pytest.mark.parametrize('seconds', [False, True])
+def test_target_conditioned_repair_rejects_audio_changes_before_revoking_native_reviews(tmp_path, seconds):
+    store = ProjectStore(tmp_path, 'project')
+    take = store.create_take(dict(spec(), target_audio={'sha256': 'a' * 64}))
+    native(store, take)
+    store.review(take['take_id'], True, 'Actual state', 'Full actual AV review')
+    before = store.read()
+    with pytest.raises(ValueError, match='target|Target|complete audio'):
+        if seconds:
+            store.request_repair_seconds(0, 1, 2, stream='audio')
+        else:
+            store.request_repair(0, [[2, 5]], False, audio_ranges=[[10, 20]])
+    assert store.read() == before
+
+
 @pytest.mark.parametrize("video_ranges,lock_audio,index", [
     ([[1000, 1001]], True, 1),
     ([[11, 14]], True, 1),

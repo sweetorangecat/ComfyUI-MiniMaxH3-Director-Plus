@@ -146,6 +146,21 @@ def test_long_fish_voice_errors_before_models_instead_of_silently_switching_voic
     start.assert_not_called()
 
 
+def test_original_long_fish_choice_retains_requested_mode_but_uses_native_reference_adapter():
+    from nodes.long_video_entry import _automatic_recipe
+    graph = director_graph(30, voice_mode='fish_lock', target_dialogue='', reference_transcript='Original words.')
+    contract = {'dialogues': [{'id': 'whole', 'start_frame': 48, 'end_frame': 96, 'audio_slot': 1, 'text': 'The complete line.'}],
+                'overall_soundscape': 'Intentional silence except scheduled dialogue.', 'non_diegetic_music': 'N/A', 'beats': []}
+    with patch('nodes.long_video_entry.preflight', return_value={}), \
+         patch('nodes.long_video_entry.contract_from_prompt', return_value=contract):
+        active, config = _automatic_recipe((deepcopy(graph), 'director', 30))
+    assert active['director']['inputs']['voice_mode'] == 'h3_reference'
+    assert active['director']['inputs']['voice_reference_audio_file'] == 'voice.wav'
+    assert active['director']['_meta']['h3_long_video_requested_voice']['voice_mode'] == 'fish_lock'
+    assert config['scene_contract']['target_audio']['kind'] == 'fish'
+    assert config['scene_contract']['target_audio']['target_dialogue'] == 'The complete line.'
+
+
 def test_long_duration_resolves_only_connected_director_and_internal_short_windows_stay_short():
     graph = director_graph(13)
     graph['unused'] = {'class_type':'MiniMaxH3DirectorPlus','inputs':{'duration':90}}
