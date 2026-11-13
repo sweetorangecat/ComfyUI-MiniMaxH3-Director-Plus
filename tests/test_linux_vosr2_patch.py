@@ -1,9 +1,10 @@
 """Exercise patched compatibility code against an independent scalar-tile path."""
 import types
 import torch
+import torch.nn.functional as F
 import pytest
 
-from tools.patch_linux_vosr2 import patch_engine_source, patch_nodes_source
+from tools.patch_linux_vosr2 import main, patch_engine_source, patch_nodes_source
 
 
 SCALAR_LOOP = '''            for hi, wi in keys:
@@ -17,6 +18,15 @@ SCALAR_LOOP = '''            for hi, wi in keys:
 '''
 
 SOURCE = '''class VOSREngine:
+    def _venc_features(self, lq_bchw):
+        with torch.no_grad():
+            raw = (0.5 * lq_bchw + 0.5) * 255.0
+            x = F.interpolate(raw, size=(DINOV2_SIZE, DINOV2_SIZE), mode="bicubic",
+                              align_corners=False).clamp(0.0, 1.0)
+            mean = torch.tensor(IMAGENET_MEAN, device=x.device, dtype=x.dtype).view(1, 3, 1, 1)
+            std = torch.tensor(IMAGENET_STD, device=x.device, dtype=x.dtype).view(1, 3, 1, 1)
+            x = ((x - mean) / std).to(self.dtype)
+            return [self.venc.forward_intermediate_layer(x, layer) for layer in self.layer_list]
     def _flow(self, lq_latent, z, settings):
         b = lq_latent.shape[0]
         keys = [(0, 0), (0, 2), (0, 4), (2, 0), (2, 2)]
@@ -39,7 +49,9 @@ SCALAR_LOOP
 
 
 def engine(source):
-    namespace = {'torch': torch}
+    namespace = {'torch': torch, 'F': F, 'DINOV2_SIZE': 8,
+                 'IMAGENET_MEAN': (0.485, 0.456, 0.406),
+                 'IMAGENET_STD': (0.229, 0.224, 0.225)}
     exec(compile(source, '<compat-fixture>', 'exec'), namespace)
     result = namespace['VOSREngine']()
     result.batches = []
@@ -87,3 +99,67 @@ def test_patch_is_idempotent_and_refuses_unrecognized_engine():
     exec(updated_nodes, scope)
     assert scope['TESpeedVOSR2Video'].H3_TILE_BATCH_SUPPORTED is True
     assert scope['TESpeedVOSR2Video'].H3_RELEASE_ENGINES() == 'released'
+
+
+@pytest.mark.parametrize('already_batched', [False, True])
+def test_dino_preprocessing_keeps_rgb_variation_instead_of_clipping_to_white(already_batched):
+    # Independent expected RGB / ImageNet contract from cswry/VOSR
+    # preprocess_raw_image: raw255 /255, resize/clamp01, then normalize.
+    source = SOURCE
+    if already_batched:
+        from tools.patch_linux_vosr2 import BATCH_LOOP, VIDEO_FLUSH, FLUSH
+        source = source.replace(SCALAR_LOOP, BATCH_LOOP).replace(FLUSH, VIDEO_FLUSH)
+    value = engine(patch_engine_source(source))
+    value.dtype, value.layer_list = torch.float32, [17]
+    captured = []
+    value.venc = types.SimpleNamespace(
+        forward_intermediate_layer=lambda image, layer: captured.append(image.clone()) or image)
+    rgb = torch.tensor([0., 1./255, .1, .3, .5, .7, .9, 1.]).view(1, 1, 2, 4).expand(1, 3, 2, 4)
+    value._venc_features(rgb * 2 - 1)
+    resized = F.interpolate(rgb, size=(8, 8), mode='bicubic', align_corners=False).clamp(0, 1)
+    mean = torch.tensor([.485, .456, .406]).view(1, 3, 1, 1)
+    std = torch.tensor([.229, .224, .225]).view(1, 3, 1, 1)
+    torch.testing.assert_close(captured[0], (resized - mean) / std, rtol=1e-6, atol=1e-6)
+
+
+def test_patch_refuses_unknown_dino_preprocessing_even_if_batch_loop_is_recognized():
+    source = SOURCE.replace('raw = (0.5 * lq_bchw + 0.5) * 255.0', 'raw = lq_bchw')
+    with pytest.raises(ValueError, match='DINO'):
+        patch_engine_source(source)
+
+
+def test_apply_repairs_previously_batched_engine_and_preserves_original_backup(tmp_path):
+    from tools.patch_linux_vosr2 import BATCH_LOOP, VIDEO_FLUSH, FLUSH
+    root = tmp_path / 'TE-Speed-VOSR2-linux-compat'
+    root.mkdir()
+    path = root / 'vosr_engine.py'
+    original = SOURCE.replace(SCALAR_LOOP, BATCH_LOOP).replace(FLUSH, VIDEO_FLUSH)
+    path.write_bytes(original.encode('utf-8'))
+    nodes = root / '__init__.py'
+    nodes.write_bytes(b'def clear_engines():\n    pass\nclass TESpeedVOSR2Video:\n    pass\n')
+    main([str(root)])
+    assert path.read_text(encoding='utf-8') == original  # Dry run is read-only.
+    assert not list(root.glob('*.bak'))
+    main([str(root), '--apply'])
+    actual = path.read_bytes()
+    assert actual.decode('utf-8') == patch_engine_source(original)
+    backups = sorted(root.glob('*.bak'))
+    assert len(backups) == 2
+    original_bytes = original.encode('utf-8')
+    assert any(p.read_bytes() == original_bytes for p in backups)
+    main([str(root), '--apply'])
+    assert path.read_bytes() == actual and sorted(root.glob('*.bak')) == backups
+
+
+def test_unknown_features_abort_before_any_files_are_written(tmp_path):
+    root = tmp_path / 'TE-Speed-VOSR2-linux-compat'
+    root.mkdir()
+    path = root / 'vosr_engine.py'
+    path.write_bytes(SOURCE.replace('raw = (0.5 * lq_bchw + 0.5) * 255.0', 'raw = lq_bchw').encode('utf-8'))
+    nodes = root / '__init__.py'
+    nodes.write_bytes(b'def clear_engines():\n    pass\nclass TESpeedVOSR2Video:\n    pass\n')
+    original = {p: p.read_bytes() for p in (path, nodes)}
+    with pytest.raises(ValueError, match='DINO'):
+        main([str(root), '--apply'])
+    assert all(p.read_bytes() == data for p, data in original.items())
+    assert not list(root.glob('*.bak'))

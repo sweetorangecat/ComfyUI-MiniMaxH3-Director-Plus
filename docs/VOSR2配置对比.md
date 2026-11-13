@@ -4,15 +4,19 @@
 
 Linux兼容层的定点维护例外：`tools/patch_linux_vosr2.py` 可对已经检查过的 `TE-Speed-VOSR2-linux-compat` 源码增加 DiT 分块批量处理，默认先检查、显式 `--apply` 才写入并保留 `.bak`。它保持512分块、重叠、种子、颜色对齐和逐帧重建算法，视频过程复用CUDA分配缓存。遇到不匹配的源码结构会拒绝修改。只在该后端明确声明支持、释放模型后实测总显存≥30GiB且空闲≥24GiB时，`legacy` 将 `image_batch` 设为4；这里表示四个独立DiT小块，不是四帧跳算或时序缓存。Windows原生TE节点、低显存和手动比较档继续原值。该机制不新增用户选项。
 
+**2026-11-14 兼容层颜色特征修正**：同一工具还修复已检查版本中 DINOv2 输入的归一化错误。旧代码将 RGB 乘255后直接裁剪到0..1，导致多数颜色截成白色；[上游推理实现](https://github.com/cswry/VOSR/blob/main/inference_vosr_onestep.py) 在裁剪前会除以255。修正恢复0..1 RGB后再缩放、裁剪和执行 ImageNet 归一化，改变的是错误的特征条件；不更换权重、不改变尺寸和帧数。已有批量补丁也会补上此项，重复运行不会再次修改。只维护明确匹配的 Linux 兼容源码，不对 Windows 原生节点或其他 VOSR2 实现套用。
+
+同一组近景原帧的三帧 GPU 对照中，修正后可见的皮肤纹理比旧版多，但仍有平滑和头发刻线感，不能据此宣布整片真人质感已修复。完整片的运动边缘、闪烁、人物和音画仍需分别验收。
+
 这个兼容层的模型缓存不受 ComfyUI 自带的模型管理器控制。维护补丁同时声明专用释放函数，导演台在整段超分结束或报错后调用，避免模型一直占用显存并影响下一条 H3 生成；不会在每个帧批次之间反复卸载。`backend_released` 记录释放结果，收尾异常保留原始生成错误。未声明此能力的后端不受影响。
 
 | 配置键 | 上游质量 / tile 策略 | tile / VAE tile | frame / DINO batch | 显存策略 | 用途 |
 |---|---|---|---|---|---|
-| `legacy` | `speed` / `auto` | 512 / 1024 | 2 / 2 | `auto` | 原有行为；完全空闲的 30GB+ 显存自动把独立空间 tile batch 提到 8 |
+| `legacy` | `speed` / `auto` | 512 / 1024 | 2 / 2 | `auto` | 原有行为；符合上述能力和显存条件时，独立空间 tile batch 为4 |
 | `manual_baseline` | `manual` / `tiled` | 512 / 1024 | 2 / 2 | `staged` | 固定 tile 的保守对比基线 |
 | `experimental_32gb` | `manual` / `tiled` | 512 / 1024 | 4 / 4 | `staged` | 明确实验档，只测试更大的帧与 DINO 批量 |
 
-除上述兼容层批量处理外，普通显存档的 `image_batch` 保持1；已验证的 Linux 兼容层在实测总显存至少 30 GiB、空闲至少 29 GiB 时，`legacy` 自动使用 8 个独立空间 tile 的批量调用，空闲不足回到 4 或 1。全部配置保持 tile overlap=32、VAE overlap=32、`temporal_cache=False`、`torch_compile=False`、`vae_encode_amp=False`、wavelet 颜色对齐。frame batch 同时传给 Settings 与 Video，避免 Video 覆盖所选配置。`legacy` 的 `speed/auto` 仍允许上游自行调整有效设置；日志中的 `requested_config` 是实际传入参数，`upstream_settings` 只记录上游返回且可读取的标量字段，不冒充内核内的全部最终设置。
+除上述兼容层批量处理外，普通显存档的 `image_batch` 保持1；`legacy` 不再自动升到8，短样本中8批量比4更慢。全部配置保持 tile overlap=32、VAE overlap=32、`temporal_cache=False`、`torch_compile=False`、`vae_encode_amp=False`、wavelet 颜色对齐。frame batch 同时传给 Settings 与 Video，避免 Video 覆盖所选配置。`legacy` 的 `speed/auto` 仍允许上游自行调整有效设置；日志中的 `requested_config` 是实际传入参数，`upstream_settings` 只记录上游返回且可读取的标量字段，不冒充内核内的全部最终设置。
 
 上游 TE-Speed-VOSR2 1.0 README 提醒：`speed` 更大的 tile batch 或 VAE tile 可能提高显存峰值并触发换载，因此可能比 `manual` 慢。本次保持 tile 尺寸，仅对已验证的 Linux 兼容层合并独立分块调用；实测范围见下文。
 

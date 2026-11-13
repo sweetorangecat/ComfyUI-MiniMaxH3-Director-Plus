@@ -1,5 +1,6 @@
 """Opt-in patch for the inspected TE-Speed-VOSR2 Linux compatibility shim.
 
+Repairs DINOv2 RGB normalization and enables independent tile batching.
 No weights, tile geometry or per-frame random seeds change. Unknown source
 layouts are refused. Run without --apply to validate the patch first.
 """
@@ -42,19 +43,44 @@ FLUSH = '''            if self.device.type == "cuda":
 VIDEO_FLUSH = '''            if self.device.type == "cuda" and not is_video:
                 torch.cuda.empty_cache()
 '''
+BAD_FEATURE_INPUT = '''            raw = (0.5 * lq_bchw + 0.5) * 255.0
+            x = F.interpolate(raw, size=(DINOV2_SIZE, DINOV2_SIZE), mode="bicubic",
+                              align_corners=False).clamp(0.0, 1.0)
+'''
+FEATURE_INPUT = '''            # H3 DINOv2 normalized RGB v1
+            # Upstream raw255 /255 preprocessing, before resize/clamp01.
+            raw = (0.5 * lq_bchw + 0.5)
+            x = F.interpolate(raw, size=(DINOV2_SIZE, DINOV2_SIZE), mode="bicubic",
+                              align_corners=False).clamp(0.0, 1.0)
+'''
+
+
+def _patch_feature_normalization(source, engine):
+    methods = [n for n in engine.body
+               if isinstance(n, ast.FunctionDef) and n.name == '_venc_features']
+    method = ast.get_source_segment(source, methods[0]) if len(methods) == 1 else ''
+    if method.count(FEATURE_INPUT) == 1 and source.count(FEATURE_INPUT) == 1:
+        return source
+    if method.count(BAD_FEATURE_INPUT) != 1 or source.count(BAD_FEATURE_INPUT) != 1:
+        raise ValueError('unrecognized DINOv2 preprocessing; inspect before patching')
+    return source.replace(BAD_FEATURE_INPUT, FEATURE_INPUT)
 
 
 def patch_engine_source(source):
-    if MARKER in source:
-        if source.count(BATCH_LOOP) != 1 or source.count(VIDEO_FLUSH) != 1:
-            raise ValueError('unrecognized partially patched engine')
-        return source
     tree = ast.parse(source)
     engine = next((n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'VOSREngine'), None)
     methods = {n.name for n in engine.body if isinstance(n, ast.FunctionDef)} if engine else set()
-    if not {'_flow', 'upscale_batch'} <= methods or source.count(SCALAR_LOOP) != 1 or source.count(FLUSH) != 1:
+    if not {'_flow', 'upscale_batch'} <= methods:
         raise ValueError('unrecognized Linux compatibility engine; inspect before patching')
-    result = source.replace(SCALAR_LOOP, BATCH_LOOP).replace(FLUSH, VIDEO_FLUSH)
+    if MARKER in source:
+        if source.count(BATCH_LOOP) != 1 or source.count(VIDEO_FLUSH) != 1:
+            raise ValueError('unrecognized partially patched engine')
+        result = _patch_feature_normalization(source, engine)
+    else:
+        if source.count(SCALAR_LOOP) != 1 or source.count(FLUSH) != 1:
+            raise ValueError('unrecognized Linux compatibility engine; inspect before patching')
+        result = _patch_feature_normalization(source, engine)
+        result = result.replace(SCALAR_LOOP, BATCH_LOOP).replace(FLUSH, VIDEO_FLUSH)
     compile(result, '<patched-vosr-engine>', 'exec')
     return result
 
