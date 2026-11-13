@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from .sampling_experiments import run_selflift, validate_sampling_options
 from .wenwu_recipe import AUTHOR_LORAS, AUTHOR_RECIPE_ID, apply_author_shift, is_author_recipe
 from .execution_report import attach_report, new_report, sampling_settings, stage_timer
+from .native_attention import NATIVE_ATTENTION_EVIDENCE_KEYS, SOL_ATTN_EVIDENCE_KEYS
 from .two_stage_assets import (
     resolve_split_upscale_callables,
     run_trained_latent_upscaler,
@@ -710,6 +711,7 @@ class MiniMaxH3TwoStageSampler:
                 "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
                 "selflift_node_id", "selflift_node_variant",
                 "selflift_global_stream_supported", "selflift_speed_warning",
+                *NATIVE_ATTENTION_EVIDENCE_KEYS, *SOL_ATTN_EVIDENCE_KEYS,
                 "selflift_lowres_scale", "selflift_cfg", "selflift_transition_step",
                 "two_stage_first_executed_steps", "two_stage_second_executed_steps",
                 "two_stage_first_sigma_count", "two_stage_second_sigma_count",

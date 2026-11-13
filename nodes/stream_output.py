@@ -21,6 +21,7 @@ from PIL import Image
 from .upscale import resolve_upscale_model_name, validate_frames_for_reconstruction
 from .video_sr import resolve_seedvr2_callables
 from .execution_report import attach_report, new_report, reconstruction_diagnostics, stage_timer
+from .native_attention import NATIVE_ATTENTION_EVIDENCE_KEYS
 from .rtx_vsr_stream import DeblurVsrFrameProcessor, VsrFrameProcessor, load_vsr_api
 from .rife_stream import (
     DEFAULT_RIFE_MODEL,
@@ -1725,6 +1726,8 @@ class MiniMaxH3StreamingVideoCombine:
                 "selflift_highres_tiling", "selflift_highres_tiling_mode",
                 "selflift_highres_token_chunk", "selflift_highres_weight_cache_gb",
                 "selflift_global_stream_supported", "selflift_speed_warning",
+                *NATIVE_ATTENTION_EVIDENCE_KEYS,
+                "sol_attn_start_percent", "sol_attn_end_percent",
             ) if key in guide
         }
         execution["upscale_method"] = (

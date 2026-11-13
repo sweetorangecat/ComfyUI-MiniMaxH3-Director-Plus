@@ -12,6 +12,9 @@ import math
 import time
 
 from .wenwu_recipe import AUTHOR_LORAS, AUTHOR_RECIPE, is_author_recipe, validate_author_shift, validate_author_upscaler
+from .native_attention import (
+    NATIVE_ATTENTION_EVIDENCE_KEYS, SOL_ATTN_EVIDENCE_KEYS, inspect_native_attention,
+)
 
 
 SELFLIFT_NODE_ID = "SelfLiftH3Sampler"
@@ -371,6 +374,20 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         raise RuntimeError("SelfLift 依赖未就绪：" + "；".join(report["missing"]))
     if author:
         validate_author_shift(model)
+    # Guides are mutable and can outlive the model they describe. Check the
+    # actual block closures and override again at the execution boundary.
+    for key in (*NATIVE_ATTENTION_EVIDENCE_KEYS, *SOL_ATTN_EVIDENCE_KEYS):
+        guide.pop(key, None)
+    attention = inspect_native_attention(model)
+    guide.update(attention)
+    guide["sol_attn_applied"] = attention["native_sparse_verified"]
+    if attention["native_sparse_verified"]:
+        guide["attention_backend"] = "sol_attn"
+        guide.pop("sampling_attention_kernel", None)
+    elif guide.get("attention_backend") == "sol_attn":
+        guide.pop("attention_backend", None)
+    guide["selflift_attention_requested_mode"] = "global_stream"
+    guide["selflift_attention_route"] = "unavailable"
     started = time.perf_counter()
     try:
         function, node_id = _resolve_selflift_callable(registry)
@@ -387,10 +404,7 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
             seed=seed,
             upscaler_name=upscaler_name,
             author_recipe=author,
-            native_sparse_attention=(
-                str(guide.get("attention_backend", "")).lower() == "sol_attn"
-                and bool(guide.get("sol_attn_applied"))
-            ),
+            native_sparse_attention=attention["native_sparse_verified"],
         )
         if (author or guide.get("long_video_window")) and (
             node_id != "SelfLiftAvatarH3Sampler"
@@ -406,6 +420,9 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         )
         guide["selflift_highres_token_chunk"] = call_kwargs.get("highres_token_chunk")
         guide["selflift_highres_weight_cache_gb"] = call_kwargs.get("highres_weight_cache_gb")
+        guide["selflift_attention_route"] = (
+            "global_stream" if artifact_guard["global_stream_supported"] else "spatial_compatibility"
+        )
         guide.update(
             selflift_node_id=node_id,
             selflift_node_variant=artifact_guard["name"],

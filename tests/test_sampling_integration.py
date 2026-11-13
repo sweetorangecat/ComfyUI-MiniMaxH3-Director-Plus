@@ -309,6 +309,30 @@ def test_selflift_sampler_dispatches_before_standard_bypass(monkeypatch):
     assert calls[0]["seed"] == 23 and calls[0]["positive"] == [["embedding", {}]]
 
 
+def test_selflift_sampling_report_records_verified_attention_and_chosen_route(monkeypatch):
+    import torch
+    from nodes import two_stage, two_stage_assets
+    from nodes.execution_report import report_from
+    from test_native_attention import native_model, native_runtime, selflift_guide
+    from test_sampling_experiments import AV, AvatarSamplerNode, euler_sampler
+    model = native_model(native_runtime(monkeypatch))
+    node = AvatarSamplerNode()
+    monkeypatch.setattr(two_stage_assets, "_comfy_node_mappings", lambda: {
+        "SelfLiftAvatarH3Sampler": lambda: node})
+    guide = selflift_guide(two_stage_enabled=True)
+    guider = types.SimpleNamespace(model_patcher=model, original_conds={"positive": []})
+    latent = {"samples": AV()}
+    result = two_stage.MiniMaxH3TwoStageSampler().execute(types.SimpleNamespace(seed=42),
+        guider, euler_sampler(), torch.tensor([1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0]),
+        latent, guide, second_model=model, video_vae=object())
+    settings = report_from(result[0])["sampling_settings"]
+    assert settings["native_sparse_verified"] is True
+    assert settings["native_sparse_blocks"] == settings["native_sparse_total_blocks"] == 3
+    assert settings["selflift_attention_requested_mode"] == "global_stream"
+    assert settings["selflift_attention_route"] == "global_stream"
+    assert settings["native_sparse_verification"] == "model_patch_protocol"
+
+
 def test_selflift_uses_matched_accelerated_model_when_guider_keeps_sigma_shift_clone(monkeypatch):
     import copy
     from nodes import two_stage

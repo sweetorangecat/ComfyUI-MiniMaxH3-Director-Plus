@@ -171,13 +171,15 @@ class AvatarSpatialCompatibilityNode:
         return (latent_image.copy(),)
 
 
-def test_selflift_prefers_avatar_sampler_and_uses_global_context_recipe():
+def test_selflift_prefers_avatar_sampler_and_uses_global_context_recipe(monkeypatch):
+    from test_native_attention import native_model, native_runtime
+    model = native_model(native_runtime(monkeypatch))
     node = AvatarSamplerNode()
     guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors",
                  attention_backend="sol_attn", sol_attn_applied=True)
     latent = {"samples": AV()}
     result = experiments.run_selflift(
-        model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+        model=model, positive=[], vae=object(), sampler=euler_sampler(),
         sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
         latent=latent, seed=42, guide=guide,
         registry={"SelfLiftAvatarH3Sampler": lambda: node, "SelfLiftH3Sampler": lambda: SamplerNode()},
@@ -230,8 +232,10 @@ def test_long_video_refuses_spatial_or_unconfirmed_attention_before_sampling(fac
 
 
 @pytest.mark.parametrize("mask_case", ["missing", "video_only", "wrong_shape", "soft", "nonfinite", "valid"])
-def test_long_video_requires_both_exact_native_masks_and_passes_them_intact(mask_case):
+def test_long_video_requires_both_exact_native_masks_and_passes_them_intact(monkeypatch, mask_case):
     import torch
+    from test_native_attention import native_model, native_runtime
+    model = native_model(native_runtime(monkeypatch))
 
     class NativeAV:
         is_nested = True
@@ -261,7 +265,7 @@ def test_long_video_requires_both_exact_native_masks_and_passes_them_intact(mask
                  attention_backend="sol_attn", sol_attn_applied=True, long_video_window={"sample_frames": 328})
 
     def run():
-        return experiments.run_selflift(model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+        return experiments.run_selflift(model=model, positive=[], vae=object(), sampler=euler_sampler(),
             sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
             latent=native, seed=42, guide=guide, registry={"SelfLiftAvatarH3Sampler": lambda: node})
 
@@ -297,12 +301,14 @@ def test_adapter_unwraps_comfy_node_output_mapping():
     assert result["samples"] is latent["samples"]
 
 
-def test_avatar_sampler_does_not_require_legacy_unload_argument():
+def test_avatar_sampler_does_not_require_legacy_unload_argument(monkeypatch):
+    from test_native_attention import native_model, native_runtime
+    model = native_model(native_runtime(monkeypatch))
     node = AvatarSamplerWithoutLegacyUnload()
     guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors",
                  attention_backend="sol_attn", sol_attn_applied=True)
     experiments.run_selflift(
-        model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+        model=model, positive=[], vae=object(), sampler=euler_sampler(),
         sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
         latent={"samples": AV()}, seed=42, guide=guide,
         registry={"SelfLiftAvatarH3Sampler": lambda: node},

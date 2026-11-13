@@ -62,7 +62,8 @@ Official API source: https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extr
 2. Implement a narrow lazy provider/compatibility helper and SelfLift-only
    routing seam. Candidate files: new `nodes/native_attention.py`,
    `nodes/performance.py`, `nodes/sampling_experiments.py`,
-   `nodes/execution_report.py` and focused existing/new tests. No workflow JSON,
+   `nodes/execution_report.py`, the small report whitelists in
+   `nodes/two_stage.py` / `nodes/stream_output.py` and focused tests. No workflow JSON,
    global environment, AV timeline or UI changes.
 3. Run focused checks. Root additionally validates against actual installed
    Comfy core and captured Avatar detector on CPU, then the full Python suite
@@ -75,5 +76,18 @@ Official API source: https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extr
    author comparison, with and without H3 voice reference. Check actual native
    block/global-stream logs and material artifacts, not only flags.
 
-Status: diagnosed from actual running logs and upstream sources; implementation
-pending. This plan does not claim native streaming or GPU quality is fixed.
+Status: implementation and independent spec/quality reviews complete, no open
+P1/P2. Spec review found deferred child-object replacements could invalidate
+inspected blocks; the followup rejects block containers, indexed blocks,
+block-forward subtrees and complete attention subtrees while preserving them.
+Exact whole diffusion-model replacements and existing MLP chunk hooks remain
+supported. Focused522 tests passed after18 RED failures reproduced that gap.
+
+Root final combined suite passed2392 Python tests; protected PyAV sidecar SHA
+was restored exactly. H3 compiler/export33 checks passed against this worktree;
+JS sources are unchanged from the separately verified149-test frontend release.
+The production helper passed actual Comfy native factory/actual Avatar CPU
+detector checks for50/50 blocks, unknown/deferred hook rejection and extra256.
+A separate tiny real Comfy Kitchen sol-attn GPU kernel smoke passed on SM8.9;
+neither test loads H3 model weights or approves a generated film. Original
+four-case GPU comparison and the new native entry remain rollout validations.

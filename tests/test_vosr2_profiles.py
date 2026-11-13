@@ -35,14 +35,15 @@ def test_selflift_maps_legacy_speed_profile_to_manual_quality_profile():
 def test_manual_baseline_is_fixed_tile_without_cache_or_compile():
     from nodes.vosr2_profiles import resolve_vosr2_profile
     p = resolve_vosr2_profile('manual_baseline')
-    assert p['settings']['quality_profile'] == 'manual'
-    assert p['settings']['tile_strategy'] == 'tiled'
-    assert p['settings']['tile_size'] == 512
-    assert p['settings']['vae_tile_size'] == 1024
-    assert p['settings']['memory_policy'] == p['loader']['memory_policy'] == 'staged'
-    assert p['loader']['torch_compile'] is False
-    assert p['video']['temporal_cache'] is False
-    assert p['video']['frame_batch'] == p['settings']['frame_batch'] == 2
+    assert p == dict(name='manual_baseline', experimental=False,
+        loader=dict(model_bundle='VOSR2', precision='auto', memory_policy='staged',
+            torch_compile=False, vae_encode_amp=False),
+        settings=dict(quality_profile='manual', tile_strategy='tiled', tile_size=512,
+            tile_overlap=32, vae_tile_size=1024, vae_tile_overlap=32, image_batch=1,
+            frame_batch=2, dino_batch=2, temporal_cache=False, cache_threshold=0.003,
+            cache_refresh=4, memory_policy='staged', color_alignment='wavelet'),
+        video=dict(frame_batch=2, temporal_cache=False, cache_threshold=0.003,
+            cache_refresh=4))
 
 
 @pytest.mark.parametrize('total,free', [(None,None),(32,None),(None,28),(24,23),
@@ -73,6 +74,8 @@ def test_unknown_profile_is_rejected(profile):
 
 @pytest.mark.parametrize('supported,total,free,expected', [
     (True,32,30,8), (True,32,28,4), (False,32,28,1), (True,8,7,1),
+    (True,30,24,4), (True,32,29,8), (True,32,28.999,4),
+    (True,29.999,24,1), (True,32,23.999,1), (1,32,30,1),
     (True,32,20,1), (True,32,float('nan'),1), (True,None,None,1),
     (True,32,33,1), (True,True,28,1),
 ])
@@ -85,11 +88,41 @@ def test_tile_batch_requires_supported_backend_and_measured_headroom(supported,t
     assert result['video']['temporal_cache'] is False
 
 
-def test_explicit_manual_profile_keeps_its_comparison_settings():
+@pytest.mark.parametrize('supported,total,free,expected', [
+    (True,30,24,4), (True,32,28,4), (True,32,29,4), (True,32,32,4),
+    (True,48,40,4), (True,30.0,24.0,4),
+    (False,32,28,1), (None,32,28,1), (1,32,28,1), ('true',32,28,1),
+    (True,29.999,24,1), (True,32,23.999,1),
+])
+def test_manual_tile_batch_is_guarded_and_capped_at_four(supported,total,free,expected):
+    from nodes.vosr2_profiles import resolve_vosr2_profile
+    result = resolve_vosr2_profile('manual_baseline', supports_tile_batch=supported,
+                                  total_vram_gb=total,free_vram_gb=free)
+    baseline = resolve_vosr2_profile('manual_baseline')
+    baseline['settings']['image_batch'] = expected
+    assert result == baseline
+
+
+@pytest.mark.parametrize('total,free', [
+    (None,None), (32,None), (None,28), (32,33), (32,0), (32,-1),
+    (True,28), (False,28), (32,True), (32,False), ('32',28), (32,'28'),
+    (float('nan'),28), (32,float('nan')), (float('inf'),28), (32,float('inf')),
+])
+def test_manual_tile_batch_rejects_invalid_memory_measurements(total,free):
     from nodes.vosr2_profiles import resolve_vosr2_profile
     result = resolve_vosr2_profile('manual_baseline', supports_tile_batch=True,
-                                  total_vram_gb=32,free_vram_gb=28)
-    assert result['settings']['image_batch'] == 1
+                                  total_vram_gb=total,free_vram_gb=free)
+    assert result == resolve_vosr2_profile('manual_baseline')
+
+
+@pytest.mark.parametrize('total,free', [(30,24), (32,28), (32,32)])
+def test_experimental_profile_keeps_single_tile_batch_on_capable_backend(total,free):
+    from nodes.vosr2_profiles import resolve_vosr2_profile
+    baseline = resolve_vosr2_profile('experimental_32gb',
+                                    total_vram_gb=total,free_vram_gb=free)
+    assert baseline['settings']['image_batch'] == 1
+    assert resolve_vosr2_profile('experimental_32gb', supports_tile_batch=True,
+                                total_vram_gb=total,free_vram_gb=free) == baseline
 
 
 @pytest.fixture

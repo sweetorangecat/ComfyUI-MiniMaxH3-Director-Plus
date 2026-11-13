@@ -24,6 +24,11 @@ from .schema import (
     allowed_performance_presets,
 )
 from .sampling_experiments import motion_lora_chain, validate_sampling_options
+from .native_attention import (
+    NATIVE_ATTENTION_EVIDENCE_KEYS, SOL_ATTN_EVIDENCE_KEYS,
+    apply_native_sol_attention, inspect_native_attention, native_sparse_node,
+    reject_attention_conflicts,
+)
 from .wenwu_recipe import (
     AUTHOR_RECIPE, AUTHOR_RECIPE_ID, AUTHOR_RECIPE_VERSION, apply_author_shift,
     author_recipe_metadata, is_author_recipe, require_author_assets, validate_manual_loras,
@@ -585,7 +590,8 @@ def u22_attention_plan(guide):
     """Resolve the U22 long-sequence attention contract without changing UI choices.
 
     U22's sparse attention is only useful when there is enough VRAM to keep the
-    H3 model resident and when the external Triton kernels are available.  The
+    H3 model resident and the relevant provider is available. SelfLift uses the
+    ComfyUI native H3 block producer required by Avatar global streaming. The
     exact-KV-and-rows sink is deliberately used for every REF2VA voice mode so
     audio/reference conditioning remains dense.  All other routes retain the
     measured Sage/exact-reuse path.
@@ -613,19 +619,21 @@ def u22_attention_plan(guide):
     )
     total = guide.get("total_vram_gb")
     free = guide.get("free_vram_gb")
+    native = (guide.get("sampling_method") == "selflift" or is_author_recipe(guide)
+              or bool(guide.get("long_video_window")))
     try:
-        roomy = float(total) >= (20.0 if is_author_recipe(guide) else 24.0) and float(free) >= 18.0
+        roomy = float(total) >= (20.0 if native else 24.0) and float(free) >= 18.0
     except (TypeError, ValueError):
         roomy = False
-    available = guide.get("sol_attn_available")
+    available = None if native else guide.get("sol_attn_available")
     if available is None:
         try:
-            _sol_attn_class()
+            (native_sparse_node if native else _sol_attn_class)()
         except (AttributeError, ImportError, OSError, RuntimeError, TypeError, ValueError):
             available = False
         else:
             available = True
-        guide["sol_attn_available"] = bool(available)
+        guide["native_sparse_available" if native else "sol_attn_available"] = bool(available)
     if (
         str(guide.get("resolved_backend", "")) == "ref2va_model"
         and preset in {"quality_sage", "ref_quality_native", "quality_two_stage"}
@@ -639,6 +647,18 @@ def u22_attention_plan(guide):
 def _apply_sol_attention(model, guide):
     """Apply U22's Sol-Attn patch, preserving a dense audio/reference sink."""
     config = u22_attention_plan(guide)
+    if (guide.get("sampling_method") == "selflift" or is_author_recipe(guide)
+            or guide.get("long_video_window")):
+        patched, _ = apply_native_sol_attention(model, config)
+        patched = _apply_minimax_ffn_chunking(patched, guide)
+        evidence = inspect_native_attention(patched, config=config)
+        if not evidence["native_sparse_verified"]:
+            raise RuntimeError("Native Sol-Attn/global_stream compatibility failed: " + evidence["native_sparse_reason"])
+        _clear_sol_attention_evidence(guide)
+        guide.update(evidence)
+        guide["attention_backend"] = "sol_attn"
+        guide.pop("sampling_attention_kernel", None)
+        return patched
     patch = _sol_attn_class()
     positional = (
         model,
@@ -670,6 +690,7 @@ def _apply_sol_attention(model, guide):
         raise RuntimeError("Sol-Attn 未返回模型")
     patched = _apply_minimax_ffn_chunking(patched, guide)
     guide["attention_backend"] = "sol_attn"
+    guide["sol_attn_provider"] = "legacy_sol_attn"
     guide["sol_attn_applied"] = True
     guide["sol_attn_tau"] = config["tau"]
     guide["sol_attn_min_tokens"] = config["min_tokens"]
@@ -692,12 +713,7 @@ def _clear_sol_attention_evidence(guide):
     """Remove Sol-Attn claims after a patch attempt falls back."""
     if guide.get("attention_backend") == "sol_attn":
         guide.pop("attention_backend", None)
-    for key in (
-        "sol_attn_applied", "sol_attn_tau", "sol_attn_min_tokens",
-        "sol_attn_extra_tokens_requested", "sol_attn_extra_tokens_applied",
-        "sol_attn_extra_tokens", "sol_attn_sink_conditioning",
-        "sol_attn_int8_qk", "sol_attn_int8_pv",
-    ):
+    for key in (*SOL_ATTN_EVIDENCE_KEYS, *NATIVE_ATTENTION_EVIDENCE_KEYS):
         guide.pop(key, None)
 
 
@@ -777,6 +793,10 @@ def _apply_sage_attention(model, guide):
 
 def _apply_minimax_reuse_attention(model, guide):
     """Reduce H3 attention peak by reusing consumed fused-QKV storage."""
+    if guide.get("sampling_method") == "selflift":
+        # The exact fallback bypasses optimized_attention_override. Refuse
+        # inherited semantics instead of silently discarding them on fallback.
+        reject_attention_conflicts(model)
     chunks, source = _resolve_attention_chunks(guide)
     head_chunks, projection_chunks, mlp_chunks = chunks
     guide["minimax_head_chunks"] = head_chunks
@@ -1288,6 +1308,7 @@ class MiniMaxH3SchedulerRouter:
 
 def _reset_h3_acceleration_state(guide, error=None):
     """Clear stale LoRA route results before a new acceleration attempt."""
+    _clear_sol_attention_evidence(guide)
     guide.pop("turbo_lora_applied", None)
     guide.pop("turbo_lora_error", None)
     guide.pop("first_lora_name", None)
@@ -1644,6 +1665,7 @@ def _restore_selflift_natural_texture_base(model, guide):
     guide["detail_lora_override"] = None
     guide["natural_texture_policy"] = "selflift_u22_baseline"
     guide["natural_texture_source"] = "upstream_mystic_v5_replaced"
+    _clear_sol_attention_evidence(guide)
     LOGGER.info(
         "[H3 natural texture] SelfLift 已将上游 Mystic V5@%s 替换为 U22 基线；"
         "标准 REF2VA/FL2VA 路线仍保留 V5 可选行为",
@@ -1718,16 +1740,8 @@ def _apply_two_stage_models(model, guide, plan, values):
     guide.pop("mlp_chunking_error", None)
     guide.pop("minimax_mlp_seq_threshold", None)
     guide.pop("attention_backend", None)
-    guide.pop("sol_attn_applied", None)
+    _clear_sol_attention_evidence(guide)
     guide.pop("sol_attn_error", None)
-    guide.pop("sol_attn_tau", None)
-    guide.pop("sol_attn_min_tokens", None)
-    guide.pop("sol_attn_extra_tokens_requested", None)
-    guide.pop("sol_attn_extra_tokens_applied", None)
-    guide.pop("sol_attn_extra_tokens", None)
-    guide.pop("sol_attn_sink_conditioning", None)
-    guide.pop("sol_attn_int8_qk", None)
-    guide.pop("sol_attn_int8_pv", None)
     guide["minimax_head_chunks"] = int(values.get("minimax_head_chunks", 8))
     base_table_sha = _fingerprint_base_model(original_model)
     guide["base_table_sha"] = base_table_sha
@@ -1756,9 +1770,10 @@ def _apply_two_stage_models(model, guide, plan, values):
     )
     two_stage_sage = not selflift and not sol_attn_two_stage and _env_flag("MMH3_TWO_STAGE_SAGE", True)
     second_stage_sage = two_stage_sage and _env_flag("MMH3_SECOND_STAGE_SAGE", True)
+    strict_native = author or bool(guide.get("long_video_window"))
     try:
-        if author and not sol_attn_two_stage:
-            raise RuntimeError("文武双全作者配方需要原生 Sol-Attn/global_stream，当前不可用，已停止")
+        if strict_native and not sol_attn_two_stage:
+            raise RuntimeError("文武双全作者配方或原生长视频需要原生 Sol-Attn/global_stream，当前不可用，已停止")
         shared_lora = (
             plan["second_lora_name"] == plan["first_lora_name"]
             and plan["second_lora_strength"] == plan["first_lora_strength"]
@@ -1791,6 +1806,11 @@ def _apply_two_stage_models(model, guide, plan, values):
             if detail_chain_route:
                 second_model = _apply_ref_detail_loras(second_model, guide)
         shared_second_model = second_model is first_model
+        if author:
+            # The native provider converts percent bounds to sigma at patch
+            # time. Use the actual author 12/3 sampling object for those bounds.
+            first_model = apply_author_shift(first_model, guide)
+            second_model = first_model
         if sol_attn_two_stage:
             unpatched_first_model = first_model
             unpatched_second_model = second_model
@@ -1803,8 +1823,8 @@ def _apply_two_stage_models(model, guide, plan, values):
                 guide["sol_attn_applied"] = True
                 guide["attention_backend"] = "sol_attn"
             except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
-                if author:
-                    raise RuntimeError(f"文武双全作者配方需要原生 Sol-Attn/global_stream，加载失败：{exc}") from exc
+                if strict_native:
+                    raise RuntimeError(f"文武双全作者配方或原生长视频需要原生 Sol-Attn/global_stream，加载失败：{exc}") from exc
                 # A stale Triton/Sol-Attn build must not make the quality
                 # route bypass the trained sampler.  Re-enter the same Sage
                 # or exact-reuse decision used by the older route.
@@ -1887,7 +1907,6 @@ def _apply_two_stage_models(model, guide, plan, values):
         return original_model, "训练型二采模型或精确分块补丁不可用，已在采样前安全旁路", False, original_model
 
     if author:
-        first_model = apply_author_shift(first_model, guide)
         first_model.model_options["mmh3_author_recipe_id"] = AUTHOR_RECIPE_ID
         second_model = first_model
     guide["turbo_lora_applied"] = True

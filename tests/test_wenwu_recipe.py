@@ -171,16 +171,20 @@ def test_direct_author_router_infers_ref_backend_from_validated_mode(monkeypatch
 
 def test_author_global_attention_unavailable_cannot_fall_back(monkeypatch):
     model, _ = install_router_stubs(monkeypatch)
+    def unavailable():
+        raise RuntimeError("Native BlockSparseAttention is unavailable")
+    monkeypatch.setattr(performance, "native_sparse_node", unavailable)
     with pytest.raises(RuntimeError, match="Sol-Attn|global_stream"):
         performance.MiniMaxH3AccelerationRouter().apply(model, guide(sol_attn_available=False))
 
 
-def test_author_run_accepts_thirteen_sigmas_and_reports_six_plus_six():
+def test_author_run_accepts_thirteen_sigmas_and_reports_six_plus_six(monkeypatch):
     from test_sampling_experiments import AV, AvatarSamplerNode, euler_sampler
+    from test_native_attention import native_model, native_runtime
     node = AvatarSamplerNode()
     selected = guide(selflift_upscaler_model=UPSCALER, attention_backend="sol_attn", sol_attn_applied=True)
     latent = {"samples": AV(), "history": object()}
-    model = types.SimpleNamespace(get_model_object=lambda name: types.SimpleNamespace(shift=12., audio_shift=3.))
+    model = native_model(native_runtime(monkeypatch))
     result = experiments.run_selflift(model, [], object(), euler_sampler(),
         [1, .96, .9, .85, .75, .65, .5, .4, .3, .2, .1, .04, 0], latent, 42,
         selected, registry={"SelfLiftAvatarH3Sampler": lambda: node})
@@ -246,10 +250,11 @@ def test_direct_author_run_requires_the_exact_lms_lifter(upscaler):
 
 
 @pytest.mark.parametrize("prefix", ["minimax/", "minimax\\"])
-def test_direct_author_run_accepts_the_exact_lms_lifter_in_registered_subdirectories(prefix):
+def test_direct_author_run_accepts_the_exact_lms_lifter_in_registered_subdirectories(monkeypatch, prefix):
     from test_sampling_experiments import AV, AvatarSamplerNode, euler_sampler
+    from test_native_attention import native_model, native_runtime
     node = AvatarSamplerNode()
-    model = types.SimpleNamespace(get_model_object=lambda name: types.SimpleNamespace(shift=12., audio_shift=3.))
+    model = native_model(native_runtime(monkeypatch))
     latent = {"samples": AV()}
     experiments.run_selflift(model, [], object(), euler_sampler(),
         [1, .96, .9, .85, .75, .65, .5, .4, .3, .2, .1, .04, 0], latent, 42,

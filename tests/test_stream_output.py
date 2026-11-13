@@ -219,6 +219,22 @@ def test_output_reports_executed_sampling_and_selected_sr(monkeypatch):
             assert metadata[key] == value
 
 
+def test_output_preserves_verified_native_attention_and_compatible_route(monkeypatch):
+    evidence = dict(sol_attn_provider="comfy_native_block_sparse",
+        native_sparse_verified=True, native_sparse_blocks=50, native_sparse_total_blocks=50,
+        native_sparse_override_verified=True, native_sparse_reason=None,
+        native_sparse_verification="model_patch_protocol", native_sparse_start_sigma=.8,
+        native_sparse_end_sigma=0., selflift_attention_requested_mode="global_stream",
+        selflift_attention_route="global_stream", sol_attn_start_percent=.2,
+        sol_attn_end_percent=1.)
+    result = _combine(monkeypatch, dict(evidence, target_width=2, target_height=2,
+        postprocess_path="native_bypass"), torch.zeros(1, 2, 2, 3), [], save_metadata=False)
+    for key, value in evidence.items():
+        assert result["ui"][key] == [value]
+        for asset in (result["ui"]["images"][0], result["ui"]["gifs"][0]):
+            assert asset[key] == value
+
+
 def test_output_ui_metadata_is_expandable_by_comfyui(monkeypatch):
     """ComfyUI flattens every top-level UI field after an output node runs."""
     result = _combine(

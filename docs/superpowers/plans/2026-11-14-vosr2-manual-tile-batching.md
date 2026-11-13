@@ -65,5 +65,10 @@ and its `visuals/` directory; remote raw float tensors remain in
   final functional release. Review actual whole output and measure sampling,
   VOSR2 and total separately; the small probe is not a full-film speed claim.
 
-Status: actual GPU microprobe and limited visual inspection complete;
-production candidate not implemented or deployed by this plan.
+Status: measured manual4 candidate implemented; RED6 failures/81 passed became
+87 profile tests passed. Independent spec and quality reviews approved the
+guarded policy with no P1/P2; quality additionally checked5832 profile cases.
+Root final combined suite passed2392 Python tests, restoring the protected
+sidecar exactly. The production rollout and original full15s story comparison
+remain separate from this completed12-frame probe; this plan does not mark
+their visual quality or whole-job speed as passed.

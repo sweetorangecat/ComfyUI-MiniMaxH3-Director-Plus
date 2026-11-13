@@ -39,12 +39,13 @@ def resolve_vosr2_profile(profile='legacy', *, free_vram_gb=None, total_vram_gb=
                              '空闲显存至少 24 GiB；无法测量或不足时请显式选择 manual_baseline。')
     legacy = profile == 'legacy'
     # The Linux compatibility backend batches independent spatial DiT tiles.
-    # A fully idle 32GB card has enough headroom for eight tiles; keeping four
-    # for the lower-headroom case avoids trading an OOM for a small speed gain.
+    # A 12-frame manual-quality probe there favored four over one/eight.
+    # Keep manual at four while preserving the legacy 4/8 headroom policy.
     tile_batch = (
         8 if legacy and supports_tile_batch is True and roomy
         and float(free_vram_gb) >= 29.0
-        else 4 if legacy and supports_tile_batch is True and roomy else 1
+        else 4 if (legacy or profile == 'manual_baseline')
+        and supports_tile_batch is True and roomy else 1
     )
     frame_batch = 4 if experimental else 2
     policy = 'auto' if legacy else 'staged'

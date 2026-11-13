@@ -21,6 +21,10 @@ import logging
 import math
 import time
 
+from .native_attention import (
+    NATIVE_ATTENTION_EVIDENCE_KEYS, SOL_ATTN_EVIDENCE_KEYS, inspect_native_attention,
+)
+
 LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus.Execution")
 REPORT_KEY = "_h3_execution_report"
 MAX_STAGES = 64
@@ -46,6 +50,8 @@ _PLAN_KEYS = (
     "selflift_highres_token_chunk", "selflift_highres_weight_cache_gb",
     "selflift_node_id", "selflift_node_variant",
     "selflift_global_stream_supported", "selflift_speed_warning",
+    *NATIVE_ATTENTION_EVIDENCE_KEYS,
+    "sol_attn_start_percent", "sol_attn_end_percent",
     "author_recipe_id", "author_recipe_version", "sampling_method", "community_lora_profile",
 )
 _RECIPE_KEYS = (
@@ -69,6 +75,7 @@ _SAMPLING_KEYS = (
     "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
     "selflift_node_id", "selflift_node_variant",
     "selflift_global_stream_supported", "selflift_speed_warning",
+    *NATIVE_ATTENTION_EVIDENCE_KEYS, *SOL_ATTN_EVIDENCE_KEYS,
     "selflift_lowres_scale", "selflift_cfg", "selflift_transition_step",
     "author_recipe_id", "author_recipe_version",
     "two_stage_first_executed_steps", "two_stage_second_executed_steps",
@@ -208,6 +215,14 @@ def sampling_settings(guide, *, model=None, sampler=None, sigmas=None, second_mo
         settings["author_adapters_applied"] = _additional_lora_snapshot(guide, "author_adapters_applied")
         settings.update(_scalars(guide, ("author_recipe_id", "author_recipe_version")))
     settings.update(evidence="sampler_inputs", origin="current_execution")
+    if guide.get("sampling_method") == "selflift":
+        attention = inspect_native_attention(model)
+        settings.update(attention)
+        settings["sol_attn_applied"] = attention["native_sparse_verified"]
+        settings.update(_scalars(guide, ("selflift_attention_requested_mode", "selflift_attention_route")))
+        if not attention["native_sparse_verified"]:
+            strict = guide.get("long_video_window") or guide.get("community_lora_profile") == "combat"
+            settings["selflift_attention_route"] = "unavailable" if strict else "spatial_compatibility"
     sampler_name = getattr(sampler, "_h3_sampler_name", None)
     sampler_source = "sampler_object"
     if not isinstance(sampler_name, str):
