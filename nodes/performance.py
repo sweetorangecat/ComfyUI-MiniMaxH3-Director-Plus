@@ -24,6 +24,10 @@ from .schema import (
     allowed_performance_presets,
 )
 from .sampling_experiments import motion_lora_chain, validate_sampling_options
+from .wenwu_recipe import (
+    AUTHOR_RECIPE, AUTHOR_RECIPE_ID, AUTHOR_RECIPE_VERSION, apply_author_shift,
+    author_recipe_metadata, is_author_recipe, require_author_assets, validate_manual_loras,
+)
 from .additional_loras import (
     MYSTIC_V5_FL,
     MYSTIC_V5_REF,
@@ -610,7 +614,7 @@ def u22_attention_plan(guide):
     total = guide.get("total_vram_gb")
     free = guide.get("free_vram_gb")
     try:
-        roomy = float(total) >= 24.0 and float(free) >= 18.0
+        roomy = float(total) >= (20.0 if is_author_recipe(guide) else 24.0) and float(free) >= 18.0
     except (TypeError, ValueError):
         roomy = False
     available = guide.get("sol_attn_available")
@@ -829,7 +833,9 @@ def _runtime_preset_values(guide, preset):
     """Apply route-specific quality guards on top of the shared preset."""
     values = preset_values(preset, guide.get("resolved_backend"))
     if guide.get("sampling_method", "standard") == "selflift":
-        values.update(steps=10, two_stage_split_step=6, use_sage=False, use_cache=False)
+        values.update(steps=AUTHOR_RECIPE.steps if is_author_recipe(guide) else 10,
+                      two_stage_split_step=AUTHOR_RECIPE.transition_step if is_author_recipe(guide) else 6,
+                      use_sage=False, use_cache=False)
     # EasyCache is not part of the official T2VA Turbo recipe and can soften
     # fast text-only motion. Keep T2VA fast mode to Turbo + Sage only.
     if guide.get("mode") == "T2VA" and preset == "fast_4step":
@@ -914,6 +920,8 @@ class MiniMaxH3PerformancePreset:
         }
         if guide.get("sampling_method") == "selflift":
             descriptions[name] = "SelfLift 短视频实验：U22 DMAD+Mystic（缺失时回退 v4+Mystic），beta/Euler 共 10 步，0.6 倍网格前 6 步 + 目标网格后 4 步；优先 Sol-Attn，缺失时精确注意力"
+            if is_author_recipe(guide):
+                descriptions[name] = "文武双全（作者配方）：DMAD FRO .8 → Mystic V1 .35 → Combat V2 .65 → Motion Repair V2 .35 → Fight Flow V1 .35 → canonical speed1.1 3；LMS v0.1，simple/Euler 12 步（6+6）、CFG1、shift12/3、低网格0.6；现代 Avatar/Sol-Attn global_stream 适配"
         if mode == "T2VA" and name == "fast_4step":
             descriptions[name] = "T2VA 极速 4 步：官方 H3 Turbo + Sage，关闭 EasyCache 以减少细节损失"
         if name == "low_vram_two_stage" and acceleration_ready is not True:
@@ -943,6 +951,9 @@ class MiniMaxH3PerformancePreset:
 
 
 def _safe_guide_preset(guide):
+    if is_author_recipe(guide):
+        guide.update(validate_sampling_options(guide))
+        guide.setdefault("resolved_backend", "ref2va_model")
     if guide.get("sampling_method") == "selflift":
         validate_sampling_options(guide)
         if guide.get("resolved_backend", "ref2va_model") != "ref2va_model":
@@ -1040,7 +1051,14 @@ def acceleration_plan(guide):
                 # followed by Mystic.  Existing installs may only have the
                 # pruned turbo-v4 adapter, so resolve the best installed
                 # recipe and keep the same model for both SelfLift phases.
-                recipe = guide.get("selflift_lora_recipe") or resolve_selflift_lora_recipe()
+                if is_author_recipe(guide):
+                    assets = require_author_assets(resolve_registered_model_name)
+                    recipe = assets["lora_recipe"]
+                    guide.update(author_recipe_id=AUTHOR_RECIPE_ID, author_recipe_version=AUTHOR_RECIPE_VERSION,
+                                 sampling_recipe=author_recipe_metadata(), selflift_upscaler_model=assets["upscaler_model"],
+                                 author_adapters_required=[{"name": row["name"], "strength": row["strength"]} for row in assets["loras"]])
+                else:
+                    recipe = guide.get("selflift_lora_recipe") or resolve_selflift_lora_recipe()
                 if recipe is None:
                     # Unit-test doubles and older graph loaders may not expose
                     # folder_paths while still providing the proven v4 model.
@@ -1110,7 +1128,10 @@ def scheduler_plan(guide):
     if guide.get("sampling_method") == "selflift":
         if guide.get("two_stage_enabled") is False:
             raise RuntimeError("SelfLift 模型路线未就绪，已阻止 standard 旁路")
-        return {"scheduler": "beta", "steps": 10, "split_step": 6, "refine_reference_tail": False}
+        return {"scheduler": AUTHOR_RECIPE.scheduler if is_author_recipe(guide) else "beta",
+                "steps": AUTHOR_RECIPE.steps if is_author_recipe(guide) else 10,
+                "split_step": AUTHOR_RECIPE.transition_step if is_author_recipe(guide) else 6,
+                "refine_reference_tail": False}
     if preset in TWO_STAGE_PERFORMANCE_PRESETS and guide.get("two_stage_enabled") is not False:
         route = resolve_two_stage_route(guide)
         if route == "trained_latent_ref":
@@ -1221,6 +1242,7 @@ class MiniMaxH3SchedulerRouter:
 
         plan = scheduler_plan(guide)
         model = apply_balanced_shift(model, guide)
+        model = apply_author_shift(model, guide)
         # A legacy REF2VA guide may carry an 8-step trained-two-stage value.
         # After normalizing it to quality_sage, use the normalized 20-step
         # schedule instead of trusting the stale connected widget value.
@@ -1405,6 +1427,16 @@ def _apply_ref_detail_loras(model, guide):
     (MMH3_EXTRA_LORAS=0 disables).  Each adapter is skipped with an info
     log when no candidate file is registered.
     """
+    if is_author_recipe(guide):
+        assets = require_author_assets(resolve_registered_model_name)
+        applied = []
+        for row in assets["loras"][1:]:
+            model = _load_lightx2v_lora(model, row["name"], strength=row["strength"])
+            applied.append(f"{row['name']}@{row['strength']}")
+            guide.setdefault("author_adapters_applied", []).append({"name": row["name"], "strength": row["strength"]})
+        guide["detail_loras_applied"] = applied
+        guide["community_loras_applied"] = applied
+        return model
     applied = []
     chain = []
     profile = guide.get("community_lora_profile", "legacy")
@@ -1661,6 +1693,9 @@ def _apply_two_stage_models(model, guide, plan, values):
     """Build independently patched first/second models for trained sampling."""
     original_model = model
     selflift = guide.get("sampling_method") == "selflift"
+    author = is_author_recipe(guide)
+    if author:
+        guide["author_adapters_applied"] = []
     # U22 recipe (validated on the user's RTX 4080): the INT8 hybrid base
     # checkpoint runs KJNodes' memory-efficient SageAttention on BOTH stages
     # cleanly — it is the difference between ~48 s/it and single-digit
@@ -1717,11 +1752,13 @@ def _apply_two_stage_models(model, guide, plan, values):
     u22_plan = u22_attention_plan(guide)
     sol_attn_two_stage = (
         u22_plan["backend"] == "sol_attn"
-        and _env_flag("MMH3_TWO_STAGE_SOL_ATTN", True)
+        and (author or _env_flag("MMH3_TWO_STAGE_SOL_ATTN", True))
     )
     two_stage_sage = not selflift and not sol_attn_two_stage and _env_flag("MMH3_TWO_STAGE_SAGE", True)
     second_stage_sage = two_stage_sage and _env_flag("MMH3_SECOND_STAGE_SAGE", True)
     try:
+        if author and not sol_attn_two_stage:
+            raise RuntimeError("文武双全作者配方需要原生 Sol-Attn/global_stream，当前不可用，已停止")
         shared_lora = (
             plan["second_lora_name"] == plan["first_lora_name"]
             and plan["second_lora_strength"] == plan["first_lora_strength"]
@@ -1739,6 +1776,8 @@ def _apply_two_stage_models(model, guide, plan, values):
             plan["first_lora_name"],
             strength=plan["first_lora_strength"],
         )
+        if author:
+            guide["author_adapters_applied"].append({"name": plan["first_lora_name"], "strength": plan["first_lora_strength"]})
         if detail_chain_route:
             first_model = _apply_ref_detail_loras(first_model, guide)
         if share_model:
@@ -1764,6 +1803,8 @@ def _apply_two_stage_models(model, guide, plan, values):
                 guide["sol_attn_applied"] = True
                 guide["attention_backend"] = "sol_attn"
             except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                if author:
+                    raise RuntimeError(f"文武双全作者配方需要原生 Sol-Attn/global_stream，加载失败：{exc}") from exc
                 # A stale Triton/Sol-Attn build must not make the quality
                 # route bypass the trained sampler.  Re-enter the same Sage
                 # or exact-reuse decision used by the older route.
@@ -1845,6 +1886,10 @@ def _apply_two_stage_models(model, guide, plan, values):
             raise RuntimeError(f"SelfLift 精确注意力或模型配置失败，已停止：{exc}") from exc
         return original_model, "训练型二采模型或精确分块补丁不可用，已在采样前安全旁路", False, original_model
 
+    if author:
+        first_model = apply_author_shift(first_model, guide)
+        first_model.model_options["mmh3_author_recipe_id"] = AUTHOR_RECIPE_ID
+        second_model = first_model
     guide["turbo_lora_applied"] = True
     guide["two_stage_enabled"] = True
     guide["two_stage_status"] = "待执行"
@@ -2147,7 +2192,14 @@ class MiniMaxH3AccelerationRouter:
         prompt=None,
         unique_id=None,
     ):
+        if is_author_recipe(guide):
+            guide.update(validate_sampling_options(guide))
         rows = upstream_loras(prompt, unique_id)
+        retained = guide.get("additional_loras_requested") or []
+        if is_author_recipe(guide):
+            validate_manual_loras([*rows, *retained])
+            if not rows:
+                rows = [dict(row, model_type=row.get("model_type", "Basic")) for row in retained]
         backend = guide.get("resolved_backend", "fl2va_model")
         selection = mystic_v5_selection(rows, backend)
         guide["additional_loras_requested"] = [

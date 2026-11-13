@@ -74,6 +74,34 @@ def paths(snapshot):
     return {Path(record['path']).name for record in snapshot['records'].values()}
 
 
+def test_author_freezes_seven_exact_assets_and_strengths_without_optional_env(registry):
+    from test_wenwu_recipe import LORAS, UPSCALER
+    for name, _ in LORAS:
+        registry.install('loras', 'author/' + name)
+    registry.install('latent_upscale_models', 'author/' + UPSCALER)
+    original = graph('combat')
+    original['director']['inputs']['sampling_method'] = 'standard'
+    assets = module()
+    frozen = assets.freeze_native_assets(original, registry, environ={'MMH3_DETAIL_LORAS': '0', 'MMH3_EXTRA_LORAS': '0'})
+    assert paths(frozen) == {name for name, _ in LORAS} | {UPSCALER}
+    choices = frozen['choices']['selections']
+    actual = {Path(item['selected'][0]['name']).name: item['strength'] for item in choices.values() if item['category'] == 'loras'}
+    assert actual == dict(LORAS)
+    assert frozen['choices']['author_recipe_id']
+    assert original['director']['inputs']['sampling_method'] == 'standard'
+    registry.install('loras', 'author/' + LORAS[-1][0], b'updated speed')
+    assert assets.freeze_native_assets(original, registry, environ={})['records'] != frozen['records']
+
+
+def test_author_fingerprint_tracks_installation_of_exact_fro_without_accepting_plain_dmad(registry):
+    assets = module()
+    absent = assets.native_asset_choices(graph('combat'), registry, environ={})
+    assert any('minimax_h3_dmad_full_dareties_v4_step600_comfy_fro' in label for label in absent['missing'])
+    registry.install('loras', 'new/minimax_h3_dmad_full_dareties_v4_step600_comfy_fro.safetensors')
+    present = assets.native_asset_choices(graph('combat'), registry, environ={})
+    assert absent != present
+
+
 def test_selected_optional_motion_weights_and_actual_bytes_are_frozen(registry):
     assets = module()
     motion = registry.install('loras', 'vendor/' + MOTION_LORA_CANDIDATES[0], b'motion-A')
@@ -101,13 +129,15 @@ def test_installation_and_first_registered_candidate_changes_are_visible_without
     assert MOTION_LORA_CANDIDATES[1] not in paths(snapshot)
 
 
-def test_combat_adds_both_optional_models_while_off_does_not(registry):
+def test_combat_replaces_old_optional_motion_with_exact_author_chain_while_off_stays_ordinary(registry):
     assets = module()
     registry.install('loras', MOTION_LORA_CANDIDATES[0])
     registry.install('loras', 'H3_Combat_V2.safetensors')
+    registry.install('loras', 'Motion_Repair_V2.safetensors')
     combat = assets.freeze_native_assets(graph('combat'), registry, environ={})
     off = assets.freeze_native_assets(graph('off'), registry, environ={})
-    assert {'H3_Combat_V2.safetensors', MOTION_LORA_CANDIDATES[0]} <= paths(combat)
+    assert {'H3_Combat_V2.safetensors', 'Motion_Repair_V2.safetensors'} <= paths(combat)
+    assert MOTION_LORA_CANDIDATES[0] not in paths(combat)
     assert 'H3_Combat_V2.safetensors' not in paths(off)
     assert MOTION_LORA_CANDIDATES[0] not in paths(off)
     assert SELFLIFT_MYSTIC_LORA in paths(off)

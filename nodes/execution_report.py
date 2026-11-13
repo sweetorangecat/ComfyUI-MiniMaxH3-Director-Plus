@@ -46,12 +46,17 @@ _PLAN_KEYS = (
     "selflift_highres_token_chunk", "selflift_highres_weight_cache_gb",
     "selflift_node_id", "selflift_node_variant",
     "selflift_global_stream_supported", "selflift_speed_warning",
+    "author_recipe_id", "author_recipe_version", "sampling_method", "community_lora_profile",
 )
 _RECIPE_KEYS = (
     "id", "key", "name", "preset", "route", "backend", "adapter", "adapter_name", "lora_name",
     "adapter_filename", "lora_strength", "strength", "steps", "sampler", "sampler_name",
     "scheduler", "video_shift", "audio_shift", "resolution", "native_resolution",
     "use_cache", "use_sage", "two_stage",
+    "version", "transition_step", "cfg", "lowres_scale", "rho", "w_min", "w_max",
+    "upscaler_model", "canonical_speed_model", "canonical_speed_identity",
+    "execution_adaptation", "archived_highres_tiling", "highres_tiling_mode",
+    "motion_nodes_archived_bypassed", "archive_sha256",
 )
 _DETAIL_KEYS = (
     "path", "steps", "first_steps", "second_steps", "frame_count", "width", "height",
@@ -64,6 +69,10 @@ _SAMPLING_KEYS = (
     "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
     "selflift_node_id", "selflift_node_variant",
     "selflift_global_stream_supported", "selflift_speed_warning",
+    "selflift_lowres_scale", "selflift_cfg", "selflift_transition_step",
+    "author_recipe_id", "author_recipe_version",
+    "two_stage_first_executed_steps", "two_stage_second_executed_steps",
+    "two_stage_first_sigma_count", "two_stage_second_sigma_count",
 )
 
 
@@ -81,8 +90,8 @@ def _scalars(source, keys):
     return result
 
 
-def _additional_lora_snapshot(source):
-    rows = source.get("additional_loras_requested") if isinstance(source, dict) else None
+def _additional_lora_snapshot(source, key="additional_loras_requested"):
+    rows = source.get(key) if isinstance(source, dict) else None
     if not isinstance(rows, (list, tuple)):
         return None
     result = []
@@ -100,10 +109,18 @@ def _additional_lora_snapshot(source):
     return result
 
 
+def _author_adapters(source, target):
+    for key in ("author_adapters_required", "author_adapters_applied"):
+        rows = _additional_lora_snapshot(source, key)
+        if rows is not None:
+            target[key] = rows
+
+
 def execution_plan(guide):
     """Describe routing and endpoint semantics without serializing references."""
     guide = guide or {}
     plan = _scalars(guide, _PLAN_KEYS)
+    _author_adapters(guide, plan)
     additional_loras = _additional_lora_snapshot(guide)
     if additional_loras is not None:
         plan["additional_loras_requested"] = additional_loras
@@ -148,6 +165,7 @@ def _plan_snapshot(source):
     if not isinstance(source, dict):
         return {}
     plan = _scalars(source, (*_PLAN_KEYS, "route"))
+    _author_adapters(source, plan)
     additional_loras = _additional_lora_snapshot(source)
     if additional_loras is not None:
         plan["additional_loras_requested"] = additional_loras
@@ -186,6 +204,9 @@ def sampling_settings(guide, *, model=None, sampler=None, sigmas=None, second_mo
     """
     guide = guide or {}
     settings = _scalars(guide, ("first_lora_name", "first_lora_strength", "second_lora_name", "second_lora_strength"))
+    if guide.get("author_adapters_applied"):
+        settings["author_adapters_applied"] = _additional_lora_snapshot(guide, "author_adapters_applied")
+        settings.update(_scalars(guide, ("author_recipe_id", "author_recipe_version")))
     settings.update(evidence="sampler_inputs", origin="current_execution")
     sampler_name = getattr(sampler, "_h3_sampler_name", None)
     sampler_source = "sampler_object"
@@ -222,6 +243,8 @@ def sampling_settings(guide, *, model=None, sampler=None, sigmas=None, second_mo
 
 def _sampling_snapshot(source):
     result = _scalars(source, _SAMPLING_KEYS)
+    if source.get("author_adapters_applied"):
+        result["author_adapters_applied"] = _additional_lora_snapshot(source, "author_adapters_applied")
     for key in ("scheduler_model_sampling", "second_model_sampling"):
         if isinstance(source.get(key), dict):
             result[key] = _scalars(source[key], ("video_shift", "audio_shift"))

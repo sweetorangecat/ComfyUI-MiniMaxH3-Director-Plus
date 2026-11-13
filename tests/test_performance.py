@@ -973,7 +973,6 @@ def test_selflift_replaces_upstream_mystic_v5_with_clean_parent():
 @pytest.mark.parametrize("profile,motion_chain", [
     ("off", []),
     ("continuity", [("Motion_Repair.safetensors", 0.25)]),
-    ("combat", [("Motion_Repair.safetensors", 0.25), ("H3_Combat_V2.safetensors", 0.5)]),
     ("legacy", []),
 ])
 @pytest.mark.parametrize("core_name,core_strength", [(SELFLIFT_DMAD_LORA, 0.8), (V4_TURBO_LORA, 1.0)])

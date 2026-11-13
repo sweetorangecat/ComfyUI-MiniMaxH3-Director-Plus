@@ -138,6 +138,11 @@ def roles(graph):
     sampler = one(relevant, "MiniMaxH3TwoStageSampler")
     guide = one(relevant, "MiniMaxH3DirectorPlusGuide")
     settings = relevant[director]["inputs"]
+    if settings.get("community_lora_profile") == "combat":
+        from .sampling_experiments import validate_sampling_options
+        normalized = dict(settings, performance_preset={"质量优先二采样": "quality_two_stage"}.get(
+            settings.get("performance_preset"), settings.get("performance_preset")))
+        settings.update(validate_sampling_options(normalized))
     if (settings.get("mode") != "REF2VA" or settings.get("sampling_method", "standard") != "selflift"
             or settings.get("performance_preset") not in {"quality_two_stage", "质量优先二采样"}):
         raise ValueError("长视频当前使用已验证的 REF2VA / 质量优先二采样 / SelfLift 路线，请在原导演台选择这些设置")
@@ -249,7 +254,8 @@ def generation_settings(base):
     # on the final SR size. Preserve its derived canvas in the generation key.
     from .sampling_experiments import plan_selflift_dimensions
     width, height = output_canvas(settings)
-    canvas = plan_selflift_dimensions(width, height, 13, 32, 28)
+    canvas = plan_selflift_dimensions(width, height, 13, 32, 28,
+                                    community_lora_profile=settings.get("community_lora_profile", "off"))
     for key in ("width", "height", "resolution_preset", "postprocess_mode", "vosr2_profile",
                 "rtx_quality", "ai_upscale_model", "audio_loudness", "duration", "prompt", "seed"):
         settings.pop(key, None)

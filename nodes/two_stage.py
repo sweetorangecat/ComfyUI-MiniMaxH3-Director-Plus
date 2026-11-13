@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from .sampling_experiments import run_selflift, validate_sampling_options
+from .wenwu_recipe import AUTHOR_LORAS, AUTHOR_RECIPE_ID, apply_author_shift, is_author_recipe
 from .execution_report import attach_report, new_report, sampling_settings, stage_timer
 from .two_stage_assets import (
     resolve_split_upscale_callables,
@@ -470,6 +471,15 @@ def _matched_selflift_model(guide, second_model):
         return False
     first_lora = str(guide.get("first_lora_name") or "")
     second_lora = str(guide.get("second_lora_name") or "")
+    if is_author_recipe(guide):
+        return bool(
+            first_lora == second_lora
+            and first_lora.replace("\\", "/").rsplit("/", 1)[-1] == AUTHOR_LORAS[0].filename
+            and guide.get("sol_attn_applied")
+            and guide.get("attention_backend") == "sol_attn"
+            and guide.get("resolved_two_stage_route") == "trained_latent_ref"
+            and getattr(second_model, "model_options", {}).get("mmh3_author_recipe_id") == AUTHOR_RECIPE_ID
+        )
     return bool(first_lora and first_lora == second_lora and "v4" in first_lora.lower())
 
 
@@ -629,6 +639,8 @@ class MiniMaxH3TwoStageSampler:
         self, noise, guider, sampler, sigmas, latent_image, guide=None,
         second_model=None, video_vae=None,
     ):
+        if is_author_recipe(guide):
+            guide.update(validate_sampling_options(guide))
         report = new_report(guide, latent_image)
         enabled = self._enabled(guide)
         with stage_timer(report, "sampling", path="two_stage" if enabled else "native",
@@ -658,6 +670,15 @@ class MiniMaxH3TwoStageSampler:
         from .performance import memory_policy, validate_scheduler_model
 
         guide = guide or {}
+        if is_author_recipe(guide):
+            guide.update(validate_sampling_options(guide))
+            if not _matched_selflift_model(guide, second_model):
+                raise ValueError("文武双全作者配方必须连接已完整加载且启用原生 Sol-Attn 的匹配加速路由模型")
+            # Old graphs may keep a manual 10/5 SigmaShift clone on BasicGuider.
+            # Normalize its sampler signature before checking the 12/3 schedule.
+            guider = copy.copy(guider)
+            guider.model_patcher = apply_author_shift(guider.model_patcher, guide)
+            guider.model_options = guider.model_patcher.model_options
         if guide.get("performance_preset") in {"balanced_8step", "均衡高质（768p 8步）"}:
             from .sampling_recipes import prepare_balanced_guider, validate_balanced_sampling
             guider = prepare_balanced_guider(guider, guide)
@@ -672,9 +693,12 @@ class MiniMaxH3TwoStageSampler:
                 if model is None or not _matched_selflift_model(guide, second_model):
                     raise ValueError("SelfLift 两阶段必须连接同一个匹配 v4 的模型")
                 LOGGER.warning(
+                    "[H3 SelfLift] 兼容旧工作流：使用加速路由的作者配方输出，固定 video/audio shift=12/3"
+                    if is_author_recipe(guide) else
                     "[H3 SelfLift] 兼容旧工作流：使用加速路由的匹配 v4 输出，并继承 BasicGuider 的视频/音频 shift"
                 )
-                model = _inherit_selflift_sampling(second_model, model)
+                model = (apply_author_shift(second_model, guide) if is_author_recipe(guide)
+                         else _inherit_selflift_sampling(second_model, model))
             validate_scheduler_model(model, sigmas)
             report["sampling_settings"] = sampling_settings(guide, model=model, sampler=sampler, sigmas=sigmas)
             with memory_policy(guide):
@@ -686,6 +710,9 @@ class MiniMaxH3TwoStageSampler:
                 "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
                 "selflift_node_id", "selflift_node_variant",
                 "selflift_global_stream_supported", "selflift_speed_warning",
+                "selflift_lowres_scale", "selflift_cfg", "selflift_transition_step",
+                "two_stage_first_executed_steps", "two_stage_second_executed_steps",
+                "two_stage_first_sigma_count", "two_stage_second_sigma_count",
             ) if key in guide})
             return result, result
 

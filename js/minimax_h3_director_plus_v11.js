@@ -127,7 +127,7 @@ const CURATED_POSTPROCESS_MODES = [
   ["ai_upscale", "通用 AI 超分（省显存）"],
 ];
 const SAMPLING_METHODS = [["standard", "标准二采（默认）"], ["selflift", "SelfLift 渐进采样（实验）"]];
-const MOTION_PROFILES = [["off", "关闭（默认）"], ["continuity", "动作连续性"], ["combat", "武戏"], ["legacy", "旧版社区配置"]];
+const MOTION_PROFILES = [["off", "关闭（默认）"], ["continuity", "动作连续性"], ["combat", "文武双全（作者配方）"], ["legacy", "旧版社区配置"]];
 const RTX_QUALITIES = [
   ["HIGH", "HIGH（质量）"],
   ["ULTRA", "ULTRA（更高质量）"],
@@ -267,6 +267,12 @@ function restoreSamplingOptions(node, mode, voiceMode, preset) {
   const twoStage = preset === "质量优先二采样";
   const method = widget(node, "sampling_method");
   const profile = widget(node, "community_lora_profile");
+  if (profile?.value === "combat") {
+    // This explicit recipe owns its sampler. Keep an incompatible restored
+    // selection visible so neither UI nor API silently substitutes a route.
+    setWidget(node, "sampling_method", "selflift", false);
+    return;
+  }
   if (method && (!SAMPLING_METHODS.some(([value]) => value === method.value)
       || !twoStage || mode !== "REF2VA" || !["none", "h3_reference", "audio_reuse"].includes(voiceMode))) {
     setWidget(node, "sampling_method", "standard", false);
@@ -936,6 +942,9 @@ function install(node) {
       setWidget(node, "postprocess_mode", postprocessMode, false);
     }
     const samplingMethod = widget(node, "sampling_method")?.value || "standard";
+    const authorWenwu = widget(node, "community_lora_profile")?.value === "combat";
+    const authorWenwuCompatible = preset === "质量优先二采样" && mode === "REF2VA"
+      && ["none", "h3_reference", "audio_reuse"].includes(voiceMode);
     if (postprocessMode === "vosr2" && samplingMethod === "selflift"
       && widget(node, "vosr2_profile")?.value === "legacy") {
       setWidget(node, "vosr2_profile", "manual_baseline", false);
@@ -1023,7 +1032,11 @@ function install(node) {
 
     const quick = document.createElement("section");
     quick.className = "h3p-section";
-    quick.innerHTML = `<div class="h3p-section-title"><span>快速设置</span><span class="h3p-hint">${performancePresetHint(preset)}</span></div>`;
+    const performanceHint = authorWenwu
+      ? authorWenwuCompatible ? "文武双全：simple / Euler 12 步，6+6 SelfLift 作者配方"
+        : "文武双全：当前配置不兼容，请检查二采高级设置"
+      : performancePresetHint(preset);
+    quick.innerHTML = `<div class="h3p-section-title"><span>快速设置</span><span class="h3p-hint">${performanceHint}</span></div>`;
     const quickGrid = document.createElement("div");
     quickGrid.className = "h3p-grid";
     quickGrid.append(
@@ -1151,22 +1164,28 @@ function install(node) {
       advanced.append(summary, controls);
       specification.append(advanced);
     }
-    if (preset === "质量优先二采样") {
+    if (preset === "质量优先二采样" || authorWenwu) {
       const advanced = document.createElement("details");
-      advanced.open = twoStagePanelOpen;
+      advanced.open = twoStagePanelOpen || (authorWenwu && !authorWenwuCompatible);
       twoStagePanel = advanced;
       const summary = document.createElement("summary");
       summary.textContent = "二采高级设置";
       const controls = document.createElement("div");
       controls.className = "h3p-grid";
       controls.append(
-        valueControl("二采方法", "sampling_method", mode === "REF2VA" && ["none", "h3_reference", "audio_reuse"].includes(voiceMode)
-          ? SAMPLING_METHODS : SAMPLING_METHODS.slice(0, 1), widget(node, "sampling_method")?.value || "standard"),
+        valueControl("二采方法", "sampling_method", authorWenwu
+          ? [["selflift", "SelfLift · 作者 simple 12 步"]]
+          : mode === "REF2VA" && ["none", "h3_reference", "audio_reuse"].includes(voiceMode)
+            ? SAMPLING_METHODS : SAMPLING_METHODS.slice(0, 1), widget(node, "sampling_method")?.value || "standard"),
         valueControl("动作增强", "community_lora_profile", MOTION_PROFILES, widget(node, "community_lora_profile")?.value || "off"),
       );
       const note = document.createElement("div");
       note.className = "h3p-spec-note";
-      note.textContent = "SelfLift 实验：REF2VA 可带 H3 原生参考或完整复用音频，不支持 Fish 克隆；4–15秒，支持所选超分输出2K/4K，总显存至少20GB且空闲至少18GB。动作增强默认关闭。";
+      note.textContent = authorWenwu
+        ? authorWenwuCompatible
+          ? "文武双全：作者 simple 12 步（6+6）与完整 LoRA 组合；自动使用 SelfLift。需要原生 Sol-Attn 全局路径和完整权重；至少20GB显存、空闲18GB。长片仍按原导演台时长自动分段，实际质量和耗时需验证。"
+          : "作者配方需要质量优先二采样、REF2VA、无音色或 H3 原生参考/完整复用音频；不支持 Fish 或低显存档。请切回这些设置，或将动作增强设为关闭。"
+        : "SelfLift 实验：REF2VA 可带 H3 原生参考或完整复用音频，不支持 Fish 克隆；单段4–15秒，长片由导演台自动分段，支持所选超分输出2K/4K，总显存至少20GB且空闲至少18GB。动作增强默认关闭。";
       advanced.append(summary, controls, note);
       specification.append(advanced);
     }

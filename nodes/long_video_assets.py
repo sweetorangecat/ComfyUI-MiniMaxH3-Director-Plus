@@ -19,7 +19,8 @@ import os
 from pathlib import Path
 
 from .additional_loras import mystic_v5_selection, upstream_loras
-from .sampling_experiments import motion_lora_chain
+from .sampling_experiments import motion_lora_chain, validate_sampling_options
+from .wenwu_recipe import AUTHOR_ASSETS, AUTHOR_RECIPE_ID, AUTHOR_RECIPE_VERSION, is_author_recipe, validate_manual_loras
 from .two_stage_assets import (
     SELFLIFT_DMAD_LORA_CANDIDATES, SELFLIFT_DMAD_LORA_STRENGTH,
     SELFLIFT_MYSTIC_LORA, SELFLIFT_MYSTIC_LORA_STRENGTH,
@@ -72,7 +73,11 @@ def native_asset_choices(graph, folder_paths, *, resolver=None, environ=None):
     Missing optional candidates are recorded; installing one changes choices.
     The existing route's dependency preflight remains responsible for readiness.
     """
-    settings = _settings(graph)
+    settings = dict(_settings(graph))
+    if is_author_recipe(settings):
+        selected = dict(settings, performance_preset={"质量优先二采样": "quality_two_stage"}.get(
+            settings.get("performance_preset"), settings.get("performance_preset")))
+        settings.update(validate_sampling_options(selected))
     if settings.get('sampling_method', 'standard') != 'selflift':
         raise ValueError('Implicit native asset provenance currently follows the U11 SelfLift route')
     environ = os.environ if environ is None else environ
@@ -83,6 +88,23 @@ def native_asset_choices(graph, folder_paths, *, resolver=None, environ=None):
               'community_lora_profile': profile, 'detail_loras_enabled': detail_on,
               'selections': {}, 'missing': []}
     selections = result['selections']
+    if is_author_recipe(settings):
+        result.update(author_recipe_id=AUTHOR_RECIPE_ID, author_recipe_version=AUTHOR_RECIPE_VERSION,
+                      detail_loras_enabled=True)
+        for asset in AUTHOR_ASSETS:
+            selections['implicit:author:' + asset.filename] = _choice(
+                asset.category, (asset.filename,), folder_paths, resolver, asset.strength)
+        routers = [node_id for node_id, node in graph.items()
+                   if node.get('class_type') == 'MiniMaxH3AccelerationRouter']
+        if len(routers) > 1:
+            raise ValueError('Implicit LoRA provenance requires one active acceleration router')
+        rows = upstream_loras(graph, routers[0]) if routers else []
+        validate_manual_loras(rows)
+        for index, row in enumerate(rows):
+            selections[f'implicit:upstream:{index}'] = _choice(
+                'loras', (row['name'],), folder_paths, resolver, row['strength'])
+        result['missing'] = [label for label, choice in selections.items() if not choice['selected']]
+        return result
     core = _choice('loras', (*SELFLIFT_DMAD_LORA_CANDIDATES, V4_TURBO_LORA_PRUNED, V4_TURBO_LORA),
                    folder_paths, resolver)
     selected = core['selected'][0]['name'] if core['selected'] else None

@@ -30,7 +30,9 @@ class Element {
   }
   matches(selector) { return selector === "select" && this.tag === "select"; }
   addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
+  get innerHTML() { return this.html || ""; }
   set innerHTML(value) {
+    this.html = value;
     if (value.includes('class="h3p-fish-body"')) {
       const body = new Element("div");
       body.className = "h3p-fish-body";
@@ -307,6 +309,73 @@ function directorWithAdvancedOptions() {
   mode.callback("REF2VA");
   return installed;
 }
+
+for (const voiceMode of ["none", "h3_reference", "audio_reuse"]) {
+  test(`author Wenwu selection chooses its sampler for ${voiceMode}`, () => {
+    const { node } = directorWithAdvancedOptions();
+    const voice = node.widgets.find(item => item.name === "voice_mode");
+    voice.value = voiceMode;
+    voice.callback(voiceMode);
+    const profile = node.widgets.find(item => item.name === "community_lora_profile");
+    profile.value = "combat";
+    profile.callback("combat");
+    assert.equal(node.widgets.find(item => item.name === "sampling_method").value, "selflift");
+    const profileControl = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "community_lora_profile");
+    assert.equal(profileControl.children.find(el => el.value === "combat").textContent, "文武双全（作者配方）");
+    const samplerControl = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "sampling_method");
+    assert.deepEqual(samplerControl.children.map(el => el.value), ["selflift"]);
+    assert.ok(allElements(node.root).some(el => /simple.*12.*6\+6/.test(el.textContent || "")));
+    const quick = allElements(node.root).find(el => el.innerHTML?.includes("快速设置"));
+    assert.match(quick.innerHTML, /simple.*12.*6\+6/);
+    assert.doesNotMatch(quick.innerHTML, /首采 8 步/);
+  });
+}
+
+test("author Wenwu cannot silently downgrade its sampler and can be switched off", () => {
+  const { node } = directorWithAdvancedOptions();
+  const profile = node.widgets.find(item => item.name === "community_lora_profile");
+  const method = node.widgets.find(item => item.name === "sampling_method");
+  profile.value = "combat";
+  profile.callback("combat");
+  method.value = "standard";
+  method.callback("standard");
+  assert.equal(method.value, "selflift");
+  profile.value = "off";
+  profile.callback("off");
+  method.value = "standard";
+  method.callback("standard");
+  assert.equal(method.value, "standard");
+});
+
+test("incompatible author selection remains visible with a clear recovery path", () => {
+  const { node } = directorWithAdvancedOptions();
+  const profile = node.widgets.find(item => item.name === "community_lora_profile");
+  profile.value = "combat";
+  profile.callback("combat");
+  const preset = node.widgets.find(item => item.name === "performance_preset");
+  preset.value = "低显存";
+  preset.callback("低显存");
+  assert.equal(profile.value, "combat");
+  const profileControl = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "community_lora_profile");
+  assert.ok(profileControl, "the user can still turn the profile off");
+  assert.ok(allElements(node.root).some(el => /作者配方.*需要.*质量优先二采样.*REF2VA/.test(el.textContent || "")));
+  profile.value = "off";
+  profile.callback("off");
+  assert.equal(node.widgets.find(item => item.name === "sampling_method").value, "standard");
+  assert.equal(preset.value, "低显存");
+});
+
+test("saved author selection preserves long duration, prompt, media and seed", () => {
+  const saved = nativeWidgets();
+  const values = { performance_preset: "质量优先二采样", community_lora_profile: "combat",
+    sampling_method: "standard", duration: 90 };
+  for (const item of saved) if (item.name in values) item.value = values[item.name];
+  const preservedNames = ["duration", "prompt", "seed", "first_image_file", "last_image_file", "reference_image_1_file", "voice_mode"];
+  const preserved = preservedNames.map(name => [name, saved.find(item => item.name === name).value]);
+  const { node } = installedDirector("off", saved, true);
+  assert.equal(node.widgets.find(item => item.name === "sampling_method").value, "selflift");
+  for (const [name, value] of preserved) assert.equal(node.widgets.find(item => item.name === name).value, value, name);
+});
 
 test("advanced settings stay open across sampling, motion and output changes", () => {
   const { node } = directorWithAdvancedOptions();

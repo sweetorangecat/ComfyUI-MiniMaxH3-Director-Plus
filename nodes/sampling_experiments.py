@@ -11,6 +11,8 @@ import inspect
 import math
 import time
 
+from .wenwu_recipe import AUTHOR_LORAS, AUTHOR_RECIPE, is_author_recipe, validate_author_shift, validate_author_upscaler
+
 
 SELFLIFT_NODE_ID = "SelfLiftH3Sampler"
 # selflift-Avatar keeps the original H3 node contract but adds the global
@@ -37,6 +39,8 @@ def validate_sampling_options(request):
         raise ValueError(f"未知采样方法：{method}")
     if profile not in {"off", "continuity", "combat", "legacy"}:
         raise ValueError(f"未知社区 LoRA 配置：{profile}")
+    if profile == "combat":
+        method = "selflift"
     if (method != "standard" or profile != "off") and request.get("performance_preset") != "quality_two_stage":
         raise ValueError("高级采样与动作 LoRA 配置仅支持质量优先二采样")
     if method == "selflift":
@@ -58,8 +62,8 @@ def _validate_output_dimensions(width, height):
     return width, height
 
 
-def plan_selflift_dimensions(width, height, duration, total, free):
-    """Plan the target template and the exact upstream 0.65 even-latent prefix."""
+def plan_selflift_dimensions(width, height, duration, total, free, *, community_lora_profile="off"):
+    """Preserve the public 0.65 plan; author mode matches its actual 0.6 prefix."""
     width, height = _validate_output_dimensions(width, height)
     if not all(math.isfinite(float(value)) for value in (total, free)) or float(total) < 20 or float(free) < 18:
         raise ValueError("SelfLift 启动至少需要总显存 20GB、空闲显存 18GB")
@@ -73,7 +77,8 @@ def plan_selflift_dimensions(width, height, duration, total, free):
             ((w, h) for w, h in candidates if min(w, h) >= 32),
             key=lambda pair: abs(math.log(pair[0] / pair[1] / ratio)),
         )
-    low_w, low_h = (max(2, round(side / 16 * 0.65 / 2) * 2) * 16 for side in (target_w, target_h))
+    lowres_scale = AUTHOR_RECIPE.lowres_scale if community_lora_profile == "combat" else .65
+    low_w, low_h = (max(2, round(side / 16 * lowres_scale / 2) * 2) * 16 for side in (target_w, target_h))
     scale_x, scale_y = width / target_w, height / target_h
     return {
         "allowed": True, "reason": "保守启动门槛通过；实际峰值显存仍需实测",
@@ -84,7 +89,7 @@ def plan_selflift_dimensions(width, height, duration, total, free):
         "final_scale_x": scale_x, "final_scale_y": scale_y,
         "final_scale": max(scale_x, scale_y), "max_final_vsr_scale": None,
         "vram_safety_tier": "selflift_shortvideo_experimental",
-        "quality_basis": "SelfLift 6+4 步渐进采样（实验）",
+        "quality_basis": "文武双全 SelfLift 6+6 步（作者配方）" if community_lora_profile == "combat" else "SelfLift 6+4 步渐进采样（实验）",
     }
 
 
@@ -95,7 +100,7 @@ def motion_lora_chain(profile):
     if profile == "continuity":
         return ((MOTION_LORA_CANDIDATES, 0.25),)
     if profile == "combat":
-        return ((MOTION_LORA_CANDIDATES, 0.25), (("H3_Combat_V2.safetensors",), 0.5))
+        return tuple(((asset.filename,), asset.strength) for asset in AUTHOR_LORAS[2:])
     raise ValueError(f"未知社区 LoRA 配置：{profile}")
 
 
@@ -169,7 +174,7 @@ def _selflift_callable(registry):
 
 def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
                           latent, sampler, sigmas, seed, upscaler_name,
-                          native_sparse_attention=False):
+                          native_sparse_attention=False, author_recipe=False):
     """Build the SelfLift call for both legacy and current upstream nodes.
 
     Recent SelfLift releases add the ``global_stream`` high-resolution path,
@@ -221,9 +226,9 @@ def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
         "sampler": sampler,
         "sigmas": sigmas,
         "seed": seed,
-        "cfg": 1.0,
-        "transition_step": 6,
-        "lowres_scale": 0.6,
+        "cfg": AUTHOR_RECIPE.cfg if author_recipe else 1.0,
+        "transition_step": AUTHOR_RECIPE.transition_step if author_recipe else 6,
+        "lowres_scale": AUTHOR_RECIPE.lowres_scale if author_recipe else 0.6,
         "rho": artifact_guard["rho"],
         "w_min": artifact_guard["w_min"],
         "w_max": artifact_guard["w_max"],
@@ -253,11 +258,13 @@ def _selflift_call_kwargs(function, *, node_id, model, positive, negative, vae,
     }, artifact_guard
 
 
-def selflift_dependency_report(registry, upscaler_name):
+def selflift_dependency_report(registry, upscaler_name, *, require_global=False):
     """Check the current upstream method and a resolved external learned lifter."""
     missing = []
     try:
-        _, node_id = _resolve_selflift_callable(registry or {})
+        function, node_id = _resolve_selflift_callable(registry or {})
+        if require_global and (node_id != "SelfLiftAvatarH3Sampler" or "highres_tiling_mode" not in inspect.signature(function).parameters):
+            missing.append("文武双全作者配方需要支持 global_stream 的 SelfLiftAvatarH3Sampler")
     except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
         missing.append(str(exc))
     if not str(upscaler_name or "").strip() or str(upscaler_name).lower() == "none":
@@ -317,7 +324,14 @@ def _validate_euler(sampler):
 
 
 def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, registry=None, negative=None):
-    """Execute the U22 ten-NFE H3 recipe using the installed upstream node."""
+    """Execute the selected progressive recipe using the installed upstream node."""
+    author = is_author_recipe(guide)
+    if author:
+        guide.update(validate_sampling_options(guide))
+        scheduler = getattr(sigmas, "_h3_scheduler_name", None)
+        if scheduler is not None and scheduler != AUTHOR_RECIPE.scheduler:
+            raise ValueError("文武双全作者配方必须使用 simple sigma 调度")
+    steps = AUTHOR_RECIPE.steps if author else 10
     if vae is None:
         raise ValueError("SelfLift 缺少视频 VAE，请连接 video_vae")
     if model is None or positive is None:
@@ -327,10 +341,10 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
     if getattr(sigmas, "ndim", 1) != 1:
         raise ValueError("SelfLift 需要一维 sigma 轨迹")
     values = [float(value) for value in sigmas]
-    if len(values) != 11 or not all(math.isfinite(value) for value in values) or any(
+    if len(values) != steps + 1 or not all(math.isfinite(value) for value in values) or any(
         value <= 0 for value in values[:-1]
     ) or values[-1] != 0 or any(b > a for a, b in zip(values, values[1:])) or values[4] >= 1:
-        raise ValueError("SelfLift 需要有效的 10 步 sigma 轨迹并以 sigma=0 结束")
+        raise ValueError(f"SelfLift 需要有效的 {steps} 步 sigma 轨迹并以 sigma=0 结束")
     _validate_euler(sampler)
     shapes = _av_shapes(latent)
     if guide.get("long_video_window"):
@@ -350,9 +364,13 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         from .two_stage_assets import _comfy_node_mappings
         registry = _comfy_node_mappings()
     upscaler_name = guide.get("selflift_upscaler_model")
-    report = selflift_dependency_report(registry, upscaler_name)
+    if author:
+        validate_author_upscaler(upscaler_name)
+    report = selflift_dependency_report(registry, upscaler_name, require_global=author)
     if not report["ready"]:
         raise RuntimeError("SelfLift 依赖未就绪：" + "；".join(report["missing"]))
+    if author:
+        validate_author_shift(model)
     started = time.perf_counter()
     try:
         function, node_id = _resolve_selflift_callable(registry)
@@ -368,18 +386,19 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
             sigmas=sigmas,
             seed=seed,
             upscaler_name=upscaler_name,
+            author_recipe=author,
             native_sparse_attention=(
                 str(guide.get("attention_backend", "")).lower() == "sol_attn"
                 and bool(guide.get("sol_attn_applied"))
             ),
         )
-        if guide.get("long_video_window") and (
+        if (author or guide.get("long_video_window")) and (
             node_id != "SelfLiftAvatarH3Sampler"
             or not artifact_guard["global_stream_supported"]
             or call_kwargs.get("highres_tiling_mode") != "global_stream"
             or not call_kwargs.get("highres_tiling")
         ):
-            raise RuntimeError("原生长视频必须使用支持 global_stream 的 SelfLift Avatar 和已应用的 Sol-Attn，不能切换空间分块")
+            raise RuntimeError("文武双全作者配方或原生长视频必须使用支持 global_stream 的 SelfLift Avatar 和已应用的 Sol-Attn，不能切换空间分块")
         guide["selflift_highres_tiling"] = bool(call_kwargs.get("highres_tiling", False))
         guide["selflift_highres_tiling_mode"] = (
             artifact_guard["highres_tiling_mode"]
@@ -395,6 +414,9 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
             selflift_rho=call_kwargs["rho"],
             selflift_w_min=call_kwargs["w_min"],
             selflift_w_max=call_kwargs["w_max"],
+            selflift_lowres_scale=call_kwargs["lowres_scale"],
+            selflift_cfg=call_kwargs["cfg"],
+            selflift_transition_step=call_kwargs["transition_step"],
         )
         result = function(**call_kwargs)
     except RuntimeError as exc:
@@ -409,10 +431,12 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         raise RuntimeError(f"SelfLift 返回无效的 AV latent：{exc}") from exc
     if output_shapes != shapes:
         raise RuntimeError("SelfLift 返回 AV latent 的目标尺寸或时长发生变化")
-    guide.update(sampling_actual_method="selflift", sampling_executed_steps=10,
+    transition = AUTHOR_RECIPE.transition_step if author else 6
+    second_steps = steps - transition
+    guide.update(sampling_actual_method="selflift", sampling_executed_steps=steps,
                  sampling_route=node_id,
                  sampling_elapsed_seconds=time.perf_counter() - started,
-                 two_stage_first_executed_steps=6, two_stage_second_executed_steps=4,
-                 two_stage_first_sigma_count=7, two_stage_second_sigma_count=5,
-                 two_stage_status="SelfLift 6+4 步渐进采样完成", two_stage_second_stage_path="selflift")
+                 two_stage_first_executed_steps=transition, two_stage_second_executed_steps=second_steps,
+                 two_stage_first_sigma_count=transition + 1, two_stage_second_sigma_count=second_steps + 1,
+                 two_stage_status=f"SelfLift {transition}+{second_steps} 步渐进采样完成", two_stage_second_stage_path="selflift")
     return result

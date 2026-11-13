@@ -72,6 +72,28 @@ def test_director_selflift_missing_dependency_stops_before_sampling(director_run
         build_director(sampling_method="selflift")
 
 
+def test_director_author_preflight_collects_every_exact_missing_asset(director_runtime, monkeypatch):
+    from nodes import two_stage_assets
+    from test_wenwu_recipe import LORAS, UPSCALER
+    monkeypatch.setattr(two_stage_assets, "resolve_registered_model_name", lambda *args: None)
+    with pytest.raises(RequestError) as failure:
+        build_director(sampling_method="standard", community_lora_profile="combat")
+    assert all(name in str(failure.value) for name, _ in LORAS)
+    assert UPSCALER in str(failure.value)
+
+
+def test_director_author_selection_uses_point_six_grid_and_author_metadata(director_runtime, monkeypatch):
+    from nodes import two_stage_assets
+    from test_sampling_experiments import AvatarSamplerNode
+    monkeypatch.setattr(two_stage_assets, "resolve_registered_model_name", lambda category, name, comfy_root=None: "author/" + name)
+    monkeypatch.setattr(two_stage_assets, "_comfy_node_mappings", lambda: {"SelfLiftAvatarH3Sampler": AvatarSamplerNode})
+    selected = build_director(sampling_method="standard", community_lora_profile="combat")
+    assert selected["sampling_method"] == "selflift"
+    assert selected["first_stage_width"] == max(2, round(selected["second_stage_width"] / 16 * .6 / 2) * 2) * 16
+    assert selected["sampling_recipe"]["scheduler"] == "simple"
+    assert selected["sampling_recipe"]["steps"] == 12
+
+
 @pytest.mark.parametrize("preset,size", [("2K QHD", (2560, 1440)), ("4K UHD", (3840, 2160))])
 @pytest.mark.parametrize("method,path", [("ai_upscale", "ai_upscale"),
                                        ("video_sr", "video_sr"), ("vosr2", "video_sr")])
@@ -205,6 +227,9 @@ def test_selflift_model_route_shares_one_exact_attention_model(monkeypatch):
     # Model application is stubbed below. Make the optional detail adapter's
     # registration explicit too, instead of depending on installed host files.
     monkeypatch.setattr(performance, "_resolve_first_registered", lambda category, candidates: candidates[0])
+    monkeypatch.setattr(performance, "resolve_selflift_lora_recipe", lambda: {
+        "kind": "v4_mystic_fallback", "lora_name": performance.V4_TURBO_LORA,
+        "lora_strength": 1., "detail_name": performance.SELFLIFT_MYSTIC_LORA, "detail_strength": .45})
     monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda model, name, **kw: calls.append(name) or "v4-model")
     monkeypatch.setattr(performance, "_apply_minimax_reuse_attention", lambda model, guide: model + ":exact")
     monkeypatch.setattr(performance, "_kj_ltx_class", lambda *args: pytest.fail("SelfLift must disable Sage"))
@@ -234,12 +259,15 @@ def test_selflift_setup_never_bypasses_to_standard(monkeypatch, failure):
 
 
 @pytest.mark.parametrize("profile,expected", [("off", []), ("continuity", [("Motion_Repair.safetensors", .25)]),
-    ("combat", [("Motion_Repair.safetensors", .25), ("H3_Combat_V2.safetensors", .5)])])
+    ("combat", [("MysticXXX_MMH3-V1.safetensors", .35), ("H3_Combat_V2.safetensors", .65),
+                ("Motion_Repair_V2.safetensors", .35), ("H3_Fight_Flow_V1.safetensors", .35),
+                ("H3_speed_slider_1.1.safetensors", 3.0)])])
 def test_explicit_profile_ignores_legacy_environment_switches(monkeypatch, profile, expected):
     from nodes import performance
     monkeypatch.setenv("MMH3_DETAIL_LORAS", "1")
     monkeypatch.setenv("MMH3_EXTRA_LORAS", "0")
     monkeypatch.setattr(performance, "_resolve_first_registered", lambda category, names: names[0])
+    monkeypatch.setattr(performance, "resolve_registered_model_name", lambda category, name: name)
     calls = []
     monkeypatch.setattr(performance, "_load_lightx2v_lora", lambda model, name, strength: calls.append((name, strength)) or model)
     guide = short_guide(community_lora_profile=profile)
@@ -358,6 +386,92 @@ def test_selflift_uses_matched_accelerated_model_when_guider_keeps_sigma_shift_c
     assert (settings["video_shift"], settings["audio_shift"]) == (10.0, 5.0)
     assert (settings["selflift_rho"], settings["selflift_w_min"], settings["selflift_w_max"]) == (0.6, 0.5, 1.0)
     assert settings["selflift_upscaler_model"] == "h3.safetensors"
+
+
+def test_author_sampler_normalizes_original_standard_and_saved_manual_shift(monkeypatch):
+    import copy
+    import torch
+    from nodes import two_stage
+    from nodes.wenwu_recipe import AUTHOR_RECIPE_ID
+
+    class Model:
+        def __init__(self, video, audio):
+            self.sampling = types.SimpleNamespace(shift=video, audio_shift=audio)
+            self.model_options = {"mmh3_author_recipe_id": AUTHOR_RECIPE_ID}
+
+        def get_model_object(self, name):
+            return self.sampling
+
+    class Shift:
+        @staticmethod
+        def execute(model, video, audio):
+            result = copy.copy(model)
+            result.sampling = types.SimpleNamespace(shift=video, audio_shift=audio)
+            return (result,)
+
+    monkeypatch.setitem(sys.modules, "comfy_extras.nodes_minimax_h3", types.SimpleNamespace(MiniMaxH3SigmaShift=Shift))
+    seen = []
+    def run(**kwargs):
+        seen.append(kwargs)
+        return kwargs["latent"]
+    monkeypatch.setattr(two_stage, "run_selflift", run)
+    manual, accelerated = Model(10, 5), Model(12, 3)
+    selected = short_guide(sampling_method="standard", community_lora_profile="combat", two_stage_enabled=True,
+        turbo_lora_applied=True, sol_attn_applied=True, attention_backend="sol_attn", resolved_two_stage_route="trained_latent_ref",
+        first_lora_name="minimax_h3_dmad_full_dareties_v4_step600_comfy_fro.safetensors",
+        second_lora_name="minimax_h3_dmad_full_dareties_v4_step600_comfy_fro.safetensors")
+    sigmas = torch.linspace(1, 0, 13)
+    sigmas._mmh3_sampling_signature = {"video_shift": 12., "audio_shift": 3.}
+    guider = types.SimpleNamespace(model_patcher=manual, original_conds={"positive": []})
+    result = two_stage.MiniMaxH3TwoStageSampler().execute(types.SimpleNamespace(seed=4), guider,
+        object(), sigmas, {"samples": "av"}, selected, second_model=accelerated, video_vae=object())
+    assert seen[0]["model"] is accelerated
+    assert (seen[0]["model"].sampling.shift, seen[0]["model"].sampling.audio_shift) == (12, 3)
+    assert selected["sampling_method"] == "selflift"
+    assert manual.sampling.shift == 10
+    assert result[0]["_h3_execution_report"]["sampling_settings"]["video_shift"] == 12
+
+
+@pytest.mark.parametrize("invalid", ["missing_marker", "missing_turbo", "missing_sol", "wrong_attention",
+                                     "wrong_route", "wrong_core", "not_ready", "valid"])
+def test_author_sampler_always_requires_matched_router_output_even_for_identical_links(monkeypatch, invalid):
+    import torch
+    from nodes import two_stage
+    from nodes.wenwu_recipe import AUTHOR_RECIPE_ID
+    marker = {} if invalid == "missing_marker" else {"mmh3_author_recipe_id": AUTHOR_RECIPE_ID}
+    model = types.SimpleNamespace(model_options=marker,
+        get_model_object=lambda name: types.SimpleNamespace(shift=12., audio_shift=3.))
+    guide = short_guide(sampling_method="standard", community_lora_profile="combat", two_stage_enabled=True,
+        turbo_lora_applied=True, sol_attn_applied=True, attention_backend="sol_attn",
+        resolved_two_stage_route="trained_latent_ref",
+        first_lora_name="minimax_h3_dmad_full_dareties_v4_step600_comfy_fro.safetensors",
+        second_lora_name="minimax_h3_dmad_full_dareties_v4_step600_comfy_fro.safetensors")
+    field_values = {
+        "missing_turbo": ("turbo_lora_applied", False), "missing_sol": ("sol_attn_applied", False),
+        "wrong_attention": ("attention_backend", "native_fallback"),
+        "wrong_route": ("resolved_two_stage_route", "trained_latent_fl"),
+        "wrong_core": ("first_lora_name", "wrong.safetensors"), "not_ready": ("two_stage_enabled", False),
+    }
+    if invalid in field_values:
+        key, value = field_values[invalid]
+        guide[key] = value
+    seen = []
+    def run(**kwargs):
+        seen.append(kwargs["model"])
+        return kwargs["latent"]
+    monkeypatch.setattr(two_stage, "run_selflift", run)
+    guider = types.SimpleNamespace(model_patcher=model, original_conds={"positive": []})
+    latent = {"samples": "av"}
+    def execute():
+        return two_stage.MiniMaxH3TwoStageSampler().execute(types.SimpleNamespace(seed=4), guider,
+            object(), torch.linspace(1, 0, 13), latent, guide, second_model=model, video_vae=object())
+    if invalid == "valid":
+        assert execute()[0] is latent
+        assert seen == [model]
+    else:
+        with pytest.raises((ValueError, RuntimeError), match="SelfLift|作者配方|匹配"):
+            execute()
+        assert seen == []
 
 
 def test_standard_bypass_records_actual_steps_route_and_time(monkeypatch):

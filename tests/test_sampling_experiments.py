@@ -83,7 +83,8 @@ def test_motion_profiles_separate_general_motion_and_combat():
     assert len(continuity) == 1 and continuity[0][1] == 0.25
     assert "Motion_Repair.safetensors" in continuity[0][0]
     combat = experiments.motion_lora_chain("combat")
-    assert len(combat) == 2 and combat[1] == (("H3_Combat_V2.safetensors",), 0.5)
+    assert combat == ((("H3_Combat_V2.safetensors",), .65), (("Motion_Repair_V2.safetensors",), .35),
+                      (("H3_Fight_Flow_V1.safetensors",), .35), (("H3_speed_slider_1.1.safetensors",), 3.0))
     assert not any("GunFu" in name or "fafafast" in name for names, _ in combat for name in names)
 
 

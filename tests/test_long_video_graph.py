@@ -87,6 +87,16 @@ def test_long_video_does_not_silently_switch_unsupported_quality_recipe():
         build_window_graph(graph, request(), 'native')
 
 
+def test_long_video_normalizes_original_standard_author_selection_without_changing_source():
+    graph = base_graph()
+    graph['10']['inputs'].update(sampling_method='standard', community_lora_profile='combat')
+    saved = deepcopy(graph)
+    actual = build_window_graph(graph, request(), 'native')
+    assert actual['10']['inputs']['sampling_method'] == 'selflift'
+    assert actual['10']['inputs']['community_lora_profile'] == 'combat'
+    assert graph == saved
+
+
 def test_actual_u11_switch_prunes_inactive_sampler_and_guide():
     graph = base_graph()
     for node_id in ('16', '17', '21', '22', '23'):

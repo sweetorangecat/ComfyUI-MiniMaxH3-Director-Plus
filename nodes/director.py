@@ -28,6 +28,7 @@ from .smart_1080p import (
     smart_1080p_target,
 )
 from .sampling_experiments import plan_selflift_dimensions, selflift_dependency_report
+from .wenwu_recipe import AUTHOR_RECIPE_ID, AUTHOR_RECIPE_VERSION, author_recipe_metadata, is_author_recipe
 from .two_stage_assets import dependency_report, resolve_two_stage_route, resolve_split_upscale_callables
 from .video_sr import resolve_seedvr2_fhd_plan, resolve_seedvr2_plan, seedvr2_dependency_report
 from .voice_guard import analyze_voice_reference
@@ -167,6 +168,15 @@ def _selflift_dependency_report():
         ) if item
     ]
     return report
+
+
+def _wenwu_dependency_report():
+    from .two_stage_assets import _comfy_node_mappings, resolve_wenwu_recipe
+    assets = resolve_wenwu_recipe()
+    report = selflift_dependency_report(_comfy_node_mappings(), assets["upscaler_model"], require_global=True)
+    # Keep every exact missing filename even when the node is also unavailable.
+    report["missing"] = [*assets["missing"], *report["missing"]]
+    return {**assets, **report, "ready": not report["missing"]}
 
 
 def _uploaded_files(content_types):
@@ -575,7 +585,7 @@ class MiniMaxH3DirectorPlus:
                 "reference_image_8": ("IMAGE",),
                 "reference_image_9": ("IMAGE",),
                 "sampling_method": (["standard", "selflift"], {"default": "standard", "tooltip": "仅质量优先二采样生效；SelfLift 实验使用 REF2VA、可带 H3 原生参考或完整复用音频、不支持 Fish，4–15 秒、24FPS，支持所选超分输出 2K/4K"}),
-                "community_lora_profile": (["off", "continuity", "combat", "legacy"], {"default": "off", "tooltip": "仅质量优先二采样：关闭、动作连续性、武戏；legacy 复用旧社区开关"}),
+                "community_lora_profile": (["off", "continuity", "combat", "legacy"], {"default": "off", "tooltip": "仅质量优先二采样：关闭、动作连续性、文武双全（作者配方）；作者配方自动使用 SelfLift，仅 REF2VA、24FPS、总显存至少20GB且空闲18GB，须完整七项权重与原生 Sol-Attn/global_stream；legacy 复用旧社区开关"}),
                 "vosr2_profile": (["legacy", "manual_baseline", "experimental_32gb"], {"default": "legacy", "tooltip": "VOSR2 配置对比：旧配置、手动基线、32GB 候选（未实测加速；按实际空闲显存检查）"}),
             },
         }
@@ -878,6 +888,8 @@ class MiniMaxH3DirectorPlus:
                                    + "；请放入 ComfyUI/models/loras（lightx2v/Minimax-h3-Turbo），不会替换为旧版权重。")
             if voice_mode in {"h3_reference", "fish_lock"}:
                 request["warnings"].append("8 步音色／口型路线需与原生 20 步对比；当前保留参考音频条件，不代表声纹保真已验证。")
+        if is_author_recipe(request):
+            recipe = author_recipe_metadata()
 
         # Voice sample quality gate: fail (or warn) before H3 sampling starts.
         # Official H3 bounds each reference clip to 2–15s; the stable timbre
@@ -1064,10 +1076,11 @@ class MiniMaxH3DirectorPlus:
             try:
                 two_stage_plan = plan_selflift_dimensions(
                     requested_width, requested_height, duration, total_vram_gb, free_vram_gb,
+                    community_lora_profile=request["community_lora_profile"],
                 )
             except ValueError as exc:
                 raise RequestError(str(exc)) from exc
-            dependencies = _selflift_dependency_report()
+            dependencies = _wenwu_dependency_report() if is_author_recipe(request) else _selflift_dependency_report()
             if not dependencies["ready"]:
                 raise RequestError("SelfLift 依赖缺失：" + "、".join(dependencies["missing"]))
             selflift_upscaler_model = dependencies["upscaler_model"]
@@ -1080,11 +1093,18 @@ class MiniMaxH3DirectorPlus:
             native_height = int(two_stage_plan["second_stage_height"])
             native_capped = (native_width, native_height) != (requested_width, requested_height)
             two_stage_tiled = False
-            request["warnings"].append(
+            if is_author_recipe(request):
+                request["warnings"].append(
+                    "文武双全作者配方：simple/Euler 12 步（6+6）、CFG1、video/audio shift12/3、低网格0.6；"
+                    "主动启用归档中 bypass 的四个动作节点。使用当前作者清单 canonical speed1.1，未证实与归档中文文件字节一致；"
+                    "现代 Avatar 原生 Sol-Attn/global_stream learned-only 适配不同于旧图 full-frame；关闭 Sage、RIFE，显存门槛通过不保证无 OOM。"
+                )
+            else:
+                request["warnings"].append(
                 "SelfLift 渐进采样实验：beta/Euler 共 10 步，前 6 步使用约 0.6 倍网格，"
                 "后 4 步使用 H3 目标网格；优先使用 Avatar 全局高分辨率上下文，旧节点自动启用白丝保护；"
                 "关闭 Sage、RIFE。显存门槛通过不保证无 OOM。"
-            )
+                )
         elif request["performance_preset"] in TWO_STAGE_PERFORMANCE_PRESETS:
             resolved_two_stage_route = resolve_two_stage_route(request)
             if smart_vram is None:
@@ -1632,6 +1652,10 @@ class MiniMaxH3DirectorPlus:
             "reference_transcript": reference_transcript,
             "ignored_media": request.get("ignored_media", []),
         }
+        if is_author_recipe(request):
+            guide.update(author_recipe_id=AUTHOR_RECIPE_ID, author_recipe_version=AUTHOR_RECIPE_VERSION,
+                         author_adapters_required=[{"name": row["name"], "strength": row["strength"]}
+                                                   for row in dependencies["loras"]])
         from .execution_report import execution_plan
         guide["execution_plan"] = execution_plan(guide)
         LOGGER.info("[H3 plan] %s", json.dumps(guide["execution_plan"], ensure_ascii=False))

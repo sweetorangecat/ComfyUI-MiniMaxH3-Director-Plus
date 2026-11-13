@@ -152,6 +152,14 @@ def resolve_selflift_upscaler_model(comfy_root=None):
     return None
 
 
+def resolve_wenwu_recipe(comfy_root=None, *, resolver=None):
+    """Inspect exact author weights without using any ordinary SelfLift fallback."""
+    from .wenwu_recipe import resolve_author_assets
+    return resolve_author_assets(resolver or (
+        lambda category, name: resolve_registered_model_name(category, name, comfy_root)
+    ))
+
+
 def _latent_upscaler_variant():
     resolved = resolve_latent_upscaler_model()
     if resolved is not None:

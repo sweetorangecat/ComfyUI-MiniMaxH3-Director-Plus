@@ -69,6 +69,20 @@ def director_graph(seconds=30, **settings):
     }
 
 
+@pytest.mark.parametrize('changes', [dict(mode='I2VA'), dict(performance_preset='稳定质量'),
+    dict(motion_smoothing='rife_x2')])
+def test_automatic_long_author_choice_rejects_incompatible_original_fields(changes):
+    from nodes.long_video_entry import _automatic_recipe
+    graph = director_graph(30, voice_mode='none', performance_preset='质量优先二采样',
+        community_lora_profile='combat', **{key: value for key, value in changes.items() if key != 'performance_preset'})
+    if 'performance_preset' in changes:
+        graph['director']['inputs']['performance_preset'] = changes['performance_preset']
+    with patch('nodes.long_video_entry.preflight', return_value={}), \
+         patch('nodes.long_video_entry.contract_from_prompt', return_value={}):
+        with pytest.raises(ValueError, match='REF2VA|质量优先|RIFE|24FPS'):
+            _automatic_recipe((graph, 'director', 30))
+
+
 def test_original_director_duration_accepts_long_targets_without_changing_physical_requests():
     spec = MiniMaxH3DirectorPlus.INPUT_TYPES()['required']['duration'][1]
     assert spec.get('max', float('inf')) > 120

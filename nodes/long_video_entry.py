@@ -40,6 +40,12 @@ def _director_target(prompt, unique_id):
 def _automatic_recipe(target):
     graph, director, seconds = target
     settings = graph[director]['inputs']
+    if settings.get('community_lora_profile') == 'combat':
+        from .schema import PERFORMANCE_PRESETS
+        from .sampling_experiments import validate_sampling_options
+        selected = dict(settings, performance_preset=PERFORMANCE_PRESETS.get(
+            settings.get('performance_preset'), settings.get('performance_preset')))
+        settings.update(validate_sampling_options(selected))
     if settings.get('voice_mode', 'none') not in {'none', 'h3_reference'}:
         raise ValueError('超过 15 秒的原生续拍目前支持“不使用音色”或“H3 原生音色参考”；'
                          '请在原导演台选择对应音色方式。')
