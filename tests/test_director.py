@@ -1,5 +1,6 @@
 import inspect
 import json
+import re
 
 import pytest
 
@@ -979,6 +980,45 @@ def test_native_fl2va_guide_keeps_hard_endpoint_images():
     assert backend == "fl2va_model"
     assert is_hard_endpoint is True
     assert warnings == ""
+
+
+@pytest.mark.parametrize("voice_mode", ["h3_reference", "none"])
+def test_structured_office_guide_keeps_only_authored_mandarin_dialogue(voice_mode):
+    dialogue = "<d>先把你留下。</d>"
+    binding = "<Audio 1> is her voice reference only."
+    detail = (
+        "subject_definitions:\n"
+        f"Nangong Wan <Subject 1> is the woman from <Picture 1>. {binding}\n\n"
+        "summary:\nOne continuous fifteen-second office shot.\n\n"
+        "retention_analysis:\nPreserve identity, clothing and the original three swatches.\n\n"
+        "detailed_description:\n"
+        f"She places the blue-gray swatch on the A3 sheet, says {dialogue}, then rests quietly.\n\n"
+        "overall_soundscape:\nQuiet office ambience and the one authored line.\n\n"
+        "non_diegetic_music:\nNone."
+    )
+    image = object()
+    voice = {"waveform": object(), "sample_rate": 32000}
+
+    result = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA", prompt=detail, duration=15,
+        width=1344, height=768, voice_mode=voice_mode, ref_image_size="match",
+        performance_preset="稳定质量", timeline_data="{}", target_dialogue="",
+        reference_transcript="", reference_image_1=image,
+        voice_reference_audio=voice if voice_mode == "h3_reference" else None,
+    )
+
+    guide, _, resolved_prompt = result[:3]
+    expected_detail = detail if voice_mode == "h3_reference" else detail.replace(binding, "")
+    assert guide["resolved_backend"] == "ref2va_model"
+    assert guide["ref_images"] == {"ref_image_1": image}
+    assert guide["ref_audios"] == ({"ref_audio_1": voice} if voice_mode == "h3_reference" else {})
+    assert guide["prompt"] == resolved_prompt
+    assert resolved_prompt.startswith(expected_detail)
+    assert resolved_prompt.count(dialogue) == 1
+    assert not re.search(r"[\u4e00-\u9fff]", resolved_prompt.replace(dialogue, ""))
+    assert resolved_prompt.count("visual_text_policy:") == 1
+    assert "Speech is audio-only" in resolved_prompt
+    assert "no subtitles, captions, transcript text, speech bubbles" in resolved_prompt
 
 
 def test_h3_reference_fl2va_guide_converts_endpoints_to_references():

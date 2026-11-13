@@ -35,8 +35,7 @@ _VISUAL_TEXT_POLICY = (
     "Visible writing is allowed only when the user explicitly requests it as part of the visual scene. "
     "Speech is audio-only and must never be inferred as visible writing. "
     "Otherwise, no subtitles, captions, transcript text, speech bubbles, calligraphy, title cards, labels, watermarks, UI text, or glowing Chinese characters anywhere in the video. "
-    "Ignore and do not copy writing from reference images or storyboards; keep lower third and margins as clean scene pixels. "
-    "除非用户明确要求画面文字，否则对白只进入声音，不要自动生成字幕、对白文字、气泡字或发光中文。"
+    "Ignore and do not copy writing from reference images or storyboards; keep lower third and margins as clean scene pixels."
 )
 
 
@@ -59,12 +58,23 @@ def is_structured_reference_prompt(detail):
     return "subject_definitions:" in text and "detailed_description:" in text
 
 
-def _audio_binding_line(index, subject):
+def _audio_binding_line(index, subject, *, structured=False):
+    if structured:
+        owner = f'role “{subject}”' if subject.strip() else f"speaker {index} in the prompt"
+        return (
+            f"<Audio {index}> is the voice-timbre and delivery reference for {owner}; "
+            "do not copy the original audio signal."
+        )
     owner = f"，对应角色“{subject}”" if subject else f"，对应提示词中的音色参考 {index}"
     return f"<Audio {index}> 仅作为人物音色与表达方式的 reference{owner}，不复制原音频信号。"
 
 
-def _transcript_line(index, transcript):
+def _transcript_line(index, transcript, *, structured=False):
+    if structured:
+        return (
+            f"<Audio {index}> sample transcript: “{transcript}” "
+            "(for timbre alignment only; do not speak or copy this transcript)."
+        )
     return f"<Audio {index}> 的样本原文是“{transcript}”（仅用于音色对齐，不复制其内容）。"
 
 
@@ -91,11 +101,11 @@ def _augment_structured_prompt(detail, audio_count, audio_names, transcripts, vo
     for index in range(1, audio_count + 1):
         if f"<Audio {index}>" in text:
             continue
-        subject = str(names[index - 1]).strip() if index <= len(names) else ""
-        additions.append(_audio_binding_line(index, subject))
+        subject = str(names[index - 1]) if index <= len(names) else ""
+        additions.append(_audio_binding_line(index, subject, structured=True))
     for index, transcript in enumerate(transcripts, 1):
-        if transcript and index <= audio_count and transcript not in text:
-            additions.append(_transcript_line(index, transcript))
+        if transcript.strip() and index <= audio_count and transcript not in text:
+            additions.append(_transcript_line(index, transcript, structured=True))
     # Structured prompts intentionally remain author-owned. An explicit
     # gender constraint is the one exception: without it, a female reference
     # can drift to a default male register even though the audio slot is right.
@@ -127,7 +137,7 @@ def build_reference_prompt(
     voice_gender="auto",
     audio_transcripts=None,
 ):
-    transcripts = [str(item or "").strip() for item in (audio_transcripts or [])]
+    transcripts = [str(item or "") for item in (audio_transcripts or [])]
     resolved_audio_count = max(int(bool(has_audio)), min(3, int(audio_count or 0)))
     if is_structured_reference_prompt(detail):
         prompt = _augment_structured_prompt(
@@ -137,6 +147,7 @@ def build_reference_prompt(
             raise ValueError("提示词包含不允许的音频复制语义")
         return _append_visual_text_policy(prompt)
 
+    transcripts = [item.strip() for item in transcripts]
     definitions = []
     retention = []
 

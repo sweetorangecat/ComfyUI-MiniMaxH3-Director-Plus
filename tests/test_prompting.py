@@ -1,4 +1,12 @@
-from nodes.prompting import build_reference_prompt
+import re
+
+import pytest
+
+from nodes.prompting import (
+    build_reference_prompt,
+    ensure_visual_text_policy,
+    without_voice_references,
+)
 
 
 def test_ref2va_pictures_are_generic_references_until_prompt_assigns_timing():
@@ -213,7 +221,7 @@ def test_structured_prompt_fills_only_missing_audio_binding():
     assert detail.strip() in prompt
     assert prompt.count("subject_definitions:") == 1
     assert "audio_reference_notes:" in prompt
-    assert "<Audio 1> 仅作为人物音色与表达方式的 reference，对应角色“橘总”" in prompt
+    assert '<Audio 1> is the voice-timbre and delivery reference for role “橘总”' in prompt
 
 
 def test_reference_transcript_is_injected_for_timbre_alignment():
@@ -249,5 +257,97 @@ def test_structured_prompt_keeps_author_text_and_appends_transcript():
     )
 
     assert detail.strip() in prompt
-    assert "样本原文是“江湖规矩，先来后到。”" in prompt
-    assert prompt.count("<Audio 1> 仅作为") == 0  # binding already present
+    assert '<Audio 1> sample transcript: “江湖规矩，先来后到。”' in prompt
+    assert prompt.count("is the voice-timbre and delivery reference") == 0  # binding already present
+
+
+@pytest.mark.parametrize("voice_reference", [True, False])
+def test_structured_ref2va_keeps_mandarin_only_in_authored_dialogue(voice_reference):
+    dialogue = "<d>先把你留下。</d>"
+    detail = (
+        "subject_definitions:\n"
+        "Nangong Wan <Subject 1> is the woman from <Picture 1>. "
+        "<Audio 1> is her voice reference only.\n\n"
+        "summary:\nOne continuous fifteen-second office shot.\n\n"
+        "retention_analysis:\nPreserve identity and the original three swatches.\n\n"
+        "detailed_description:\n"
+        f"She places the blue-gray swatch, says {dialogue}, then rests quietly.\n\n"
+        "overall_soundscape:\nQuiet office ambience and the one authored line.\n\n"
+        "non_diegetic_music:\nNone."
+    )
+    routed_detail = detail if voice_reference else without_voice_references(detail)
+
+    prompt = ensure_visual_text_policy(build_reference_prompt(
+        mode="REF2VA", detail=routed_detail, duration=15,
+        has_audio=voice_reference, audio_count=int(voice_reference),
+    ))
+
+    assert prompt.startswith(routed_detail)
+    assert prompt.count(dialogue) == 1
+    assert ("<Audio 1>" in prompt) is voice_reference
+    assert not re.search(r"[\u4e00-\u9fff]", prompt.replace(dialogue, ""))
+    assert prompt.count("subject_definitions:") == 1
+    assert prompt.count("visual_text_policy:") == 1
+    assert "Speech is audio-only" in prompt
+    assert "no subtitles, captions, transcript text, speech bubbles" in prompt
+    assert ensure_visual_text_policy(prompt) == prompt
+
+
+def test_shared_visual_text_policy_uses_english_control_prose():
+    prompt = ensure_visual_text_policy("One silent office shot.")
+
+    assert prompt.startswith("One silent office shot.\n\nvisual_text_policy:")
+    assert not re.search(r"[\u4e00-\u9fff]", prompt)
+    assert "only when the user explicitly requests it" in prompt
+    assert "Speech is audio-only" in prompt
+    assert "no subtitles, captions, transcript text, speech bubbles" in prompt
+    assert "reference images or storyboards" in prompt
+    assert "lower third and margins" in prompt
+
+
+def test_structured_audio_notes_use_english_controls_and_keep_literal_data_and_slot_order():
+    detail = (
+        "subject_definitions:\n"
+        "<Audio 1> is the woman's voice reference only.\n\n"
+        "detailed_description:\nThe woman speaks, then the man answers."
+    )
+    name = " 南宫阙 / Nangong Que "
+    transcripts = (" 我是南宫婉。 ", "江湖规矩， 先来后到。")
+
+    prompt = ensure_visual_text_policy(build_reference_prompt(
+        mode="REF2VA", detail=detail, duration=15,
+        has_audio=True, audio_count=3, audio_names=("Nangong Wan", name),
+        audio_transcripts=transcripts,
+    ))
+
+    assert prompt.startswith(detail)
+    notes = prompt.split("audio_reference_notes:\n", 1)[1].split("\n\nvisual_text_policy:", 1)[0]
+    lines = notes.splitlines()
+    assert lines[0].startswith("<Audio 2>")
+    assert lines[1].startswith("<Audio 3>")
+    assert f'for role “{name}”' in lines[0]
+    assert "for speaker 3 in the prompt" in lines[1]
+    assert f'<Audio 1> sample transcript: “{transcripts[0]}”' in lines[2]
+    assert f'<Audio 2> sample transcript: “{transcripts[1]}”' in lines[3]
+    assert "for timbre alignment only; do not speak or copy this transcript" in notes
+    assert "do not copy the original audio signal" in notes
+    assert "<Audio 4>" not in prompt
+    assert "<d>" not in notes
+    controls = notes
+    for literal in (name, *transcripts):
+        controls = controls.replace(literal, "")
+    assert not re.search(r"[\u4e00-\u9fff]", controls)
+
+
+def test_structured_prompt_keeps_custom_visual_policy_verbatim_and_idempotent():
+    detail = (
+        "subject_definitions:\nOne woman.\n\n"
+        "detailed_description:\n作者原文：<d>你好。</d>\n\n"
+        "visual_text_policy:\n仅保留用户明确指定的门牌文字。"
+    )
+
+    prompt = build_reference_prompt(mode="REF2VA", detail=detail, duration=15)
+
+    assert prompt == detail
+    assert ensure_visual_text_policy(prompt) == detail
+    assert ensure_visual_text_policy(ensure_visual_text_policy(prompt)) == detail
