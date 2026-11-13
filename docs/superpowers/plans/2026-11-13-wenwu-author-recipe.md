@@ -69,13 +69,13 @@ Run with portable Python: `python -m pytest tests/test_wenwu_recipe.py tests/tes
 - [x] 仅从已验证公开源下载缺少的资产至实际 ComfyUI 模型目录；临时文件完成后校验 SHA256 再原子落盘。Mystic V1 已经原作者平台元数据与同 SHA 镜像核验，未用 V5 替代。
 - [x] 独立 spec 审查，再独立 quality 审查；修复所有实际 P1/P2 并重测。
 - [x] 全量 pytest 前备份原 untracked `pyav-resource-test.mp4.execution.json`，结束后恢复；运行 Python 全套及 JS 全套，`git diff --check`。
-- [ ] 仅暂存该任务明确文件。用 `git -c maintenance.auto=false -c gc.auto=0 commit`，推送现有 feature branch 并 readback hash；保留源 main 及无关编辑。
-- [ ] 检查实际本地插件无活跃作业后做备份和范围更新，保留既有 upscale 修改和删除的示例；不主动运行 GPU。
+- [x] 仅暂存该任务明确文件。用 `git -c maintenance.auto=false -c gc.auto=0 commit`，推送现有 feature branch 并 readback hash；保留源 main 及无关编辑。
+- [x] 检查实际本地插件无活跃作业后做备份和范围更新，保留既有 upscale 修改和删除的示例；不主动运行 GPU。
 - [x] 远程 90秒验收未完成时不重启、不提交 GPU、不部署，明确交付状态；绝不把源码通过当成服务器/GPU画质通过。
 
 ## 验证记录
 
-实现与源码审查已完成，发布和同步步骤待在实际操作后记录。
+实现、源码审查、代码推送与本地范围同步已完成；运行中远程服务保留原样。
 
 - 最终全量 Python：**2122 passed**，179.78 秒；一个既有 pynvml 弃用警告。
 - JavaScript：**110 passed**；入口语法和 `git diff --check` 通过。
@@ -84,3 +84,5 @@ Run with portable Python: `python -m pytest tests/test_wenwu_recipe.py tests/tes
 - 七个实际权重均重新计算 SHA-256 且 SafeTensors header/payload 校验通过，严格文件解析无缺失。未运行 GPU，未操作实际浏览器界面；内核/插件执行、速度、长片音画质仍需实测。
 - SSH 只读队列确认一条运行、一条待跑；没有取消、重排、更新或重启远程服务。
 - 本地及源目录25文件同步预检无冲突；保留原低显存路线、附加 LoRA 及工作流删除状态。模型和同步收据保存在仓库外。
+
+代码发布提交 `8c23fa0b5dc1fda787776ca2becd5af4c40ea2ae` 已推送到 `origin/codex/u11-native-av-long-video` 并 readback 同哈希。实际本地插件已快进到该提交，源目录同步25个文件并逐个读回；源 main 的 HEAD 保持不动。原 upscale 修改、六个已删除示例和 untracked sidecar 保留；本地未启动/重启服务，远程仅只读查队列。本记录后续文档提交不改生产代码。
