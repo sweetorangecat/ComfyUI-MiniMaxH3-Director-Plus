@@ -1,9 +1,107 @@
-"""Optional long-video entry on the existing U11 output, short branch unchanged."""
+"""The original Director's duration selects short output or native AV continuation."""
 from copy import deepcopy
+import math
 
 from .stream_output import MiniMaxH3StreamingVideoCombine
 from .long_video_graph import ancestors
 from .long_video_service import launch
+from .long_video_preflight import preflight
+from .long_video_store import fingerprint
+
+
+def contract_from_prompt(*args, **kwargs):
+    # The text compiler is needed only for automatic long videos.
+    from .long_video_prompt import contract_from_prompt as compile_prompt
+    return compile_prompt(*args, **kwargs)
+
+
+def _director_target(prompt, unique_id):
+    if not isinstance(prompt, dict) or str(unique_id) not in prompt:
+        return None
+    graph = ancestors(prompt, str(unique_id))
+    choices = [(key, node['inputs']) for key, node in graph.items()
+               if node.get('class_type') == 'MiniMaxH3DirectorPlus']
+    if not choices:
+        return None
+    if len(choices) != 1:
+        raise ValueError('原 U11 输出需要连接一个导演台，无法判断多个导演台的总时长。')
+    key, settings = choices[0]
+    seconds = settings.get('duration', 5)
+    if isinstance(seconds, list):
+        # Old custom short graphs may supply an INT link. Preserve their lazy
+        # path; automatic long targets use the original editable duration.
+        return None
+    if (isinstance(seconds, bool) or not isinstance(seconds, (int, float))
+            or not math.isfinite(seconds) or seconds < 4 or int(seconds) != seconds):
+        raise ValueError('视频总时长请输入至少 4 秒的整数。')
+    return graph, key, int(seconds)
+
+
+def _automatic_recipe(target):
+    graph, director, seconds = target
+    settings = graph[director]['inputs']
+    if settings.get('voice_mode', 'none') not in {'none', 'h3_reference'}:
+        raise ValueError('超过 15 秒的原生续拍目前支持“不使用音色”或“H3 原生音色参考”；'
+                         '请在原导演台选择对应音色方式。')
+    # Hidden uploads from an inactive mode must not become new references just
+    # because the long-video engine uses Ref2VA. Match the short-mode policy.
+    mode = settings.get('mode', 'REF2VA')
+    keep = {'REF2VA': {'first_image', 'last_image', *(f'reference_image_{i}' for i in range(1, 10))},
+            'FL2VA': {'first_image', 'last_image'}, 'I2VA': {'first_image'},
+            'L2VA': {'last_image'}, 'T2VA': set()}.get(mode)
+    if keep is None:
+        raise ValueError('请在原导演台选择有效的生成模式。')
+    from .long_video_references import PICTURE_SLOTS
+    for slot in PICTURE_SLOTS:
+        if slot not in keep:
+            settings.pop(slot, None)
+            settings.pop(slot + '_file', None)
+    graph[director].setdefault('_meta', {})['h3_long_video_entry'] = 'director_duration'
+    _prepare_long_pictures(settings, graph)
+    project = 'u11-' + fingerprint({'graph': graph, 'seconds': seconds})[:24]
+    if settings.get('voice_mode', 'none') == 'none':
+        from .prompting import without_voice_references
+        settings['prompt'] = without_voice_references(settings.get('prompt', ''))
+    script = contract_from_prompt(settings.get('prompt', ''), seconds, settings=settings)
+    settings.update(mode='REF2VA', performance_preset='质量优先二采样',
+                    sampling_method='selflift', postprocess_mode='vosr2',
+                    vosr2_profile='manual_baseline', face_refine_mode='off',
+                    motion_smoothing='off')
+    config = {'enabled': True, 'target_seconds': seconds, 'project_name': project,
+              'scene_contract': script, 'stop_condition': 'target',
+              'entry_mode': 'director_duration'}
+    # Ordinary queueing performs the same static checks as the old separate
+    # button, before asset hashing, model loading or any internal queue job.
+    preflight(graph, config)
+    return graph, config
+
+
+def _prepare_long_pictures(settings, graph):
+    """Keep flattened Picture identities while making optional endpoints legal."""
+    from .long_video_references import PICTURE_SLOTS, snapshot_bindings
+    from .long_video_graph import _picture_preprocessing
+    records = snapshot_bindings(settings, graph)['pictures']
+    compact = any(record['slot'] in {'first_image','last_image'} for record in records)
+    for index, record in enumerate(records):
+        before = _picture_preprocessing(settings.get('prompt',''), record['slot'],
+                                         record['preprocessing_source'], record['id'])
+        if before['dropped']:
+            raise ValueError(f'Picture {record["id"]} 是故事板文件：请在原提示词中明确它的故事板职责、'
+                             '阅读顺序及动作时间段，避免把未声明的规划图送入视觉条件。')
+        if compact:
+            after = _picture_preprocessing(settings.get('prompt',''), PICTURE_SLOTS[index],
+                                            record['preprocessing_source'], record['id'])
+            if before != after:
+                raise ValueError(f'Picture {record["id"]} 的复合图处理会因长片参考位置变化而改变；'
+                                 '请使用已确认的单张参考画面。')
+    if compact:
+        for field in PICTURE_SLOTS:
+            settings.pop(field,None); settings.pop(field+'_file',None)
+        for field,record in zip(PICTURE_SLOTS,records):
+            binding=record['binding']
+            settings[field+('_file' if 'file' in binding else '')]=deepcopy(next(iter(binding.values())))
+            if 'link' in binding and record['preprocessing_source']:
+                settings[field+'_file']=record['preprocessing_source']
 
 
 class MiniMaxH3LongVideoAssetName:
@@ -63,20 +161,32 @@ class MiniMaxH3U11Output(MiniMaxH3StreamingVideoCombine):
         fields['hidden']['unique_id'] = 'UNIQUE_ID'
         return fields
 
-    def check_lazy_status(self, long_video=None, images=None, guide=None, **kwargs):
+    def check_lazy_status(self, long_video=None, images=None, guide=None,
+                          prompt=None, unique_id=None, **kwargs):
         if long_video and long_video.get('enabled'):
+            return []
+        target = _director_target(prompt, unique_id)
+        if target and target[2] > 15:
             return []
         needed = [key for key,value in [('images',images),('guide',guide)] if value is None]
         needed.extend(key for key in ('audio','audio_override') if key in kwargs and kwargs[key] is None)
         return needed
 
     def combine(self, images=None, guide=None, long_video=None, unique_id=None, **kwargs):
-        if not long_video or not long_video.get('enabled'):
-            return super().combine(images=images, guide=guide, **kwargs)
         prompt = kwargs.get('prompt')
+        explicit = bool(long_video and long_video.get('enabled'))
+        target = None if explicit else _director_target(prompt, unique_id)
+        if not explicit and not (target and target[2] > 15):
+            return super().combine(images=images, guide=guide, **kwargs)
         if not isinstance(prompt, dict) or str(unique_id) not in prompt:
             raise ValueError('Long-video entry requires the actual U11 prompt graph')
-        state = launch(ancestors(prompt, str(unique_id)), long_video)
+        graph, config = ((ancestors(prompt, str(unique_id)), long_video) if explicit
+                         else _automatic_recipe(target))
+        state = launch(graph, config)
+        state = dict(state)
+        directors = [key for key, value in graph.items() if value.get('class_type') == 'MiniMaxH3DirectorPlus']
+        if len(directors) == 1:
+            state['director_id'] = directors[0]
         import torch
         return {'ui': {'h3_long_video': [state]},
                 'result': (torch.empty((0, 1, 1, 3)), state.get('output', ''))}

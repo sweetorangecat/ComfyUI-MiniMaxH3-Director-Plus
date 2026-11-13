@@ -20,13 +20,14 @@ class _ReferenceShapeProbe:
         return object()
 
 
-def _picture_preprocessing(prompt, slot, source):
+def _picture_preprocessing(prompt, slot, source, picture_id=None):
     from .director import _sanitize_h3_composite_refs
     image = _ReferenceShapeProbe()
     first = image if slot == 'first_image' else None
     refs = [image] if slot.startswith('reference_image_') else []
     actual_first, actual_refs, _ = _sanitize_h3_composite_refs(
-        prompt, first, refs, source if first is not None else '', [source] if refs else [])
+        prompt, first, refs, source if first is not None else '', [source] if refs else [],
+        reference_picture_ids=[picture_id] if refs and picture_id is not None else None)
     return {'cropped': first is not None and actual_first is not image,
             'dropped': bool(refs) and not actual_refs}
 
@@ -34,8 +35,8 @@ def _picture_preprocessing(prompt, slot, source):
 def _validate_picture_relocation(prompt, original, chosen):
     for local, original_id in enumerate(chosen):
         record = original[original_id - 1]
-        before = _picture_preprocessing(prompt, record['slot'], record['preprocessing_source'])
-        after = _picture_preprocessing(prompt, PICTURE_SLOTS[local], record['preprocessing_source'])
+        before = _picture_preprocessing(prompt, record['slot'], record['preprocessing_source'], original_id)
+        after = _picture_preprocessing(prompt, PICTURE_SLOTS[local], record['preprocessing_source'], local + 1)
         if before['dropped']:
             raise ValueError(f'Picture {original_id} is an auto-dropped storyboard reference; use reviewed '
                              'individual reference images instead of selecting a filtered planning sheet')
@@ -78,7 +79,13 @@ def ancestors(graph, root):
         visiting.remove(node_id)
         keep.add(node_id)
     visit(root)
-    return {key: deepcopy(value) for key, value in graph.items() if key in keep}
+    result = {key: deepcopy(value) for key, value in graph.items() if key in keep}
+    # Comfy decorates its live original PROMPT with cache markers, including
+    # NaN from output IS_CHANGED. These are not recipe data and cannot be
+    # hashed or written into the strict project JSON journal.
+    for node in result.values():
+        node.pop('is_changed', None)
+    return result
 
 
 def one(graph, class_type):
@@ -157,6 +164,16 @@ def build_window_graph(base, request, stage="native"):
     if 'reference_bindings' in request and request['reference_bindings'] != bindings:
         raise ValueError('Actual reference bindings no longer match the immutable take snapshot')
     graph[director].setdefault('_meta', {})['h3_long_video_reference_bindings'] = bindings
+    # Automatic original-field graphs retain linked upload names only as
+    # preprocessing hints. roles() removed them before asset hashing so a
+    # stale hint cannot become a second file asset. Restore the same hint at
+    # the physical Director boundary; legacy explicit-selection rules remain.
+    metadata = graph[director]['_meta']
+    if (metadata.get('h3_long_video_entry') == 'director_duration'
+            and request.get('reference_selection') is None):
+        for field, source in metadata.get(SOURCE_FILES_META, {}).items():
+            if source and link(settings.get(field), graph):
+                settings[field + '_file'] = source
     # Runtime consumes the exact immutable take specification. Binding trace is
     # node metadata; callers may snapshot the helper result before saving a take.
     payload = json.dumps({**request, 'stage': stage}, ensure_ascii=False, allow_nan=False)

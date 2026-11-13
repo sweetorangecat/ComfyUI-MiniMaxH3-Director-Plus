@@ -452,7 +452,7 @@ function valueControl(label, widgetName, options, current, type = "select") {
     input.value = current ?? "";
     if (type === "number") {
       input.min = widgetName === "duration" ? "4" : widgetName === "seed" ? "0" : "1";
-      input.max = widgetName === "duration" ? "15" : widgetName === "seed" ? "18446744073709551615" : "8192";
+      if (widgetName !== "duration") input.max = widgetName === "seed" ? "18446744073709551615" : "8192";
       input.step = "1";
       input.dataset.h3pNumber = "true";
     }
@@ -752,6 +752,7 @@ function bindDomControls(element, node, render) {
   element.addEventListener("click", (event) => {
     const button = event.target.closest?.(".h3p button");
     if (!button) return;
+    if (!button.dataset.h3pRemoveFile && !button.dataset.h3pAction && !button.dataset.h3pUploadButton) return;
     event.preventDefault();
     event.stopPropagation();
     if (button.dataset.h3pRemoveFile) {
@@ -921,9 +922,6 @@ function install(node) {
     }
     const selectedResolutionPreset = widget(node, "resolution_preset")?.value || "0.83 MP";
     const lowVramTwoStageMaxSeconds = lowVramTwoStageMaxDuration(selectedResolutionPreset);
-    if (preset === "低显存二采" && Number(widget(node, "duration")?.value) > lowVramTwoStageMaxSeconds) {
-      setWidget(node, "duration", lowVramTwoStageMaxSeconds, false);
-    }
     const postprocessOptions = [...allowedPostprocessModes(preset)];
     let postprocessMode = widget(node, "postprocess_mode")?.value || "native";
     // Retain saved legacy choices without adding them to every new selector.
@@ -1036,7 +1034,9 @@ function install(node) {
     const plannedRouteNote = document.createElement("div");
     plannedRouteNote.className = "h3p-hint";
     const referenceRoute = mode === "REF2VA" || ["h3_reference", "fish_lock"].includes(voiceMode);
-    plannedRouteNote.textContent = `计划后端：${referenceRoute ? "REF2VA" : "FL2VA"}；${referenceRoute && ["I2VA", "L2VA", "FL2VA"].includes(mode) ? "首尾图作为参考，不保证硬端点" : referenceRoute ? "多媒体参考约束" : mode === "T2VA" ? "文本生成" : "保留所选首尾帧硬约束"}。`;
+    plannedRouteNote.textContent = Number(widget(node,"duration")?.value) > 15
+      ? "计划后端：REF2VA 原生续拍。沿用原素材；长片的图片提供参考约束，不提供硬首尾帧。"
+      : `计划后端：${referenceRoute ? "REF2VA" : "FL2VA"}；${referenceRoute && ["I2VA", "L2VA", "FL2VA"].includes(mode) ? "首尾图作为参考，不保证硬端点" : referenceRoute ? "多媒体参考约束" : mode === "T2VA" ? "文本生成" : "保留所选首尾帧硬约束"}。`;
     quick.append(plannedRouteNote);
     root.append(quick);
 
@@ -1045,9 +1045,7 @@ function install(node) {
     specification.innerHTML = '<div class="h3p-section-title"><span>生成规格</span><span class="h3p-hint">H3 原生生成参数</span></div>';
     const specGrid = document.createElement("div");
     specGrid.className = "h3p-grid";
-    const durationControl = valueControl("视频时长（秒）", "duration", [], widget(node, "duration")?.value || 5, "number");
-    const durationInput = durationControl.querySelector('input[data-h3p-value-widget="duration"]');
-    if (durationInput) durationInput.max = preset === "低显存二采" ? String(lowVramTwoStageMaxSeconds) : "15";
+    const durationControl = valueControl("视频总时长（秒）", "duration", [], widget(node, "duration")?.value || 5, "number");
     const resolutionControl = valueControl(
       "分辨率档位",
       "resolution_preset",
@@ -1206,7 +1204,9 @@ function install(node) {
     }
     const specNote = document.createElement("div");
     specNote.className = "h3p-spec-note";
-    specNote.textContent = "时长支持 4–15 秒；尺寸按 32 对齐。2K/4K 属于生成后的超分选项，不冒充 H3 原生分辨率。";
+    specNote.textContent = Number(widget(node,"duration")?.value) > 15
+      ? "当前按整片时间轴自动续拍：沿用原提示词、参考图与音色，后台安排采样和校验。长片使用 REF2VA / SelfLift；图片为参考约束，首尾图不作为硬端点。"
+      : "填写视频总时长；超过 15 秒自动安排原生续拍。尺寸按 32 对齐，2K/4K 在生成后超分。";
     specification.append(specNote);
     root.append(specification);
 
@@ -1442,6 +1442,7 @@ function install(node) {
     route.append(backendLabel, backendValue, routeNote);
     backend.append(route);
     root.append(backend);
+    node._h3LongMount?.(root);
 
     enforceDirectorSize(node);
     node.graph?.setDirtyCanvas(true, true);
@@ -1580,11 +1581,34 @@ function removeLegacyFaceBranch(graph) {
   if (graph.extra) delete graph.extra.director_plus_face_refine;
 }
 
+function upgradeCachedDurationEntry(graph) {
+  const nodes = graph?.nodes || [], links = graph?.links || [];
+  if (!nodes.some(node=>node.type === NODE_CLASS) || links.some(edge=>!Array.isArray(edge))) return;
+  const outputs = nodes.filter(node=>["MiniMaxH3StreamingVideoCombine","MiniMaxH3U11Output"].includes(node.type));
+  if (outputs.length !== 1) return;
+  const output = outputs[0]; output.type = "MiniMaxH3U11Output";
+  output.properties = {...output.properties,"Node name for S&R":"MiniMaxH3U11Output"};
+  const retired = new Set();
+  for (const node of nodes) {
+    if (node.type !== "MiniMaxH3LongVideoConfig" || node.properties?.cnr_id !== "ComfyUI-MiniMaxH3-Director-Plus"
+      || JSON.stringify(node.widgets_values) !== JSON.stringify([false,30,"h3-native-av","{}","target"])) continue;
+    if (node.inputs?.some(input=>input.link != null) || links.some(edge=>edge[3] === node.id)) continue;
+    if (links.some(edge=>edge[1] === node.id && (edge[3] !== output.id || output.inputs?.[edge[4]]?.name !== "long_video"))) continue;
+    retired.add(node.id);
+  }
+  if (!retired.size) return;
+  const removed = new Set(links.filter(edge=>retired.has(edge[1]) || retired.has(edge[3])).map(edge=>edge[0]));
+  graph.nodes = nodes.filter(node=>!retired.has(node.id)); graph.links = links.filter(edge=>!removed.has(edge[0]));
+  for (const input of output.inputs || []) if (removed.has(input.link)) input.link = null;
+  if (!graph.nodes.some(node=>node.type === "MiniMaxH3LongVideoConfig")) graph.groups = (graph.groups || []).filter(group=>group.id !== "u11-long-video");
+}
+
 app.registerExtension({
   name: "MiniMaxH3.DirectorPlus",
   beforeConfigureGraph(graphData) {
     restoreDirectorGraphValues(graphData);
     removeLegacyFaceBranch(graphData);
+    upgradeCachedDurationEntry(graphData);
   },
   nodeCreated(node) {
     if (node.comfyClass === NODE_CLASS) install(node);

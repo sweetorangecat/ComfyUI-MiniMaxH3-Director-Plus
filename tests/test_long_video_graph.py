@@ -23,6 +23,29 @@ def request():
             'parent': {'take_id': 'b' * 32}, 'fingerprint': 'native-key'}
 
 
+@pytest.mark.parametrize('stage',['native','preview','finish'])
+def test_automatic_original_fields_keep_linked_image_crop_hints_in_the_physical_graph(stage,monkeypatch):
+    from nodes.long_video_entry import _automatic_recipe
+    from nodes.long_video_graph import _picture_preprocessing,roles
+    from nodes.long_video_plan import plan_windows,compile_window
+    graph=base_graph();settings=graph['10']['inputs']
+    settings.update(mode='I2VA',duration=30,prompt='The woman keeps walking.',voice_mode='none',
+                    first_image=['11',0],first_image_file='five-view-identity.png')
+    monkeypatch.setattr('nodes.long_video_entry.preflight',lambda *_:None)
+    prepared,config=_automatic_recipe((graph,'10',30))
+    # The linked image is the asset. The shadow filename is only a crop hint,
+    # so hashing must not open it as a second (possibly stale) asset.
+    hash_graph=roles(prepared)[0]
+    assert 'first_image_file' not in hash_graph['10']['inputs']
+    window=plan_windows(720)[0];compiled=compile_window(config['scene_contract'],window)
+    item={**request(),**compiled,'window':window,'parent':None}
+    physical=build_window_graph(prepared,item,stage)
+    actual=physical['10']['inputs']
+    assert actual['first_image_file']=='five-view-identity.png'
+    assert actual['first_image']==['11',0]
+    assert _picture_preprocessing(actual['prompt'],'first_image',actual['first_image_file'],1)=={'cropped':True,'dropped':False}
+
+
 def test_native_graph_retains_original_sampler_and_both_stream_context():
     original = base_graph()
     graph = build_window_graph(original, request(), 'native')

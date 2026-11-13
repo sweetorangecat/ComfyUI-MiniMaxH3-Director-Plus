@@ -54,6 +54,49 @@ async function install() {
   return {node, host, calls, timers, director, callbacks, context, extension};
 }
 
+async function installOriginalDirector() {
+  const fixture = await install();
+  class OriginalDirector {
+    constructor() { this.id=42; this.comfyClass='MiniMaxH3DirectorPlus'; this.properties={};
+      this.widgets=[{name:'duration',value:90},{name:'prompt',value:'整片时间轴'}]; this.size=[1350,1760]; }
+    addDOMWidget() { throw new Error('Progress must mount inside the original Director UI'); }
+    setDirtyCanvas() {}
+  }
+  await fixture.extension.beforeRegisterNodeDef(OriginalDirector,{name:'MiniMaxH3DirectorPlus'});
+  const director=new OriginalDirector(); fixture.context.app.graph._nodes=[director];
+  director.onNodeCreated?.();
+  const container=new Element('section'); director._h3LongMount?.(container); director.root=container;
+  class Output {}
+  await fixture.extension.beforeRegisterNodeDef(Output,{name:'MiniMaxH3U11Output'});
+  return {...fixture,director,output:new Output()};
+}
+
+test('original Director has integrated progress without setup/file/preflight controls',async()=>{
+  const {director}=await installOriginalDirector();
+  assert.ok(find(director,'progress-status'));
+  for (const field of ['recommend','contract-file','preflight','target_seconds','enabled']) assert.equal(find(director,field),undefined);
+  assert.equal(widget(director,'duration').value,90);
+});
+
+test('actual output event binds the automatic project to its original Director and reload preserves it',async()=>{
+  const {director,output,host,calls}=await installOriginalDirector();
+  host.reply=state([], {project_name:'u11-real-project'});
+  output.onExecuted({h3_long_video:[{project_name:'u11-real-project',director_id:'42'}]});
+  await director._h3LongRefresh();
+  assert.equal(director.properties.h3_long_video_project,'u11-real-project');
+  assert.ok(calls.some(call=>call.url.endsWith('/u11-real-project')));
+  assert.ok(!calls.some(call=>call.url.endsWith('/contract/preflight')));
+});
+
+test('same local Director id in separate subgraphs binds only the exact full execution path',async()=>{
+  const {director,output,context}=await installOriginalDirector();
+  const other={id:42,comfyClass:'MiniMaxH3DirectorPlus',properties:{},widgets:[]};
+  context.app.graph._nodes=[{id:'A',subgraph:{_nodes:[director]}},{id:'B',subgraph:{_nodes:[other]}}];
+  output.onExecuted({h3_long_video:[{project_name:'u11-only-A',director_id:'A:42'}]});
+  assert.equal(director.properties.h3_long_video_project,'u11-only-A');
+  assert.equal(other.properties.h3_long_video_project,undefined);
+});
+
 test('presets and finite custom duration use saved widgets without enabling or queueing', async () => {
   const {node,calls} = await install();
   assert.ok(find(node, 'duration-90'), 'duration presets missing');

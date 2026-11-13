@@ -4,7 +4,16 @@ import { api } from "../../../scripts/api.js";
 const BASE = "/h3-director-plus/long-video";
 const LABELS = {new:"尚未开始",preparing:"核对项目和素材中",queued:"等待本窗开始",generating:"原生生成中",decoding:"保存原生预览中",awaiting_review:"待确认本窗",awaiting_forward_review:"待审查衔接素材",enhancing:"沿原 U11 增强中",assembling:"装配完整视频中",complete:"完整成片已完成",awaiting_extension:"已到剧情结尾，可补充后继续",stopped:"已停止续拍",stopping:"本窗保存后停止",failed:"运行失败，已保留检查点",rejected:"本窗需要修正",ready:"等待继续",accepted:"已接受",invalidated:"来源已撤回"};
 const number = value => Number(value || 0).toFixed(3).replace(/\.?0+$/, "");
-const widget = (node,name) => node.widgets?.find(item=>item.name === name);
+function widget(node,name) {
+  const actual = node.widgets?.find(item=>item.name === name); if (actual) return actual;
+  if (!node._h3LongAutomatic) return undefined;
+  if (name === "target_seconds") return node.widgets?.find(item=>item.name === "duration");
+  return {get value() {
+    if (name === "project_name") return node.properties?.h3_long_video_project || "";
+    if (name === "enabled") return Number(widget(node,"duration")?.value) > 15;
+    return name === "scene_contract" ? "{}" : "target";
+  }, set value(value) { if (name === "project_name") { node.properties ||= {}; node.properties.h3_long_video_project = value; } }};
+}
 function el(tag,text,field) { const item = document.createElement(tag); if (text !== undefined) item.textContent = text; if (field) item.dataset.field = field; return item; }
 function button(parent,label,action,callback) { const item = el("button",label); item.type = "button"; item.dataset.action = action; item.addEventListener("click",callback); parent.append(item); return item; }
 function writeWidget(node,name,value) {
@@ -17,19 +26,26 @@ function canonical(text) {
   if (!value || Array.isArray(value) || value.schema_version !== 1 || value.fps !== 24 || !Array.isArray(value.beats) || !value.beats.length) throw new Error("请导入 H3 技能的 U11 单语 scene_contract 导出；{}、source_beats、分镜规划或提示词包不能直接使用。");
   return value;
 }
-function directors(graph,seen = new Set()) {
+function directorPaths(graph,prefix = "",seen = new Set()) {
   if (!graph || seen.has(graph)) return []; seen.add(graph);
-  return (graph._nodes || []).flatMap(node=>[...([node.comfyClass,node.type].includes("MiniMaxH3DirectorPlus") ? [node] : []),...directors(node.subgraph,seen)]);
+  const result = (graph._nodes || []).flatMap(node=>{
+    const path = prefix+node.id;
+    return [...([node.comfyClass,node.type].includes("MiniMaxH3DirectorPlus") ? [{node,path}] : []),...directorPaths(node.subgraph,path+":",seen)];
+  });
+  seen.delete(graph); return result;
 }
+const directors = graph => directorPaths(graph).map(item=>item.node);
 
-function attachProgress(node) {
+function attachProgress(node,automatic = false) {
   if (node._h3LongInstalled) return; node._h3LongInstalled = true;
+  node._h3LongAutomatic = automatic;
   // Keep real serialized widgets; hide only their duplicate native display.
   for (const item of node.widgets || []) if (["enabled","target_seconds","project_name","scene_contract","stop_condition"].includes(item.name)) {
     item.hidden = true; item.options ||= {}; item.options.hidden = true; item.computeSize = ()=>[0,-4]; item.draw = ()=>{};
   }
-  const root = el("div"); root.style.cssText = "height:100%;padding:10px;box-sizing:border-box;color:var(--input-text);background:var(--comfy-input-bg);font:13px sans-serif;overflow:auto;line-height:1.5";
-  const feedback = el("p","默认关闭。选择总时长并导入剧情，预检后使用 ComfyUI 普通排队。","feedback"); feedback.setAttribute("role","status");
+  const panel = el("section"), compatibility = el("details"); compatibility.append(el("summary","高级兼容设置（旧长片画布）"));
+  let root = compatibility;
+  const feedback = el("p",automatic ? "使用导演台原有时长、提示词和素材直接排队；超过 15 秒自动续拍。" : "旧配置仍可恢复；普通生成请直接使用原导演台的总时长。","feedback"); feedback.setAttribute("role","status");
   function input(tag,field,placeholder) { const item = el(tag,undefined,field); if (placeholder) item.placeholder = placeholder; item.style.cssText = "max-width:100%;box-sizing:border-box;margin:4px 0"; return item; }
   function row(label,control) { const item = el("label",label+" "); item.append(control); root.append(item,el("br")); }
   const enabled = input("input","enabled"); enabled.type = "checkbox"; row("开启原生长视频",enabled);
@@ -76,15 +92,25 @@ function attachProgress(node) {
     catch (error) { if (capturedEpoch === epoch) feedback.textContent = error.message; }
   }); details.append(exampleText); root.append(details);
   const adopt = button(root,"采用剧情时长","adopt-duration",()=>{ try { const value = canonical(script.value); if (!Number.isInteger(value.total_frames) || value.total_frames < 1) throw new Error("剧情没有明确 total_frames。"); setDuration(value.total_frames/24); } catch (error) { feedback.textContent = error.message; } }); adopt.hidden = true;
-  root.append(feedback);
   const preflightActions = el("div"), preflightResult = el("div",undefined,"preflight-result"); root.append(preflightActions,preflightResult);
+  root = panel;
+  root.style.cssText = "padding:10px;box-sizing:border-box;color:var(--input-text);background:var(--comfy-input-bg);font:13px sans-serif;max-height:680px;overflow:auto;line-height:1.5";
+  root.append(el("strong","视频生成进度"),feedback);
+  if (!automatic) root.append(compatibility);
   const progressStatus = el("p","尚未排队。","progress-status"), actions = el("div"), selector = input("select","window-select"), content = el("div");
   actions.style.cssText = "display:flex;gap:8px;flex-wrap:wrap"; selector.style.width = "100%";
   const output = el("a","查看 / 下载一个完整 MP4","whole-output"); output.target = "_blank"; output.hidden = true;
   root.append(progressStatus,actions,selector,content,output);
-  const progressWidget = node.addDOMWidget("long_video_progress","div",root,{serialize:false,hideOnZoom:false,getHeight:()=>860}); progressWidget.computeSize = ()=>[540,860]; node.setSize([Math.max(node.size[0],560),Math.max(node.size[1],900)]);
+  if (automatic) {
+    node._h3LongMount = parent => {
+      root.hidden = Number(widget(node,"duration")?.value) <= 15 && !widget(node,"project_name")?.value;
+      parent.append(root);
+    };
+  } else {
+    const progressWidget = node.addDOMWidget("long_video_progress","div",root,{serialize:false,hideOnZoom:false,getHeight:()=>860}); progressWidget.computeSize = ()=>[540,860]; node.setSize([Math.max(node.size[0],560),Math.max(node.size[1],900)]);
+  }
   let timer, removed = false, activeProject, epoch = 0, sequence = 0, latestApplied = 0, visibleView;
-  const projects = new Map(), project = ()=>String(widget(node,"project_name")?.value || "h3-native-av"), endpoint = key=>BASE+"/"+encodeURIComponent(key);
+  const projects = new Map(), project = ()=>String(widget(node,"project_name")?.value || (automatic ? "" : "h3-native-av")), endpoint = key=>BASE+"/"+encodeURIComponent(key);
   function ensureProject() {
     const key = project();
     if (activeProject !== key) { activeProject = key; epoch++; latestApplied = 0; clearTimeout(timer); visibleView?.video?.pause(); content.replaceChildren(); visibleView = null; selector.replaceChildren(); selector._signature = undefined; output.hidden = true; }
@@ -127,12 +153,15 @@ function attachProgress(node) {
   function encodingText(value) { return `完整成片：${value.codec} / ${value.container} / ${value.bit_depth} / ${value.audio_codec} ${value.audio_bitrate/1000}k · CRF ${value.crf} · BT.709 limited`; }
   async function request(action,data = {}) {
     ensureProject(); const key = activeProject, capturedEpoch = epoch, order = ++sequence;
+    if (!key) { feedback.textContent = "使用原导演台正常排队后，这里会显示续拍进度。"; return; }
     try { const response = await api.fetchApi(endpoint(key)+"/control",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,...data})}); const result = await response.json(); if (capturedEpoch !== epoch || key !== project() || removed) return; if (!response.ok) throw new Error(result.error || response.statusText); if (order >= latestApplied) { latestApplied = order; render(result); } }
     catch (error) { if (capturedEpoch === epoch && key === project()) feedback.textContent = error.message; }
   }
   async function refresh() {
     ensureProject(); clearTimeout(timer); if (removed) return;
     const key = activeProject, capturedEpoch = epoch, order = ++sequence;
+    if (!key) return;
+    root.hidden = false;
     try { const response = await api.fetchApi(endpoint(key)); const result = await response.json(); if (removed || capturedEpoch !== epoch || key !== project()) return; if (!response.ok) throw new Error(result.error || response.statusText); if (order >= latestApplied) { latestApplied = order; render(result); } }
     catch (error) { if (!removed && capturedEpoch === epoch && key === project()) progressStatus.textContent = error.message; }
     finally { if (!removed && capturedEpoch === epoch && key === project()) timer = setTimeout(refresh,3000); }
@@ -213,6 +242,18 @@ function attachProgress(node) {
   syncConfig(); timer = setTimeout(refresh,0);
 }
 app.registerExtension({name:"MiniMaxH3.NativeAVLongVideo",async beforeRegisterNodeDef(nodeType,nodeData) {
+  if (nodeData.name === "MiniMaxH3DirectorPlus") { const original = nodeType.prototype.onNodeCreated; nodeType.prototype.onNodeCreated = function () { original?.apply(this,arguments); attachProgress(this,true); }; }
   if (nodeData.name === "MiniMaxH3LongVideoConfig") { const original = nodeType.prototype.onNodeCreated; nodeType.prototype.onNodeCreated = function () { original?.apply(this,arguments); attachProgress(this); }; }
-  if (nodeData.name === "MiniMaxH3U11Output") { const original = nodeType.prototype.onExecuted; nodeType.prototype.onExecuted = function (message) { original?.apply(this,arguments); if (message.h3_long_video) for (const node of app.graph?._nodes || []) node._h3LongRefresh?.(); }; }
+  if (nodeData.name === "MiniMaxH3U11Output") { const original = nodeType.prototype.onExecuted; nodeType.prototype.onExecuted = function (message) {
+    original?.apply(this,arguments);
+    if (!message.h3_long_video) return;
+    for (const state of message.h3_long_video) {
+      const choices = directorPaths(app.graph), identity = String(state.director_id ?? "");
+      const matches = choices.filter(item=>item.path === identity);
+      for (const {node} of matches.length ? matches : choices.length === 1 ? choices : []) {
+        node.properties ||= {}; node.properties.h3_long_video_project = state.project_name; node._h3LongRefresh?.();
+      }
+    }
+    for (const node of app.graph?._nodes || []) if (!node._h3LongAutomatic) node._h3LongRefresh?.();
+  }; }
 }});

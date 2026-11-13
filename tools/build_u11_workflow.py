@@ -901,7 +901,7 @@ def _upgrade_subgraphs(workflow):
 
 
 def upgrade_long_video_entry(workflow):
-    """Upgrade only the original output; retain every saved short-film choice."""
+    """Use Director duration; retire only our untouched generated config panel."""
     nodes = workflow.get('nodes', [])
     output = next((n for n in nodes if n.get('type') in {
         'MiniMaxH3StreamingVideoCombine','MiniMaxH3U11Output'}), None)
@@ -909,30 +909,37 @@ def upgrade_long_video_entry(workflow):
         return workflow
     output['type'] = 'MiniMaxH3U11Output'
     output['properties'] = {**output.get('properties', {}), 'Node name for S&R': 'MiniMaxH3U11Output'}
-    config = next((n for n in nodes if n.get('type') == 'MiniMaxH3LongVideoConfig'), None)
-    if config is None:
-        config = {'id': _new_id_factory(workflow)(), 'type': 'MiniMaxH3LongVideoConfig',
-                  'title': '长视频（按需开启）', 'pos': [2530,470], 'size': [480,760],
-                  'flags': {}, 'order': max((n.get('order',0) for n in nodes), default=0)+1, 'mode': 0,
-                  'inputs': [], 'outputs': [_output('长视频配置','MINIMAX_H3_LONG_VIDEO',[])],
-                  'properties': _properties('MiniMaxH3LongVideoConfig'),
-                  'widgets_values': [False,30.0,'h3-native-av','{}','target']}
-        nodes.append(config)
-    slot = _append_input(output, 'long_video', 'MINIMAX_H3_LONG_VIDEO')
-    output['inputs'][slot]['shape'] = 7
-    if output['inputs'][slot].get('link') is None:
-        connection = _add_link(workflow, _new_link_factory(workflow), config, 0, output, slot, 'MINIMAX_H3_LONG_VIDEO')
-        output['inputs'][slot]['link'] = connection
-        config['outputs'][0].setdefault('links', []).append(connection)
-    if not any(g.get('id') == 'u11-long-video' for g in workflow.get('groups', [])):
-        workflow.setdefault('groups', []).append({'id':'u11-long-video','title':'长视频（按需开启）',
-            'bounding':[2500,400,540,900],'color':'#4c806b','font_size':24,'flags':{}})
+    retired = set()
+    for config in nodes:
+        if (config.get('type') != 'MiniMaxH3LongVideoConfig'
+                or config.get('properties', {}).get('cnr_id') != PLUGIN_ID
+                or config.get('widgets_values') != [False,30.0,'h3-native-av','{}','target']):
+            continue
+        if (any(item.get('link') is not None for item in config.get('inputs', []))
+                or any(_link_value(raw)[3] == config['id'] for raw in workflow.get('links', []))):
+            continue  # Converted inputs can override otherwise default widgets.
+        outgoing = [_link_value(raw) for raw in workflow.get('links', [])
+                    if _link_value(raw)[1] == config['id']]
+        if any(edge[3] != output['id'] or output.get('inputs', [])[edge[4]].get('name') != 'long_video'
+               for edge in outgoing):
+            continue  # Preserve user-authored connections and expert recipes.
+        retired.add(config['id'])
+    if retired:
+        removed_links = {_link_value(raw)[0] for raw in workflow.get('links', [])
+                         if _link_value(raw)[1] in retired or _link_value(raw)[3] in retired}
+        workflow['nodes'] = [node for node in nodes if node['id'] not in retired]
+        workflow['links'] = [raw for raw in workflow.get('links', []) if _link_value(raw)[0] not in removed_links]
+        for item in output.get('inputs', []):
+            if item.get('link') in removed_links:
+                item['link'] = None
+    if not any(n.get('type') == 'MiniMaxH3LongVideoConfig' for n in workflow['nodes']):
+        workflow['groups'] = [g for g in workflow.get('groups', []) if g.get('id') != 'u11-long-video']
     workflow.setdefault('extra', {})['u11_long_video_user_entry'] = {
-        'version': 2, 'duration_presets_seconds': [30, 60, 90],
-        'custom_duration': 'positive_finite_seconds',
-        'contract_schema': 'templates/u11_long_video_contract.schema.json',
-        'preflight_path': '/h3-director-plus/long-video/contract/preflight',
-        'entry': 'original_u11_normal_queue', 'default_enabled': False}
+        'version': 3, 'duration_source': 'MiniMaxH3DirectorPlus.duration',
+        'automatic_above_seconds': 15, 'preflight': 'automatic_before_generation',
+        'prompt_source': 'original_director_full_film_timeline',
+        'media_capacity': 'unchanged_original_slots',
+        'entry': 'original_u11_normal_queue'}
     return workflow
 
 
@@ -1177,10 +1184,7 @@ def build_api_template():
         "22": {"class_type": "MiniMaxH3SafeVAEDecode", "inputs": {"samples": ["21", 0], "vae": ["4", 0]}, "_meta": {"title": "API 安全视频 VAE 解码（GPU计算 / CPU帧缓存 FP16）"}},
         "23": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["21", 1], "vae": ["5", 0]}, "_meta": {"title": "API 音频解码"}},
         "29": {"class_type": "MiniMaxH3ColorGuard", "inputs": {"images": ["22", 0], "guide": ["10", 0], "enabled": True, "strength": 1.0}, "_meta": {"title": "曝光与色彩连续性保护"}},
-        "24": {"class_type": "MiniMaxH3U11Output", "inputs": {"images": ["29", 0], "guide": ["10", 0], "frame_rate": 24.0, "codec": "H.264", "container": "MP4", "bit_depth": "Auto", "quality": 20, "log_level": "Standard", "pingpong": False, "save_metadata": True, "filename_prefix": "DirectorPlus", "save_output": True, "pass_frames": False, "crop_to_audio": False, "audio_codec": "Auto", "audio_bitrate": "320k", "save_first_frame": False, "save_last_frame": False, "audio": ["23", 0], "long_video": ["30",0]}, "_meta": {"title": "预览与输出"}},
-        "30": {"class_type": "MiniMaxH3LongVideoConfig", "inputs": {"enabled": False,
-            "target_seconds": 30.0, "project_name": "h3-native-av", "scene_contract": "{}", "stop_condition": "target"},
-            "_meta": {"title": "长视频（总时长 / H3 剧情导入 / 独立预检）"}},
+        "24": {"class_type": "MiniMaxH3U11Output", "inputs": {"images": ["29", 0], "guide": ["10", 0], "frame_rate": 24.0, "codec": "H.264", "container": "MP4", "bit_depth": "Auto", "quality": 20, "log_level": "Standard", "pingpong": False, "save_metadata": True, "filename_prefix": "DirectorPlus", "save_output": True, "pass_frames": False, "crop_to_audio": False, "audio_codec": "Auto", "audio_bitrate": "320k", "save_first_frame": False, "save_last_frame": False, "audio": ["23", 0]}, "_meta": {"title": "预览与输出"}},
     }
 
 

@@ -1594,7 +1594,7 @@
         {
           "name": "long_video",
           "type": "MINIMAX_H3_LONG_VIDEO",
-          "link": 66,
+          "link": null,
           "shape": 7
         }
       ],
@@ -2332,48 +2332,6 @@
       },
       "color": "#24353d",
       "bgcolor": "#344b55"
-    },
-    {
-      "id": 2752,
-      "type": "MiniMaxH3LongVideoConfig",
-      "title": "长视频（按需开启）",
-      "pos": [
-        2530,
-        470
-      ],
-      "size": [
-        480,
-        760
-      ],
-      "flags": {},
-      "order": 26,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "长视频配置",
-          "type": "MINIMAX_H3_LONG_VIDEO",
-          "links": [
-            66
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "MiniMaxH3LongVideoConfig",
-        "cnr_id": "ComfyUI-MiniMaxH3-Director-Plus",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.8",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        false,
-        30.0,
-        "h3-native-av",
-        "{}",
-        "target"
-      ]
     }
   ],
   "links": [
@@ -2584,14 +2542,6 @@
       2568,
       19,
       "AUDIO"
-    ],
-    [
-      66,
-      2752,
-      0,
-      2568,
-      20,
-      "MINIMAX_H3_LONG_VIDEO"
     ]
   ],
   "groups": [
@@ -2665,19 +2615,6 @@
         760
       ],
       "color": "#4c6f62",
-      "flags": {}
-    },
-    {
-      "id": "u11-long-video",
-      "title": "长视频（按需开启）",
-      "bounding": [
-        2500,
-        400,
-        540,
-        900
-      ],
-      "color": "#4c806b",
-      "font_size": 24,
       "flags": {}
     }
   ],
@@ -5627,17 +5564,13 @@
     },
     "links_added_by_ue": [],
     "u11_long_video_user_entry": {
-      "version": 2,
-      "duration_presets_seconds": [
-        30,
-        60,
-        90
-      ],
-      "custom_duration": "positive_finite_seconds",
-      "contract_schema": "templates/u11_long_video_contract.schema.json",
-      "preflight_path": "/h3-director-plus/long-video/contract/preflight",
-      "entry": "original_u11_normal_queue",
-      "default_enabled": false
+      "version": 3,
+      "duration_source": "MiniMaxH3DirectorPlus.duration",
+      "automatic_above_seconds": 15,
+      "preflight": "automatic_before_generation",
+      "prompt_source": "original_director_full_film_timeline",
+      "media_capacity": "unchanged_original_slots",
+      "entry": "original_u11_normal_queue"
     }
   },
   "version": 0.4

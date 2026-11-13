@@ -237,6 +237,33 @@ def _is_storyboard_source(source):
     return bool(value) and any(marker in value for marker in _STORYBOARD_SOURCE_MARKERS)
 
 
+def _authored_storyboard_picture_ids(prompt):
+    """Honor explicit timed board roles, never infer asset approval from a name."""
+    text = re.sub(r'<d(?:\s+[^>]*)?>.*?</d\s*>', '', str(prompt or ''), flags=re.I | re.S)
+    names = ('subject_definitions', 'summary', 'retention_analysis', 'detailed_description',
+             'overall_soundscape', 'non_diegetic_music')
+    headings = list(re.finditer(r'(?im)^[ \t]*(?:#{1,6}[ \t]+)?(' + '|'.join(names) + r')[ \t]*[:：]', text))
+    if {m.group(1).lower() for m in headings} != set(names):
+        return set()
+    sections = {m.group(1).lower(): text[m.end():headings[i+1].start() if i+1<len(headings) else len(text)]
+                for i,m in enumerate(headings)}
+    roles = sections['subject_definitions'] + '\n' + sections['retention_analysis']
+    if not re.search(r'left\s+to\s+right|top\s+to\s+bottom|从左到右|从上到下|逐格(?:阅读|顺序)', roles, re.I):
+        return set()
+    if not re.search(r'\bP\d+\b|\bPanel\s+\d+\b|第\s*\d+\s*格|\[\s*\d[^\]\n]*[-–—]',
+                     sections['detailed_description'], re.I):
+        return set()
+    declared = set()
+    for match in re.finditer(r'<Picture\s+([1-9]\d*)>(.*?)(?=<(?:Picture|Audio|Subject)\s+[1-9]\d*>|$)',
+                             roles, re.I | re.S):
+        clause = re.split(r'[。.!?！？\n]', match.group(2), maxsplit=1)[0]
+        if (re.search(r'\bstoryboard\b|故事板|分镜板|分镜图', clause, re.I)
+                and not re.search(r'\b(?:not|no)\s+(?:[\w-]+\s+){0,3}storyboard\b|'
+                                  r'(?:不是|并非)[^。.;；]{0,8}(?:故事板|分镜板|分镜图)|非故事板', clause, re.I)):
+            declared.add(int(match.group(1)))
+    return declared
+
+
 def _rewrite_storyboard_prompt(prompt):
     """Keep the written action plan while removing a dangling image binding."""
     text = str(prompt or "")
@@ -273,6 +300,8 @@ def _sanitize_h3_composite_refs(
     references,
     first_image_source="",
     reference_sources=None,
+    last_image_present=False,
+    reference_picture_ids=None,
 ):
     """Return H3-safe image refs and a record of automatic sheet handling.
 
@@ -281,17 +310,22 @@ def _sanitize_h3_composite_refs(
     produce a translucent duplicate.  The Director's five-view convention
     keeps the identity portrait in the left panel, so only that panel is sent
     to H3.  Storyboard sheets are planning assets, so when an upload name
-    identifies one, keep its action order in text but remove the sheet from
-    H3's visual conditions.  Otherwise each visible pose can become a
-    translucent extra person.
+    identifies an undeclared planning sheet, remove it from visual conditions.
+    Explicitly numbered, ordered storyboard roles with a timed action plan are
+    retained. This honors the requested input, not proof of its visual quality.
     """
     text = f"{prompt or ''} {first_image_source or ''}".lower()
     notes = []
     first = first_image
     refs = list(references or [])
     sources = list(reference_sources or [])
+    authored_boards = _authored_storyboard_picture_ids(prompt)
+    picture_ids = (list(reference_picture_ids) if reference_picture_ids is not None else
+                   [int(first is not None) + int(last_image_present) + i + 1 for i in range(len(refs))])
+    if len(picture_ids) != len(refs):
+        raise ValueError('Storyboard preprocessing needs the actual flattened Picture IDs')
     has_five_view = any(marker in text for marker in ("五视图", "five-view", "five view", "5-view"))
-    if has_five_view and first is not None:
+    if has_five_view and first is not None and 1 not in authored_boards:
         cropped = _crop_reference_tensor(first, 0.30, 0.88)
         if cropped is not first:
             first = cropped
@@ -302,7 +336,7 @@ def _sanitize_h3_composite_refs(
         if reference is None:
             continue
         source = sources[index] if index < len(sources) else ""
-        if _is_storyboard_source(source):
+        if _is_storyboard_source(source) and picture_ids[index] not in authored_boards:
             dropped.append(str(source))
             continue
         filtered.append(reference)
@@ -482,7 +516,7 @@ class MiniMaxH3DirectorPlus:
             "required": {
                 "mode": (["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"], {"default": "FL2VA", "tooltip": "生成模式"}),
                 "prompt": ("STRING", {"default": "", "multiline": True, "tooltip": "视频提示词"}),
-                "duration": ("INT", {"default": 5, "min": 4, "max": 15, "tooltip": "H3 原生视频时长（4-15 秒）"}),
+                "duration": ("INT", {"default": 5, "min": 4, "tooltip": "视频总时长（秒）；超过 15 秒时由原 U11 输出自动安排原生续拍，单次模型采样仍在原时长范围内。"}),
                 "width": ("INT", {"default": 1344, "min": 32, "max": 8192, "step": 32, "tooltip": "输出宽度"}),
                 "height": ("INT", {"default": 768, "min": 32, "max": 8192, "step": 32, "tooltip": "输出高度"}),
                 "aspect_ratio": ([*ASPECTS, "CUSTOM"], {"default": "16:9", "tooltip": "画面比例，包含横向与竖向比例"}),
@@ -642,6 +676,9 @@ class MiniMaxH3DirectorPlus:
         community_lora_profile="off",
         vosr2_profile="legacy",
     ):
+        if isinstance(duration, (int, float)) and duration > 15:
+            raise RequestError('超过 15 秒请更新原 U11 的“预览与输出”为 U11 视频输出节点 '
+                               '（MiniMaxH3U11Output）；它会自动续拍，单次 H3 采样仍保持原范围。')
         requested_width, requested_height = calculate_resolution(
             resolution_preset,
             aspect_ratio,
@@ -762,6 +799,7 @@ class MiniMaxH3DirectorPlus:
             reference_images,
             first_image_file,
             reference_sources=uploaded_reference_files,
+            last_image_present=last_image is not None,
         )
         first_image = composite_first
         reference_images = composite_references

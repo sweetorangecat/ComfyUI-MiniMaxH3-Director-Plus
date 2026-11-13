@@ -133,6 +133,61 @@ function allElements(root) {
   return [root, ...(root.children || []).flatMap(allElements)];
 }
 
+test("original duration accepts long totals and rendering never clamps them to a physical window", () => {
+  for (const preset of ["稳定质量", "质量优先二采样", "低显存二采"]) {
+    const {node} = installedDirector("off", [
+      {name:"duration",value:90}, {name:"performance_preset",value:preset},
+      {name:"resolution_preset",value:"768p H3"},
+    ]);
+    assert.equal(node.widgets.find(item => item.name === "duration").value,90);
+    const input = allElements(node.root).find(el => el.dataset?.h3pValueWidget === "duration");
+    assert.ok(input);
+    assert.ok(!input.max || Number(input.max) > 90);
+    assert.ok(allElements(node.root).some(el => String(el.textContent || "").includes("续拍")));
+  }
+});
+
+test("refreshing the original cached U11 retires only the untouched generated long panel", () => {
+  const {extension}=installedDirector();
+  const director={id:42,type:'MiniMaxH3DirectorPlus',widgets_values:['saved prompt',90],properties:{}};
+  const output={id:43,type:'MiniMaxH3StreamingVideoCombine',properties:{},inputs:[{name:'long_video',link:8}]};
+  const generated={id:44,type:'MiniMaxH3LongVideoConfig',properties:{cnr_id:'ComfyUI-MiniMaxH3-Director-Plus'},
+    widgets_values:[false,30,'h3-native-av','{}','target'],inputs:[],outputs:[{links:[8]}]};
+  const graph={nodes:[director,output,generated],links:[[8,44,0,43,0,'MINIMAX_H3_LONG_VIDEO']],groups:[{id:'u11-long-video'}]};
+  extension.beforeConfigureGraph(graph);
+  assert.equal(graph.nodes.length,2);
+  assert.equal(output.type,'MiniMaxH3U11Output');
+  assert.equal(output.inputs[0].link,null);
+  assert.equal(graph.links.length,0);
+  assert.equal(graph.groups.length,0);
+});
+
+test("cached expert config controlled by a linked boolean remains untouched", () => {
+  const {extension}=installedDirector();
+  const config={id:44,type:'MiniMaxH3LongVideoConfig',properties:{cnr_id:'ComfyUI-MiniMaxH3-Director-Plus'},
+    widgets_values:[false,30,'h3-native-av','{}','target'],inputs:[{name:'enabled',link:9}],outputs:[{links:[8]}]};
+  const graph={nodes:[{id:42,type:'MiniMaxH3DirectorPlus'},config,
+    {id:43,type:'MiniMaxH3U11Output',inputs:[{name:'long_video',link:8}]}],
+    links:[[9,45,0,44,0,'BOOLEAN'],[8,44,0,43,0,'MINIMAX_H3_LONG_VIDEO']]};
+  extension.beforeConfigureGraph(graph);
+  assert.ok(graph.nodes.includes(config));
+  assert.equal(graph.links.length,2);
+});
+
+test("Director capture handler lets integrated progress buttons reach their own listeners", () => {
+  const {node}=installedDirector();
+  const button=new Element('button'); button.dataset.action='resume';
+  button.closest=selector=>selector === '.h3p button' ? button : null;
+  let stopped=false,prevented=false,targetCalls=0;
+  button.addEventListener('click',()=>{targetCalls++;});
+  const event={target:button,stopPropagation(){stopped=true;},preventDefault(){prevented=true;}};
+  for (const fn of node.root.listeners.click || []) fn(event);
+  if (!stopped) for (const fn of button.listeners.click) fn(event);
+  assert.equal(stopped,false);
+  assert.equal(prevented,false);
+  assert.equal(targetCalls,1);
+});
+
 for (const method of ["h3_two_stage", "vosr2", "video_sr"]) {
   test(`smart upscale selector is enabled and includes ${method}`, () => {
     const { node } = installedDirector("off", [

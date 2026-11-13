@@ -168,7 +168,7 @@ def test_ui_exposes_reference_image_size_strategy():
     assert '"最大尺寸（保留人脸细节）"' in text
 
 
-def test_ui_locks_low_vram_two_stage_by_resolution_to_ai_x2_reconstruction():
+def test_ui_keeps_low_vram_reconstruction_policy_without_clamping_film_duration():
     text = source()
 
     assert '"低显存二采": [["ai_upscale"' in text
@@ -176,8 +176,9 @@ def test_ui_locks_low_vram_two_stage_by_resolution_to_ai_x2_reconstruction():
     assert 'setWidget(node, "duration", 4, false)' not in text
     assert 'function lowVramTwoStageMaxDuration(resolutionPreset)' in text
     assert 'resolutionPreset === "768p H3" ? 10 : 6' in text
-    assert 'Number(widget(node, "duration")?.value) > lowVramTwoStageMaxSeconds' in text
-    assert 'setWidget(node, "duration", lowVramTwoStageMaxSeconds, false)' in text
+    # The runtime retains the short-window budget; the user now enters the
+    # whole film length. Behavior is exercised by the Director VM suite.
+    assert 'setWidget(node, "duration", lowVramTwoStageMaxSeconds, false)' not in text
     assert 'setWidget(node, "resolution_preset", "1080p FHD", false)' in text
     assert "resolvedWidth * resolvedHeight > 1920 * 1080 * 1.02" in text
     assert "function lowVramFirstStageMegapixels" in text

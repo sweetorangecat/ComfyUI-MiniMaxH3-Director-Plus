@@ -123,7 +123,7 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
     assets = native_assets['records']
     export_assets = _asset_bundle(export_asset_freezer(graph))
     native_code = _code_identity(['long_video_plan','long_video_av','long_video_runtime','long_video_graph',
-                                 'long_video_references',
+                                 'long_video_references','long_video_prompt',
                                  'director','guide','schema','prompting','voice_guard','resolution',
                                  'sampling_experiments','two_stage','performance','two_stage_assets','vram_budget',
                                  'additional_loras','long_video_assets','long_video_entry'])

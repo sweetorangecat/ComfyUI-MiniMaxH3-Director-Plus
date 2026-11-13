@@ -131,6 +131,81 @@ def test_storyboard_reference_is_preserved_and_plain_images_are_untouched():
     assert notes == []
 
 
+@pytest.mark.parametrize('heading_prefix',['','### '])
+def test_explicit_timed_storyboard_role_is_not_silently_removed_by_its_filename(heading_prefix):
+    torch = pytest.importorskip('torch')
+    identity = torch.zeros(1, 64, 64, 3)
+    storyboard = torch.ones(1, 64, 64, 3)
+    prompt = ('subject_definitions:\n<Picture 1> is the identity reference. '
+              '<Picture 2> is the twelve-panel storyboard; read left to right and top to bottom; '
+              'it guides the action, not a grid visible in the video.\n\n'
+              'summary:\nA continuous courtyard scene.\n\nretention_analysis:\n'
+              'Preserve the existing roles and relative proportions.\n\ndetailed_description:\n'
+              '[0-2s] P01: establish the scene.\n[2-4s] P02: continue natural motion.\n\n'
+              'overall_soundscape:\nCourtyard ambience.\n\nnon_diegetic_music:\nN/A')
+    if heading_prefix:
+        import re
+        prompt=re.sub(r'(?m)^(subject_definitions|summary|retention_analysis|detailed_description|overall_soundscape|non_diegetic_music):',
+                      lambda m:heading_prefix+m.group(0),prompt)
+    first, references, notes = _sanitize_h3_composite_refs(
+        prompt, None, [identity, storyboard], reference_sources=['identity.png','reviewed_storyboard_12.png'])
+    assert first is None
+    assert len(references) == 2 and references[0] is identity and references[1] is storyboard
+    assert not any('移除' in note for note in notes)
+
+
+@pytest.mark.parametrize('endpoints', [0,1,2])
+def test_declared_storyboard_survives_every_physical_window_and_final_guide(endpoints,monkeypatch):
+    from nodes.long_video_prompt import contract_from_prompt
+    from nodes.long_video_plan import compile_window,plan_windows
+    monkeypatch.setattr('nodes.director._cuda_memory_gb',lambda:(32.,28.))
+    board_id=endpoints+2
+    text=(f'subject_definitions:\n<Picture {endpoints+1}> is the identity reference. '
+          f'<Picture {board_id}> is the twelve-panel storyboard; read left to right and top to bottom. '
+          f'<Picture {endpoints+3}> is the courtyard reference.\n\nsummary:\nA continuous courtyard scene.\n\n'
+          'retention_analysis:\nPreserve all reference roles and proportions.\n\ndetailed_description:\n'
+          '[0-10s] P01. Keep walking toward the courtyard gate.\n'
+          '[10-20s] P02. Keep walking along the path.\n[20-30s] P03. Keep walking past the gate.\n\n'
+          'overall_soundscape:\nFootsteps.\n\nnon_diegetic_music:\nN/A')
+    contract=contract_from_prompt(text,30)
+    refs=[object(),object(),object()];first=object() if endpoints else None;last=object() if endpoints==2 else None
+    from unittest.mock import patch
+    from nodes.long_video_entry import _automatic_recipe
+    from nodes.long_video_references import PICTURE_SLOTS
+    files={'identity.png':refs[0],'reviewed_storyboard_12.png':refs[1],'courtyard.png':refs[2]}
+    settings={'mode':'REF2VA','duration':30,'prompt':text,'voice_mode':'none',
+              'reference_image_1_file':'identity.png','reference_image_2_file':'reviewed_storyboard_12.png',
+              'reference_image_3_file':'courtyard.png'}
+    if first is not None: settings['first_image_file']='first.png';files['first.png']=first
+    if last is not None: settings['last_image_file']='last.png';files['last.png']=last
+    graph={'director':{'class_type':'MiniMaxH3DirectorPlus','inputs':settings}}
+    with patch('nodes.long_video_entry.preflight'):
+        packed,_=_automatic_recipe((graph,'director',30))
+    selected=packed['director']['inputs']
+    images={field:files[selected[field+'_file']] for field in PICTURE_SLOTS if field+'_file' in selected}
+    hints={field+'_file':selected[field+'_file'] for field in PICTURE_SLOTS if field+'_file' in selected}
+    for window in plan_windows(720):
+        compiled=compile_window(contract,window,'CPU TEST: no real AV observation or approval.' if window['index'] else '')
+        out_first,actual,notes=_sanitize_h3_composite_refs(compiled['prompt'],first,refs,
+            reference_sources=['identity.png','reviewed_storyboard_12.png','courtyard.png'],last_image_present=last is not None)
+        assert out_first is first and actual==refs and not notes
+        guide,*_=MiniMaxH3DirectorPlus().build(mode='REF2VA',prompt=compiled['prompt'],duration=13,
+            width=1344,height=768,voice_mode='none',ref_image_size='match',performance_preset='参考图加速',
+            timeline_data='{}',target_dialogue='',reference_transcript='',**images,**hints)
+        assert list(guide['ref_images'].values()) == ([first] if first is not None else []) + ([last] if last is not None else []) + refs
+        assert f'<Picture {board_id}>' in guide['prompt']
+
+
+def test_explicit_first_storyboard_is_not_cropped_for_another_five_view_reference():
+    torch=pytest.importorskip('torch');board=torch.ones(1,100,100,3)
+    text=('subject_definitions:\n<Picture 1> is the storyboard; read left to right and top to bottom. '
+          '<Picture 2> is the five-view identity reference.\nsummary:\nA courtyard scene.\n'
+          'retention_analysis:\nKeep identities.\ndetailed_description:\n[0-30s] P01. Keep walking.\n'
+          'overall_soundscape:\nFootsteps.\nnon_diegetic_music:\nN/A')
+    first,_,notes=_sanitize_h3_composite_refs(text,board,[])
+    assert first is board and not notes
+
+
 def test_storyboard_asset_is_removed_from_visual_refs_when_filename_identifies_it():
     torch = pytest.importorskip("torch")
     identity = torch.zeros(1, 2048, 3072, 3)
