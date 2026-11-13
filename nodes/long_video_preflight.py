@@ -83,7 +83,6 @@ def preflight(base_graph, raw, *, check_encoder=True):
     graph, director, _, _, output = roles(base_graph)
     from .long_video_media import resolve_encoding, encoder_capabilities
     encoding = resolve_encoding(graph[output]['inputs'])
-    capability = encoder_capabilities() if check_encoder else {'checked': False}
     plan = plan_windows(total, protected_intervals=protected_intervals(contract))
     validate_window_overrides(contract, plan)
     settings = graph[director]['inputs']
@@ -95,7 +94,7 @@ def preflight(base_graph, raw, *, check_encoder=True):
         active = deepcopy(graph)
         active_settings = active[director]['inputs']
         active_settings['prompt'] = compiled['prompt']
-        trace = apply_window_reference_policy(active_settings, compiled, active)
+        trace = apply_window_reference_policy(active_settings, {**compiled, 'window': window}, active, preflight=True)
         geometry = conditioning_geometry(window, compiled['forward_frames'],
                                          plan[index - 1]['sample_frames'] if index else None)
         windows.append({'index': index, 'start_seconds': window['new_start'] / 24,
@@ -106,7 +105,7 @@ def preflight(base_graph, raw, *, check_encoder=True):
             'forward_review_required': bool(compiled['forward_frames']), 'forward_geometry': geometry})
     model_fields = {'schema_version','fps','total_frames','subject_definitions','summary',
                     'retention_analysis','scale_contract','overall_soundscape','non_diegetic_music',
-                    'beats','dialogues','window_overrides','reference_selection','voice_policy'}
+                    'beats','dialogues','window_overrides','reference_selection','voice_policy','parent_reference'}
     facts = {key: deepcopy(value) for key, value in contract.items() if key not in model_fields}
     warnings = []
     if contract.get('not_ready_for_video') is True:
@@ -117,6 +116,7 @@ def preflight(base_graph, raw, *, check_encoder=True):
         if isinstance(asset, dict) and (asset.get('approved') is False or asset.get('mounted') is False):
             warnings.append(f'{asset.get("slot", "参考资产")}：来源仍为未审批或未挂载；实际图接线清单不能改写这项来源事实。')
     warnings.append('静态预检不读取权重、不哈希资产、不排队；实际文件、依赖和模型在普通排队时核验。续窗需要实际已审 AV 状态。')
+    capability = encoder_capabilities() if check_encoder else {'checked': False}
     return {'total_frames': total, 'total_seconds': total / 24, 'window_count': len(windows),
             'windows': windows, 'binding_inventory': inventory, 'source_facts': facts,
             'warnings': warnings, 'encoding': encoding, 'encoder_capability': capability,

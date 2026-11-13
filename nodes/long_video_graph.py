@@ -70,17 +70,30 @@ def _validate_picture_relocation(prompt, original, chosen):
                              'use reviewed individual reference images or preserve compatible Director roles')
 
 
-def apply_window_reference_policy(settings, request, graph):
+def apply_window_reference_policy(settings, request, graph, *, parent_store=None, preflight=False):
     """Production binding handshake; validate actual Director relocation policy.
 
     Call this same wrapper before fingerprint/create_take and during graph
     compilation. The pure helper's default static trace is not a production
     preprocessing check and cannot substitute for this immutable take snapshot.
     """
+    from .long_video_parent import apply_parent_overlay, retain_parent_instruction
+    overlay = apply_parent_overlay(settings, request, graph, parent_store=parent_store, preflight=preflight)
     trace = apply_reference_policy(settings, request, graph,
                                    preprocessing_validator=_validate_picture_relocation)
+    if request.get('parent_reference') is not None and len(trace['selection']['pictures']) > 9:
+        raise ValueError('parent_reference cannot exceed the Director maximum of 9 active pictures, including the first window')
     if request.get('reference_selection') is not None:
         trace['preprocessing_validation'] = 'director_policy_checked'
+    if overlay is not None:
+        local = trace['maps']['pictures'][str(overlay['original_picture_id'])]
+        destination = trace['selected']['pictures'][local - 1]['destination']
+        actual = _picture_preprocessing(settings['prompt'], destination, '', local)
+        if actual['cropped'] or actual['dropped']:
+            raise ValueError('Parent native image would be cropped or dropped by the actual Director preprocessing policy')
+        trace['parent_reference'] = {**overlay, 'local_picture_id': local, 'destination': destination}
+        trace['preprocessing_validation'] = 'director_policy_checked'
+        settings['prompt'] = retain_parent_instruction(settings['prompt'], local)
     return trace
 
 
@@ -182,7 +195,7 @@ def roles(graph):
     return relevant, director, sampler, guide, output
 
 
-def build_window_graph(base, request, stage="native"):
+def build_window_graph(base, request, stage="native", *, parent_store=None):
     if stage not in {"native", "finish", "preview"}:
         raise ValueError("Unknown long-video graph stage")
     if any(key.startswith('h3long_') for key in base):
@@ -195,7 +208,7 @@ def build_window_graph(base, request, stage="native"):
     settings = graph[director]["inputs"]
     settings.update(prompt=request["prompt"], duration=max(4, math.ceil(window["sample_frames"] / 24)),
                     seed=request["seed"])
-    bindings = apply_window_reference_policy(settings, request, graph)
+    bindings = apply_window_reference_policy(settings, {**request, 'stage': stage}, graph, parent_store=parent_store)
     if 'reference_bindings' in request and request['reference_bindings'] != bindings:
         raise ValueError('Actual reference bindings no longer match the immutable take snapshot')
     graph[director].setdefault('_meta', {})['h3_long_video_reference_bindings'] = bindings

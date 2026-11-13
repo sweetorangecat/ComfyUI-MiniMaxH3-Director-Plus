@@ -63,13 +63,20 @@ def _automatic_recipe(target):
         if slot not in keep:
             settings.pop(slot, None)
             settings.pop(slot + '_file', None)
+    if seconds > 15:
+        from .long_video_references import snapshot_bindings
+        if len(snapshot_bindings(settings, graph)['pictures']) > 8:
+            raise ValueError('Native continuity needs one existing picture slot: use at most 8 static images '
+                             'so the generated parent can occupy the ninth continuity slot')
     graph[director].setdefault('_meta', {})['h3_long_video_entry'] = 'director_duration'
     _prepare_long_pictures(settings, graph)
     project = 'u11-' + fingerprint({'graph': graph, 'seconds': seconds})[:24]
     if settings.get('voice_mode', 'none') == 'none':
         from .prompting import without_voice_references
         settings['prompt'] = without_voice_references(settings.get('prompt', ''))
-    script = contract_from_prompt(settings.get('prompt', ''), seconds, settings=settings)
+    script = deepcopy(contract_from_prompt(settings.get('prompt', ''), seconds, settings=settings))
+    if seconds > 15:
+        script['parent_reference'] = {'mode': 'append', 'frame_policy': 'delivery_last'}
     original_voice = original_voice_settings(graph, director)
     if original_voice.get('voice_mode') == 'fish_lock':
         from .long_video_audio import recipe_for_window

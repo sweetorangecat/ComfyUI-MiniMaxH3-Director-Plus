@@ -119,7 +119,8 @@ def test_automatic_long_route_uses_original_recipe_and_preflights_without_a_conf
     assert graph == before
     compile_prompt.assert_called_once()
     active, config = start.call_args.args
-    assert config['target_seconds'] == 90 and config['scene_contract'] == contract
+    assert config['target_seconds'] == 90
+    assert config['scene_contract'] == {**contract, 'parent_reference': {'mode': 'append', 'frame_policy': 'delivery_last'}}
     assert config['entry_mode'] == 'director_duration'
     assert config['project_name'].startswith('u11-')
     check.assert_called_once_with(active, config)
@@ -131,6 +132,30 @@ def test_automatic_long_route_uses_original_recipe_and_preflights_without_a_conf
     assert inputs['sampling_method'] == 'selflift'
     assert inputs['vosr2_profile'] == 'manual_baseline'
     assert result['ui']['h3_long_video'][0]['project_name'] == 'auto'
+
+
+def test_automatic_long_recipe_reserves_existing_continuity_slot_without_new_upload_controls():
+    from nodes.long_video_entry import _automatic_recipe
+    graph = director_graph(30, voice_mode='none')
+    for index in range(2, 5):
+        graph['director']['inputs'][f'reference_image_{index}_file'] = f'original-{index}.png'
+    with patch('nodes.long_video_entry.contract_from_prompt', return_value={'compiled': True}), \
+         patch('nodes.long_video_entry.preflight'):
+        active, config = _automatic_recipe((deepcopy(graph), 'director', 30))
+    assert config['scene_contract']['parent_reference'] == {'mode': 'append', 'frame_policy': 'delivery_last'}
+    for index in range(1, 5):
+        assert active['director']['inputs'][f'reference_image_{index}_file'] == graph['director']['inputs'][f'reference_image_{index}_file']
+    assert not any('parent' in key for key in MiniMaxH3DirectorPlus.INPUT_TYPES()['optional'])
+
+
+def test_automatic_ninth_static_image_rejects_before_prompt_compilation_or_launch():
+    graph = director_graph(30, voice_mode='none')
+    for index in range(2, 10):
+        graph['director']['inputs'][f'reference_image_{index}_file'] = f'original-{index}.png'
+    with patch('nodes.long_video_entry.contract_from_prompt', side_effect=AssertionError('compiled before quota rejection')), \
+         patch('nodes.long_video_entry.launch', side_effect=AssertionError('launched before quota rejection')):
+        with pytest.raises(ValueError, match='continuity.*slot|slot.*continuity|连续.*位置'):
+            MiniMaxH3U11Output().combine(unique_id='output', prompt=graph)
 
 
 def test_hidden_disabled_legacy_config_cannot_prevent_automatic_duration_routing():

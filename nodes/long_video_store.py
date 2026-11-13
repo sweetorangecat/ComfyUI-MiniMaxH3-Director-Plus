@@ -224,6 +224,8 @@ class ProjectStore:
                 if state.get('active_job'):
                     raise StaleCoordination('A project already has a queued or running window')
                 self.validate_parent_binding(state, request)
+            from .long_video_parent import verify_parent_reference
+            verify_parent_reference(self, request, state=state)
             if index > len(state["windows"]):
                 raise ValueError("A take cannot skip a window")
             record = {**request, "status": "queued", "artifacts": {}, "exports": {}}
@@ -330,6 +332,8 @@ class ProjectStore:
                 or not {'clean_video', 'latent'} & set(artifacts)):
             raise ValueError('Repair needs the current decoded accepted or rejected native source')
         self.verify(artifacts)
+        from .long_video_parent import verify_parent_reference
+        verify_parent_reference(self, record, state=state)
         if record['status'] == 'accepted':
             self.verify_accepted(record)
         elif record.get('review'):

@@ -14,6 +14,21 @@ _SPEECH = re.compile(r'(<d(?:\s+[^>]*)?>.*?</d>)', re.I | re.S)
 _MARKER = re.compile(r'<(Picture|Audio)\s+([1-9]\d*)>', re.I)
 
 
+def validate_parent_reference(value):
+    """Pure canonical policy validation, shared with the physical resolver."""
+    if not isinstance(value, dict):
+        raise ValueError('parent_reference must be a policy object')
+    mode = value.get('mode')
+    fields = {'mode', 'frame_policy', 'picture_id'} if mode == 'replace' else {'mode', 'frame_policy'}
+    if (not isinstance(mode, str) or mode not in {'append', 'replace'} or set(value) != fields
+            or value.get('frame_policy') not in ('delivery_last', 'forward_last')):
+        raise ValueError('parent_reference requires mode append/replace and frame_policy delivery_last/forward_last; '
+                         'only replace requires picture_id')
+    if mode == 'replace' and (type(value['picture_id']) is not int or not 1 <= value['picture_id'] <= 11):
+        raise ValueError('parent_reference.picture_id must be an original Picture ID in 1..11')
+    return deepcopy(value)
+
+
 def _check_marker_syntax(part):
     for match in re.finditer(r'</?(?:Picture|Audio)', part, re.I):
         end = part.find('>', match.start())

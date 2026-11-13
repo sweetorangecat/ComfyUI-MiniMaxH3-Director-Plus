@@ -47,6 +47,8 @@ def _bound_store(request):
             != {k: v for k, v in saved.items() if k not in transient}):
         raise ValueError("Long-video request differs from the immutable take request")
     ProjectStore.active(store.read(), request["take_id"])
+    from .long_video_parent import verify_parent_reference
+    verify_parent_reference(store, request)
     return store
 
 

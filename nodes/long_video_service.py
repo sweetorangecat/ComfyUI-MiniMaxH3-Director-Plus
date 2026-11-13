@@ -116,6 +116,12 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
     plan = plan_windows(total, protected_intervals=protected_intervals(contract))
     validate_window_overrides(contract, plan)
     graph, director, _, _, output = roles(base_graph)
+    if ('parent_reference' in contract
+            or any('parent_reference' in item for item in contract.get('window_overrides', []))):
+        from .long_video_preflight import preflight
+        # Count/selection/Director checks precede encoder probing, asset hashes,
+        # audio preparation, take creation and all internal queue operations.
+        preflight(base_graph, {**config, 'scene_contract': contract}, check_encoder=False)
     output_settings = graph[output]['inputs']
     # Fail before asset hashing, take creation or any model/queue work.
     encoding = resolve_encoding(output_settings)
@@ -145,7 +151,7 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
     assets = native_assets['records']
     export_assets = _asset_bundle(export_asset_freezer(graph))
     native_code = _code_identity(['long_video_plan','long_video_av','long_video_runtime','long_video_graph',
-                                 'long_video_references','long_video_prompt',
+                                 'long_video_references','long_video_parent','long_video_prompt',
                                  'director','guide','schema','prompting','voice_guard','resolution',
                                  'sampling_experiments','two_stage','performance','two_stage_assets','vram_budget',
                                  'additional_loras','long_video_assets','long_video_entry','long_video_audio','fish'])
@@ -365,7 +371,7 @@ class Coordinator:
         if expected_snapshot is None:
             expected_snapshot = self.store.coordination_snapshot(state, index)
         request['export_fingerprint'] = state['config']['export_fingerprint']
-        graph = build_window_graph(state['config']['base_graph'], request, stage)
+        graph = build_window_graph(state['config']['base_graph'], request, stage, parent_store=self.store)
         graph_file = self.store.write_once(f'jobs/{prompt_id}.json', graph)
         job = {'prompt_id': prompt_id, 'take_id': request['take_id'], 'stage': stage,
                'graph': self.store.artifact(graph_file), 'submitted_at': time.time()}
@@ -472,10 +478,6 @@ class Coordinator:
                     if AudioCache(self.store.output_root).sentence(sentence) is None:
                         return self.schedule_audio(audio_spec, 'sentence', index, expected_snapshot, sentence_id)
                 return self.schedule_audio(audio_spec, 'compose', index, expected_snapshot)
-            active, director, *_ = roles(config['base_graph'])
-            settings = active[director]['inputs']
-            settings['prompt'] = compiled['prompt']
-            bindings = apply_window_reference_policy(settings, compiled, active)
             history = None
             if parent is not None:
                 try:
@@ -489,6 +491,51 @@ class Coordinator:
                 history = {'take_id': parent['take_id'], 'history_sha256': history_hash}
             if proof is not None:
                 history['forward_review'] = deepcopy(parent['forward_review'])
+            binding_request = {**compiled, 'project_name': self.store.name, 'window': window, 'parent': history}
+            repair = state.get('repair')
+            repair = repair if repair and repair['index'] == index else None
+            if compiled.get('parent_reference') is not None and window['context_frames']:
+                from .long_video_parent import resolve_parent_reference, verify_parent_reference
+                # The PNG receipt also owns its exact child window. Extending
+                # a partial tail changes that scope even when its parent and
+                # consumed history are unchanged; normal invalidation must bind
+                # a fresh image for the new window while retaining the old one.
+                same_scope = (existing and existing.get('window') == window and existing.get('parent') == history
+                              and existing.get('parent_reference') == compiled['parent_reference'])
+                reuse_frozen = (same_scope and (existing['status'] != 'invalidated' or repair
+                                or existing.get('invalidation_reason') == _SAMPLER_INCOMPLETE))
+                if repair and not same_scope:
+                    raise ValueError('Repair window, parent reference or actual history changed; '
+                                     'select the current source and request repair again or start a new base generation')
+                try:
+                    if reuse_frozen:
+                        # Recovery, preview, export and repair retain the exact
+                        # originally frozen image. Missing/corrupt evidence is
+                        # an error, never permission to extract another frame.
+                        saved = json.loads(self.store.path(
+                            f"takes/{existing['take_id']}/request.json").read_text(encoding='utf-8'))
+                        frozen = existing.get('parent_reference_image')
+                        if (saved.get('parent_reference_image') != frozen
+                                or saved.get('parent_reference') != existing.get('parent_reference')
+                                or saved.get('parent') != history):
+                            raise ValueError('Parent image lineage differs from the immutable take request')
+                        binding_request['parent_reference_image'] = deepcopy(frozen)
+                        verify_parent_reference(self.store, binding_request)
+                    else:
+                        binding_request['parent_reference_image'] = resolve_parent_reference(
+                            self.store, binding_request, expected_snapshot=expected_snapshot)
+                except ValueError:
+                    self.store.check_coordination(self.store.read(), index, expected_snapshot)
+                    raise
+                compiled['parent_reference_image'] = deepcopy(binding_request['parent_reference_image'])
+            active, director, *_ = roles(config['base_graph'])
+            settings = active[director]['inputs']
+            settings['prompt'] = compiled['prompt']
+            bindings = apply_window_reference_policy(settings, binding_request, active, parent_store=self.store)
+            if 'parent_reference' in bindings:
+                # Persist the actual six-field model text. The overlay is
+                # idempotent when the physical compiler repeats its handshake.
+                compiled['prompt'] = settings['prompt']
             current = state
             attempt = current.get('content_attempts', {}).get(str(index), 0)
             seed = (config['seed'] + index * 1009 + attempt * 1000003) % (2**64)
@@ -496,14 +543,13 @@ class Coordinator:
             # inputs affect reuse. Audit/mapped metadata can describe a beat's
             # later endpoint when a target is extended; it is not sampled here.
             model_compiled = {key: compiled[key] for key in
-                              ('prompt', 'dialogue_ids', 'reference_selection', 'voice_policy', 'forward_frames')}
+                              ('prompt', 'dialogue_ids', 'reference_selection', 'voice_policy', 'forward_frames',
+                               'parent_reference', 'parent_reference_image') if key in compiled}
             base_key = fingerprint({'generation': config['generation_key'], 'window': window,
                                     'compiled': model_compiled, 'reference_bindings': bindings, 'seed': seed,
                                     'parent': history, **({'target_audio': target_audio} if target_audio is not None else {})})
             records = current['windows']
             record = records[index] if index < len(records) else None
-            repair = current.get('repair')
-            repair = repair if repair and repair['index'] == index else None
             if repair and current.get('repair_base_fingerprint', base_key) != base_key:
                 raise ValueError('Repair generation inputs or current parent changed; select the current source and request repair again')
             if (not repair and record and record.get('base_fingerprint') == base_key

@@ -13,7 +13,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from fractions import Fraction
 
 from .long_video_references import (directing_text, reference_maps, remap_references,
-                                    validate_reference_syntax, validate_selection, without_local_voice_bindings)
+                                    validate_reference_syntax, validate_selection, without_local_voice_bindings,
+                                    validate_parent_reference)
 
 FPS = 24
 _MIN_SAMPLE_FRAMES = 107  # First 17k+5 length inside the native 4–15 second budget.
@@ -197,6 +198,10 @@ def _validate_overrides(s, total):
         _voice_policy(s['voice_policy'])
     if 'reference_selection' in s:
         s['reference_selection'] = validate_selection(s['reference_selection'])
+    if 'parent_reference' in s:
+        s['parent_reference'] = validate_parent_reference(s['parent_reference'])
+        if s['parent_reference']['mode'] == 'append' and s.get('reference_selection') is not None:
+            raise ValueError('parent_reference append cannot use explicit reference_selection; designate a selected Picture with replace')
     misplaced = {'forward_frames', 'remaining_beats', 'sections', 'anchors'} & set(s)
     if misplaced:
         raise ValueError('Unsupported top-level phase fields; use exact window_overrides: ' + ', '.join(sorted(misplaced)))
@@ -209,7 +214,7 @@ def _validate_overrides(s, total):
         if not isinstance(override, dict):
             raise ValueError('window_overrides entries must be objects')
         _known(override, ('new_start', 'new_end', 'remaining_beats', 'sections',
-                          'reference_selection', 'voice_policy', 'forward_frames', 'target_audio'), 'window_override')
+                          'reference_selection', 'voice_policy', 'forward_frames', 'target_audio', 'parent_reference'), 'window_override')
         a = _integer(override.get('new_start'), 'window_override.new_start')
         b = _integer(override.get('new_end'), 'window_override.new_end', 1)
         if not a < b <= total:
@@ -227,6 +232,12 @@ def _validate_overrides(s, total):
             _voice_policy(override['voice_policy'])
         if 'reference_selection' in override:
             override['reference_selection'] = validate_selection(override['reference_selection'])
+        if 'parent_reference' in override:
+            override['parent_reference'] = validate_parent_reference(override['parent_reference'])
+        parent_policy = override.get('parent_reference', s.get('parent_reference'))
+        if (parent_policy and parent_policy['mode'] == 'append'
+                and override.get('reference_selection', s.get('reference_selection')) is not None):
+            raise ValueError('parent_reference append cannot use explicit reference_selection; designate a selected Picture with replace')
         if 'sections' in override:
             sections = override['sections']
             if not isinstance(sections, dict) or not sections:
@@ -382,6 +393,13 @@ def validate_window_overrides(contract, windows):
     for override in s.get('window_overrides', []):
         if (override['new_start'], override['new_end']) not in pairs:
             raise ValueError('window_overrides must match exact planned new_start/new_end boundaries')
+    for window in planned:
+        override = next((item for item in s.get('window_overrides', [])
+                         if (item['new_start'], item['new_end']) == (window['new_start'], window['new_end'])), {})
+        policy = override.get('parent_reference', s.get('parent_reference'))
+        if (window['context_frames'] and policy and policy['frame_policy'] == 'forward_last'
+                and not override.get('forward_frames', 0)):
+            raise ValueError('parent_reference forward_last requires an exact-window forward_frames range and actual forward review')
     return copy.deepcopy(s.get('window_overrides', []))
 
 
@@ -503,6 +521,9 @@ def compile_window(contract, window, incoming_state=''):
     forward = override.get('forward_frames', 0)
     if forward and not c:
         raise ValueError('forward_frames requires a continuation with actual source history; compilation does not approve a source tail')
+    parent_policy = override.get('parent_reference', s.get('parent_reference'))
+    if c and parent_policy and parent_policy['frame_policy'] == 'forward_last' and not forward:
+        raise ValueError('parent_reference forward_last requires an explicit forward_frames range and actual forward review')
     free_start, free_local, offset = a + forward, c + forward, c - a
     for x, y in protected_intervals(s):
         if x < free_start < y:
@@ -609,6 +630,8 @@ def compile_window(contract, window, incoming_state=''):
     result = {'prompt': prompt,
             'dialogue_ids': owned, 'mapped_beats': mapped, 'reference_selection': selection,
             'voice_policy': policy, 'forward_frames': forward, 'audit': audit}
+    if parent_policy is not None:
+        result['parent_reference'] = copy.deepcopy(parent_policy)
     target = override.get('target_audio', s.get('target_audio'))
     if target is not None:
         if not isinstance(target, dict):

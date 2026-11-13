@@ -20,20 +20,20 @@ nodes, JSON Schema and existing Python/JS regressions. No GPU or new UI.
 Files: create `nodes/long_video_parent.py`,
 `tests/test_long_video_parent.py`.
 
-- [ ] Write failing tests for `delivery_last` selecting source_endpoint-1 and
+- [x] Write failing tests for `delivery_last` selecting source_endpoint-1 and
   `forward_last` requiring the exact reviewed forward range. A three-color CPU
   movie must yield the actual requested frame, not its last frame or a static
   reference. Reject rejected/nonadjacent parent, missing receipt/native file,
   wrong hash, out-of-range frame, source replacement during extraction and
   partial publication before a readable PNG exists.
-- [ ] Implement policy validation and a resolver using the current accepted
+- [x] Implement policy validation and a resolver using the current accepted
   ProjectStore parent and native preview artifact. Decode only one bounded
   physical clip on CPU. Store exact frame PNG and immutable lineage; recheck
   coordination before publication and return the frozen descriptor.
-- [ ] Implement verification and the private IMAGE loader using only bound
+- [x] Implement verification and the private IMAGE loader using only bound
   project artifacts. Assert no resize and exact decoded pixel equality; reject
   arbitrary paths, stale current parent or PNG/source tampering.
-- [ ] Run `python -m pytest tests/test_long_video_parent.py -q` with the existing
+- [x] Run `python -m pytest tests/test_long_video_parent.py -q` with the existing
   test stubs. Record RED/GREEN and stop inference/downloads if encountered.
 
 ## Task2: Canonical contract and both graph handshakes
@@ -42,22 +42,22 @@ Files: `nodes/long_video_plan.py`, `nodes/long_video_graph.py`,
 `nodes/long_video_service.py`, `nodes/long_video_store.py`, `__init__.py`,
 `templates/u11_long_video_contract.schema.json`, corresponding tests.
 
-- [ ] Write failing root/override policy schema-runtime agreement tests.
+- [x] Write failing root/override policy schema-runtime agreement tests.
   Examples use `parent_reference={"mode":"replace","picture_id":2,
   "frame_policy":"delivery_last"}`. Unknown modes/fields, unavailable or
   unselected ID2, and unreviewed forward policies must fail.
-- [ ] Carry policy to compiled requests; freeze the resolved source before
+- [x] Carry policy to compiled requests; freeze the resolved source before
   static reference policy/create_take. The actual build_window_graph must
   consume the same frozen descriptor, never resolve the latest file anew.
-- [ ] Overlay the private node link and preprocessing source at the designated
+- [x] Overlay the private node link and preprocessing source at the designated
   original slot before compacting. Include actual lineage in binding trace,
   per-take generation fingerprint, persisted request/record and native code
   identity; do not modify the global catalog/asset snapshot.
-- [ ] Verify eleven catalog IDs -> selected3–5 with Picture2 replacement.
+- [x] Verify eleven catalog IDs -> selected3–5 with Picture2 replacement.
   Original Picture/Subject/Sx/Audio and literal `<d>` contents stay unchanged.
   Add a soft-parent retention instruction in the existing six-field prompt;
   keep model controls outside spoken dialogue and preserve preprocessing.
-- [ ] Add races/retry/repair/preview/finish regressions: existing frozen images
+- [x] Add races/retry/repair/preview/finish regressions: existing frozen images
   are verified/reused; parent changes invalidate dependent work; missing or
   corrupt frozen images cannot be replaced silently. Run focused parent,
   graph/store/service/plan tests to GREEN.
@@ -67,26 +67,26 @@ Files: `nodes/long_video_plan.py`, `nodes/long_video_graph.py`,
 Files: `nodes/long_video_entry.py`, `nodes/long_video_preflight.py` and their
 tests; no additional visible selector or workflow JSON.
 
-- [ ] Write failing original-duration append tests: four ordinary images
+- [x] Write failing original-duration append tests: four ordinary images
   remain original1–4, continuation adds a generated localPicture5. First
   windows and all <=15s paths keep their existing inputs unchanged.
-- [ ] Add internal append policy only to ordinary long entry. Append after the
+- [x] Add internal append policy only to ordinary long entry. Append after the
   current ordinary image sequence, preserving all original bindings. Reject
   nine static images and advanced explicit selection+append during pure
   preflight, before any model/hash/job/extraction work.
-- [ ] Preflight uses a clearly synthetic unapproved descriptor to exercise
+- [x] Preflight uses a clearly synthetic unapproved descriptor to exercise
   counts and production binding logic; it never reads parent media or grants
   content approval. Assert spies for extraction/queue/model loading remain
   uncalled. Run entry/preflight/parent tests to GREEN.
 
 ## Task4: Review, verification and gated rollout
 
-- [ ] Independent spec review, fix issues and re-review; only then independent
+- [x] Independent spec review, fix issues and re-review; only then independent
   quality review. Preserve root PyAV sidecar SHA
   `579731293876124363454d6e762bb4835458a2242bb4b8c0e49da8ee4e26a7a8`.
-- [ ] Run full Python suite with backup/finally restoration and existing JS
+- [x] Run full Python suite with backup/finally restoration and existing JS
   compatibility checks justified by changed entry/preflight behavior.
-- [ ] Update existing long-video docs/H3 guidance with the one automatic entry,
+- [x] Update existing long-video docs/H3 guidance with the one automatic entry,
   reserved existing picture position, designated advanced replacement, and
   actual implementation/GPU boundaries. Do not create another user workflow.
 - [ ] Commit and push the existing feature branch, preserve local modifications
@@ -95,5 +95,18 @@ tests; no additional visible selector or workflow JSON.
 
 ## Status
 
-Design derived from the user's explicit parent endpoint requirement and the
-existing reference audit. Implementation pending; no new GPU approval.
+Implementation and independent spec/quality reviews are complete. Final focused
+implementation checks: **422 passed**. A quality finding on partial-tail
+extension was RED with two failures, then four targeted checks passed; spec and
+quality reviewers independently repeated those four checks. Full root Python
+suite: **2303 passed**, one existing pynvml deprecation warning, 208.77 seconds.
+The original sidecar was restored byte-for-byte to its recorded SHA.
+
+The existing H3 compiler/export tests passed **33** checks. Guidance review
+covered four parent/delivery cases plus seven prior audio/quota cases, including
+explicit review-gated progress rather than unattended whole-film generation.
+Real installed Comfy imports/private IMAGE API were additionally exercised on
+CPU with a synthetic source/review fixture: frame293 -> float32 `[1,6,8,3]`,
+exact RGB, no model weights or CUDA initialization. This is not GPU/content
+approval. Installation/remote delivery remains separately recorded and gated on
+the other film's running work.
