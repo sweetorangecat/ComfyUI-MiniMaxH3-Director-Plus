@@ -22,6 +22,7 @@ class Element {
     this.children = children;
   }
   setAttribute(name, value) { this[name] = value; }
+  setCustomValidity(message) { this.validationMessage = message; }
   closest(selector) {
     if (selector === "[data-h3p-value-widget]"
       || selector === ".h3p [data-h3p-value-widget]"
@@ -50,6 +51,7 @@ function installedDirector(initialValue = "off", extraWidgets = [], nativeWidget
   let extension;
   const frames = [];
   const changes = [];
+  const documentListeners = {};
   const context = vm.createContext({
     app: { registerExtension(value) { extension = value; } },
     api: hostApi,
@@ -61,7 +63,7 @@ function installedDirector(initialValue = "off", extraWidgets = [], nativeWidget
       head: new Element("head"),
       body: { contains: () => false },
       documentElement: new Element("html"),
-      addEventListener() {},
+      addEventListener(type, listener) { (documentListeners[type] ||= []).push(listener); },
       querySelectorAll: () => [],
     },
     window: {},
@@ -90,7 +92,7 @@ function installedDirector(initialValue = "off", extraWidgets = [], nativeWidget
     },
   };
   extension.nodeCreated(node);
-  return { node, face, frames, extension, changes };
+  return { node, face, frames, extension, changes, documentListeners };
 }
 
 for (const mode of ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"]) {
@@ -256,6 +258,225 @@ function advancedPanel(node) {
   return allElements(node.root).find(el => el.tag === "details"
     && el.children.some(child => child.textContent === "二采高级设置"));
 }
+
+function voiceDirector(duration, { mode = "REF2VA", voiceMode = "fish_lock", profile = "off" } = {}) {
+  const values = { mode, duration, voice_mode: voiceMode, performance_preset: "质量优先二采样",
+    sampling_method: "selflift", community_lora_profile: profile };
+  const widgets = nativeWidgets();
+  for (const item of widgets) if (Object.hasOwn(values, item.name)) item.value = values[item.name];
+  return installedDirector("off", widgets, true);
+}
+
+function renderedControl(node, name) {
+  return allElements(node.root).find(el => el.dataset?.h3pValueWidget === name);
+}
+
+function editValue(installed, scope, type, name, value) {
+  const input = renderedControl(installed.node, name);
+  assert.ok(input, `missing editor for ${name}`);
+  const closest = input.closest.bind(input);
+  input.closest = selector => selector === ".h3p[data-h3p-controller]" ? installed.node.root : closest(selector);
+  input.value = value;
+  const listeners = scope === "document" ? installed.documentListeners : installed.node.root.listeners;
+  for (const handler of listeners[type] || []) handler({ target: input, stopPropagation() {} });
+  return input;
+}
+
+for (const scope of ["root", "document"]) {
+  for (const eventType of ["input", "change"]) {
+    test(`${scope} ${eventType} preserves a fractional duration instead of submitting the previous valid long total`, () => {
+      const installed = voiceDirector(24);
+      const { node } = installed;
+      assert.equal(valueOf(node, "performance_preset"), "质量优先二采样");
+      assert.equal(valueOf(node, "sampling_method"), "selflift");
+      const preserved = ["mode", "voice_mode", "prompt", "seed", "community_lora_profile",
+        ...STATE_FIELDS.filter(name => name.endsWith("_file") || name.startsWith("voice_reference_name_"))];
+      const before = Object.fromEntries(preserved.map(name => [name, valueOf(node, name)]));
+      const input = editValue(installed, scope, eventType, "duration", "24.5");
+      assert.equal(valueOf(node, "duration"), 24.5);
+      assert.equal(nativeSave(node).widgets_values_named.duration, 24.5);
+      assert.match(input.validationMessage, /至少 4 秒的整数/);
+      if (eventType === "input") editValue(installed, scope, "change", "duration", "24.5");
+      assert.equal(valueOf(node, "duration"), 24.5);
+      assert.notEqual(valueOf(node, "performance_preset"), "质量优先二采样");
+      assert.equal(valueOf(node, "sampling_method"), "standard");
+      assert.equal(renderedControl(node, "duration").value, 24.5);
+      assert.match(renderedControl(node, "duration").validationMessage, /至少 4 秒的整数/);
+      const text = allElements(node.root).map(el => el.textContent || "").join(" ");
+      assert.match(text, /视频总时长请输入至少 4 秒的整数/);
+      assert.doesNotMatch(text, /计划后端：REF2VA 原生续拍/);
+      for (const name of preserved) assert.equal(valueOf(node, name), before[name], name);
+      assert.deepEqual(Object.keys(nativeSave(node).widgets_values_named), STATE_FIELDS);
+    });
+  }
+
+  test(`${scope} duration editor keeps other invalid drafts invalid for submission and displays the error`, () => {
+    for (const draft of ["Infinity", "", "NaN", "3", "15.5", "24suffix"]) {
+      const installed = voiceDirector(24);
+      const expected = draft.trim() ? Number(draft) : NaN;
+      editValue(installed, scope, "input", "duration", draft);
+      assert.equal(valueOf(installed.node, "duration"), expected, draft);
+      editValue(installed, scope, "change", "duration", draft);
+      assert.equal(valueOf(installed.node, "duration"), expected, draft);
+      assert.equal(nativeSave(installed.node).widgets_values_named.duration,
+        Number.isFinite(expected) ? expected : null, draft);
+      assert.match(renderedControl(installed.node, "duration").validationMessage, /至少 4 秒的整数/, draft);
+      assert.notEqual(valueOf(installed.node, "performance_preset"), "质量优先二采样", draft);
+    }
+  });
+
+  test(`${scope} duration editor preserves valid original long and short transitions`, () => {
+    const installed = voiceDirector(24);
+    for (const draft of ["15", "24", "15", "24.0"]) {
+      editValue(installed, scope, "input", "duration", draft);
+      editValue(installed, scope, "change", "duration", draft);
+      const seconds = Number(draft);
+      assert.equal(valueOf(installed.node, "duration"), seconds);
+      assert.equal(nativeSave(installed.node).widgets_values_named.duration, seconds);
+      assert.equal(renderedControl(installed.node, "duration").validationMessage, "");
+      assert.equal(renderedControl(installed.node, "performance_preset").children
+        .some(el => el.value === "质量优先二采样"), seconds > 15);
+      assert.equal(valueOf(installed.node, "mode"), "REF2VA");
+      assert.equal(valueOf(installed.node, "voice_mode"), "fish_lock");
+    }
+  });
+
+  test(`${scope} numeric editors retain existing seed and dimension parsing`, () => {
+    const installed = installedDirector("off", [
+      { name: "seed", value: 1 }, { name: "aspect_ratio", value: "CUSTOM" },
+      { name: "custom_width", value: 16 }, { name: "custom_height", value: 9 },
+    ]);
+    for (const name of ["seed", "custom_width"]) {
+      editValue(installed, scope, "input", name, "42.5");
+      assert.equal(valueOf(installed.node, name), 42);
+      editValue(installed, scope, "change", name, "42.5");
+      assert.equal(valueOf(installed.node, name), 42);
+    }
+  });
+}
+
+test("saved 24-second Fish restores SelfLift synchronously and preserves original bindings and slots", () => {
+  const values = { duration: 24, voice_mode: "fish_lock", performance_preset: "质量优先二采样",
+    sampling_method: "selflift", community_lora_profile: "continuity",
+    prompt: "0–24 秒：<Picture 1> 人物使用 <Audio 1> 音色，<Audio 2> 和 <Audio 3> 保留原角色职责。",
+    target_dialogue: "保留原对白。", reference_transcript: "保留样本文本。",
+    voice_reference_name_3: "旁白", voice_reference_audio_3_file: "input/旁白.wav" };
+  const widgets = nativeWidgets();
+  for (const item of widgets) if (Object.hasOwn(values, item.name)) item.value = values[item.name];
+  const saved = nativeSave({ widgets }, false);
+  const original = { ...saved.widgets_values_named };
+  const preserved = ["mode", "prompt", "duration", "seed", "control_after_generate", "voice_mode",
+    "fish_model_path", "target_dialogue", "reference_transcript", "community_lora_profile",
+    ...STATE_FIELDS.filter(name => name.endsWith("_file") || name.startsWith("voice_reference_name_"))];
+  const { node, extension, frames } = installedDirector("off", nativeWidgets(), true);
+  extension.beforeConfigureGraph({ nodes: [saved] });
+  nativeRestore(node, saved);
+  // Queueing and saving may occur before the deferred DOM render.
+  assert.equal(valueOf(node, "sampling_method"), "selflift");
+  assert.equal(valueOf(node, "performance_preset"), "质量优先二采样");
+  for (const callback of frames.splice(0)) callback();
+  for (const name of preserved) assert.equal(valueOf(node, name), original[name], name);
+  const roundTrip = nativeSave(node);
+  assert.deepEqual(Object.keys(roundTrip.widgets_values_named), STATE_FIELDS);
+  assert.equal(roundTrip.widgets_values.length, STATE_FIELDS.length);
+  for (const name of preserved) assert.equal(roundTrip.widgets_values_named[name], original[name], name);
+  assert.equal(roundTrip.widgets_values_named.sampling_method, "selflift");
+  assert.equal(roundTrip.widgets_values_named.performance_preset, "质量优先二采样");
+});
+
+for (const mode of ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"]) {
+  test(`24-second ${mode} Fish exposes existing quality and SelfLift choices`, () => {
+    const { node } = voiceDirector(24, { mode, profile: "continuity" });
+    assert.equal(valueOf(node, "mode"), mode);
+    assert.equal(valueOf(node, "voice_mode"), "fish_lock");
+    assert.equal(valueOf(node, "duration"), 24);
+    assert.equal(valueOf(node, "performance_preset"), "质量优先二采样");
+    assert.equal(valueOf(node, "sampling_method"), "selflift");
+    assert.equal(valueOf(node, "community_lora_profile"), "continuity");
+    assert.ok(renderedControl(node, "performance_preset").children.some(el => el.value === "质量优先二采样"));
+    assert.deepEqual(renderedControl(node, "sampling_method").children.map(el => el.value), ["standard", "selflift"]);
+  });
+}
+
+test("24-second REF2VA Fish keeps the author recipe eligible with complete target audio requirements", () => {
+  const { node } = voiceDirector(24, { profile: "combat" });
+  assert.equal(valueOf(node, "performance_preset"), "质量优先二采样");
+  assert.equal(valueOf(node, "sampling_method"), "selflift");
+  assert.equal(valueOf(node, "community_lora_profile"), "combat");
+  assert.equal(advancedPanel(node).open, false);
+  assert.deepEqual(renderedControl(node, "sampling_method").children.map(el => el.value), ["selflift"]);
+  const text = allElements(advancedPanel(node)).map(el => el.textContent || "").join(" ");
+  assert.match(text, /simple.*12.*6\+6/);
+  assert.match(text, /Fish.*完整目标音频/);
+  assert.doesNotMatch(text, /作者配方需要/);
+});
+
+for (const mode of ["T2VA", "I2VA", "FL2VA", "L2VA"]) {
+  test(`24-second Fish author recipe preserves incompatible original ${mode} with an explanation`, () => {
+    const { node } = voiceDirector(24, { mode, profile: "combat" });
+    assert.equal(valueOf(node, "mode"), mode);
+    assert.equal(valueOf(node, "voice_mode"), "fish_lock");
+    assert.equal(valueOf(node, "performance_preset"), "质量优先二采样");
+    assert.equal(valueOf(node, "sampling_method"), "selflift");
+    assert.equal(valueOf(node, "community_lora_profile"), "combat");
+    assert.equal(advancedPanel(node).open, true);
+    const text = allElements(advancedPanel(node)).map(el => el.textContent || "").join(" ");
+    assert.match(text, /作者配方需要.*REF2VA/);
+    assert.match(text, /Fish.*完整目标音频/);
+    assert.doesNotMatch(text, /不支持 Fish/);
+  });
+}
+
+for (const duration of [4, 15, 15.5, 24.5, NaN, Infinity, -Infinity, "24", null, undefined, true, [24]]) {
+  test(`Fish duration ${String(duration)} (${typeof duration}) keeps short-route restrictions`, () => {
+    const { node } = voiceDirector(duration);
+    assert.equal(valueOf(node, "duration"), duration);
+    assert.notEqual(valueOf(node, "performance_preset"), "质量优先二采样");
+    assert.equal(valueOf(node, "sampling_method"), "standard");
+    assert.ok(!renderedControl(node, "performance_preset").children.some(el => el.value === "质量优先二采样"));
+    assert.equal(renderedControl(node, "sampling_method"), undefined);
+    const text = allElements(node.root).map(el => el.textContent || "").join(" ");
+    assert.doesNotMatch(text, /计划后端：REF2VA 原生续拍/);
+  });
+}
+
+test("15-second Fish keeps an explicit incompatible author recipe visible", () => {
+  const { node } = voiceDirector(15, { profile: "combat" });
+  assert.equal(valueOf(node, "community_lora_profile"), "combat");
+  assert.equal(valueOf(node, "sampling_method"), "selflift");
+  assert.equal(advancedPanel(node).open, true);
+  assert.match(allElements(advancedPanel(node)).map(el => el.textContent || "").join(" "), /作者配方需要.*不支持 Fish/);
+});
+
+test("long audio reuse retains the original voice choice without claiming SelfLift support", () => {
+  const { node } = voiceDirector(24, { voiceMode: "audio_reuse" });
+  assert.equal(valueOf(node, "voice_mode"), "audio_reuse");
+  assert.equal(valueOf(node, "sampling_method"), "standard");
+  assert.deepEqual(renderedControl(node, "sampling_method").children.map(el => el.value), ["standard"]);
+  assert.match(allElements(node.root).map(el => el.textContent || "").join(" "), /超过 15 秒.*不支持完整复用/);
+});
+
+test("long audio reuse keeps an explicit incompatible author recipe and explains the unsupported voice", () => {
+  const { node } = voiceDirector(24, { voiceMode: "audio_reuse", profile: "combat" });
+  assert.equal(valueOf(node, "voice_mode"), "audio_reuse");
+  assert.equal(valueOf(node, "community_lora_profile"), "combat");
+  assert.equal(valueOf(node, "sampling_method"), "selflift");
+  assert.equal(advancedPanel(node).open, true);
+  assert.match(allElements(advancedPanel(node)).map(el => el.textContent || "").join(" "), /作者配方需要.*不支持完整复用/);
+});
+
+test("long Fish help describes review-gated continuation and the existing picture quota without extra uploads", () => {
+  const { node } = voiceDirector(24);
+  const { node: short } = voiceDirector(15);
+  const text = allElements(node.root).map(el => el.textContent || "").join(" ");
+  assert.match(text, /逐窗复核后续拍/);
+  assert.match(text, /候选.*实际复核.*实际尾态.*接受.*增强.*下一窗/);
+  assert.match(text, /8 张静态.*1 张父窗.*9 张/);
+  assert.match(allElements(advancedPanel(node)).map(el => el.textContent || "").join(" "), /Fish.*对白.*环境声.*音效.*完整目标音频/);
+  const uploadFields = director => allElements(director.root).filter(el => el.dataset?.h3pUpload).map(el => el.dataset.h3pUpload);
+  assert.deepEqual(uploadFields(node), uploadFields(short));
+  assert.ok(uploadFields(node).every(name => STATE_FIELDS.includes(name)));
+});
 
 test("VOSR tuning is collapsed by default and preserves saved values", () => {
   const profile = { name: "vosr2_profile", value: "manual_baseline" };

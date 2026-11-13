@@ -45,7 +45,7 @@ function attachProgress(node,automatic = false) {
   }
   const panel = el("section"), compatibility = el("details"); compatibility.append(el("summary","高级兼容设置（旧长片画布）"));
   let root = compatibility;
-  const feedback = el("p",automatic ? "使用导演台原有时长、提示词和素材直接排队；超过 15 秒自动续拍。" : "旧配置仍可恢复；普通生成请直接使用原导演台的总时长。","feedback"); feedback.setAttribute("role","status");
+  const feedback = el("p",automatic ? "使用导演台原有时长、提示词和素材直接排队；超过 15 秒逐窗复核后续拍：每窗先生成候选，实际复核并填写实际尾态，接受后再增强并继续下一窗。" : "旧配置仍可恢复；普通生成请直接使用原导演台的总时长。","feedback"); feedback.setAttribute("role","status");
   function input(tag,field,placeholder) { const item = el(tag,undefined,field); if (placeholder) item.placeholder = placeholder; item.style.cssText = "max-width:100%;box-sizing:border-box;margin:4px 0"; return item; }
   function row(label,control) { const item = el("label",label+" "); item.append(control); root.append(item,el("br")); }
   const enabled = input("input","enabled"); enabled.type = "checkbox"; row("开启原生长视频",enabled);

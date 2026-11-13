@@ -51,5 +51,20 @@ Files: `js/minimax_h3_director_plus_v11.js`, `js/long_video.js` and the existing
    root sidecar and existing source/local changes. Local file sync and remote
    updates are root's responsibility, still gated on other GPU work ending.
 
-Status: implementation pending. Python2303 / JS111 are the prior verified
-baseline, not results for this UI correction.
+Status: implementation and independent spec/quality reviews complete; no open
+P1/P2 findings. Root independently verified all149 JS tests, both syntax checks
+and `git diff --check`. Python2303 and H3 compiler33 remain the verified backend
+baseline; this correction changes no Python or workflow JSON.
+
+Quality review found that the actual four root/document input/change handlers
+truncated24.5 to24 before strict eligibility ran. The duration-specific parser
+now preserves the invalid numeric value, reports the existing integer-duration
+error and serializes24.5 (or null for nonfinite drafts), so global Queue cannot
+silently submit the previous24. The existing backend rejects these invalid
+values. Seed and dimension parsing are unchanged. Actual editor regressions
+recorded RED149:141 passed/8 failed, then GREEN149/149 with zero skips. Final
+spec review approved all requirements; quality re-review closed the P2.
+
+Local source installation and remote deployment are separate release actions.
+The other film's last GPU enhancement is still running; no remote files or
+processes were changed for this UI correction.

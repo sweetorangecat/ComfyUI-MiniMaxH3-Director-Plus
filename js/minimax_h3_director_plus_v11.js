@@ -34,6 +34,7 @@ const DIRECTOR_DOM_HEIGHT = 1280;
 const DIRECTOR_CONTENT_INSET = 48;
 const DIRECTOR_VIEWPORT_HEIGHT = DIRECTOR_DOM_HEIGHT;
 const MODES = ["T2VA", "I2VA", "FL2VA", "L2VA", "REF2VA"];
+const VIDEO_DURATION_VALIDATION_MESSAGE = "视频总时长请输入至少 4 秒的整数。";
 const PRESETS = ["智能画质（自动适配）", "稳定质量", "质量优先加速", "均衡高质（768p 8步）", "质量优先二采样", "高清快速（v4 8步）", "极速4步", "参考图加速", "参考高清（原生20步）", "参考极速（官方4步）", "低显存", "低显存二采", "自定义"];
 const PERFORMANCE_PRESET_KEYS = {
   "均衡高质（768p 8步）": "balanced_8step",
@@ -236,12 +237,33 @@ function restoreFaceRefineDefault(node) {
   return item?.value ?? "off";
 }
 
-function allowedPerformancePresets(mode, voiceMode) {
+function isValidVideoDuration(duration) {
+  return Number.isFinite(duration) && Number.isInteger(duration) && duration >= 4;
+}
+
+function isLongVideoDuration(duration) {
+  return isValidVideoDuration(duration) && duration > 15;
+}
+
+function selfLiftVoiceEligible(voiceMode, duration) {
+  return (isLongVideoDuration(duration)
+    ? ["none", "h3_reference", "fish_lock"]
+    : ["none", "h3_reference", "audio_reuse"]).includes(voiceMode);
+}
+
+function selfLiftRouteEligible(mode, voiceMode, duration) {
+  return (mode === "REF2VA" || (isLongVideoDuration(duration) && MODES.includes(mode)))
+    && selfLiftVoiceEligible(voiceMode, duration);
+}
+
+function allowedPerformancePresets(mode, voiceMode, duration) {
   let presets;
   if ((voiceMode !== "none" && voiceMode !== "audio_reuse") || mode === "REF2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.reference;
   else if (mode === "T2VA") presets = PERFORMANCE_PRESETS_BY_ROUTE.t2va;
   else presets = PERFORMANCE_PRESETS_BY_ROUTE.endpoint;
-  if (voiceMode === "fish_lock") return presets.filter((item) => item !== "质量优先二采样");
+  if (voiceMode === "fish_lock" && !selfLiftVoiceEligible(voiceMode, duration)) {
+    return presets.filter((item) => item !== "质量优先二采样");
+  }
   return presets;
 }
 
@@ -263,7 +285,7 @@ function allowedPostprocessModes(preset) {
   return POSTPROCESS_MODES_BY_PERFORMANCE[preset] || CURATED_POSTPROCESS_MODES;
 }
 
-function restoreSamplingOptions(node, mode, voiceMode, preset) {
+function restoreSamplingOptions(node, mode, voiceMode, preset, duration) {
   const twoStage = preset === "质量优先二采样";
   const method = widget(node, "sampling_method");
   const profile = widget(node, "community_lora_profile");
@@ -274,7 +296,7 @@ function restoreSamplingOptions(node, mode, voiceMode, preset) {
     return;
   }
   if (method && (!SAMPLING_METHODS.some(([value]) => value === method.value)
-      || !twoStage || mode !== "REF2VA" || !["none", "h3_reference", "audio_reuse"].includes(voiceMode))) {
+      || !twoStage || !selfLiftRouteEligible(mode, voiceMode, duration))) {
     setWidget(node, "sampling_method", "standard", false);
   }
   if (profile && (!MOTION_PROFILES.some(([value]) => value === profile.value) || !twoStage)) {
@@ -461,6 +483,9 @@ function valueControl(label, widgetName, options, current, type = "select") {
       if (widgetName !== "duration") input.max = widgetName === "seed" ? "18446744073709551615" : "8192";
       input.step = "1";
       input.dataset.h3pNumber = "true";
+      if (widgetName === "duration") {
+        input.setCustomValidity?.(isValidVideoDuration(current) ? "" : VIDEO_DURATION_VALIDATION_MESSAGE);
+      }
     }
   }
   field.append(caption, input);
@@ -751,6 +776,16 @@ async function uploadFile(node, input, render) {
   }
 }
 
+function valueFromInput(input) {
+  if (input.dataset.h3pNumber !== "true") return input.value;
+  if (input.dataset.h3pValueWidget !== "duration") return Number.parseInt(input.value, 10);
+  // Keep invalid duration drafts invalid in the submitted widget too. Native
+  // input validity alone cannot block ComfyUI's global Queue action.
+  const duration = input.value.trim() ? Number(input.value) : NaN;
+  input.setCustomValidity?.(isValidVideoDuration(duration) ? "" : VIDEO_DURATION_VALIDATION_MESSAGE);
+  return duration;
+}
+
 function bindDomControls(element, node, render) {
   if (!element || element.__h3pControlsBound) return;
   element.__h3pControlsBound = true;
@@ -783,7 +818,7 @@ function bindDomControls(element, node, render) {
     const valueInput = event.target.closest?.("[data-h3p-value-widget]");
     if (!valueInput) return;
     event.stopPropagation();
-    const value = valueInput.dataset.h3pNumber === "true" ? Number.parseInt(valueInput.value, 10) : valueInput.value;
+    const value = valueFromInput(valueInput);
     setWidget(node, valueInput.dataset.h3pValueWidget, value);
     if (["aspect_ratio", "resolution_preset", "custom_width", "custom_height"].includes(valueInput.dataset.h3pValueWidget)) syncResolution(node);
     render();
@@ -792,8 +827,8 @@ function bindDomControls(element, node, render) {
     const valueInput = event.target.closest?.("[data-h3p-value-widget]");
     if (!valueInput || valueInput.matches("select")) return;
     event.stopPropagation();
-    const value = valueInput.dataset.h3pNumber === "true" ? Number.parseInt(valueInput.value, 10) : valueInput.value;
-    if (Number.isNaN(value)) return;
+    const value = valueFromInput(valueInput);
+    if (Number.isNaN(value) && valueInput.dataset.h3pValueWidget !== "duration") return;
     // Keep the editor mounted while a number/text field is being typed. Native
     // widget callbacks can trigger a render, which replaces the DOM and steals
     // focus after the first seed digit. The change handler commits the callback
@@ -852,7 +887,7 @@ function bindDocumentControls() {
     const valueInput = event.target.closest?.(".h3p [data-h3p-value-widget]");
     if (!valueInput) return;
     event.stopPropagation();
-    const value = valueInput.dataset.h3pNumber === "true" ? Number.parseInt(valueInput.value, 10) : valueInput.value;
+    const value = valueFromInput(valueInput);
     setWidget(controller.node, valueInput.dataset.h3pValueWidget, value);
     if (["aspect_ratio", "resolution_preset", "custom_width", "custom_height"].includes(valueInput.dataset.h3pValueWidget)) syncResolution(controller.node);
     controller.render();
@@ -862,8 +897,10 @@ function bindDocumentControls() {
     const valueInput = event.target.closest?.('.h3p [data-h3p-value-widget]:not(select)');
     if (!controller || !valueInput) return;
     event.stopPropagation();
-    const value = valueInput.dataset.h3pNumber === "true" ? Number.parseInt(valueInput.value, 10) : valueInput.value;
-    if (!Number.isNaN(value)) setWidget(controller.node, valueInput.dataset.h3pValueWidget, value, false);
+    const value = valueFromInput(valueInput);
+    if (!Number.isNaN(value) || valueInput.dataset.h3pValueWidget === "duration") {
+      setWidget(controller.node, valueInput.dataset.h3pValueWidget, value, false);
+    }
   }, true);
 }
 
@@ -909,18 +946,20 @@ function install(node) {
     restoreAudioLoudness(node);
     const mode = widget(node, "mode")?.value || "FL2VA";
     const voiceMode = widget(node, "voice_mode")?.value || "none";
+    const duration = widget(node, "duration")?.value;
+    const longDuration = isLongVideoDuration(duration);
     restoreFaceRefineDefault(node);
     const savedVoiceGender = String(widget(node, "voice_gender")?.value || "");
     if (!VOICE_GENDERS.some(([value]) => value === savedVoiceGender)) {
       setWidget(node, "voice_gender", "auto", false);
     }
-    const performanceOptions = allowedPerformancePresets(mode, voiceMode);
+    const performanceOptions = allowedPerformancePresets(mode, voiceMode, duration);
     let preset = widget(node, "performance_preset")?.value || "稳定质量";
     if (!performanceOptions.includes(preset)) {
       preset = performanceOptions[0] || "稳定质量";
       setWidget(node, "performance_preset", preset, false);
     }
-    restoreSamplingOptions(node, mode, voiceMode, preset);
+    restoreSamplingOptions(node, mode, voiceMode, preset, duration);
     if (preset === SMART_PRESET || preset === LEGACY_SMART_PRESET) {
       if (!["h3_two_stage", "vosr2", "video_sr", "ai_upscale", "lanczos", "native"].includes(widget(node, "postprocess_mode")?.value)) setWidget(node, "postprocess_mode", "vosr2", false);
       setWidget(node, "ai_upscale_model", SMART_UPSCALE_MODEL, false);
@@ -944,7 +983,8 @@ function install(node) {
     const samplingMethod = widget(node, "sampling_method")?.value || "standard";
     const authorWenwu = widget(node, "community_lora_profile")?.value === "combat";
     const authorWenwuCompatible = preset === "质量优先二采样" && mode === "REF2VA"
-      && ["none", "h3_reference", "audio_reuse"].includes(voiceMode);
+      && selfLiftVoiceEligible(voiceMode, duration);
+    const longVoiceHint = "超过 15 秒支持无音色或 H3 原生参考；Fish 需先准备覆盖整片对白、环境声和音效的完整目标音频，实际音色需复核；暂不支持完整复用上传音频。";
     if (postprocessMode === "vosr2" && samplingMethod === "selflift"
       && widget(node, "vosr2_profile")?.value === "legacy") {
       setWidget(node, "vosr2_profile", "manual_baseline", false);
@@ -1047,8 +1087,10 @@ function install(node) {
     const plannedRouteNote = document.createElement("div");
     plannedRouteNote.className = "h3p-hint";
     const referenceRoute = mode === "REF2VA" || ["h3_reference", "fish_lock"].includes(voiceMode);
-    plannedRouteNote.textContent = Number(widget(node,"duration")?.value) > 15
-      ? "计划后端：REF2VA 原生续拍。沿用原素材；长片的图片提供参考约束，不提供硬首尾帧。"
+    plannedRouteNote.textContent = longDuration
+      ? voiceMode === "audio_reuse"
+        ? "超过 15 秒的原生续拍暂不支持完整复用上传音频；请在音色模式中明确选择受支持方式。"
+        : "计划后端：REF2VA 原生续拍。沿用原素材；长片的图片提供参考约束，不提供硬首尾帧。"
       : `计划后端：${referenceRoute ? "REF2VA" : "FL2VA"}；${referenceRoute && ["I2VA", "L2VA", "FL2VA"].includes(mode) ? "首尾图作为参考，不保证硬端点" : referenceRoute ? "多媒体参考约束" : mode === "T2VA" ? "文本生成" : "保留所选首尾帧硬约束"}。`;
     quick.append(plannedRouteNote);
     root.append(quick);
@@ -1058,7 +1100,7 @@ function install(node) {
     specification.innerHTML = '<div class="h3p-section-title"><span>生成规格</span><span class="h3p-hint">H3 原生生成参数</span></div>';
     const specGrid = document.createElement("div");
     specGrid.className = "h3p-grid";
-    const durationControl = valueControl("视频总时长（秒）", "duration", [], widget(node, "duration")?.value || 5, "number");
+    const durationControl = valueControl("视频总时长（秒）", "duration", [], widget(node, "duration") ? duration : 5, "number");
     const resolutionControl = valueControl(
       "分辨率档位",
       "resolution_preset",
@@ -1175,17 +1217,19 @@ function install(node) {
       controls.append(
         valueControl("二采方法", "sampling_method", authorWenwu
           ? [["selflift", "SelfLift · 作者 simple 12 步"]]
-          : mode === "REF2VA" && ["none", "h3_reference", "audio_reuse"].includes(voiceMode)
+          : selfLiftRouteEligible(mode, voiceMode, duration)
             ? SAMPLING_METHODS : SAMPLING_METHODS.slice(0, 1), widget(node, "sampling_method")?.value || "standard"),
         valueControl("动作增强", "community_lora_profile", MOTION_PROFILES, widget(node, "community_lora_profile")?.value || "off"),
       );
       const note = document.createElement("div");
       note.className = "h3p-spec-note";
+      const voiceHint = longDuration ? longVoiceHint
+        : "4–15 秒短片支持无音色、H3 原生参考或完整复用音频，不支持 Fish 克隆。";
       note.textContent = authorWenwu
         ? authorWenwuCompatible
-          ? "文武双全：作者 simple 12 步（6+6）与完整 LoRA 组合；自动使用 SelfLift。需要原生 Sol-Attn 全局路径和完整权重；至少20GB显存、空闲18GB。长片仍按原导演台时长自动分段，实际质量和耗时需验证。"
-          : "作者配方需要质量优先二采样、REF2VA、无音色或 H3 原生参考/完整复用音频；不支持 Fish 或低显存档。请切回这些设置，或将动作增强设为关闭。"
-        : "SelfLift 实验：REF2VA 可带 H3 原生参考或完整复用音频，不支持 Fish 克隆；单段4–15秒，长片由导演台自动分段，支持所选超分输出2K/4K，总显存至少20GB且空闲至少18GB。动作增强默认关闭。";
+          ? `文武双全：作者 simple 12 步（6+6）与完整 LoRA 组合；自动使用 SelfLift。需要原生 Sol-Attn 全局路径和完整权重；至少20GB显存、空闲18GB。${voiceHint}长片按原导演台时长逐窗复核后续拍，实际质量和耗时需验证。`
+          : `作者配方需要质量优先二采样和原始 REF2VA 模式；${voiceHint}不支持低显存档。请切回这些设置，或将动作增强设为关闭。`
+        : `SelfLift 实验：${longDuration ? "长片由后端适配为 REF2VA" : "需要 REF2VA"}。${voiceHint}单段4–15秒，支持所选超分输出2K/4K，总显存至少20GB且空闲至少18GB；依赖和实际质量仍需验证。动作增强默认关闭。`;
       advanced.append(summary, controls, note);
       specification.append(advanced);
     }
@@ -1223,9 +1267,11 @@ function install(node) {
     }
     const specNote = document.createElement("div");
     specNote.className = "h3p-spec-note";
-    specNote.textContent = Number(widget(node,"duration")?.value) > 15
-      ? "当前按整片时间轴自动续拍：沿用原提示词、参考图与音色，后台安排采样和校验。长片使用 REF2VA / SelfLift；图片为参考约束，首尾图不作为硬端点。"
-      : "填写视频总时长；超过 15 秒自动安排原生续拍。尺寸按 32 对齐，2K/4K 在生成后超分。";
+    specNote.textContent = widget(node, "duration") && !isValidVideoDuration(duration)
+      ? `${VIDEO_DURATION_VALIDATION_MESSAGE}请修正后再生成。`
+      : longDuration
+        ? `当前按整片时间轴逐窗复核后续拍：每窗先生成候选，实际复核并记录实际尾态，接受后再增强并续拍下一窗。沿用原提示词、参考图与音色；长片使用 REF2VA / SelfLift，图片为参考约束，首尾图不作为硬端点。最多 8 张静态图片，系统自动加入 1 张父窗衔接图，总计不超过 9 张。${longVoiceHint}`
+        : "填写视频总时长；超过 15 秒逐窗复核后续拍。尺寸按 32 对齐，2K/4K 在生成后超分。";
     specification.append(specNote);
     root.append(specification);
 
@@ -1561,7 +1607,8 @@ function install(node) {
     // Repair synchronously: queue/save need not wait for the next DOM render.
     restoreFaceRefineDefault(this);
     restoreSamplingOptions(this, widget(this, "mode")?.value || "FL2VA",
-      widget(this, "voice_mode")?.value || "none", widget(this, "performance_preset")?.value || "稳定质量");
+      widget(this, "voice_mode")?.value || "none", widget(this, "performance_preset")?.value || "稳定质量",
+      widget(this, "duration")?.value);
     requestAnimationFrame(render);
   };
   render();

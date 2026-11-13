@@ -78,6 +78,14 @@ test('original Director has integrated progress without setup/file/preflight con
   assert.equal(widget(director,'duration').value,90);
 });
 
+test('original progress explains that each candidate awaits actual review and acceptance before continuing',async()=>{
+  const {director}=await installOriginalDirector();
+  const feedback=find(director,'feedback').textContent;
+  assert.match(feedback,/逐窗复核后续拍/);
+  assert.match(feedback,/候选.*实际复核.*实际尾态.*接受.*增强.*下一窗/);
+  assert.equal(all(director.root).filter(item=>item.tag==='input' && item.type==='file').length,0);
+});
+
 test('actual output event binds the automatic project to its original Director and reload preserves it',async()=>{
   const {director,output,host,calls}=await installOriginalDirector();
   host.reply=state([], {project_name:'u11-real-project'});
