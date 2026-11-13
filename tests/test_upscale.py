@@ -1,4 +1,5 @@
 import torch
+from torch.utils._python_dispatch import TorchDispatchMode
 
 import pytest
 
@@ -90,6 +91,54 @@ def test_invalid_decoded_video_is_rejected_before_reconstruction(images):
 def test_low_saturation_but_structured_video_is_valid():
     ramp = torch.linspace(0.1, 0.9, 16).view(1, 1, 16, 1).repeat(4, 16, 1, 3)
     validate_frames_for_reconstruction(ramp)
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("channel", [0, 3], ids=["rgb", "alpha"])
+def test_reconstruction_rejects_nonfinite_values_in_late_frames(invalid, channel):
+    images = torch.rand(13, 8, 8, 4, dtype=torch.float16)
+    images[-1, -1, -1, channel] = invalid
+
+    with pytest.raises(ValueError, match="NaN 或 Inf"):
+        validate_frames_for_reconstruction(images)
+
+
+def test_reconstruction_uses_global_range_across_individually_flat_chunks():
+    images = torch.cat([
+        torch.full((4, 8, 8, 3), 0.25, dtype=torch.float16),
+        torch.full((4, 8, 8, 3), 0.75, dtype=torch.float16),
+    ])
+
+    validate_frames_for_reconstruction(images)
+
+
+def test_reconstruction_dynamic_range_does_not_include_alpha():
+    images = torch.full((9, 8, 8, 4), 0.5, dtype=torch.float16)
+    images[..., 3] = torch.linspace(0.0, 1.0, 9).view(9, 1, 1)
+
+    with pytest.raises(ValueError, match="动态范围"):
+        validate_frames_for_reconstruction(images)
+
+
+def test_reconstruction_bounds_mask_and_float_conversion_for_long_video():
+    images = torch.linspace(0.0, 1.0, 257 * 8 * 8 * 4, dtype=torch.float16).reshape(257, 8, 8, 4)
+    temporary_shapes = {torch.bool: [], torch.float32: []}
+
+    class AllocationTrace(TorchDispatchMode):
+        def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+            result = func(*args, **(kwargs or {}))
+            results = result if isinstance(result, (tuple, list)) else (result,)
+            for tensor in results:
+                if isinstance(tensor, torch.Tensor) and tensor.ndim == 4 and tensor.dtype in temporary_shapes:
+                    temporary_shapes[tensor.dtype].append(tuple(tensor.shape))
+            return result
+
+    with AllocationTrace():
+        validate_frames_for_reconstruction(images)
+
+    for shapes in temporary_shapes.values():
+        assert shapes, "The real validation must exercise both finite masks and FP32 conversion"
+        assert max(shape[0] for shape in shapes) <= 4, shapes
 
 
 def test_video_upscale_passes_through_when_not_requested():

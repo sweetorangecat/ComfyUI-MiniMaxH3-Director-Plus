@@ -76,11 +76,19 @@ def validate_frames_for_reconstruction(images, minimum_dynamic_range=1.0 / 1024.
         raise ValueError("生成阶段输出无效，请重新生成：帧数或画面尺寸过小")
     if images.shape[3] not in (3, 4):
         raise ValueError("生成阶段输出无效，请重新生成：视频通道数必须为 3 或 4")
-    finite = torch.isfinite(images)
-    if not bool(finite.all()):
-        raise ValueError("生成阶段输出无效，请重新生成：帧中包含 NaN 或 Inf")
-    values = images[..., :3].float()
-    if float(values.max() - values.min()) < float(minimum_dynamic_range):
+    # Validation runs while sampling models can still be resident. Keep the
+    # finite mask and FP32 conversion bounded instead of copying a full video.
+    minimum = maximum = None
+    for start in range(0, images.shape[0], 4):
+        chunk = images[start:start + 4]
+        if not bool(torch.isfinite(chunk).all()):
+            raise ValueError("生成阶段输出无效，请重新生成：帧中包含 NaN 或 Inf")
+        values = chunk[..., :3].float()
+        low, high = torch.aminmax(values)
+        minimum = low if minimum is None else torch.minimum(minimum, low)
+        maximum = high if maximum is None else torch.maximum(maximum, high)
+        del values, chunk
+    if float(maximum - minimum) < float(minimum_dynamic_range):
         raise ValueError("生成阶段输出无效，请重新生成：帧几乎没有有效动态范围")
 
 

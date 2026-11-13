@@ -69,6 +69,19 @@ class MiniMaxH3SafeVAEDecode:
         if old_dtype_method is None:
             raise RuntimeError("H3 VAE 缺少 vae_output_dtype 接口，无法启用安全解码")
 
+        # Sampling and text encoding have finished before this node executes.
+        # Dynamic VRAM loading can leave their large pinned host buffers alive
+        # even after their GPU allocations are evicted. Retire the managed
+        # models here, before the VAE loads and allocates the RGB batch. The
+        # existing VAE wrapper reloads its own patcher through model management.
+        # Cached model objects and latent values remain available to the graph.
+        import comfy.model_management as model_management
+
+        LOGGER.info("[H3 safe VAE] Releasing completed model residency before decode")
+        model_management.unload_all_models()
+        model_management.soft_empty_cache()
+        LOGGER.info("[H3 safe VAE] Completed model residency released; loading VAE on demand")
+
         # Estimate only the final RGB buffer. Decoder workspaces continue to
         # use the VAE's configured dtype and ComfyUI's own temporal tiling.
         frames = None
