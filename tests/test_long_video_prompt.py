@@ -324,3 +324,20 @@ def test_timestamp_like_spoken_text_is_literal_and_not_an_action_clock():
     value = parser().contract_from_prompt(prompt(detail), 30, {'reference_image_1_file': 'one.png'})
     assert value['dialogues'][0]['text'] == 'Read [16-30秒] and <Audio 99> exactly.'
     assert sum(item['prompt'].count('Read [16-30秒] and <Audio 99> exactly.') for item in compile_all(value)) == 1
+
+
+@pytest.mark.parametrize('cue', ['says naturally in Mandarin:', 'whispers very softly in English:'])
+def test_speech_delivery_stays_with_its_words_before_the_following_silent_action(cue):
+    detail = ('[0-1.5s] Look toward the camera.\n'
+              f'[1.5-7.8s] Open the empty right palm. <Subject 1> (S1) {cue} '
+              '<d>今天陪我做个选择，给这张空白的设计稿找一组颜色。</d>\n'
+              '[7.8-30s] Close the lips and look down at the existing cards.')
+    value = parser().contract_from_prompt(prompt(detail), 30)
+    first = compile_all(value)[0]['prompt']
+    assert first.index('<d>今天') < first.index('Close the lips')
+    assert first.count(cue) == 1
+    assert first.index(cue) < first.index('<d>今天')
+    between = first[first.index(cue) + len(cue):first.index('<d>今天')]
+    assert not between.strip(), 'A delivery cue must directly introduce its own utterance'
+    assert 'Open the empty right palm.' in value['beats'][1]['action']
+    assert cue not in value['beats'][1]['action']

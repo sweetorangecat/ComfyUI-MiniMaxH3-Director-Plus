@@ -181,6 +181,25 @@ def test_whole_dialogue_has_one_owner_and_no_safety_tail_repetition():
         assert '<Video ' not in o['prompt']
 
 
+def test_speech_is_interleaved_with_overlapping_timed_actions_in_local_time_order():
+    p = module()
+    s = contract()
+    s['beats'][0].update(action='Look, speak, then close the lips.', timed_actions=[
+        {'start_frame': 0, 'end_frame': 36, 'action': 'Look toward the camera.'},
+        {'start_frame': 36, 'end_frame': 187, 'action': 'Keep the empty palm visible.'},
+        {'start_frame': 187, 'end_frame': 720, 'action': 'Close the lips and rest the hand.'},
+    ])
+    s['dialogues'] = [{'id': 'opening', 'start_frame': 36, 'end_frame': 187,
+                       'speaker': '<Subject 1> (S1)', 'text': 'The whole opening sentence.'}]
+    result = p.compile_window(s, p.plan_windows(720, protected_intervals=p.protected_intervals(s))[0])
+    text = result['prompt']
+    ordered = ['Look toward the camera.', 'Keep the empty palm visible.',
+               '<d>The whole opening sentence.</d>', 'Close the lips and rest the hand.']
+    assert [text.index(part) for part in ordered] == sorted(text.index(part) for part in ordered)
+    assert 'local frames' not in text, 'Frame arithmetic belongs in the audit, not H3 scene prose'
+    assert result['mapped_beats'][0]['timed_actions'][1]['local_start'] == 36
+
+
 def test_local_beat_mapping_and_observed_incoming_state():
     p = module()
     s = contract()

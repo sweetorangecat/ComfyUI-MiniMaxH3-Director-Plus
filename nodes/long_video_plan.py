@@ -328,6 +328,10 @@ def validate_contract(raw, total_frames):
             _text(dialogue['language'], 'dialogue.language')
             if any(c in dialogue['language'] for c in '[]<>\n\r'):
                 raise ValueError('dialogue.language must be a plain language name')
+        if 'delivery' in dialogue:
+            _text(dialogue['delivery'], 'dialogue.delivery')
+            if any(char in dialogue['delivery'] for char in '<>\n\r'):
+                raise ValueError('dialogue.delivery must be plain speech direction without markup')
         if 'audio_slot' in dialogue:
             _integer(dialogue['audio_slot'], 'dialogue.audio_slot', 1)
             if dialogue['audio_slot'] > 3:
@@ -551,7 +555,7 @@ def compile_window(contract, window, incoming_state=''):
                   'The physical window boundary creates no camera cut or new shot.')
     if 'detailed_description' in local_sections:
         detail.append(_local_clocks(local_sections['detailed_description'], free_start, b, offset))
-    mapped = []
+    mapped, timeline = [], []
     for beat in s['beats']:
         x, y = max(free_start, beat['start_frame']), min(b, beat['end_frame'])
         if x >= y:
@@ -566,17 +570,17 @@ def compile_window(contract, window, incoming_state=''):
         if item is None:
             continue
         parts = item.get('timed_actions', [item])
-        lines = []
         for part in parts:
+            lines = []
             local_a, local_b = part['local_start'], part['local_end']
             phase = 'Continue the ongoing portion without replaying its onset: ' if part['partial_start'] else ''
-            lines.append(f'{_time(local_a)}–{_time(local_b)} seconds (local frames {local_a}–{local_b}): {phase}{part["action"]}')
+            lines.append(f'From 00:{local_a / FPS:06.3f} to 00:{local_b / FPS:06.3f}, {phase}{part["action"]}')
             for key in ('camera', 'sound'):
                 if key in part:
                     lines.append(f'{key.capitalize()} in this interval: {part[key]}')
             if part['partial_end']:
                 lines.append('This action continues beyond the visible interval; keep its natural motion in progress.')
-        detail.append('\n'.join(lines))
+            timeline.append((local_a, 0, '\n'.join(lines)))
         mapped.append(item)
     owned = []
     for dialogue in s['dialogues']:
@@ -589,8 +593,14 @@ def compile_window(contract, window, incoming_state=''):
         voice = (f' using <Audio {dialogue["audio_slot"]}> for voice timbre only'
                  if 'audio_slot' in dialogue and (selection is None or selection['audios']) else '')
         language = f'[{dialogue["language"]}] ' if 'language' in dialogue else ''
-        detail.append(f'{_time(c + x - a)}–{_time(c + y - a)} seconds: {dialogue["speaker"]}{voice} '
-                      f'says exactly <d>{language}{dialogue["text"]}</d>')
+        delivery = _local_clocks(dialogue.get('delivery', 'says exactly'), free_start, b, offset)
+        local_a, local_b = c + x - a, c + y - a
+        timeline.append((local_a, 1,
+                         f'From 00:{local_a / FPS:06.3f} to 00:{local_b / FPS:06.3f}, '
+                         f'{dialogue["speaker"]}{voice} {delivery} <d>{language}{dialogue["text"]}</d>'))
+    # Actions and utterances share one chronological lane. Appending all speech
+    # after the final silent action caused H3 to delay otherwise valid dialogue.
+    detail.extend(text for _, _, text in sorted(timeline, key=lambda item: item[:2]))
     detail.append('Only the scheduled utterances in the new visible interval are newly spoken. '
                   'Do not replay historical dialogue or speak future lines in the unused tail. '
                   'Continue natural motion and sound through the unused generated remainder; do not loop or freeze to fill time.')

@@ -61,7 +61,7 @@ _QUOTED_SPEECH = re.compile(
 _UNMARKED_SPEECH = re.compile(_QUOTED_SPEECH.pattern + r'|\(?\bS[1-9]\d*\b\)?[ \t]*[:：][ \t]*\S', re.I)
 _SPEECH_CUE = re.compile(
     r'(?:\b(?:says?|said|speaks?|whispers?|shouts?|asks?|replies|narrates?)'
-    r'(?:\s+(?:exactly|softly|quietly|aloud|clearly))?|(?:轻声|低声|大声)?(?:说|问|回答|喊|旁白))'
+    r'\b[^<>\n.!?;:：]*|(?:轻声|低声|大声)?(?:说|问|回答|喊|旁白))'
     r'[ \t]*[:：]?[ \t]*$', re.I)
 
 
@@ -278,7 +278,14 @@ def _dialogue(text, start, end, identities, identity):
     audio = int(audios[0]) if audios else declared[0]['audio_slot'] if len(declared) == 1 else None
     if audio is not None:
         result['audio_slot'] = audio
-    action = (_SPEECH_CUE.sub('', cue) + text[match.end():]).strip()
+    delivery = _SPEECH_CUE.search(cue)
+    if delivery:
+        # Keep the author's language and delivery next to the spoken words.
+        # Leaving a dangling "says naturally in Mandarin:" in the action lane
+        # asks the model to speak before it encounters the actual utterance.
+        result['delivery'] = delivery.group().strip()
+    action = (cue[:delivery.start()] if delivery else cue) + text[match.end():]
+    action = action.strip()
     # No new pose, silence, camera or contact is invented for a dialogue-only
     # block; its identity cue is harmless prose alongside the scheduled line.
     return action or speaker, result
