@@ -280,6 +280,57 @@ def test_long_video_requires_both_exact_native_masks_and_passes_them_intact(monk
         assert not hasattr(node, "received")
 
 
+@pytest.mark.parametrize("tamper,with_reference", [(None, False), (None, True),
+    ("undeclared", False), ("value", False), ("outside", False), ("spatial", False), ("audio", False)])
+def test_long_video_declared_temporal_repair_weights_reach_sampler_intact(monkeypatch, tamper, with_reference):
+    import torch
+    from nodes.long_video_av import prepare_av
+    from nodes.long_video_plan import plan_windows
+    from test_long_video_av import Nested, latent
+    from test_native_attention import native_model, native_runtime
+
+    window = plan_windows(720)[1]
+    recipe = {"video_ranges": [[17, 42]], "lock_audio": True,
+              "video_weights": [[42, 43, .75], [43, 44, .5], [44, 45, .25]]}
+    if with_reference:
+        from test_long_video_repair_reference import reference
+        recipe['video_reference'] = reference(target_steps=[27, 37])
+    prepared = prepare_av(latent(), window, latent(offset=10), recipe, Nested,
+                          video_reference_source=latent(offset=20) if with_reference else None)
+    vm, am = prepared["noise_mask"].unbind()
+    assert torch.all(vm[:, :, :12] == 0) and torch.all(am == 0)
+    if tamper == "undeclared":
+        prepared.pop("_h3_long_video_context")
+    elif tamper == "value":
+        prepared["_h3_long_video_context"]["video_weights"][0][2] = .6
+    elif tamper == "outside":
+        vm[:, :, 50] = .5
+    elif tamper == "spatial":
+        vm[:, :, 43, 0, 0] = .2
+    elif tamper == "audio":
+        am[..., 100] = .5
+    node = AvatarSamplerNode()
+    guide = dict(sampling_method="selflift", selflift_upscaler_model="h3_fp16.safetensors",
+                 attention_backend="sol_attn", sol_attn_applied=True, long_video_window=window)
+
+    def run():
+        return experiments.run_selflift(
+            model=native_model(native_runtime(monkeypatch)), positive=[], vae=object(),
+            sampler=euler_sampler(), sigmas=[1, .95, .9, .8, .7, .6, .45, .3, .18, .08, 0],
+            latent=prepared, seed=42, guide=guide,
+            registry={"SelfLiftAvatarH3Sampler": lambda: node})
+
+    if tamper is None:
+        result = run()
+        assert result["noise_mask"] is prepared["noise_mask"]
+        assert node.received["latent_image"] is prepared
+        assert guide["selflift_highres_tiling_mode"] == "global_stream"
+    else:
+        with pytest.raises((ValueError, RuntimeError), match="mask|掩码"):
+            run()
+        assert not hasattr(node, "received")
+
+
 def test_adapter_unwraps_comfy_node_output_mapping():
     class ComfyOutputAvatarSampler(AvatarSamplerNode):
         def sample(self, low_res_model, positive, negative, vae, latent_image, sampler, sigmas,

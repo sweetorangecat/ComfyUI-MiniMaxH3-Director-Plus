@@ -326,6 +326,43 @@ def _validate_euler(sampler):
         raise ValueError("SelfLift 必须使用标准 Euler 采样器（s_churn=0）")
 
 
+def _validate_long_video_masks(latent, window):
+    from .long_video_av import normalize_repair, streams
+    try:
+        actual_streams = streams(latent)
+        masks = streams({"samples": latent.get("noise_mask")})
+    except ValueError as exc:
+        raise ValueError("Native long-video requires both video and audio noise masks") from exc
+    for index, (stream, mask) in enumerate(zip(actual_streams, masks)):
+        if (tuple(mask.shape) != (1, 1, *stream.shape[2:])
+                or not bool(((mask >= 0) & (mask <= 1)).all().item())):
+            raise ValueError("Native long-video AV masks require exact geometry and finite values in [0,1]")
+        if bool(((mask == 0) | (mask == 1)).all().item()):
+            continue
+        if index != 0:
+            raise ValueError("Native long-video audio masks require hard zero/one values")
+        context = latent.get('_h3_long_video_context', {})
+        if context.get('mode') != 'repair' or not context.get('video_weights'):
+            raise ValueError("Fractional video masks require declared temporal repair weights")
+        try:
+            recipe = normalize_repair(window, {
+                key: context[key] for key in ('video_ranges', 'audio_ranges', 'video_weights',
+                                              'lock_audio', 'video_reference') if key in context
+            }, context.get('forward_frames', 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Fractional video mask repair declaration is invalid") from exc
+        expected = mask.new_zeros(mask.shape)
+        for a, b in recipe['video_ranges']:
+            expected[:, :, a:b] = 1
+        for a, b, weight in recipe['video_weights']:
+            expected[:, :, a:b] = weight
+        if 'video_reference' in recipe:
+            a, b = recipe['video_reference']['target_steps']
+            expected[:, :, a:b] = 0
+        if not bool((mask == expected).all().item()):
+            raise ValueError("Fractional video mask differs from its declared temporal repair weights")
+
+
 def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, registry=None, negative=None):
     """Execute the selected progressive recipe using the installed upstream node."""
     author = is_author_recipe(guide)
@@ -351,15 +388,7 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
     _validate_euler(sampler)
     shapes = _av_shapes(latent)
     if guide.get("long_video_window"):
-        from .long_video_av import streams
-        try:
-            actual_streams = streams(latent)
-            masks = streams({"samples": latent.get("noise_mask")})
-        except ValueError as exc:
-            raise ValueError("Native long-video requires both video and audio noise masks") from exc
-        for stream, mask in zip(actual_streams, masks):
-            if tuple(mask.shape) != (1, 1, *stream.shape[2:]) or not bool(((mask == 0) | (mask == 1)).all().item()):
-                raise ValueError("Native long-video AV masks require exact stream geometry and hard zero/one values")
+        _validate_long_video_masks(latent, guide['long_video_window'])
     expected = (guide.get("second_stage_height"), guide.get("second_stage_width"))
     if all(value is not None for value in expected) and tuple(int(value) // 16 for value in expected) != shapes[0][-2:]:
         raise ValueError("SelfLift 初始 latent 必须使用目标 target 网格，不能传入首采小网格")
