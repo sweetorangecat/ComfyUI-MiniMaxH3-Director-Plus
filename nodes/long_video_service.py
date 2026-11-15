@@ -150,7 +150,7 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
     native_assets = _asset_bundle(asset_freezer(graph))
     assets = native_assets['records']
     export_assets = _asset_bundle(export_asset_freezer(graph))
-    native_code = _code_identity(['long_video_plan','long_video_av','long_video_runtime','long_video_graph',
+    native_code = _code_identity(['long_video_plan','long_video_av','long_video_runtime','long_video_graph','long_video_repair',
                                  'long_video_references','long_video_parent','long_video_prompt',
                                  'director','guide','schema','prompting','voice_guard','resolution',
                                  'sampling_experiments','two_stage','performance','two_stage_assets','vram_budget',
@@ -717,9 +717,16 @@ def control(store, action, data):
         store.review_forward(data['take_id'], data.get('scope'), data.get('observed_state'))
         store.resume()
         _start(store)
+    elif action == 'review_video_reference':
+        if set(data) != {'source_take', 'source_steps', 'scope', 'observed_state'}:
+            raise ValueError('Video reference review requires its actual take, native range, scope and observed state')
+        from .long_video_repair import review_video_reference
+        artifact = review_video_reference(store, data['source_take'], data['source_steps'],
+                                          data['scope'], data['observed_state'])
+        return {**store.read(), 'video_reference_review': artifact}
     elif action == 'repair':
         normal = {'index', 'take_id', 'start_seconds', 'end_seconds', 'stream'}
-        advanced = {'index', 'take_id', 'video_ranges', 'audio_ranges', 'video_weights', 'lock_audio'}
+        advanced = {'index', 'take_id', 'video_ranges', 'audio_ranges', 'video_weights', 'lock_audio', 'video_reference'}
         seconds = bool({'start_seconds', 'end_seconds', 'stream'} & set(data))
         allowed = normal if seconds else advanced
         if set(data) - allowed or 'index' not in data:
@@ -732,7 +739,7 @@ def control(store, action, data):
         else:
             store.request_repair(data['index'], data.get('video_ranges'), data.get('lock_audio', True),
                                  audio_ranges=data.get('audio_ranges'), video_weights=data.get('video_weights'),
-                                 take_id=data.get('take_id'))
+                                 take_id=data.get('take_id'), video_reference=data.get('video_reference'))
         store.resume()
         _start(store)
     elif action == 'retry':

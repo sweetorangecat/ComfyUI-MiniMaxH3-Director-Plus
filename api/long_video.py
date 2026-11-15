@@ -132,8 +132,11 @@ def register_long_video_routes():
             if not isinstance(data, dict) or not isinstance(data.get('action'), str):
                 raise ValueError('control requires a JSON object with a string action')
             action = data.pop('action')
-            await asyncio.to_thread(control, store, action, data)
-            return web.json_response(public_status(store))
+            result = await asyncio.to_thread(control, store, action, data)
+            status = public_status(store)
+            if action == 'review_video_reference':
+                status['video_reference_review'] = result['video_reference_review']
+            return web.json_response(status)
         except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
             return web.json_response({'error': str(exc)}, status=400)
 

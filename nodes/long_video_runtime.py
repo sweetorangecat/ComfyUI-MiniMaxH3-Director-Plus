@@ -13,7 +13,7 @@ import re
 import uuid
 import wave
 
-from .long_video_av import conditioning_geometry, prepare_av, slice_fingerprint, streams, validate_result
+from .long_video_av import conditioning_geometry, normalize_repair, prepare_av, slice_fingerprint, streams, validate_result
 from .long_video_plan import FPS, audio_ticks, video_steps, validate_window
 from .long_video_store import ProjectStore
 from .stream_output import MiniMaxH3StreamingVideoCombine
@@ -49,6 +49,10 @@ def _bound_store(request):
     ProjectStore.active(store.read(), request["take_id"])
     from .long_video_parent import verify_parent_reference
     verify_parent_reference(store, request)
+    if (request.get('repair') or {}).get('video_reference') is not None:
+        from .long_video_repair import verify_video_reference
+        recipe = normalize_repair(request['window'], request['repair'], request.get('forward_frames', 0))
+        verify_video_reference(store, recipe['video_reference'], request['window'])
     return store
 
 
@@ -212,6 +216,15 @@ def _accepted_prefix(store, request):
         cursor = record["window"]["new_end"]
 
 
+def _video_reference_source(store, request):
+    reference = (request.get('repair') or {}).get('video_reference')
+    if reference is None:
+        return None
+    from .long_video_repair import verify_video_reference
+    verify_video_reference(store, reference, request['window'])
+    return load_clean(store, reference['source_take'])
+
+
 def _node_value(value):
     value = getattr(value, "result", value)
     if isinstance(value, dict) and "result" in value:
@@ -310,7 +323,8 @@ class MiniMaxH3LongVideoContext:
             raise ValueError('Encoded target audio must be declared in the immutable native request')
         prepared = prepare_av(_cpu_latent(latent), request["window"], source=_source(store, request),
                               repair=request.get("repair"), forward_frames=request.get('forward_frames', 0),
-                              target_audio=target_audio, target_audio_locked=locked)
+                              target_audio=target_audio, target_audio_locked=locked,
+                              video_reference_source=_video_reference_source(store, request))
         if locked:
             prepared['_h3_long_video_context']['target_audio_sha256'] = request['target_audio']['sha256']
         video, audio = streams(prepared)

@@ -111,6 +111,13 @@ def test_control_route_strips_action_before_strict_seconds_repair(tmp_path, monk
                     'start_seconds': 13.2, 'end_seconds': 13.8, 'stream': 'video'}
             assert (await client.post('/h3-director-plus/long-video/test/control', json=data)).status == 200
             assert received == [('repair', {k:v for k,v in data.items() if k != 'action'})]
+            artifact = {'name': 'reviews/video-reference-test.json', 'sha256': 'a' * 64, 'bytes': 123}
+            monkeypatch.setattr(routes, 'control', lambda *_: {'video_reference_review': artifact})
+            response = await client.post('/h3-director-plus/long-video/test/control', json={
+                'action': 'review_video_reference', 'source_take': 'reviewed', 'source_steps': [87, 97],
+                'scope': 'Actual unused frames', 'observed_state': 'Open laptop'})
+            assert response.status == 200
+            assert (await response.json())['video_reference_review'] == artifact
             assert (await client.post('/h3-director-plus/long-video/contract/preflight', json=[])).status == 400
             assert (await client.post('/h3-director-plus/long-video/contract/preflight', json={'prompt': []})).status == 400
             response = await client.get('/h3-director-plus/long-video/contract/example')

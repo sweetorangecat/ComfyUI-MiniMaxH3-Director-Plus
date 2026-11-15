@@ -226,6 +226,10 @@ class ProjectStore:
                 self.validate_parent_binding(state, request)
             from .long_video_parent import verify_parent_reference
             verify_parent_reference(self, request, state=state)
+            if (request.get('repair') or {}).get('video_reference') is not None:
+                from .long_video_repair import verify_video_reference
+                recipe = normalize_repair(request['window'], request['repair'], request.get('forward_frames', 0))
+                verify_video_reference(self, recipe['video_reference'], request['window'], state=state)
             if index > len(state["windows"]):
                 raise ValueError("A take cannot skip a window")
             record = {**request, "status": "queued", "artifacts": {}, "exports": {}}
@@ -349,7 +353,7 @@ class ProjectStore:
         self._invalidate(state, index, 'Native repair replaces an actual parent source')
 
     def request_repair(self, index, video_ranges=None, lock_audio=True, *, audio_ranges=None,
-                       video_weights=None, take_id=None):
+                       video_weights=None, take_id=None, video_reference=None):
         """Legacy video ranges plus explicit audio ranges / temporal video weights."""
         with self.transaction() as state:
             record = self._repair_source(state, index, take_id)
@@ -360,7 +364,12 @@ class ProjectStore:
                 raw['audio_ranges'] = audio_ranges
             if video_weights is not None:
                 raw['video_weights'] = video_weights
+            if video_reference is not None:
+                raw['video_reference'] = video_reference
             recipe = normalize_repair(record['window'], raw, record.get('forward_frames', 0))
+            if video_reference is not None:
+                from .long_video_repair import verify_video_reference
+                verify_video_reference(self, recipe['video_reference'], record['window'], state=state)
             self._queue_repair(state, record, recipe)
 
     def request_repair_seconds(self, index, start_seconds, end_seconds, stream='video', *, take_id=None):

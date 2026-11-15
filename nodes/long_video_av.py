@@ -138,7 +138,7 @@ def _repair_ranges(ranges, count, head, label):
 
 
 def normalize_repair(window, repair, forward_frames=0):
-    """Canonical bounded temporal recipe; no external sources or extra anchors.
+    """Canonical bounded temporal recipe with an optional reviewed native reference.
 
     video_ranges/audio_ranges are end-exclusive integer native-step/tick pairs.
     video_weights is [[start_step,end_step,weight], ...], finite weights in
@@ -151,7 +151,7 @@ def normalize_repair(window, repair, forward_frames=0):
     w = validate_window(window)
     geometry = conditioning_geometry(w, forward_frames)
     known = {'video_ranges', 'audio_ranges', 'video_weights', 'lock_audio',
-             'source_take', 'index', 'conditioning_extent'}
+             'source_take', 'index', 'conditioning_extent', 'video_reference'}
     if not isinstance(repair, dict) or set(repair) - known:
         raise ValueError('Unsupported repair fields; only bounded temporal video/audio repair is supported')
     lock = repair.get('lock_audio', True)
@@ -189,6 +189,11 @@ def normalize_repair(window, repair, forward_frames=0):
         result['audio_ranges'] = ar
     if canonical_weights:
         result['video_weights'] = canonical_weights
+    if 'video_reference' in repair:
+        from .long_video_repair import normalize_video_reference
+        result['video_reference'] = normalize_video_reference(
+            repair['video_reference'], video_steps(w['sample_frames']), geometry['video_steps'],
+            [*vr, *[item[:2] for item in canonical_weights if item[2] > 0]])
     for key in ('source_take', 'index', 'conditioning_extent'):
         if key in repair:
             result[key] = deepcopy(repair[key])
@@ -253,7 +258,7 @@ def repair_seconds(window, start_seconds, end_seconds, stream='video', forward_f
 
 
 def prepare_av(target, window, source=None, repair=None, nested_factory=None, forward_frames=0,
-               target_audio=None, target_audio_locked=False):
+               target_audio=None, target_audio_locked=False, video_reference_source=None):
     """Clone the target, copy true parent history, and always emit both masks.
 
     A repair source is the complete failed take with identical shape, rather
@@ -269,6 +274,9 @@ def prepare_av(target, window, source=None, repair=None, nested_factory=None, fo
     factory = _factory(nested_factory)
     c = w['context_frames']
     geometry = conditioning_geometry(w, forward_frames)
+    reference = repair.get('video_reference') if isinstance(repair, dict) else None
+    if (reference is not None) != (video_reference_source is not None):
+        raise ValueError('Video reference requires its explicit matching actual source and repair')
     cv, ca = geometry['video_steps'], geometry['audio_ticks']
     if cv >= int(tv.shape[2]) or ca >= int(ta.shape[-1]):
         raise ValueError('The target must include new video and audio after its protected history')
@@ -317,6 +325,18 @@ def prepare_av(target, window, source=None, repair=None, nested_factory=None, fo
             vm[:, :, a:b] = weight
         for a, b in recipe.get('audio_ranges', []):
             am[..., a:b] = 1
+        if reference is not None:
+            rv, ra = streams(video_reference_source)
+            _native_geometry(rv, ra)
+            _same_geometry(tv, ta, rv, ra)
+            a, b = reference['source_steps']
+            x, y = reference['target_steps']
+            if b > int(rv.shape[2]):
+                raise ValueError('Video reference source has insufficient actual native video')
+            _finite(rv[:, :, a:b], 'Video reference')
+            video[:, :, x:y].copy_(rv[:, :, a:b].to(device=video.device))
+            vm[:, :, x:y] = 0
+            report['video_reference'] = deepcopy(recipe['video_reference'])
         report.update(video_ranges=recipe['video_ranges'], audio_ranges=recipe.get('audio_ranges', []),
                       video_weights=recipe.get('video_weights', []), lock_audio=recipe['lock_audio'],
                       source_video_range=[0, int(sv.shape[2])], source_audio_range=[0, int(sa.shape[-1])])
