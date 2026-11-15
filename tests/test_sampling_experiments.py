@@ -202,6 +202,63 @@ def test_selflift_prefers_avatar_sampler_and_uses_global_context_recipe(monkeypa
     assert guide["selflift_speed_warning"] is None
 
 
+def test_compatible_global_avatar_uses_reviewed_lifter_without_changing_av_inputs(monkeypatch):
+    from nodes import selflift_lifter
+    from test_native_attention import native_model, native_runtime
+    model = native_model(native_runtime(monkeypatch))
+    node = AvatarSamplerNode()
+    guide = dict(sampling_method="selflift", selflift_upscaler_model="legacy_lms.safetensors")
+    latent = {"samples": AV(), "noise_mask": object()}
+    calls = []
+    monkeypatch.setattr(selflift_lifter, 'preferred_model', lambda function: selflift_lifter.MODEL_NAME)
+    def execute(function, kwargs, *, diagnostics=None, evidence=None):
+        calls.append(kwargs)
+        evidence.update(checkpoint_sha256=selflift_lifter.MODEL_SHA256, tier=1)
+        return kwargs['latent_image']
+    monkeypatch.setattr(selflift_lifter, 'run', execute)
+    result = experiments.run_selflift(model=model, positive=[], vae=object(), sampler=euler_sampler(),
+        sigmas=[1,.95,.9,.8,.7,.6,.45,.3,.18,.08,0], latent=latent, seed=42, guide=guide,
+        registry={"SelfLiftAvatarH3Sampler": lambda: node})
+    assert len(calls) == 1
+    assert calls[0]['latent_image'] is latent
+    assert calls[0]['latent_image']['noise_mask'] is latent['noise_mask']
+    assert calls[0]['upscaler_model'] == selflift_lifter.MODEL_NAME
+    assert result['samples'] is latent['samples']
+    assert guide['selflift_lifter'] == 'trained_2d_tier1'
+    assert guide['selflift_lifter_evidence']['checkpoint_sha256'] == selflift_lifter.MODEL_SHA256
+    assert guide['selflift_upscaler_requested_model'] == 'legacy_lms.safetensors'
+
+
+def test_unverified_attention_retains_existing_lifter_even_when_optional_model_installed(monkeypatch):
+    from nodes import selflift_lifter
+    node = AvatarSamplerNode()
+    monkeypatch.setattr(selflift_lifter, 'preferred_model',
+                        lambda function: pytest.fail('Must retain the spatial compatibility recipe'))
+    guide = {'selflift_upscaler_model': 'legacy_lms.safetensors'}
+    experiments.run_selflift(model=object(), positive=[], vae=object(), sampler=euler_sampler(),
+        sigmas=[1,.95,.9,.8,.7,.6,.45,.3,.18,.08,0], latent={'samples': AV()}, seed=42,
+        guide=guide, registry={'SelfLiftAvatarH3Sampler': lambda: node})
+    assert node.received['upscaler_model'] == 'legacy_lms.safetensors'
+    assert node.received['rho'] == .6
+
+
+def test_cached_optional_lifter_guide_restores_baseline_when_optional_model_disappears(monkeypatch):
+    from nodes import selflift_lifter
+    from test_native_attention import native_model, native_runtime
+    model = native_model(native_runtime(monkeypatch))
+    node = AvatarSamplerNode()
+    guide = dict(selflift_upscaler_model=selflift_lifter.MODEL_NAME,
+                 selflift_upscaler_requested_model='legacy_lms.safetensors',
+                 selflift_lifter='trained_2d_tier1', selflift_lifter_evidence={'stale': True})
+    monkeypatch.setattr(selflift_lifter, 'preferred_model', lambda function: None)
+    experiments.run_selflift(model=model, positive=[], vae=object(), sampler=euler_sampler(),
+        sigmas=[1,.95,.9,.8,.7,.6,.45,.3,.18,.08,0], latent={'samples': AV()}, seed=42,
+        guide=guide, registry={'SelfLiftAvatarH3Sampler': lambda: node})
+    assert node.received['upscaler_model'] == 'legacy_lms.safetensors'
+    assert guide['selflift_upscaler_model'] == 'legacy_lms.safetensors'
+    assert 'selflift_lifter_evidence' not in guide
+
+
 @pytest.mark.parametrize("factory,attention", [
     (SamplerNode, True), (AvatarSpatialCompatibilityNode, True), (AvatarSamplerNode, False),
 ])

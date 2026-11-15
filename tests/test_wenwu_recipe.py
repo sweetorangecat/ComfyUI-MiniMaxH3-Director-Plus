@@ -181,6 +181,9 @@ def test_author_global_attention_unavailable_cannot_fall_back(monkeypatch):
 def test_author_run_accepts_thirteen_sigmas_and_reports_six_plus_six(monkeypatch):
     from test_sampling_experiments import AV, AvatarSamplerNode, euler_sampler
     from test_native_attention import native_model, native_runtime
+    from nodes import selflift_lifter
+    monkeypatch.setattr(selflift_lifter, 'preferred_model',
+                        lambda function: pytest.fail('Author recipe must retain its exact LMS lifter'))
     node = AvatarSamplerNode()
     selected = guide(selflift_upscaler_model=UPSCALER, attention_backend="sol_attn", sol_attn_applied=True)
     latent = {"samples": AV(), "history": object()}
@@ -195,6 +198,8 @@ def test_author_run_accepts_thirteen_sigmas_and_reports_six_plus_six(monkeypatch
     actual = node.received
     assert (actual["cfg"], actual["transition_step"], actual["lowres_scale"], actual["rho"]) == (1, 6, .6, 0)
     assert actual["highres_tiling_mode"] == "global_stream"
+    assert actual["upscaler_model"] == UPSCALER
+    assert selected['selflift_lifter'] == 'upstream_learned'
 
 
 def test_author_run_requires_global_stream_even_for_a_short_clip():

@@ -28,6 +28,7 @@ from .native_attention import (
 LOGGER = logging.getLogger("MiniMaxH3.DirectorPlus.Execution")
 REPORT_KEY = "_h3_execution_report"
 MAX_STAGES = 64
+_LIFTER_KEYS = ("selflift_lifter", "selflift_upscaler_model", "selflift_upscaler_requested_model")
 _PLAN_KEYS = (
     "mode", "voice_mode", "performance_preset", "resolved_backend", "seed",
     "width", "height", "length", "target_width", "target_height", "steps",
@@ -50,6 +51,7 @@ _PLAN_KEYS = (
     "selflift_highres_token_chunk", "selflift_highres_weight_cache_gb",
     "selflift_node_id", "selflift_node_variant",
     "selflift_global_stream_supported", "selflift_speed_warning",
+    *_LIFTER_KEYS,
     *NATIVE_ATTENTION_EVIDENCE_KEYS,
     "sol_attn_start_percent", "sol_attn_end_percent",
     "author_recipe_id", "author_recipe_version", "sampling_method", "community_lora_profile",
@@ -75,6 +77,7 @@ _SAMPLING_KEYS = (
     "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
     "selflift_node_id", "selflift_node_variant",
     "selflift_global_stream_supported", "selflift_speed_warning",
+    *_LIFTER_KEYS,
     *NATIVE_ATTENTION_EVIDENCE_KEYS, *SOL_ATTN_EVIDENCE_KEYS,
     "selflift_lowres_scale", "selflift_cfg", "selflift_transition_step",
     "author_recipe_id", "author_recipe_version",
@@ -95,6 +98,14 @@ def _scalars(source, keys):
         elif isinstance(value, float) and math.isfinite(value):
             result[key] = value
     return result
+
+
+def _lifter_evidence(source, target):
+    value = source.get("selflift_lifter_evidence")
+    if isinstance(value, dict):
+        target["selflift_lifter_evidence"] = _scalars(value, (
+            "model", "checkpoint_sha256", "source_sha256", "tier", "temporal_chunk_frames",
+        ))
 
 
 def _additional_lora_snapshot(source, key="additional_loras_requested"):
@@ -127,6 +138,7 @@ def execution_plan(guide):
     """Describe routing and endpoint semantics without serializing references."""
     guide = guide or {}
     plan = _scalars(guide, _PLAN_KEYS)
+    _lifter_evidence(guide, plan)
     _author_adapters(guide, plan)
     additional_loras = _additional_lora_snapshot(guide)
     if additional_loras is not None:
@@ -172,6 +184,7 @@ def _plan_snapshot(source):
     if not isinstance(source, dict):
         return {}
     plan = _scalars(source, (*_PLAN_KEYS, "route"))
+    _lifter_evidence(source, plan)
     _author_adapters(source, plan)
     additional_loras = _additional_lora_snapshot(source)
     if additional_loras is not None:
@@ -258,6 +271,7 @@ def sampling_settings(guide, *, model=None, sampler=None, sigmas=None, second_mo
 
 def _sampling_snapshot(source):
     result = _scalars(source, _SAMPLING_KEYS)
+    _lifter_evidence(source, result)
     if source.get("author_adapters_applied"):
         result["author_adapters_applied"] = _additional_lora_snapshot(source, "author_adapters_applied")
     for key in ("scheduler_model_sampling", "second_model_sampling"):

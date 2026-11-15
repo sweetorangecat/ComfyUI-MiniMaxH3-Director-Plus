@@ -190,6 +190,13 @@ def native_asset_choices(graph, folder_paths, *, resolver=None, environ=None):
     selections['implicit:selflift:lora'] = core
     selections['implicit:selflift:upscaler'] = _choice(
         'latent_upscale_models', SELFLIFT_UPSCALER_MODEL_CANDIDATES, folder_paths, resolver)
+    # The actual compatible/global route is established at sampling time.
+    # Conservatively freeze this optional conditional asset as well, so its
+    # installation/removal or replacement cannot silently change later windows.
+    from .selflift_lifter import MODEL_NAME
+    optional_lifter = _choice('latent_upscale_models', (MODEL_NAME,), folder_paths, resolver)
+    optional_lifter.update(optional=True, policy='cover_optional_compatible_global_lifter')
+    selections['implicit:selflift:optional_2d_lifter'] = optional_lifter
     if detail_on:
         selections['implicit:selflift:detail'] = _choice(
             'loras', (SELFLIFT_MYSTIC_LORA,), folder_paths, resolver, SELFLIFT_MYSTIC_LORA_STRENGTH)
@@ -214,7 +221,8 @@ def native_asset_choices(graph, folder_paths, *, resolver=None, environ=None):
         selections['implicit:mystic:effective'] = _choice(
             'loras', (mystic['effective_name'],), folder_paths, resolver, mystic['strength'])
         result['mystic_policy'] = 'cover_effective_v5_and_selflift_u22_parent_restoration'
-    result['missing'] = [label for label, choice in selections.items() if not choice['selected']]
+    result['missing'] = [label for label, choice in selections.items()
+                         if not choice['selected'] and not choice.get('optional')]
     return result
 
 

@@ -73,6 +73,22 @@ def test_export_code_change_stops_before_new_queue_work(tmp_path,monkeypatch):
     assert backend.submitted == []
 
 
+@pytest.mark.parametrize('name', ['selflift_lifter', 'vendor/minimax_h3_latent_upscaler_2d'])
+def test_native_lifter_code_change_stops_before_new_queue_work(tmp_path, monkeypatch, name):
+    import nodes.long_video_service as service
+    store, backend, runner = setup(tmp_path)
+    original = service._code_identity
+    def changed(names):
+        result = original(names)
+        if name in result:
+            result[name] = 'different-lifter-code'
+        return result
+    monkeypatch.setattr(service, '_code_identity', changed)
+    with pytest.raises(ValueError, match='original U11'):
+        runner.step()
+    assert backend.submitted == []
+
+
 def test_original_requeue_refreshes_export_code_while_preserving_valid_native(tmp_path,monkeypatch):
     import nodes.long_video_service as service
     store,backend,runner = setup(tmp_path,seconds=5)

@@ -709,6 +709,7 @@ class MiniMaxH3TwoStageSampler:
                     seed=getattr(noise, "seed", None), guide=guide)
             report["sampling_settings"].update({key: guide[key] for key in (
                 "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
+                "selflift_upscaler_requested_model", "selflift_lifter", "selflift_lifter_evidence",
                 "selflift_node_id", "selflift_node_variant",
                 "selflift_global_stream_supported", "selflift_speed_warning",
                 *NATIVE_ATTENTION_EVIDENCE_KEYS, *SOL_ATTN_EVIDENCE_KEYS,

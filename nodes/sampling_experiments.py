@@ -396,6 +396,17 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         from .two_stage_assets import _comfy_node_mappings
         registry = _comfy_node_mappings()
     upscaler_name = guide.get("selflift_upscaler_model")
+    # A cached guide may describe the actual optional lifter from its previous
+    # execution. Re-evaluate the requested baseline instead of ever handing a
+    # 2D checkpoint to the upstream 3D loader after an environment change.
+    if guide.get("selflift_lifter") == "trained_2d_tier1":
+        from .selflift_lifter import MODEL_NAME
+        if str(upscaler_name or "").replace("\\", "/").rsplit("/", 1)[-1] == MODEL_NAME:
+            upscaler_name = guide.get("selflift_upscaler_requested_model")
+    guide["selflift_upscaler_requested_model"] = upscaler_name
+    guide["selflift_upscaler_model"] = upscaler_name
+    guide["selflift_lifter"] = "upstream_learned"
+    guide.pop("selflift_lifter_evidence", None)
     if author:
         validate_author_upscaler(upscaler_name)
     report = selflift_dependency_report(registry, upscaler_name, require_global=author)
@@ -464,7 +475,19 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
             selflift_cfg=call_kwargs["cfg"],
             selflift_transition_step=call_kwargs["transition_step"],
         )
-        result = function(**call_kwargs)
+        optional_lifter = None
+        if (not author and node_id == "SelfLiftAvatarH3Sampler"
+                and artifact_guard["global_stream_supported"]):
+            from . import selflift_lifter
+            optional_lifter = selflift_lifter.preferred_model(function)
+        if optional_lifter:
+            call_kwargs["upscaler_model"] = optional_lifter
+            guide["selflift_upscaler_model"] = optional_lifter
+            guide["selflift_lifter"] = "trained_2d_tier1"
+            evidence = guide["selflift_lifter_evidence"] = {}
+            result = selflift_lifter.run(function, call_kwargs, evidence=evidence)
+        else:
+            result = function(**call_kwargs)
     except RuntimeError as exc:
         # Preserve CUDA OOM's exception type so ComfyUI can release its models.
         raise type(exc)(f"SelfLift 执行失败，已停止：{exc}") from exc

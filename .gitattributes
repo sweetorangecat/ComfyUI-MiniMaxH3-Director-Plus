@@ -1,0 +1,2 @@
+# Keep the pinned upstream inference bytes stable on Windows checkouts.
+nodes/vendor/minimax_h3_latent_upscaler_2d.py text eol=lf whitespace=-blank-at-eol

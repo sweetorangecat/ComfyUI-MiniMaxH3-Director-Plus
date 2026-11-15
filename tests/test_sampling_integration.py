@@ -362,7 +362,10 @@ def test_selflift_uses_matched_accelerated_model_when_guider_keeps_sigma_shift_c
     def run(**kwargs):
         calls.append(kwargs)
         kwargs["guide"].update(selflift_rho=0.6, selflift_w_min=0.5,
-                               selflift_w_max=1.0, selflift_upscaler_model="h3.safetensors")
+                               selflift_w_max=1.0, selflift_upscaler_model="h3.safetensors",
+                               selflift_upscaler_requested_model="baseline_lms.safetensors",
+                               selflift_lifter="trained_2d_tier1",
+                               selflift_lifter_evidence={"checkpoint_sha256": "a" * 64, "tier": 1})
         return kwargs["latent"]
 
     monkeypatch.setattr(two_stage, "run_selflift", run, raising=False)
@@ -410,6 +413,9 @@ def test_selflift_uses_matched_accelerated_model_when_guider_keeps_sigma_shift_c
     assert (settings["video_shift"], settings["audio_shift"]) == (10.0, 5.0)
     assert (settings["selflift_rho"], settings["selflift_w_min"], settings["selflift_w_max"]) == (0.6, 0.5, 1.0)
     assert settings["selflift_upscaler_model"] == "h3.safetensors"
+    assert settings["selflift_upscaler_requested_model"] == "baseline_lms.safetensors"
+    assert settings["selflift_lifter"] == "trained_2d_tier1"
+    assert settings["selflift_lifter_evidence"]["checkpoint_sha256"] == "a" * 64
 
 
 def test_author_sampler_normalizes_original_standard_and_saved_manual_shift(monkeypatch):

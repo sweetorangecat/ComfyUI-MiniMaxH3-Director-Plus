@@ -154,6 +154,7 @@ def configure_project(store, base_graph, raw, asset_freezer=current_assets,
                                  'long_video_references','long_video_parent','long_video_prompt',
                                  'director','guide','schema','prompting','voice_guard','resolution',
                                  'sampling_experiments','two_stage','performance','two_stage_assets','vram_budget',
+                                 'selflift_lifter','vendor/minimax_h3_latent_upscaler_2d',
                                  'additional_loras','long_video_assets','long_video_entry','long_video_audio','fish'])
     generation = fingerprint({'graph': generation_settings(graph), 'assets': native_assets, 'code': native_code})
     export_settings = {'target': list(output_canvas(graph[director]['inputs'])), 'encoding': encoding,

@@ -313,3 +313,27 @@ def test_completed_sampling_settings_survive_decode_and_output_snapshots():
     assert downstream["sampling_settings"]["scheduler_model_sampling"]["video_shift"] == 10.
     for key in ("selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model"):
         assert downstream["sampling_settings"][key] == report["sampling_settings"][key]
+
+
+def test_actual_lifter_identity_survives_snapshots_without_private_or_unbounded_values():
+    actual = {'selflift_lifter': 'trained_2d_tier1',
+              'selflift_upscaler_model': 'reviewed_2d.safetensors',
+              'selflift_upscaler_requested_model': 'legacy_lms.safetensors',
+              'selflift_lifter_evidence': {'model': 'reviewed_2d.safetensors',
+                  'checkpoint_sha256': 'a' * 64, 'source_sha256': 'b' * 64,
+                  'tier': 1, 'temporal_chunk_frames': 32, 'private': 'SECRET',
+                  'tensor': torch.zeros(1)}}
+    report = evidence.new_report(actual)
+    report['sampling_settings'] = {'evidence': 'sampler_inputs', **actual}
+    source = {'samples': torch.zeros(1)}
+    evidence.attach_report(source, report)
+    inherited = evidence.new_report(source=source)
+    for snapshot in (inherited['plan'], inherited['sampling_settings']):
+        assert snapshot['selflift_lifter'] == 'trained_2d_tier1'
+        assert snapshot['selflift_upscaler_requested_model'] == 'legacy_lms.safetensors'
+        assert snapshot['selflift_lifter_evidence'] == {
+            key: actual['selflift_lifter_evidence'][key]
+            for key in ('model', 'checkpoint_sha256', 'source_sha256', 'tier', 'temporal_chunk_frames')}
+    assert 'SECRET' not in json.dumps(inherited)
+    actual['selflift_lifter_evidence']['tier'] = 2
+    assert inherited['sampling_settings']['selflift_lifter_evidence']['tier'] == 1

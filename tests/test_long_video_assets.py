@@ -115,6 +115,22 @@ def test_selected_optional_motion_weights_and_actual_bytes_are_frozen(registry):
     assert changed['choices'] == snapshot['choices']
 
 
+def test_optional_2d_lifter_installation_and_weight_bytes_are_frozen_only_for_ordinary_route(registry):
+    from nodes.selflift_lifter import MODEL_NAME
+    assets = module()
+    absent = assets.freeze_native_assets(graph('off'), registry, environ={})
+    author = assets.freeze_native_assets(graph('combat'), registry, environ={})
+    model = registry.install('latent_upscale_models', 'vendor/' + MODEL_NAME, b'2d-A')
+    present = assets.freeze_native_assets(graph('off'), registry, environ={})
+    assert MODEL_NAME in paths(present)
+    assert present['choices'] != absent['choices']
+    assert not present['choices']['missing']
+    model.write_bytes(b'2d-B')
+    changed = assets.freeze_native_assets(graph('off'), registry, environ={})
+    assert changed['records'] != present['records']
+    assert assets.freeze_native_assets(graph('combat'), registry, environ={}) == author
+
+
 def test_installation_and_first_registered_candidate_changes_are_visible_without_hashing(registry):
     assets = module()
     absent = assets.native_asset_choices(graph(), registry, environ={})
