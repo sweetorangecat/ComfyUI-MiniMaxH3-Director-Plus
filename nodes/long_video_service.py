@@ -653,8 +653,16 @@ def _drive(store, wake, setup=None):
         if setup:
             graph, config = setup
             store.set_status('preparing')
-            configure_project(store, graph, config)
-        driver = Coordinator(store, ComfyQueue())
+            if config.get('entry_mode') == 'independent_shots':
+                from .long_video_shot_service import configure_shots
+                configure_shots(store, graph, config)
+            else:
+                configure_project(store, graph, config)
+        if store.read().get('config', {}).get('entry_mode') == 'independent_shots':
+            from .long_video_shot_service import ShotCoordinator
+            driver = ShotCoordinator(store, ComfyQueue())
+        else:
+            driver = Coordinator(store, ComfyQueue())
         while True:
             wake.clear()
             if driver.step():

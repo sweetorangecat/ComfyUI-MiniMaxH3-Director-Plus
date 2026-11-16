@@ -159,6 +159,14 @@ class ProjectStore:
     def validate_parent_binding(self, state, request):
         """Check the source chain while the caller holds this journal's kernel lock."""
         window, parent = request['window'], request.get('parent')
+        if window.get('kind') == 'independent_shots':
+            index = window.get('index')
+            if (state.get('config', {}).get('entry_mode') != 'independent_shots'
+                    or type(index) is not int or not 0 <= index < len(state.get('plan', []))
+                    or window != state['plan'][index] or parent is not None
+                    or window.get('context_frames') != 0 or request.get('forward_frames', 0)):
+                raise ValueError('Independent clip must use its exact planned short request without a parent')
+            return
         forward = request.get('forward_frames', 0)
         conditioning_geometry(window, forward)
         if not window['context_frames']:
@@ -314,13 +322,16 @@ class ProjectStore:
 
     @staticmethod
     def _invalidate(state, index, reason):
-        for record in state["windows"][index:]:
+        independent = state.get('config', {}).get('entry_mode') == 'independent_shots'
+        for record in state["windows"][index:index+1] if independent else state["windows"][index:]:
             record.update(status="invalidated", invalidation_reason=reason)
         state["output"] = ""
         state["status"] = "ready"
         ProjectStore.progress(state)
 
     def _repair_source(self, state, index, take_id=None):
+        if state.get('config', {}).get('entry_mode') == 'independent_shots':
+            raise ValueError('分镜式长视频请使用“只重做本段”；局部原生 AV 返修仅用于连续镜头。')
         if type(index) is not int:
             raise ValueError("Repair window index must be an integer")
         if state.get('active_job'):

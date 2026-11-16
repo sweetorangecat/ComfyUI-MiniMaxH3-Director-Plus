@@ -30,7 +30,12 @@ def _preview(store, record):
 
 def seam_evidence(store, state, record):
     """Describe the actual delivery join without hashing/loading clean tensors."""
+    editorial = record['window'].get('kind') == 'independent_shots'
     parent_id = (record.get('parent') or {}).get('take_id')
+    if editorial:
+        previous = next((w for w in state['windows']
+                         if w['window']['index'] == record['window']['index'] - 1), None)
+        parent_id = previous['take_id'] if previous else None
     if not parent_id:
         return None
     parent = next((w for w in state['windows'] + state.get('superseded', [])
@@ -47,8 +52,9 @@ def seam_evidence(store, state, record):
                 film_seconds=[(p['new_end']-count)/24, p['new_end']/24])
     right.update(local_frames=[c, c+count], local_seconds=[c/24, (c+count)/24],
                  film_seconds=[w['new_start']/24, (w['new_start']+count)/24])
-    evidence = {'parent': left, 'child': right,
-                'note': '实际父窗最后交付帧 → 子窗首批净新增帧；相等的历史 latent 不构成可见接缝审批。'}
+    evidence = {'parent': left, 'child': right, 'kind': 'editorial_cut' if editorial else 'continuation',
+                'note': ('剧情切镜前后实际交付帧；相邻镜头没有作为本段生成历史。' if editorial else
+                         '实际父窗最后交付帧 → 子窗首批净新增帧；相等的历史 latent 不构成可见接缝审批。')}
     f = record.get('forward_frames', 0)
     if f:
         a, b = max(c, c+f-2), min(w['local_new_end'], c+f+2)
@@ -68,12 +74,13 @@ def public_status(store):
     result['generated_seconds'] = state['generated_frames'] / 24
     result['target_seconds'] = state.get('config', {}).get('target_seconds', result['actual_seconds'])
     result['encoding'] = state.get('config', {}).get('export', {}).get('encoding')
+    result['entry_mode'] = state.get('config', {}).get('entry_mode', 'native_av')
     result['busy'] = bool(state.get('active_job'))
     result['windows'] = []
     for record in state['windows']:
         window = {key:record.get(key) for key in ('take_id','status','observed_outgoing_state')}
         window.update(index=record['window']['index'], start=record['window']['new_start']/24,
-                      end=record['window']['new_end']/24)
+                      end=record['window']['new_end']/24, kind=record['window'].get('kind', 'native_av'))
         window['can_retry'] = record['status'] in {'rejected', 'invalidated', 'accepted'}
         pending = state.get('repair') or {}
         window['repair'] = deepcopy(pending if pending.get('index') == record['window']['index'] else record.get('repair'))

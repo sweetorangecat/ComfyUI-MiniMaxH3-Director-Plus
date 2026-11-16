@@ -39,6 +39,10 @@ def _director_target(prompt, unique_id):
 
 def _automatic_recipe(target):
     graph, director, seconds = target
+    from .long_video_shots import automatic_shots
+    editorial = automatic_shots(graph, director, seconds)
+    if editorial is not None:
+        return editorial
     settings = graph[director]['inputs']
     adapt_long_voice(settings, graph[director].setdefault('_meta', {}))
     if settings.get('community_lora_profile') == 'combat':

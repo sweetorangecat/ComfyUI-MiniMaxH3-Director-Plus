@@ -287,6 +287,21 @@ test('repair prefill uses exact free-start and end and reports actual snapped ex
   assert.equal(calls.find(c=>c.data?.action === 'repair').data.start_seconds,566/24);
 });
 
+test('independent clips describe the original short route and retry only this clip',async()=>{
+  const {node,host}=await install();
+  const record={...windowRecord(1,'accepted'),kind:'independent_shots',local_new_start:0,
+    local_new_end:15,seam:{kind:'editorial_cut',parent:{take_id:'take0',url:'/p.mp4',
+    local_seconds:[14.8,15],film_seconds:[14.8,15]},child:{take_id:'take1',url:'/c.mp4',
+    local_seconds:[0,.2],film_seconds:[15,15.2]}}};
+  host.reply=state([record],{entry_mode:'independent_shots'}); await node._h3LongRefresh();
+  assert.match(find(node,'route').textContent,/原短片/);
+  assert.match(find(node,'retry').textContent,/只重做本段/);
+  assert.doesNotMatch(find(node,'retry').textContent,/后续需重做/);
+  assert.equal(all(node.root).find(e=>e.tag==='details' && e.children.some(c=>c.textContent?.includes('局部返修'))).hidden,true);
+  assert.ok(all(node.root).some(e=>e.textContent?.includes('剧情切镜')));
+  assert.doesNotMatch(all(node.root).find(e=>e.dataset.field==='clip-title').textContent,/保护历史/);
+});
+
 test('original output execution hook refreshes the mounted long panel', async () => {
   const {node,host,extension,calls} = await install();
   host.reply = state([windowRecord(0)]);

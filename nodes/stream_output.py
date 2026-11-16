@@ -1558,6 +1558,9 @@ class MiniMaxH3StreamingVideoCombine:
             output_audio = _normalize_output_audio(
                 audio, audio_loudness_effective, backend=audio_backend
             )
+        delivery_callback = guide.get('_h3_delivery_audio_callback')
+        if callable(delivery_callback):
+            output_audio = delivery_callback(output_audio)
         audio_path, audio_duration = dasiwa._audio_file(output_audio)
         attempts = []
         output_path = None

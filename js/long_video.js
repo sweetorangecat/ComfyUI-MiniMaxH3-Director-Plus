@@ -171,12 +171,14 @@ function attachProgress(node,automatic = false) {
     if (seek !== undefined) item.addEventListener("loadedmetadata",()=>{ item.currentTime = seek; }); parent.append(item); return item;
   }
   function buildView(record) {
-    const view = {root:el("div"),record}, box = view.root; view.title = el("p"); box.append(view.title);
+    const independent = record.kind === "independent_shots";
+    const view = {root:el("div"),record}, box = view.root; view.title = el("p",undefined,"clip-title"); box.append(view.title);
     if (record.preview_url) view.video = video(box,record.preview_url,"native-video");
     const seam = record.seam;
     if (seam?.parent && seam?.child) {
-      const detail = el("details"); detail.open = true; detail.append(el("summary","实际交付接缝：父窗尾部 → 子窗首批净新增帧"));
-      for (const [role,label] of [["parent","实际父窗交付尾部"],["child","子窗首批净新增"],["free_boundary","子窗条件出口 / 自由起点"]]) {
+      const edit = seam.kind === "editorial_cut";
+      const detail = el("details"); detail.open = true; detail.append(el("summary",edit ? "剧情切镜：上一段结尾 → 本段开头" : "实际交付接缝：父窗尾部 → 子窗首批净新增帧"));
+      for (const [role,label] of [["parent",edit ? "上一段交付结尾" : "实际父窗交付尾部"],["child",edit ? "本段交付开头" : "子窗首批净新增"],["free_boundary","子窗条件出口 / 自由起点"]]) {
         const item = seam[role]; if (!item) continue;
         detail.append(el("p",`${label} · 来源 ${item.take_id} · 预览局部 ${number(item.local_seconds[0])}–${number(item.local_seconds[1])} 秒 · 成片 ${number(item.film_seconds[0])}–${number(item.film_seconds[1])} 秒`,"seam-"+role+"-label")); video(detail,item.url,"seam-"+role,item.local_seconds[0]);
       }
@@ -190,7 +192,7 @@ function attachProgress(node,automatic = false) {
     const outgoing = input("textarea","outgoing","实际尾态：人物位置、手持物、动作阶段、机位和声音状态"), scope = input("textarea","scope","实际检查范围与发现（动作、声音、自由边界和收尾）");
     for (const field of [outgoing,scope]) { field.style.cssText += ";width:100%;min-height:65px"; view.review.append(field); }
     // Elements persist for the take across polls, selection and project switches.
-    button(view.review,"接受本窗，增强并继续","accept",()=>{ if (!outgoing.value.trim() || !scope.value.trim()) { feedback.textContent = "请填写实际尾态和实际审查范围。"; return; } return request("review",{take_id:record.take_id,accepted:true,observed_outgoing_state:outgoing.value,scope:scope.value}); });
+    button(view.review,independent ? "接受本段并继续" : "接受本窗，增强并继续","accept",()=>{ if (!outgoing.value.trim() || !scope.value.trim()) { feedback.textContent = "请填写实际尾态和实际审查范围。"; return; } return request("review",{take_id:record.take_id,accepted:true,observed_outgoing_state:outgoing.value,scope:scope.value}); });
     button(view.review,"退回本窗","reject",()=>{ if (!scope.value.trim()) { feedback.textContent = "请记录退回原因与实际检查范围。"; return; } return request("review",{take_id:record.take_id,accepted:false,observed_outgoing_state:outgoing.value,scope:scope.value}); }); box.append(view.review);
     view.forward = el("div"); view.forwardLabel = el("p",undefined,"forward-label"); view.forward.append(view.forwardLabel);
     const observed = input("textarea","forward-state","实际衔接素材末端 / 下一窗自由起点状态，不能填写预期结果"), forwardScope = input("textarea","forward-scope","实际检查的源尾部画面、声音、接触与动作范围");
@@ -211,7 +213,8 @@ function attachProgress(node,automatic = false) {
   function render(data) {
     const projectState = ensureProject(); projectState.data = data;
     progressStatus.textContent = `${LABELS[data.status] || data.status} · 目标 ${number(data.target_seconds ?? data.actual_seconds)} 秒 / 连续已确认 ${number(data.completed_seconds)} 秒 / 已生成候选至 ${number(data.generated_seconds)} 秒`+(data.error ? "\n"+data.error : "")+(data.forward_review_error ? "\n"+data.forward_review_error : "");
-    if (data.encoding) route.textContent = "长片路线：REF2VA / 质量优先二采样 / SelfLift / VOSR2 manual_baseline。"+encodingText(data.encoding);
+    const independent = data.entry_mode === "independent_shots";
+    route.textContent = (independent ? "沿用原短片参数，按剧情切镜独立生成。" : "长片路线：REF2VA / 质量优先二采样 / SelfLift / VOSR2 manual_baseline。")+(data.encoding ? encodingText(data.encoding) : "");
     const windows = data.windows || [];
     if (!windows.some(w=>w.index === projectState.selected)) projectState.selected = (windows.find(w=>w.status === "awaiting_review" || w.status === "rejected" || (w.forward_review && !w.forward_review.review_receipt_exists)) || windows.at(-1))?.index ?? null;
     const signature = JSON.stringify(windows.map(w=>[w.index,w.take_id,w.start,w.end,w.status]));
@@ -223,12 +226,12 @@ function attachProgress(node,automatic = false) {
       let view = projectState.views.get(record.take_id); if (view && !view.video && record.preview_url) { projectState.views.delete(record.take_id); view = null; }
       if (!view) { view = buildView(record); projectState.views.set(record.take_id,view); } view.record = record;
       if (visibleView !== view) { visibleView?.video?.pause(); content.replaceChildren(view.root); visibleView = view; }
-      view.title.textContent = `第 ${record.index+1} 窗 · 成片交付 ${number(record.start)}–${number(record.end)} 秒 · 来源 ${record.take_id}。完整预览含保护历史和生成余量；实际交付为预览局部 ${number(record.local_new_start)}–${number(record.local_new_end)} 秒。`;
+      view.title.textContent = `第 ${record.index+1} ${independent ? "段" : "窗"} · 成片交付 ${number(record.start)}–${number(record.end)} 秒 · 来源 ${record.take_id}。`+(independent ? "本段沿用原短片链路和原始参考图。" : `完整预览含保护历史和生成余量；实际交付为预览局部 ${number(record.local_new_start)}–${number(record.local_new_end)} 秒。`);
       view.review.hidden = record.status !== "awaiting_review";
       const forward = record.forward_review; view.forward.hidden = !forward || (forward.review_receipt_exists && data.status !== "awaiting_forward_review");
       if (forward) view.forwardLabel.textContent = `衔接素材审查：实际来源 ${record.take_id} 的预览局部 ${number(forward.source_seconds[0])}–${number(forward.source_seconds[1])} 秒。检查这段未交付尾部的实际动作和声音，记录末端实际自由起点状态；已有交付审批不会自动批准此尾段。`;
-      view.repair.hidden = !["accepted","rejected"].includes(record.status); view.repairButton.disabled = Boolean(data.busy);
-      view.retry.hidden = !record.can_retry; view.retry.disabled = Boolean(data.busy); view.retry.textContent = record.status === "accepted" ? "整窗重新生成（后续需重做，保留旧文件）" : (record.repair ? "放弃局部返修，重新生成本窗" : "重新生成本窗（新种子）");
+      view.repair.hidden = independent || !["accepted","rejected"].includes(record.status); view.repairButton.disabled = Boolean(data.busy);
+      view.retry.hidden = !record.can_retry; view.retry.disabled = Boolean(data.busy); view.retry.textContent = independent ? "只重做本段（保留其他片段）" : (record.status === "accepted" ? "整窗重新生成（后续需重做，保留旧文件）" : (record.repair ? "放弃局部返修，重新生成本窗" : "重新生成本窗（新种子）"));
       const extent = record.repair?.conditioning_extent;
       view.extent.textContent = extent ? `实际返修条件范围：${extent.video_seconds ? "视频成片 "+extent.video_seconds.map(number).join("–")+" 秒" : ""}${extent.audio_seconds ? "；音频成片 "+extent.audio_seconds.map(number).join("–")+" 秒" : "；原音频锁定"}。按原生时间网格向外对齐；VAE 存在时间耦合，不能保证逐帧隔离。` : "";
     } else if (visibleView) { visibleView.video?.pause(); content.replaceChildren(); visibleView = null; }

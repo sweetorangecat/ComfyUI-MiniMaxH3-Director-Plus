@@ -6,6 +6,7 @@ if __package__:
     from .nodes.fish import MiniMaxH3FishVoiceBridge
     from .nodes.long_video_audio import MiniMaxH3LongVideoAudioPrepare
     from .nodes.long_video_parent import MiniMaxH3LongVideoParentImage
+    from .nodes.long_video_shot_output import MiniMaxH3LongVideoShotOutput
     from .nodes.guide import MiniMaxH3DirectorPlusGuide, MiniMaxH3ModelRouter
     from .nodes.performance import (
         MiniMaxH3AccelerationRouter,
@@ -42,6 +43,7 @@ if __package__:
         "MiniMaxH3FishVoiceBridge": MiniMaxH3FishVoiceBridge,
         "MiniMaxH3LongVideoAudioPrepare": MiniMaxH3LongVideoAudioPrepare,
         "MiniMaxH3LongVideoParentImage": MiniMaxH3LongVideoParentImage,
+        "MiniMaxH3LongVideoShotOutput": MiniMaxH3LongVideoShotOutput,
         "MiniMaxH3DirectorPlusGuide": MiniMaxH3DirectorPlusGuide,
         "MiniMaxH3ModelRouter": MiniMaxH3ModelRouter,
         "MiniMaxH3PerformancePreset": MiniMaxH3PerformancePreset,

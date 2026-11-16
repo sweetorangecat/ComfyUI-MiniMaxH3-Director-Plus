@@ -94,6 +94,30 @@ def test_seam_uses_immutable_request_parent_and_first_net_new_not_context(tmp_pa
     assert 'actual-parent.mp4' in seam['parent']['url']
 
 
+def test_independent_edit_evidence_uses_adjacent_delivery_without_inventing_a_parent(tmp_path):
+    store = ProjectStore(tmp_path, 'edits')
+    records = []
+    for index in range(2):
+        movie = store.path(f'clip{index}.mp4')
+        movie.write_bytes(b'clip fixture')
+        records.append({'take_id': f'clip{index}', 'status': 'awaiting_review', 'parent': None,
+            'window': {'kind': 'independent_shots', 'index': index, 'new_start': index * 360,
+                       'new_end': (index+1)*360, 'local_new_start': 0, 'local_new_end': 360},
+            'artifacts': {'preview': store.artifact(movie)}})
+    with store.transaction() as state:
+        state.update(config={'entry_mode': 'independent_shots'}, windows=records, total_frames=720)
+    result = routes.public_status(store)
+    assert result['entry_mode'] == 'independent_shots'
+    clip = result['windows'][1]
+    assert clip['kind'] == 'independent_shots'
+    assert clip['seam']['kind'] == 'editorial_cut'
+    assert clip['seam']['parent']['take_id'] == 'clip0'
+    assert clip['seam']['parent']['local_frames'] == [356, 360]
+    assert clip['seam']['child']['local_frames'] == [0, 4]
+    assert 'free_boundary' not in clip['seam']
+    assert store.read()['windows'][1]['parent'] is None
+
+
 def test_control_route_strips_action_before_strict_seconds_repair(tmp_path, monkeypatch):
     registry = web.RouteTableDef()
     monkeypatch.setattr(routes, '_REGISTERED', False)

@@ -196,6 +196,11 @@ def roles(graph):
 
 
 def build_window_graph(base, request, stage="native", *, parent_store=None):
+    if request.get('window', {}).get('kind') == 'independent_shots':
+        if stage != 'native':
+            raise ValueError('Independent clips finish through the original short output in one job')
+        from .long_video_shots import build_shot_graph
+        return build_shot_graph(base, request)
     if stage not in {"native", "finish", "preview"}:
         raise ValueError("Unknown long-video graph stage")
     if any(key.startswith('h3long_') for key in base):
