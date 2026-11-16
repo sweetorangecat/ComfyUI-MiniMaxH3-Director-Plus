@@ -137,6 +137,40 @@ def setup(tmp_path, seconds=30):
     return store, backend, runner
 
 
+@pytest.mark.parametrize('selected,policy', [([1], 'inherit'), ([2], 'inherit'),
+                                            ([], 'inherit'), ([1], 'dialogue_only')])
+def test_selected_reference_jobs_keep_required_empty_voice_names(tmp_path, selected, policy):
+    store = ProjectStore(tmp_path, 'test')
+    base = graph()
+    base['10']['inputs'].update(voice_mode='h3_reference',
+        voice_reference_audio_file='first.wav', voice_reference_audio_2_file='second.wav',
+        voice_reference_name_1='First speaker', voice_reference_name_2='Second speaker',
+        voice_reference_name_3='Unused speaker')
+    raw = config(5)
+    raw['scene_contract']['window_overrides'] = [{
+        'new_start': 0, 'new_end': 120,
+        'reference_selection': {'pictures': [1], 'audios': selected},
+        'voice_policy': policy}]
+    configure_project(store, base, raw, asset_freezer=lambda _: {})
+    backend = Backend()
+    runner = Coordinator(store, backend)
+    assert runner.step()
+    prompt_id, actual = backend.submitted[0]
+    settings = actual['10']['inputs']
+    expected = (f'{"First" if selected == [1] else "Second"} speaker'
+                if selected and policy == 'inherit' else '')
+    # Comfy validates required inputs before calling Python, so the callable's
+    # default arguments do not substitute for missing empty widget values.
+    assert {key: settings[key] for key in ('voice_reference_name_1',
+            'voice_reference_name_2', 'voice_reference_name_3')} == {
+        'voice_reference_name_1': expected, 'voice_reference_name_2': '',
+        'voice_reference_name_3': ''}
+    assert not any(key.startswith(('voice_reference_audio_2', 'voice_reference_audio_3'))
+                   for key in settings)
+    recorded = json.loads(store.path(f'jobs/{prompt_id}.json').read_text(encoding='utf-8'))
+    assert recorded == actual
+
+
 def complete(store, backend, stage='native', clean_only=False):
     state = store.read()
     job = state['active_job']

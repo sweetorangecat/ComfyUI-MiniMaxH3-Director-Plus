@@ -373,6 +373,14 @@ class Coordinator:
             expected_snapshot = self.store.coordination_snapshot(state, index)
         request['export_fingerprint'] = state['config']['export_fingerprint']
         graph = build_window_graph(state['config']['base_graph'], request, stage, parent_store=self.store)
+        # Binding selection removes inactive voice fields. The Director still
+        # declares all three label widgets as required in Comfy's API schema;
+        # Python argument defaults cannot satisfy that earlier validation.
+        # Materialize only empty labels before journaling the submitted graph.
+        for node in graph.values():
+            if node.get('class_type') == 'MiniMaxH3DirectorPlus':
+                for number in range(1, 4):
+                    node['inputs'].setdefault(f'voice_reference_name_{number}', '')
         graph_file = self.store.write_once(f'jobs/{prompt_id}.json', graph)
         job = {'prompt_id': prompt_id, 'take_id': request['take_id'], 'stage': stage,
                'graph': self.store.artifact(graph_file), 'submitted_at': time.time()}
