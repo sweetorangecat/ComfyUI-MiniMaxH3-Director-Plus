@@ -1362,10 +1362,10 @@
         }
       },
       "widgets_values": [
-        "480p / 768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n最终输出默认使用通用 AI 超分，模型保持 auto。放大需求不超过 2 倍且已安装时，自动选用 OmniSR X2。\n\n480p 智能单采允许 4–15 秒，8GB 峰值与画质需实测。768p 是最终输出尺寸，低显存生成最长 10 秒；1080p 低显存限制为 4–6 秒。\n\n额外社区 LoRA 默认关闭。可选 Qwen 本地提示词草稿默认关闭，不自动改写导演台。接入说明：docs/Qwen本地草稿与480p.md"
+        "480p / 768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n最终尺寸需要放大时默认使用 VOSR2，倍率按目标尺寸计算。长片的每个镜头沿用原来的短片生成与收尾设置。\n\n480p 智能单采允许 4–15 秒，8GB 峰值与画质需实测。768p 是最终输出尺寸，低显存生成最长 10 秒；1080p 低显存限制为 4–6 秒。\n\n额外社区 LoRA 默认关闭。可选 Qwen 本地提示词草稿默认关闭，不自动改写导演台。接入说明：docs/Qwen本地草稿与480p.md"
       ],
       "widgets_values_named": {
-        "text": "480p / 768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n最终输出默认使用通用 AI 超分，模型保持 auto。放大需求不超过 2 倍且已安装时，自动选用 OmniSR X2。\n\n480p 智能单采允许 4–15 秒，8GB 峰值与画质需实测。768p 是最终输出尺寸，低显存生成最长 10 秒；1080p 低显存限制为 4–6 秒。\n\n额外社区 LoRA 默认关闭。可选 Qwen 本地提示词草稿默认关闭，不自动改写导演台。接入说明：docs/Qwen本地草稿与480p.md"
+        "text": "480p / 768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n最终尺寸需要放大时默认使用 VOSR2，倍率按目标尺寸计算。长片的每个镜头沿用原来的短片生成与收尾设置。\n\n480p 智能单采允许 4–15 秒，8GB 峰值与画质需实测。768p 是最终输出尺寸，低显存生成最长 10 秒；1080p 低显存限制为 4–6 秒。\n\n额外社区 LoRA 默认关闭。可选 Qwen 本地提示词草稿默认关闭，不自动改写导演台。接入说明：docs/Qwen本地草稿与480p.md"
       },
       "color": "#23343d",
       "bgcolor": "#1d2a31"
@@ -2252,7 +2252,7 @@
         "s2-pro-w4a16 (auto download)",
         "match",
         "智能画质（自动适配）",
-        "ai_upscale",
+        "vosr2",
         "HIGH",
         "auto",
         "{\"version\":1,\"items\":[]}",
@@ -2299,7 +2299,7 @@
         "fish_model_path": "s2-pro-w4a16 (auto download)",
         "ref_image_size": "match",
         "performance_preset": "智能画质（自动适配）",
-        "postprocess_mode": "ai_upscale",
+        "postprocess_mode": "vosr2",
         "rtx_quality": "HIGH",
         "ai_upscale_model": "auto",
         "timeline_data": "{\"version\":1,\"items\":[]}",

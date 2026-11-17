@@ -102,7 +102,7 @@ def test_checked_in_u11_example_preserves_native_seed_control_widget_alignment()
         named["ref_image_size"],
     ] == ["h3_reference", "s2-pro-w4a16 (auto download)", "match"]
     assert len(values) == 45
-    assert values[15] == named["postprocess_mode"] == "ai_upscale"
+    assert values[15] == named["postprocess_mode"] == "vosr2"
     assert values[17] == named["ai_upscale_model"] == "auto"
     assert values[41] == named["face_refine_mode"] == "off"
     assert values[42:] == [
