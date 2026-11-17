@@ -47,7 +47,7 @@ def resolve_upscale_model_name(model_name="auto", scale_factor=2.0, available=No
     # X4 remains a last-resort fallback so installs with only UltraSharpV2
     # keep working.
     preferred = (
-        ["realesrgan_x2plus.pth", "omnisr_x2_div2k.safetensors", "4x-ultrasharpv2.safetensors"]
+        ["omnisr_x2_div2k.safetensors", "realesrgan_x2plus.pth", "4x-ultrasharpv2.safetensors"]
         if factor <= 2.0
         else ["4x-ultrasharpv2.safetensors", "omnisr_x4_div2k.safetensors", "realesrgan_x4plus.pth"]
     )

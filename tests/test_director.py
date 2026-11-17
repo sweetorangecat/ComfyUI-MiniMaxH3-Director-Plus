@@ -104,6 +104,50 @@ def test_director_defaults_to_stable_quality_and_local_x2():
     assert required["ai_upscale_model"][1]["default"] == "auto"
 
 
+@pytest.mark.parametrize("voice_mode", ["none", "h3_reference"])
+def test_smart_director_accepts_installed_omnisr_with_optional_voice(monkeypatch, voice_mode):
+    torch = pytest.importorskip("torch")
+    monkeypatch.setattr(
+        "nodes.upscale._available_upscale_models",
+        lambda: ["OmniSR_X2_DIV2K.safetensors"],
+    )
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode="REF2VA", prompt="她自然地说：<d>这版可以交了。</d>", duration=5,
+        width=1344, height=768, resolution_preset="1080p FHD", ref_image_size="match",
+        performance_preset="smart_free_1080p", postprocess_mode="ai_upscale",
+        timeline_data="{}", target_dialogue="", reference_transcript="",
+        voice_mode=voice_mode, reference_image_1=torch.zeros(1, 64, 64, 3),
+        voice_reference_audio=_clean_voice() if voice_mode == "h3_reference" else None,
+    )
+
+    assert guide["ai_upscale_model"] == "OmniSR_X2_DIV2K.safetensors"
+    assert guide["postprocess_path"] == "ai_upscale"
+    assert min(guide["target_width"], guide["target_height"]) >= 1080
+
+
+@pytest.mark.parametrize("mode", ["FL2VA", "REF2VA"])
+@pytest.mark.parametrize("voice_mode", ["none", "h3_reference"])
+def test_low_vram_smart_director_prefers_omnisr_with_optional_voice(monkeypatch, mode, voice_mode):
+    torch = pytest.importorskip("torch")
+    monkeypatch.setattr("nodes.director._cuda_memory_gb", lambda: (8.0, 7.0))
+    monkeypatch.setattr(
+        "nodes.upscale._available_upscale_models",
+        lambda: ["OmniSR_X2_DIV2K.safetensors", "RealESRGAN_x2plus.pth", "4x-UltraSharpV2.safetensors"],
+    )
+    image = torch.zeros(1, 64, 64, 3)
+    guide, *_ = MiniMaxH3DirectorPlus().build(
+        mode=mode, prompt="她自然地说：<d>这版可以交了。</d>", duration=4,
+        width=1344, height=768, resolution_preset="1080p FHD", ref_image_size="match",
+        performance_preset="智能画质（自动适配）", postprocess_mode="ai_upscale",
+        timeline_data="{}", target_dialogue="", reference_transcript="",
+        voice_mode=voice_mode, first_image=image, last_image=image, reference_image_1=image,
+        voice_reference_audio=_clean_voice() if voice_mode == "h3_reference" else None,
+    )
+
+    assert guide["ai_upscale_model"] == "OmniSR_X2_DIV2K.safetensors"
+    assert guide["postprocess_path"] == "ai_upscale"
+
+
 def test_five_view_identity_sheet_is_cropped_to_the_left_identity_panel():
     torch = pytest.importorskip("torch")
     sheet = torch.zeros(1, 2048, 3072, 3)

@@ -12,7 +12,7 @@ from .vram_budget import plan_two_stage_dimensions
 
 SMART_PRESET = "smart_free_1080p"
 SMART_UPSCALE_MODEL = "auto"
-SMART_LOW_VRAM_UPSCALE_MODEL = "RealESRGAN_x2plus.pth"
+SMART_LOW_VRAM_UPSCALE_MODEL = SMART_UPSCALE_MODEL
 LOW_VRAM_MAX_SECONDS = 6
 LOW_VRAM_MIN_FREE_GB = 6.0
 LOW_VRAM_TOTAL_GB = 16.0
@@ -170,7 +170,7 @@ def resolve_smart_1080p_plan(
             raise RequestError("视频时长必须在 4 到 15 秒之间")
         fhd = target_preset == "1080p FHD"
         method = postprocess_mode or "vosr2"
-        method_name = {"vosr2": "VOSR2", "video_sr": "SeedVR2", "ai_upscale": "RealESRGAN", "lanczos": "Lanczos", "native": "原生尺寸"}.get(method, method)
+        method_name = {"vosr2": "VOSR2", "video_sr": "SeedVR2", "ai_upscale": "AI 超分", "lanczos": "Lanczos", "native": "原生尺寸"}.get(method, method)
         return {
             "performance_preset": "low_vram" if low_vram else ("ref_quality_native" if backend == "ref2va_model" and voice_mode == "h3_reference" else "quality_sage"),
             "postprocess_mode": method,

@@ -502,7 +502,7 @@ def test_quality_two_stage_passes_crf_16_to_the_encoder(monkeypatch):
     monkeypatch.setattr(stream_output, "release_sampling_models", lambda: None)
     monkeypatch.setattr(
         stream_output,
-        "_tag_h264_bt709",
+        "_tag_h264_bt601",
         lambda ffmpeg, output_path: tagged.append((ffmpeg, output_path)) or True,
         raising=False,
     )
@@ -537,9 +537,9 @@ def test_quality_two_stage_passes_crf_16_to_the_encoder(monkeypatch):
     assert tagged == [("ffmpeg", os.path.join(".", "stream-test.mp4"))]
 
 
-def test_h264_bt709_tagging_is_a_lossless_stream_copy(monkeypatch, tmp_path):
-    tagger = getattr(stream_output, "_tag_h264_bt709", None)
-    assert callable(tagger), "缺少 H.264 BT.709 无损标记"
+def test_h264_bt601_tagging_is_a_lossless_stream_copy(monkeypatch, tmp_path):
+    tagger = getattr(stream_output, "_tag_h264_bt601", None)
+    assert callable(tagger), "缺少 H.264 BT.601 无损标记"
     output_path = tmp_path / "video.mp4"
     output_path.write_bytes(b"encoded-video")
     commands = []
@@ -557,16 +557,15 @@ def test_h264_bt709_tagging_is_a_lossless_stream_copy(monkeypatch, tmp_path):
     assert "-map_metadata" in command
     assert (
         command[command.index("-bsf:v") + 1]
-        == "h264_metadata=video_full_range_flag=0:colour_primaries=1:"
-        "transfer_characteristics=1:matrix_coefficients=1"
+        == "h264_metadata=video_full_range_flag=0:matrix_coefficients=6"
     )
     assert kwargs["check"] is True
     assert output_path.read_bytes() == b"encoded-video"
 
 
-def test_h264_bt709_tagging_failure_preserves_original(monkeypatch, tmp_path, caplog):
-    tagger = getattr(stream_output, "_tag_h264_bt709", None)
-    assert callable(tagger), "缺少 H.264 BT.709 无损标记"
+def test_h264_bt601_tagging_failure_preserves_original(monkeypatch, tmp_path, caplog):
+    tagger = getattr(stream_output, "_tag_h264_bt601", None)
+    assert callable(tagger), "缺少 H.264 BT.601 无损标记"
     output_path = tmp_path / "video.mp4"
     output_path.write_bytes(b"original-video")
 
@@ -578,8 +577,32 @@ def test_h264_bt709_tagging_failure_preserves_original(monkeypatch, tmp_path, ca
 
     assert tagger("ffmpeg", str(output_path)) is False
     assert output_path.read_bytes() == b"original-video"
-    assert list(tmp_path.glob("*.bt709-*.mp4")) == []
+    assert list(tmp_path.glob("*.bt601-*.mp4")) == []
     assert "metadata failed" in caplog.text
+
+
+def test_legacy_rgb_encoder_preserves_patch_colors_after_metadata(tmp_path):
+    av = pytest.importorskip("av")
+    np = pytest.importorskip("numpy")
+    imageio_ffmpeg = pytest.importorskip("imageio_ffmpeg")
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    colors = np.array([
+        [200, 70, 50], [50, 170, 70], [40, 80, 210],
+        [170, 120, 90], [128, 128, 128], [220, 210, 195],
+    ], dtype=np.uint8)
+    patches = colors.reshape(2, 3, 3).repeat(32, axis=0).repeat(32, axis=1)
+    output = tmp_path / "color-patches.mp4"
+    subprocess.run([
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "96x64", "-r", "24", "-i", "-",
+        "-c:v", "libx264", "-crf", "0", "-pix_fmt", "yuv420p", "-frames:v", "1", str(output),
+    ], input=patches.tobytes(), check=True, capture_output=True)
+
+    assert stream_output._tag_h264_bt601(ffmpeg, output)
+    with av.open(str(output)) as container:
+        decoded = next(container.decode(container.streams.video[0])).to_ndarray(format="rgb24")
+    centers = decoded[16::32, 16::32].reshape(-1, 3).astype(np.int16)
+    assert np.abs(centers - colors.astype(np.int16)).max() <= 3
 
 
 def test_prepare_postprocess_does_not_unload_for_native_output(monkeypatch):
@@ -1755,7 +1778,7 @@ def test_quality_two_stage_combine_and_exports_use_ordinary_processor(monkeypatc
     captured, created, saved = [], [], []
     monkeypatch.setattr(stream_output, "load_vsr_api", lambda: "api")
     monkeypatch.setattr(stream_output, "release_sampling_models", lambda: None)
-    monkeypatch.setattr(stream_output, "_tag_h264_bt709", lambda *args: False)
+    monkeypatch.setattr(stream_output, "_tag_h264_bt601", lambda *args: False)
 
     class OrdinaryProcessor:
         def __init__(self, api, quality, device_id, output_width, output_height):

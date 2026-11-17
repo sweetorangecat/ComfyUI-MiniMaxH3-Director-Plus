@@ -555,7 +555,15 @@ def _upscale_image_with_model(model, image):
     try:
         from comfy_extras.nodes_upscale_model import ImageUpscaleWithModel
 
-        result = ImageUpscaleWithModel().upscale(model, image)
+        architecture = getattr(getattr(model, "architecture", None), "name", "")
+        use_fp16 = (
+            architecture == "OmniSR"
+            and getattr(model, "supports_half", False)
+            and torch.cuda.is_available()
+        )
+        # Autocast covers ComfyUI's FP32 input conversion during tiled inference.
+        with torch.autocast("cuda", dtype=torch.float16, enabled=use_fp16):
+            result = ImageUpscaleWithModel().upscale(model, image)
         return result[0] if hasattr(result, "__getitem__") else result
     except Exception as exc:
         raise RuntimeError(f"通用 AI 超分处理失败：{exc}") from exc
@@ -983,15 +991,14 @@ def _resolved_encode_quality(guide, postprocess_path, requested_quality):
     return quality
 
 
-def _tag_h264_bt709(ffmpeg, output_path):
-    """Write BT.709 limited-range VUI by stream-copy without re-encoding media."""
+def _tag_h264_bt601(ffmpeg, output_path):
+    """Declare the limited-range BT.601 matrix used by DaSiWa's RGB FFmpeg pipe."""
     output = Path(output_path)
     temporary = output.with_name(
-        f"{output.stem}.bt709-{uuid.uuid4().hex}{output.suffix}"
+        f"{output.stem}.bt601-{uuid.uuid4().hex}{output.suffix}"
     )
     metadata_filter = (
-        "h264_metadata=video_full_range_flag=0:colour_primaries=1:"
-        "transfer_characteristics=1:matrix_coefficients=1"
+        "h264_metadata=video_full_range_flag=0:matrix_coefficients=6"
     )
     command = [
         str(ffmpeg),
@@ -1021,7 +1028,7 @@ def _tag_h264_bt709(ffmpeg, output_path):
             text=True,
         )
         os.replace(temporary, output)
-        LOGGER.info("[H3 output] H.264 已无损写入 BT.709 limited-range 标记")
+        LOGGER.info("[H3 output] H.264 已无损标记 RGB 编码实际使用的 BT.601 矩阵")
         return True
     except Exception as exc:
         try:
@@ -1030,7 +1037,7 @@ def _tag_h264_bt709(ffmpeg, output_path):
             pass
         detail = str(getattr(exc, "stderr", "") or exc).strip()
         LOGGER.warning(
-            "[H3 output] BT.709 无损标记失败，已保留原编码视频：%s",
+            "[H3 output] BT.601 无损标记失败，已保留原编码视频：%s",
             detail,
         )
         return False
@@ -1635,7 +1642,7 @@ class MiniMaxH3StreamingVideoCombine:
             _cleanup_dasiwa_path(metadata_path)
             _cleanup_dasiwa_audio(audio_path)
 
-        bt709_tagged = False
+        bt601_tagged = False
         if (
             output_path
             and selected_codec == "H.264"
@@ -1643,7 +1650,7 @@ class MiniMaxH3StreamingVideoCombine:
             and performance_preset in _TRAINED_TWO_STAGE_PRESETS
             and ffmpeg
         ):
-            bt709_tagged = _tag_h264_bt709(ffmpeg, output_path)
+            bt601_tagged = _tag_h264_bt601(ffmpeg, output_path)
 
         frame_exports = []
         if output_path:
@@ -1745,7 +1752,7 @@ class MiniMaxH3StreamingVideoCombine:
             "codec": selected_codec, "bit_depth": selected_bit_depth, "container": selected_container,
             "postprocess_path": postprocess_path, "encode_quality": encode_quality,
             "upscale_profile": upscale_profile,
-            "color_metadata": "bt709" if bt709_tagged else "unchanged",
+            "color_metadata": "bt601" if bt601_tagged else "unchanged",
             **execution,
         }]
         assets.extend({
@@ -1782,11 +1789,11 @@ class MiniMaxH3StreamingVideoCombine:
                  "audio_bitrate": str(audio_bitrate) if audio_path else None,
                  "postprocess_path": postprocess_path, "encode_quality": encode_quality,
                  "upscale_profile": upscale_profile,
-                 "color_metadata": "bt709" if bt709_tagged else "unchanged",
+                 "color_metadata": "bt601" if bt601_tagged else "unchanged",
              }]
         LOGGER.info(
             "[H3 output] source=%sx%s final=%sx%s frames=%s fps=%.3f video=%s/%s "
-            "quality=%s bt709=%s upscale_profile=%s audio=%s cleanup=%s path=%s",
+            "quality=%s bt601=%s upscale_profile=%s audio=%s cleanup=%s path=%s",
             source_width,
             source_height,
             target_width,
@@ -1796,7 +1803,7 @@ class MiniMaxH3StreamingVideoCombine:
             selected_codec,
             selected_container,
             encode_quality,
-            bt709_tagged,
+            bt601_tagged,
             upscale_profile,
             audio_codec if audio_path is not None else "none",
             audio_cleanup,

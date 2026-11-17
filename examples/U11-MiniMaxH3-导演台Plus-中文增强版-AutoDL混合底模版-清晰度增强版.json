@@ -1362,10 +1362,10 @@
         }
       },
       "widgets_values": [
-        "480p / 768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n480p 智能单采允许 4–15 秒，8GB 峰值与画质需实测。768p 是最终输出尺寸，不代表原生采样细节；1080p 低显存限制为 4–6 秒。\n\n额外社区 LoRA 默认关闭。可选 Qwen 本地提示词草稿默认关闭，不自动改写导演台。接入说明：docs/Qwen本地草稿与480p.md"
+        "480p / 768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n最终输出默认使用通用 AI 超分，模型保持 auto。放大需求不超过 2 倍且已安装时，自动选用 OmniSR X2。\n\n480p 智能单采允许 4–15 秒，8GB 峰值与画质需实测。768p 是最终输出尺寸，低显存生成最长 10 秒；1080p 低显存限制为 4–6 秒。\n\n额外社区 LoRA 默认关闭。可选 Qwen 本地提示词草稿默认关闭，不自动改写导演台。接入说明：docs/Qwen本地草稿与480p.md"
       ],
       "widgets_values_named": {
-        "text": "## 清晰度增强版说明\n\n- 默认使用“智能画质（自动适配）”：20GB 级以上显卡优先走 U17/U22 的 8+4 训练型 latent 二采，首采速度保持不变，二采只在满足显存条件时启用。\n- 8GB 低显存：选择 768p H3（1344×768）可运行 4–15 秒；选择 1080p FHD 仍限制为 4–6 秒。\n- 1080p：3D latent 放大后进行 4 步低 sigma 重绘，直接得到更清晰的 FHD 细节；低显存自动回退兼容路线。\n- 2K：先完成训练型 latent 二采建立细节基准，再由 SeedVR2 做一次最终尺寸重建；不会把 H3 原生采样直接推到 2K，因此速度和显存更可控。\n- REF2VA 使用已验证的 turbo v4 配方；Fish S2 声纹锁定与 2K latent 二采互斥时，系统会在排队前提示并回退到兼容目标。\n- 若本机未安装 latent upscaler / 二采 LoRA / SeedVR2，系统会明确提示依赖缺失，不会静默输出模糊结果。"
+        "text": "480p / 768p H3 / 1080p FHD / 2K QHD / 4K UHD\n\n最终输出默认使用通用 AI 超分，模型保持 auto。放大需求不超过 2 倍且已安装时，自动选用 OmniSR X2。\n\n480p 智能单采允许 4–15 秒，8GB 峰值与画质需实测。768p 是最终输出尺寸，低显存生成最长 10 秒；1080p 低显存限制为 4–6 秒。\n\n额外社区 LoRA 默认关闭。可选 Qwen 本地提示词草稿默认关闭，不自动改写导演台。接入说明：docs/Qwen本地草稿与480p.md"
       },
       "color": "#23343d",
       "bgcolor": "#1d2a31"
@@ -2252,7 +2252,7 @@
         "s2-pro-w4a16 (auto download)",
         "match",
         "智能画质（自动适配）",
-        "vosr2",
+        "ai_upscale",
         "HIGH",
         "auto",
         "{\"version\":1,\"items\":[]}",
@@ -2299,7 +2299,7 @@
         "fish_model_path": "s2-pro-w4a16 (auto download)",
         "ref_image_size": "match",
         "performance_preset": "智能画质（自动适配）",
-        "postprocess_mode": "vosr2",
+        "postprocess_mode": "ai_upscale",
         "rtx_quality": "HIGH",
         "ai_upscale_model": "auto",
         "timeline_data": "{\"version\":1,\"items\":[]}",

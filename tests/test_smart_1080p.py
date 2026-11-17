@@ -67,7 +67,7 @@ def test_low_vram_ref_bypasses_two_stage():
 def test_low_vram_common_free_upscale_contract(backend):
     plan = resolve_smart_1080p_plan(backend, 4, 8, 7)
     assert plan["postprocess_mode"] == "ai_upscale"
-    assert plan["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+    assert plan["ai_upscale_model"] == "auto"
     assert plan["motion_smoothing"] == "off"
     assert plan["use_easycache"] is False
     assert plan["max_duration"] == 6
@@ -411,7 +411,7 @@ def test_low_vram_never_routes_fhd_to_seedvr2_even_when_available():
 
     assert plan["low_vram"] is True
     assert plan["postprocess_mode"] == "ai_upscale"
-    assert plan["ai_upscale_model"] == "RealESRGAN_x2plus.pth"
+    assert plan["ai_upscale_model"] == "auto"
 
 
 @pytest.mark.parametrize("width,height", [(1920,1080), (1080,1920)])

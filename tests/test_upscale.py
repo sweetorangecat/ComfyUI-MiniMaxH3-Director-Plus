@@ -17,14 +17,14 @@ from nodes.stream_output import (
 )
 
 
-def test_auto_upscale_model_prefers_x2_for_two_times_target():
+def test_auto_upscale_model_prefers_omnisr_x2_for_two_times_target():
     selected = resolve_upscale_model_name(
         "auto",
         scale_factor=1.9,
         available=["RealESRGAN_x4plus.pth", "RealESRGAN_x2plus.pth", "OmniSR_X2_DIV2K.safetensors"],
     )
 
-    assert selected == "RealESRGAN_x2plus.pth"
+    assert selected == "OmniSR_X2_DIV2K.safetensors"
 
 
 def test_auto_upscale_model_prefers_x2_over_ultrasharp_for_two_times_target():
@@ -240,3 +240,50 @@ def test_streaming_ai_upscale_batches_frames_before_model_load_check(monkeypatch
 
     assert calls == [4]
     assert [chunk.shape for chunk in chunks] == [(4, 8, 8, 3)]
+
+
+@pytest.mark.parametrize("architecture,supports_half,cuda_available,enabled", [
+    ("OmniSR", True, True, True),
+    ("OmniSR", False, True, False),
+    ("OmniSR", True, False, False),
+    ("ESRGAN", True, True, False),
+    ("", True, True, False),
+])
+def test_generic_upscale_autocast_respects_model_support(
+    monkeypatch, architecture, supports_half, cuda_available, enabled,
+):
+    import sys
+    from types import ModuleType, SimpleNamespace
+    from nodes.stream_output import _upscale_image_with_model
+
+    contexts = []
+    active = []
+
+    class AutocastContext:
+        def __init__(self, device_type, dtype, enabled):
+            contexts.append((device_type, dtype, enabled))
+
+        def __enter__(self):
+            active.append(True)
+
+        def __exit__(self, *exception):
+            active.pop()
+
+    class Upscale:
+        def upscale(self, model, image):
+            assert active
+            return (image,)
+
+    module = ModuleType("comfy_extras.nodes_upscale_model")
+    module.ImageUpscaleWithModel = Upscale
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    monkeypatch.setattr(torch, "autocast", AutocastContext)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: cuda_available)
+    model = SimpleNamespace(
+        architecture=SimpleNamespace(name=architecture), supports_half=supports_half,
+    )
+    image = torch.zeros(1, 4, 4, 3)
+
+    assert _upscale_image_with_model(model, image) is image
+    assert contexts == [("cuda", torch.float16, enabled)]
+    assert active == []

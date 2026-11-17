@@ -1381,14 +1381,6 @@ class MiniMaxH3DirectorPlus:
                         "低显存二采只允许 X2 超分模型，"
                         f"当前解析为 {request['ai_upscale_model']}"
                     )
-                if smart_mode and Path(request["ai_upscale_model"]).name.lower() not in {
-                    "4x-ultrasharpv2.safetensors",
-                    "realesrgan_x2plus.pth",
-                }:
-                    raise ValueError(
-                        "智能画质只允许 4x-UltraSharpV2.safetensors 或旧版 RealESRGAN_x2plus.pth，"
-                        f"当前解析为 {request['ai_upscale_model']}"
-                    )
                 required_assets.append(request["ai_upscale_model"])
             except Exception as exc:
                 raise RequestError(f"通用 AI 超分前置检查失败，尚未开始 H3 视频生成：{exc}") from exc
