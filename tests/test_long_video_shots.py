@@ -90,17 +90,73 @@ def test_literal_shot_tags_and_times_inside_dialogue_do_not_change_the_plan():
     assert '<d>说出[Shot 9]和[70-80s]，不切镜。</d>' in shots[0]['prompt']
 
 
-def test_original_graph_and_sampler_modes_are_not_replaced_by_native_selflift():
-    base = graph()
-    _, config = automatic_shots(base, 'director', 45)
+@pytest.mark.parametrize(('opening', 'expected'), [
+    ('A deliberate cut back to the original wide-medium composition.',
+     'The shot opens directly on the original wide-medium composition.'),
+    ('Cut to a slightly tighter eye-level medium view.',
+     'The shot opens directly on a slightly tighter eye-level medium view.'),
+    ('A hard cut to the same office at eye level.',
+     'The shot opens directly on the same office at eye level.'),
+    ('Cut to <Subject 1> looking at the camera.',
+     'The shot opens directly on <Subject 1> looking at the camera.'),
+    ('镜头切回原来的办公室中景。', '开场即为原来的办公室中景。'),
+    ('画面直接切到同一办公室的近景。', '开场即为同一办公室的近景。'),
+])
+def test_compiled_clip_starts_in_the_authored_view_after_an_external_cut(opening, expected):
+    text = prompt(30).replace(
+        '[15-17s] Eye-level medium view; hands rest on the desk.',
+        '[15-17s] ' + opening)
+    shots = plan_shots(text, 30)
+
+    assert '[0-2s] ' + expected in shots[1]['prompt']
+    assert '[0-2s] Eye-level medium view; hands rest on the desk.' in shots[0]['prompt']
+    assert '<d>第2句，先把事情做好。</d>' in shots[1]['prompt']
+
+
+def test_deliberate_internal_cuts_and_spoken_cut_words_keep_their_meaning():
+    text = prompt(30).replace(
+        '[15-17s] Eye-level medium view; hands rest on the desk.',
+        '[15-17s] Cut to the original office medium view.')
+    text = text.replace('[17-25s]', '[Shot 3]\n[17-25s] A deliberate cut to her hands. ')
+    text = text.replace('第2句，先把事情做好。', 'Cut to the office，[Shot 9]是台词。')
+    shots = plan_shots(text, 30)
+
+    assert '[0-2s] The shot opens directly on the original office medium view.' in shots[1]['prompt']
+    assert '[2-10s] A deliberate cut to her hands.' in shots[1]['prompt']
+    assert '<d>Cut to the office，[Shot 9]是台词。</d>' in shots[1]['prompt']
+
+
+@pytest.mark.parametrize('voice_mode', ['none', 'h3_reference'])
+@pytest.mark.parametrize(('preset', 'method'), [
+    ('质量优先加速', 'standard'),
+    ('质量优先二采样', 'selflift'),
+    ('低显存', 'standard'),
+])
+def test_original_graph_and_sampler_modes_are_not_replaced_by_native_selflift(voice_mode, preset, method):
+    base = graph(voice_mode=voice_mode, performance_preset=preset, sampling_method=method)
+    base.update({
+        'model': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'original-model.safetensors', 'weight_dtype': 'default'}},
+        'lora': {'class_type': 'LoraLoaderModelOnly', 'inputs': {
+            'model': ['model', 0], 'lora_name': 'original-detail.safetensors', 'strength_model': 0.35}},
+        'guider': {'class_type': 'BasicGuider', 'inputs': {'model': ['lora', 0], 'conditioning': ['director', 1]}},
+        'noise': {'class_type': 'RandomNoise', 'inputs': {'noise_seed': 123}},
+    })
+    base['sampler']['inputs'].update(guider=['guider', 0], noise=['noise', 0])
+    original = deepcopy(base)
+    active, config = automatic_shots(base, 'director', 45)
     spec = {'project_name': config['project_name'], 'take_id': 'testtake',
             'window': config['shot_plan'][1], 'prompt': config['shot_plan'][1]['prompt'], 'seed': 777}
-    compiled = build_shot_graph(base, spec)
-    assert base == graph()
+    compiled = build_shot_graph(active, spec)
+    assert base == original
     inputs = compiled['director']['inputs']
     for key in ('mode', 'performance_preset', 'sampling_method', 'postprocess_mode', 'vosr2_profile',
-                'community_lora_profile', 'reference_image_1_file', 'voice_reference_audio_file'):
-        assert inputs[key] == base['director']['inputs'][key]
+                'community_lora_profile', 'reference_image_1_file'):
+        assert inputs[key] == original['director']['inputs'][key]
+    for key in ('model', 'lora', 'guider', 'sampler'):
+        assert compiled[key] == original[key]
+    assert inputs.get('voice_reference_audio_file') == active['director']['inputs'].get('voice_reference_audio_file')
+    assert compiled['noise']['inputs']['noise_seed'] == 777
+    assert set(compiled) == set(original)
     assert inputs['duration'] == 15 and inputs['seed'] == 777
     assert not any(node['class_type'].startswith(('MiniMaxH3LongVideoContext', 'MiniMaxH3LongVideoParent'))
                    for node in compiled.values())

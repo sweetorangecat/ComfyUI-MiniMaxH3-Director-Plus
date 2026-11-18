@@ -22,6 +22,16 @@ def _clock(frames):
     return f'{frames / FPS:.6f}'.rstrip('0').rstrip('.')
 
 
+def _opening_view(text):
+    """Express the already-applied editorial cut as this clip's opening state."""
+    text = re.sub(
+        r'^(?:(?:a|the)\s+)?(?:(?:deliberate|hard|straight|match)\s+)?'
+        r'cut\s+(?:back\s+)?to\s+',
+        'The shot opens directly on ', text, count=1, flags=re.I)
+    return re.sub(r'^(?:(?:镜头|画面)\s*)?(?:直接|立即|硬)?切(?:回(?:到)?|到|至)\s*',
+                  '开场即为', text, count=1)
+
+
 def _speakers(sections):
     """Sx follows this independent request's speech, without renumbering assets."""
     detail = sections['detailed_description']
@@ -82,6 +92,8 @@ def plan_shots(prompt, target_seconds, settings=None):
             if label:
                 detail.append(label.group())
                 text = text[label.end():].strip()
+            if start == a and a:
+                text = _opening_view(text)
             detail.append(f'[{_clock(start-a)}-{_clock(end-a)}s] {text}')
             dialogue.extend(re.findall(r'<d(?:\s+[^>]*)?>(.*?)</d\s*>', text, re.I | re.S))
         local = _speakers({**sections, 'detailed_description': '\n'.join(detail)})
