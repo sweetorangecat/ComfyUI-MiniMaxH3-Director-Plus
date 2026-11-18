@@ -90,6 +90,36 @@ def test_literal_shot_tags_and_times_inside_dialogue_do_not_change_the_plan():
     assert '<d>说出[Shot 9]和[70-80s]，不切镜。</d>' in shots[0]['prompt']
 
 
+def test_independent_requests_restart_shot_numbering_without_rewriting_dialogue():
+    text = prompt().replace('第3句，先把事情做好。', '台词里保留[Shot 8]，先把事情做好。')
+    shots = plan_shots(text, 45)
+
+    for shot in shots:
+        assert '[Shot 1]\n[0-2s]' in shot['prompt']
+    assert '<d>台词里保留[Shot 8]，先把事情做好。</d>' in shots[2]['prompt']
+
+
+def test_packed_internal_shots_keep_order_with_local_numbers_in_each_request():
+    text = prompt(30).replace('[Shot 1]', '[Shot 10]').replace('[Shot 2]', '[Shot 20]')
+    text = text.replace('[2-10s]', '[Shot 11]\n[2-10s] A deliberate cut to her hands. ')
+    text = text.replace('[17-25s]', '[Shot 21]\n[17-25s] A deliberate cut to her hands. ')
+    shots = plan_shots(text, 30)
+
+    assert [(shot['new_start'], shot['new_end']) for shot in shots] == [(0, 360), (360, 720)]
+    for shot in shots:
+        assert '[Shot 1]\n[0-2s]' in shot['prompt']
+        assert '[Shot 2]\n[2-10s] A deliberate cut to her hands.' in shot['prompt']
+
+
+def test_implicit_opening_still_counts_as_the_first_local_shot():
+    text = prompt(30).replace('[Shot 1]\n', '')
+    text = text.replace('[2-10s]', '[Shot 7]\n[2-10s] A deliberate cut to her hands. ')
+    shots = plan_shots(text, 30)
+
+    assert '[Shot 2]\n[2-10s] A deliberate cut to her hands.' in shots[0]['prompt']
+    assert '[Shot 1]\n[0-2s]' in shots[1]['prompt']
+
+
 @pytest.mark.parametrize(('opening', 'expected'), [
     ('A deliberate cut back to the original wide-medium composition.',
      'The shot opens directly on the original wide-medium composition.'),

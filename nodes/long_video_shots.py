@@ -83,6 +83,7 @@ def plan_shots(prompt, target_seconds, settings=None):
     while a < total:
         b = following[a]
         detail, dialogue = [], []
+        shot_number = 1
         for start, end, text in ranges:
             if not a <= start < b:
                 continue
@@ -90,7 +91,9 @@ def plan_shots(prompt, target_seconds, settings=None):
                 raise ValueError('切镜不能截断同一个动作时间段或完整台词。')
             label = _SHOT.match(text)
             if label:
-                detail.append(label.group())
+                if start != a:
+                    shot_number += 1
+                detail.append(f'[Shot {shot_number}]')
                 text = text[label.end():].strip()
             if start == a and a:
                 text = _opening_view(text)

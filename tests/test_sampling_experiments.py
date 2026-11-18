@@ -213,7 +213,7 @@ def test_compatible_global_avatar_uses_reviewed_lifter_without_changing_av_input
     monkeypatch.setattr(selflift_lifter, 'preferred_model', lambda function: selflift_lifter.MODEL_NAME)
     def execute(function, kwargs, *, diagnostics=None, evidence=None):
         calls.append(kwargs)
-        evidence.update(checkpoint_sha256=selflift_lifter.MODEL_SHA256, tier=1)
+        evidence.update(checkpoint_sha256=selflift_lifter.MODEL_SHA256, tier=3)
         return kwargs['latent_image']
     monkeypatch.setattr(selflift_lifter, 'run', execute)
     result = experiments.run_selflift(model=model, positive=[], vae=object(), sampler=euler_sampler(),
@@ -224,7 +224,8 @@ def test_compatible_global_avatar_uses_reviewed_lifter_without_changing_av_input
     assert calls[0]['latent_image']['noise_mask'] is latent['noise_mask']
     assert calls[0]['upscaler_model'] == selflift_lifter.MODEL_NAME
     assert result['samples'] is latent['samples']
-    assert guide['selflift_lifter'] == 'trained_2d_tier1'
+    assert guide['selflift_lifter'] == 'trained_2d_tier3'
+    assert guide['selflift_lifter_evidence']['tier'] == 3
     assert guide['selflift_lifter_evidence']['checkpoint_sha256'] == selflift_lifter.MODEL_SHA256
     assert guide['selflift_upscaler_requested_model'] == 'legacy_lms.safetensors'
 
@@ -242,14 +243,15 @@ def test_unverified_attention_retains_existing_lifter_even_when_optional_model_i
     assert node.received['rho'] == .6
 
 
-def test_cached_optional_lifter_guide_restores_baseline_when_optional_model_disappears(monkeypatch):
+@pytest.mark.parametrize('lifter_name', ['trained_2d_tier1', 'trained_2d_tier3'])
+def test_cached_optional_lifter_guide_restores_baseline_when_optional_model_disappears(monkeypatch, lifter_name):
     from nodes import selflift_lifter
     from test_native_attention import native_model, native_runtime
     model = native_model(native_runtime(monkeypatch))
     node = AvatarSamplerNode()
     guide = dict(selflift_upscaler_model=selflift_lifter.MODEL_NAME,
                  selflift_upscaler_requested_model='legacy_lms.safetensors',
-                 selflift_lifter='trained_2d_tier1', selflift_lifter_evidence={'stale': True})
+                 selflift_lifter=lifter_name, selflift_lifter_evidence={'stale': True})
     monkeypatch.setattr(selflift_lifter, 'preferred_model', lambda function: None)
     experiments.run_selflift(model=model, positive=[], vae=object(), sampler=euler_sampler(),
         sigmas=[1,.95,.9,.8,.7,.6,.45,.3,.18,.08,0], latent={'samples': AV()}, seed=42,

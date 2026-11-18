@@ -17,6 +17,7 @@ LOGGER = logging.getLogger('MiniMaxH3.DirectorPlus')
 MODEL_NAME = 'minimax_h3_latent_upscaler_2d_conv_v1_fp16.safetensors'
 MODEL_SIZE = 364308928
 MODEL_SHA256 = '6e0f35692784ba2376704a48a90fb07f90aef76ef21200d5525d6627a54fe909'
+SHARPNESS_TIER = 3
 SOURCE_SHA256 = '8c95ea2c09f474464640570b67b61565ac6d8aa38c579b0662a5e080e26157b8'
 SOURCE_PATH = Path(__file__).parent / 'vendor' / 'minimax_h3_latent_upscaler_2d.py'
 _SOURCE_MODULE = '_h3_director_reviewed_latent2d'
@@ -87,7 +88,7 @@ def _model_management():
 
 
 def lift(values, target_hw, model_name, *, evidence=None):
-    """Use the author's normalization, tier1 and full temporal chunk context."""
+    """Use the author's normalization and full temporal chunk context."""
     import torch
     if (not isinstance(values, torch.Tensor) or values.ndim != 5 or values.shape[1] != 24
             or any(size <= 0 for size in values.shape)):
@@ -106,7 +107,7 @@ def lift(values, target_hw, model_name, *, evidence=None):
         with torch.inference_mode():
             normalized = (values.to(device=device, dtype=dtype) - mean) / std
             output = model(normalized, scale=sum(v / old for v, old in zip(target_hw, values.shape[-2:])) / 2,
-                           target_hw=target_hw, enable_chunking=True, chunk_frames=32, tier=1)
+                           target_hw=target_hw, enable_chunking=True, chunk_frames=32, tier=SHARPNESS_TIER)
             output = (output * std + mean).float().to(mm.intermediate_device())
         if tuple(output.shape) != (*values.shape[:-2], *target_hw):
             raise RuntimeError('SelfLift 2D changed non-spatial latent geometry')
@@ -114,9 +115,9 @@ def lift(values, target_hw, model_name, *, evidence=None):
             raise RuntimeError('SelfLift 2D returned nonfinite latent values')
         if evidence is not None:
             evidence.update(model=model_name, checkpoint_sha256=digest,
-                            source_sha256=SOURCE_SHA256, tier=1, temporal_chunk_frames=32)
-        LOGGER.info('[H3 SelfLift lifter] trained_2d tier1 checkpoint=%s sha256=%s %s -> %s',
-                    model_name, digest, tuple(values.shape), tuple(output.shape))
+                            source_sha256=SOURCE_SHA256, tier=SHARPNESS_TIER, temporal_chunk_frames=32)
+        LOGGER.info('[H3 SelfLift lifter] trained_2d tier=%s checkpoint=%s sha256=%s %s -> %s',
+                    SHARPNESS_TIER, model_name, digest, tuple(values.shape), tuple(output.shape))
         return output
     finally:
         model.to('cpu')

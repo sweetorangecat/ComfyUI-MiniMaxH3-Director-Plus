@@ -399,7 +399,7 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
     # A cached guide may describe the actual optional lifter from its previous
     # execution. Re-evaluate the requested baseline instead of ever handing a
     # 2D checkpoint to the upstream 3D loader after an environment change.
-    if guide.get("selflift_lifter") == "trained_2d_tier1":
+    if str(guide.get("selflift_lifter", "")).startswith("trained_2d_tier"):
         from .selflift_lifter import MODEL_NAME
         if str(upscaler_name or "").replace("\\", "/").rsplit("/", 1)[-1] == MODEL_NAME:
             upscaler_name = guide.get("selflift_upscaler_requested_model")
@@ -483,7 +483,7 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
         if optional_lifter:
             call_kwargs["upscaler_model"] = optional_lifter
             guide["selflift_upscaler_model"] = optional_lifter
-            guide["selflift_lifter"] = "trained_2d_tier1"
+            guide["selflift_lifter"] = f"trained_2d_tier{selflift_lifter.SHARPNESS_TIER}"
             evidence = guide["selflift_lifter_evidence"] = {}
             result = selflift_lifter.run(function, call_kwargs, evidence=evidence)
         else:

@@ -132,12 +132,14 @@ def test_lift_validates_geometry_finite_pixels_and_always_offloads(monkeypatch, 
     events = fake_runtime(monkeypatch, kind)
     values = torch.arange(1*24*3*2*3).reshape(1,24,3,2,3).float() / 100
     if kind == 'valid':
-        result = lifter.lift(values, (4,6), lifter.MODEL_NAME)
+        evidence = {}
+        result = lifter.lift(values, (4,6), lifter.MODEL_NAME, evidence=evidence)
         assert result.shape == (1,24,3,4,6)
         assert result.dtype == torch.float32 and result.device.type == 'cpu'
         expected = torch.nn.functional.interpolate(values.half(), size=(3,4,6), mode='nearest').float()
         torch.testing.assert_close(result, expected)
-        assert events[0][1]['tier'] == 1
+        assert events[0][1]['tier'] == 3
+        assert evidence['tier'] == 3
         assert events[0][1]['chunk_frames'] == 32
     else:
         with pytest.raises((ValueError, RuntimeError)):
