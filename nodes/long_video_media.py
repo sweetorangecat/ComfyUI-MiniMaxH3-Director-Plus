@@ -183,6 +183,8 @@ def inspect_movie(path, total_frames, target=None, *, audio_sample_tolerance=1):
         duration = Fraction(a.duration or 0) * a.time_base
         width, height = v.width, v.height
         for frame in source.decode(video=0):
+            if getattr(frame, 'is_corrupt', False):
+                raise ValueError('Corrupt decoded video frame; refusing long-video publication')
             pts_exact &= frame.pts is not None and frame.pts * frame.time_base == Fraction(count, FPS)
             count += 1
     with av.open(str(path)) as source:
@@ -207,17 +209,19 @@ def inspect_movie(path, total_frames, target=None, *, audio_sample_tolerance=1):
 
 
 def assemble(parts, output, total_frames, target, *, encoding=None):
-    """Decode/re-encode one frame and bounded PCM blocks, in source order.
+    """Preserve compatible H.264 packets; otherwise crop/encode one frame.
 
     No frame skipping, speed change, interpolation or padding is permitted.
     Exact target aspect uses the same center crop for every frame.
     """
     import av
     import numpy as np
+    from .long_video_packet_copy import plan_copy, create_stream, mux_part
     encoding = _encoding(encoding)
     if not parts or sum(x['frames'] for x in parts) != total_frames:
         raise ValueError('Assembly index does not cover the target')
     width, height = map(int, target)
+    copy_plan = plan_copy(parts, (width, height))
     output = Path(output)
     temporary = output.with_name('.' + uuid.uuid4().hex + '.mp4')
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -229,27 +233,34 @@ def assemble(parts, output, total_frames, target, *, encoding=None):
         # to milliseconds. Use a common clock for whole frames and PCM samples.
         with av.open(str(temporary), 'w', options={
                 'movflags': '+faststart', 'movie_timescale': str(lcm(FPS, rate))}) as dest:
-            video, sound = _video_stream(dest, width, height, encoding), _audio_stream(dest, rate, channels, encoding)
-            for item in parts:
-                local = 0
-                with av.open(str(item['video'])) as source:
-                    for frame in source.decode(video=0):
-                        if local >= item['frames']:
-                            raise ValueError('An enhanced source has unexpected extra frames')
-                        # Trim only uniform spatial rounding. Temporal ranges
-                        # were fixed by the approved native window, before SR.
-                        if frame.width < width or frame.height < height:
-                            raise ValueError('Enhanced source is smaller than the output canvas')
-                        image = frame.to_ndarray(format='rgb24')
-                        x, y = (frame.width - width) // 2, (frame.height - height) // 2
-                        frame = av.VideoFrame.from_ndarray(np.ascontiguousarray(image[y:y+height, x:x+width]), format='rgb24')
-                        frame = _bt709(frame)
-                        frame.pts, frame.time_base = cursor, Fraction(1, FPS)
-                        _mux(dest, video, frame)
-                        cursor += 1
-                        local += 1
-                if local != item['frames']:
-                    raise ValueError('An enhanced source lost delivery frames')
+            video = create_stream(dest, copy_plan) if copy_plan else _video_stream(dest, width, height, encoding)
+            sound = _audio_stream(dest, rate, channels, encoding)
+            for index, item in enumerate(parts):
+                if copy_plan:
+                    mux_part(dest, video, copy_plan['parts'][index], cursor)
+                    cursor += item['frames']
+                else:
+                    local = 0
+                    with av.open(str(item['video'])) as source:
+                        for frame in source.decode(video=0):
+                            if getattr(frame, 'is_corrupt', False):
+                                raise ValueError('Corrupt decoded video frame; refusing long-video publication')
+                            if local >= item['frames']:
+                                raise ValueError('An enhanced source has unexpected extra frames')
+                            # Trim only uniform spatial rounding. Temporal ranges
+                            # were fixed by the approved native window, before SR.
+                            if frame.width < width or frame.height < height:
+                                raise ValueError('Enhanced source is smaller than the output canvas')
+                            image = frame.to_ndarray(format='rgb24')
+                            x, y = (frame.width - width) // 2, (frame.height - height) // 2
+                            frame = av.VideoFrame.from_ndarray(np.ascontiguousarray(image[y:y+height, x:x+width]), format='rgb24')
+                            frame = _bt709(frame)
+                            frame.pts, frame.time_base = cursor, Fraction(1, FPS)
+                            _mux(dest, video, frame)
+                            cursor += 1
+                            local += 1
+                    if local != item['frames']:
+                        raise ValueError('An enhanced source lost delivery frames')
                 with wave.open(str(item['audio']), 'rb') as source:
                     if (source.getframerate(), source.getnchannels(), source.getsampwidth()) != (rate, channels, 2):
                         raise ValueError('Source audio formats differ')
@@ -263,10 +274,13 @@ def assemble(parts, output, total_frames, target, *, encoding=None):
                         data = np.frombuffer(raw, '<i2').reshape(-1, channels).T.astype('float32') / 32767
                         _mux(dest, sound, _audio_frame(data, rate, samples, sound.layout.name))
                         samples += data.shape[1]
-            _mux(dest, video, None)
+            if not copy_plan:
+                _mux(dest, video, None)
             _mux(dest, sound, None)
         report = inspect_movie(temporary, total_frames, target)
         report.update(source_audio_samples=samples, source_parts=len(parts), encoding=encoding,
+                      video_assembly_mode='packet_copy' if copy_plan else 'decode_reencode',
+                      actual_video_encoder='copy' if copy_plan else encoding['encoder'],
                       temporal_edits='none; contiguous approved net-new ranges only')
         os.replace(temporary, output)
         return report
