@@ -22,20 +22,20 @@
 
 Files: create `tests/test_short_quality_reference.py`; extend `tests/test_long_video_shots.py` and the existing sampling/color/Director tests.
 
-- [ ] Assert the accepted3:2 dimensions and actual0.7 first grid; test landscape/portrait FHD rounding.
-- [ ] Test ordinary short calls without the internal marker, low-memory/24GB, balanced/standard, combat, non-FHD and non-editorial requests retain their original behavior.
-- [ ] Test below-budget high-grid requests fail explicitly, and publication rejects changed dimensions, lowres ratio, sparse/global route or lifter tier.
-- [ ] Exercise real `build_shot_graph`: per-clip marker and existing16-way attention control, original reference/audio/prompt/seed policies preserved; no new keyframe or reference source invented.
+- [x] Assert the accepted3:2 dimensions and actual0.7 first grid; test landscape/portrait FHD rounding.
+- [x] Test ordinary short calls without the internal marker, low-memory/24GB, balanced/standard, combat, non-FHD and non-editorial requests retain their original behavior.
+- [x] Test below-budget high-grid requests fail explicitly, and publication rejects changed dimensions, lowres ratio, sparse/global route or lifter tier.
+- [x] Exercise real `build_shot_graph`: per-clip marker and existing16-way attention control, original reference/audio/prompt/seed policies preserved; no new keyframe or reference source invented.
 
 ### 2. Integrate only the internal high-grid profile
 
 Files: new `nodes/short_quality_reference.py`; modify `nodes/long_video_shots.py`, `nodes/director.py`, `nodes/sampling_experiments.py`, `nodes/color_guard.py`, `nodes/long_video_shot_output.py`, `nodes/execution_report.py`.
 
-- [ ] Add pure profile selection/planning/publication-validation helpers with a stable profile ID and explicit scope.
-- [ ] Pass the internal marker using existing prompt metadata and hidden Comfy inputs; no visible controls. Director keeps all original public defaults and reference loading.
-- [ ] Run actual0.7 SelfLift only for this marked high-grid plan; require native global_stream and the existing trained2D lifter. Preserve the old0.6 run and original author recipe elsewhere.
-- [ ] Keep this native-size profile's pixels through the color/output path and record its actual evidence before publication.
-- [ ] Run focused tests, then related Director/sampling/long-film regressions. Review any graph cache/cycle, reference or compatibility risk before deployment.
+- [x] Add pure profile selection/planning/publication-validation helpers with a stable profile ID and explicit scope.
+- [x] Use a separate internal Director class type with the identical public input schema. Hidden PROMPT does not reach the actual IS_CHANGED cache path; a distinct class type provides reliable cache identity without visible controls. Director keeps all original public defaults and reference loading.
+- [x] Run actual0.7 SelfLift only for this marked high-grid plan; require native global_stream and the existing trained2D lifter. Preserve the old0.6 run and original author recipe elsewhere.
+- [x] Keep this native-size profile's pixels through the color/output path and record its actual evidence before publication.
+- [x] Run focused tests, then related Director/sampling/long-film regressions. Review any graph cache/cycle, reference or compatibility risk before deployment.
 
 ### 3. Review real30s and deploy verified behavior
 
@@ -46,3 +46,11 @@ Evidence: `outputs/diagnostics/accepted_long_reference_20261120/`.
 - [ ] Assemble accepted15s+new15s; verify every decoded RGB frame and compressed video packet, audio clocks, and source integrity.
 - [ ] Exercise the automatic production profile separately; keep the explicit-keyframe diagnostic boundary visible. Promote only supported evidence, or retain the old default if it fails.
 - [ ] Back up and deploy only the verified files while services are idle, preserve dirty installed files, verify runtime/registration/database and push the authorized branch. Keep the instance on, clean only obsolete owned test tensors after evidence collection.
+
+
+## Reviewed implementation evidence
+
+- The first graph-path regression was observed failing before integration. Real Director tests then exposed the existing FHD non16:9 pixel-budget behavior:3:2 is1760×1184, not1620×1080. The implementation preserves selected FHD dimensions and may use a larger canvas than the accepted1632×1088 diagnostic; this requires the separate real automatic15s test.
+- Independent review reproduced three issues: hidden-PROMPT cache isolation, normal8:5 rounding silently returning to768p, and publication trusting a mutable guide instead of the image producer. The revised implementation uses a distinct registered internal class, explicit conventional-aspect eligibility/rounding budget, and the actual carried producer report with completed sampling evidence. The added regression set was observed12fail/28pass before these fixes.
+- The final implementation passed635 related CPU tests; independent re-review passed409 relevant tests and found no remaining substantive issue. No production deployment or long-film visual acceptance is implied by these results.
+- Existing keyframe/reference roles and image/audio counts remain intact. The portrait GPU comparisons explicitly reuse the already approved picture as frame0; this is not an automatic identity-image anchoring rule for other scenes.

@@ -685,6 +685,7 @@ class MiniMaxH3DirectorPlus:
         sampling_method="standard",
         community_lora_profile="off",
         vosr2_profile="legacy",
+        _short_quality_reference=False,
     ):
         if isinstance(duration, (int, float)) and duration > 15:
             raise RequestError('超过 15 秒请更新原 U11 的“预览与输出”为 U11 视频输出节点 '
@@ -1074,7 +1075,12 @@ class MiniMaxH3DirectorPlus:
         if request["sampling_method"] == "selflift":
             total_vram_gb, free_vram_gb = _probe_vram_after_prefree()
             try:
-                two_stage_plan = plan_selflift_dimensions(
+                from . import short_quality_reference
+                two_stage_plan = (short_quality_reference.plan(
+                    requested_width, requested_height, duration, total_vram_gb, free_vram_gb
+                ) if _short_quality_reference
+                    and short_quality_reference.eligible(request) else None)
+                two_stage_plan = two_stage_plan or plan_selflift_dimensions(
                     requested_width, requested_height, duration, total_vram_gb, free_vram_gb,
                     community_lora_profile=request["community_lora_profile"],
                 )
@@ -1196,7 +1202,12 @@ class MiniMaxH3DirectorPlus:
                 postprocess_source_height,
             )
         )
-        if fhd_vosr2_is_redundant:
+        if two_stage_plan and two_stage_plan.get('short_quality_reference'):
+            postprocess_path = 'native_bypass'
+            request['warnings'].append(
+                '本段采用已认可短片的1088p原生网格与SelfLift6+4；保留实际尺寸及原始色彩，跳过重复超分。'
+            )
+        elif fhd_vosr2_is_redundant:
             # A 24GB FHD two-stage plan ends at 1920x1056 (32px aligned),
             # while the 32GB plan is slightly larger than FHD.  Running VOSR2
             # at this near-1x ratio rebuilds every frame without adding a
@@ -1295,7 +1306,7 @@ class MiniMaxH3DirectorPlus:
         if postprocess_path == "native_bypass" and (
             requested_width != postprocess_source_width
             or requested_height != postprocess_source_height
-        ):
+        ) and not (two_stage_plan and two_stage_plan.get('short_quality_reference')):
             request["warnings"].append(
                 "当前为原生尺寸直出，2K/4K 最终目标不会放大；"
                 f"实际保存尺寸为 {postprocess_source_width}×{postprocess_source_height}。"
@@ -1555,6 +1566,8 @@ class MiniMaxH3DirectorPlus:
             "quality_basis": (
                 two_stage_plan["quality_basis"] if two_stage_plan else "H3 原生"
             ),
+            "short_quality_reference": (two_stage_plan or {}).get('short_quality_reference'),
+            "selflift_lowres_scale_requested": (two_stage_plan or {}).get('selflift_lowres_scale_requested'),
             # The runtime attention router uses the same measured snapshot as
             # the resolution planner.  Keeping it in the guide lets the U22
             # Sol-Attn contract select itself on roomy REF2VA jobs while the
@@ -1713,3 +1726,12 @@ class MiniMaxH3DirectorPlus:
             request["resolved_backend"] == "fl2va_model",
             int(seed),
         )
+
+
+class MiniMaxH3LongVideoQualityDirector(MiniMaxH3DirectorPlus):
+    """Internal clip class: same public inputs, separate Comfy cache identity."""
+    CATEGORY = 'MiniMax H3/Internal'
+
+    def build(self, **kwargs):
+        kwargs.pop('_short_quality_reference', None)
+        return super().build(_short_quality_reference=True, **kwargs)

@@ -16,6 +16,39 @@ from nodes.resolution import calculate_resolution, h3_native_canvas
 from nodes.schema import RequestError
 
 
+@pytest.mark.parametrize('voice', ['none', 'h3_reference'])
+def test_marked_editorial_clip_keeps_the_accepted_native_fhd_grid(monkeypatch, voice):
+    import torch
+    from nodes.short_quality_reference import PROFILE_ID
+    from nodes.director import MiniMaxH3LongVideoQualityDirector
+    monkeypatch.setattr('nodes.director._selflift_dependency_report', lambda: {
+        'ready':True, 'missing':[], 'upscaler_model':'legacy-lms.safetensors', 'required_assets':[]})
+    picture=torch.ones(1,64,96,3)*.5
+    options=dict(mode='REF2VA',prompt='固定机位，人物平静呼吸。',duration=15,
+        width=1620,height=1080,aspect_ratio='3:2',resolution_preset='1080p FHD',
+        voice_mode=voice,ref_image_size='max',performance_preset='质量优先二采样',
+        sampling_method='selflift',community_lora_profile='continuity',
+        reference_image_1=picture,voice_reference_audio=_clean_voice() if voice!='none' else None,
+        timeline_data='{}',target_dialogue='',reference_transcript='',
+        postprocess_mode='vosr2',vosr2_profile='manual_baseline')
+    guide,*_=MiniMaxH3LongVideoQualityDirector().build(**options)
+    # Existing FHD presets use a fixed pixel budget for non16:9 aspects.
+    # Keep that actual selected canvas instead of silently replacing it with
+    # the smaller1632x1088 diagnostic canvas.
+    assert (guide['width'],guide['height'])==(1760,1184)
+    assert (guide['first_stage_width'],guide['first_stage_height'])==(1216,832)
+    assert (guide['target_width'],guide['target_height'])==(1760,1184)
+    assert guide['postprocess_path']=='native_bypass'
+    assert guide['short_quality_reference']==PROFILE_ID
+    assert guide['selflift_lowres_scale_requested']==.7
+    assert guide['ref_images']['ref_image_1'] is picture
+    assert len(guide['ref_audios'])==(1 if voice!='none' else 0)
+    ordinary,*_=MiniMaxH3DirectorPlus().build(**options)
+    assert (ordinary['width'],ordinary['height'])==(1152,768)
+    assert ordinary['short_quality_reference'] is None
+    assert MiniMaxH3DirectorPlus.INPUT_TYPES()==MiniMaxH3LongVideoQualityDirector.INPUT_TYPES()
+
+
 @pytest.fixture(autouse=True)
 def trained_two_stage_test_environment(monkeypatch):
     # Normal cases model installed AI weights; dependency-error tests override this.

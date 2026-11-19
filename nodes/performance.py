@@ -2252,5 +2252,8 @@ class MiniMaxH3AccelerationRouter:
         guide["community_lora_mode"] = community_loras
         guide["second_stage_noise_mode"] = second_stage_noise
         selected_chunks = "".join(char for char in attention_chunks if char.isdigit())
+        from .short_quality_reference import PROFILE_ID
+        if guide.get('short_quality_reference') == PROFILE_ID:
+            selected_chunks = '16'
         guide["minimax_head_chunks_ui"] = int(selected_chunks) if selected_chunks else None
         return _apply_acceleration(model, guide)

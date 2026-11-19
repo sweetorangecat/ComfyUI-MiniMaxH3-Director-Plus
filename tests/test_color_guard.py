@@ -1,4 +1,15 @@
 import torch
+
+
+def test_accepted_short_reference_keeps_native_pixels_and_motion():
+    from nodes.short_quality_reference import PROFILE_ID
+    from nodes.color_guard import MiniMaxH3ColorGuard
+    images=torch.rand(4,20,24,3)
+    before=images.clone()
+    guide={'mode':'REF2VA','short_quality_reference':PROFILE_ID,
+           'ref_images':{'ref_image_1':torch.ones(1,20,24,3)*.3}}
+    result,_=MiniMaxH3ColorGuard().apply(images,guide)
+    assert result is images and torch.equal(result,before)
 import pytest
 
 from nodes.color_guard import MiniMaxH3ColorGuard

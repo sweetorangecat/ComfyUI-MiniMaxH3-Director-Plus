@@ -708,6 +708,7 @@ class MiniMaxH3TwoStageSampler:
                     vae=video_vae, sampler=sampler, sigmas=sigmas, latent=latent_image,
                     seed=getattr(noise, "seed", None), guide=guide)
             report["sampling_settings"].update({key: guide[key] for key in (
+                "short_quality_reference", "sampling_actual_method", "selflift_highres_tiling_mode",
                 "selflift_rho", "selflift_w_min", "selflift_w_max", "selflift_upscaler_model",
                 "selflift_upscaler_requested_model", "selflift_lifter", "selflift_lifter_evidence",
                 "selflift_node_id", "selflift_node_variant",
@@ -717,6 +718,11 @@ class MiniMaxH3TwoStageSampler:
                 "two_stage_first_executed_steps", "two_stage_second_executed_steps",
                 "two_stage_first_sigma_count", "two_stage_second_sigma_count",
             ) if key in guide})
+            if guide.get('short_quality_reference'):
+                from .sampling_experiments import _av_shapes
+                actual_shape = _av_shapes(result)[0]
+                report['sampling_settings'].update(width=int(actual_shape[-1])*16,
+                                                    height=int(actual_shape[-2])*16)
             return result, result
 
         from comfy_extras.nodes_custom_sampler import SamplerCustomAdvanced

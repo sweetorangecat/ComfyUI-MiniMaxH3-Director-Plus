@@ -30,6 +30,7 @@ REPORT_KEY = "_h3_execution_report"
 MAX_STAGES = 64
 _LIFTER_KEYS = ("selflift_lifter", "selflift_upscaler_model", "selflift_upscaler_requested_model")
 _PLAN_KEYS = (
+    "short_quality_reference", "selflift_lowres_scale_requested",
     "mode", "voice_mode", "performance_preset", "resolved_backend", "seed",
     "width", "height", "length", "target_width", "target_height", "steps",
     "sampler_name", "scheduler", "scheduler_name", "scheduler_sigma_count",
@@ -71,6 +72,7 @@ _DETAIL_KEYS = (
     "includes_nested_stages", "profile", "attempt", "engine", "scope",
 )
 _SAMPLING_KEYS = (
+    "short_quality_reference", "sampling_actual_method", "width", "height", "selflift_highres_tiling_mode",
     "evidence", "origin", "sampler", "sampler_source", "scheduler", "scheduler_source",
     "steps", "sigma_count", "video_shift", "audio_shift", "first_lora_name",
     "first_lora_strength", "second_lora_name", "second_lora_strength",
@@ -223,7 +225,7 @@ def sampling_settings(guide, *, model=None, sampler=None, sigmas=None, second_mo
     Object metadata takes priority over a mutable shared guide.
     """
     guide = guide or {}
-    settings = _scalars(guide, ("first_lora_name", "first_lora_strength", "second_lora_name", "second_lora_strength"))
+    settings = _scalars(guide, ("short_quality_reference", "first_lora_name", "first_lora_strength", "second_lora_name", "second_lora_strength"))
     if guide.get("author_adapters_applied"):
         settings["author_adapters_applied"] = _additional_lora_snapshot(guide, "author_adapters_applied")
         settings.update(_scalars(guide, ("author_recipe_id", "author_recipe_version")))

@@ -2,7 +2,7 @@
 
 if __package__:
     from .api import register_routes
-    from .nodes.director import MiniMaxH3DirectorPlus
+    from .nodes.director import MiniMaxH3DirectorPlus, MiniMaxH3LongVideoQualityDirector
     from .nodes.fish import MiniMaxH3FishVoiceBridge
     from .nodes.long_video_audio import MiniMaxH3LongVideoAudioPrepare
     from .nodes.long_video_parent import MiniMaxH3LongVideoParentImage
@@ -40,6 +40,7 @@ if __package__:
     NODE_CLASS_MAPPINGS = {
         "MiniMaxH3VideoFinish": MiniMaxH3VideoFinish,
         "MiniMaxH3DirectorPlus": MiniMaxH3DirectorPlus,
+        "MiniMaxH3LongVideoQualityDirector": MiniMaxH3LongVideoQualityDirector,
         "MiniMaxH3FishVoiceBridge": MiniMaxH3FishVoiceBridge,
         "MiniMaxH3LongVideoAudioPrepare": MiniMaxH3LongVideoAudioPrepare,
         "MiniMaxH3LongVideoParentImage": MiniMaxH3LongVideoParentImage,

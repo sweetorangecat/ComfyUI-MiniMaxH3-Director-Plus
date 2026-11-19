@@ -202,12 +202,16 @@ def test_selflift_prefers_avatar_sampler_and_uses_global_context_recipe(monkeypa
     assert guide["selflift_speed_warning"] is None
 
 
-def test_compatible_global_avatar_uses_reviewed_lifter_without_changing_av_inputs(monkeypatch):
+@pytest.mark.parametrize('reference_quality',[False,True])
+def test_compatible_global_avatar_uses_reviewed_lifter_without_changing_av_inputs(monkeypatch, reference_quality):
     from nodes import selflift_lifter
     from test_native_attention import native_model, native_runtime
     model = native_model(native_runtime(monkeypatch))
     node = AvatarSamplerNode()
     guide = dict(sampling_method="selflift", selflift_upscaler_model="legacy_lms.safetensors")
+    if reference_quality:
+        from nodes.short_quality_reference import PROFILE_ID
+        guide['short_quality_reference']=PROFILE_ID
     latent = {"samples": AV(), "noise_mask": object()}
     calls = []
     monkeypatch.setattr(selflift_lifter, 'preferred_model', lambda function: selflift_lifter.MODEL_NAME)
@@ -223,6 +227,7 @@ def test_compatible_global_avatar_uses_reviewed_lifter_without_changing_av_input
     assert calls[0]['latent_image'] is latent
     assert calls[0]['latent_image']['noise_mask'] is latent['noise_mask']
     assert calls[0]['upscaler_model'] == selflift_lifter.MODEL_NAME
+    assert calls[0]['lowres_scale']==(.7 if reference_quality else .6)
     assert result['samples'] is latent['samples']
     assert guide['selflift_lifter'] == 'trained_2d_tier3'
     assert guide['selflift_lifter_evidence']['tier'] == 3

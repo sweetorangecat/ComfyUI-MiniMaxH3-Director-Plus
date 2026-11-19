@@ -365,6 +365,8 @@ def _validate_long_video_masks(latent, window):
 
 def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, registry=None, negative=None):
     """Execute the selected progressive recipe using the installed upstream node."""
+    from .short_quality_reference import PROFILE_ID
+    reference_quality = guide.get('short_quality_reference') == PROFILE_ID
     author = is_author_recipe(guide)
     if author:
         guide.update(validate_sampling_options(guide))
@@ -446,13 +448,15 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
             author_recipe=author,
             native_sparse_attention=attention["native_sparse_verified"],
         )
-        if (author or guide.get("long_video_window")) and (
+        if (author or guide.get("long_video_window") or reference_quality) and (
             node_id != "SelfLiftAvatarH3Sampler"
             or not artifact_guard["global_stream_supported"]
             or call_kwargs.get("highres_tiling_mode") != "global_stream"
             or not call_kwargs.get("highres_tiling")
         ):
             raise RuntimeError("文武双全作者配方或原生长视频必须使用支持 global_stream 的 SelfLift Avatar 和已应用的 Sol-Attn，不能切换空间分块")
+        if reference_quality:
+            call_kwargs['lowres_scale'] = .7
         guide["selflift_highres_tiling"] = bool(call_kwargs.get("highres_tiling", False))
         guide["selflift_highres_tiling_mode"] = (
             artifact_guard["highres_tiling_mode"]
@@ -487,6 +491,8 @@ def run_selflift(model, positive, vae, sampler, sigmas, latent, seed, guide, reg
             evidence = guide["selflift_lifter_evidence"] = {}
             result = selflift_lifter.run(function, call_kwargs, evidence=evidence)
         else:
+            if reference_quality:
+                raise RuntimeError('短片画质基准需要已验证的训练型2D放大器；不会自动切换其他放大器')
             result = function(**call_kwargs)
     except RuntimeError as exc:
         # Preserve CUDA OOM's exception type so ComfyUI can release its models.

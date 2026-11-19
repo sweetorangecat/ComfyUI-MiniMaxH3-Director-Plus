@@ -293,6 +293,9 @@ class MiniMaxH3ColorGuard:
         return corrected
 
     def apply(self, images, guide, enabled=True, strength=1.0):
+        from .short_quality_reference import PROFILE_ID
+        if isinstance(guide, dict) and guide.get('short_quality_reference') == PROFILE_ID:
+            return images, '沿用已认可短片基准的原生色彩与纹理'
         if not enabled or images.ndim != 4 or images.shape[0] < 2:
             return images, "色彩保护未启用或帧数不足"
 

@@ -39,6 +39,8 @@ class MiniMaxH3LongVideoShotOutput(MiniMaxH3StreamingVideoCombine):
         # sampler/decode/ColorGuard evidence without changing source pixels.
         if source_report:
             attach_report(images, source_report)
+        from .short_quality_reference import validate_output
+        quality_reference = validate_output(guide, images)
         artifacts, audio_index = {}, None
         original_audio = None
         guide = dict(guide)
@@ -78,6 +80,8 @@ class MiniMaxH3LongVideoShotOutput(MiniMaxH3StreamingVideoCombine):
                    'sampling_route': 'original_short_graph', 'source_frames': source_frames,
                    'delivered_frames': count, 'audio_index': audio_index, 'technical': technical,
                    'content_review': 'pending'}
+        if quality_reference is not None:
+            receipt['short_quality_reference'] = quality_reference
         path = store.write_once(f'takes/{take_id}/shot_receipt.json', receipt)
         receipt['artifacts']['shot_receipt'] = store.artifact(path)
         store.record_native(take_id, receipt)

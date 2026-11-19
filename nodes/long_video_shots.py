@@ -157,6 +157,14 @@ def build_shot_graph(base, request):
         raise ValueError('分镜式长视频需要一个原导演台。')
     settings = directors[0]['inputs']
     settings.update(prompt=request['prompt'], duration=request['window']['duration'], seed=request['seed'])
+    from .short_quality_reference import eligible, META_KEY, PROFILE_ID
+    reference_quality = eligible(settings)
+    if reference_quality:
+        # Class type is part of Comfy's real cache signature. Hidden PROMPT
+        # metadata alone cannot distinguish an otherwise identical short clip.
+        directors[0]['class_type'] = 'MiniMaxH3LongVideoQualityDirector'
+        directors[0].setdefault('_meta', {}).update(
+            h3_long_video_entry=ENTRY_MODE, **{META_KEY:PROFILE_ID})
     if settings.get('voice_mode') == 'fish_lock':
         settings['target_dialogue'] = '\n'.join(request['window']['dialogue'])
     for number in range(1, 4):
