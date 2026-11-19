@@ -45,7 +45,7 @@ Evidence: `outputs/diagnostics/accepted_long_reference_20261120/`.
 - [x] Compare selected new raw frames, every PTS, rapid head/lip-motion neighbours and scene color; retain ASR/voice evidence with its listening/lip-sync limits. Do not grant acceptance from successful execution alone.
 - [x] Assemble accepted15s+new15s; verify every decoded RGB frame and compressed video packet, audio clocks, and source integrity.
 - [x] Exercise the automatic profile separately on the actual selected1760×1184 canvas; inspect matching-time raw faces and rapid-motion neighbours. The explicit-keyframe portrait diagnostic boundary remains visible.
-- [ ] Back up and deploy only the verified files while services are idle, preserve dirty installed files, verify runtime/registration/database and push the authorized branch. Keep the instance on, clean only obsolete owned test tensors after evidence collection.
+- [x] Back up and deploy only the verified files while services are idle, preserve dirty installed files, verify runtime/registration/database and push the authorized branch. Keep the instance on, clean only obsolete owned test tensors after evidence collection. Runtime source2f1c2fbc, remote11 hashes/node schemas/DB checked, local scoped commit7d48735 and49 installed tests,906365270bytes of completed owned tensors removed. Far6s evidence is shown with its opening-cut and small-face-detail limits.
 
 
 ## Reviewed implementation evidence
