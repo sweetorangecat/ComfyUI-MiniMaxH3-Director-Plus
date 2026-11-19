@@ -91,3 +91,36 @@ def validate_output(guide, images):
             'first_canvas':first,
             'lowres_scale':.7, 'steps':[6,4], 'lifter_sha256':LIFTER_SHA256,
             'keyframe_policy':'original_workflow_only', 'content_review':'pending'}
+
+
+def validate_project_reference(previous, current):
+    """A hardware/resume change must not mix high-grid and SR-compatible clips."""
+    if not previous:
+        return
+    fields=('profile','canvas','first_canvas','lowres_scale','steps','lifter_sha256')
+    def identity(value):
+        return {key:value.get(key) for key in fields} if value is not None else None
+    expected=identity(previous[0].get('short_quality_reference'))
+    if (identity(current) != expected
+            or any(identity(record.get('short_quality_reference')) != expected for record in previous)):
+        raise ValueError('本段画质基准与已接受片段不同；请保持原运行配置，或重做受影响片段，不能混合交付')
+
+
+def reference_peers(state, current_index):
+    """Include later accepted clips retained by independent-shot redo.
+
+    A changed generation/window/seed will be re-rendered by the coordinator;
+    those old records must not freeze a new project's quality reference.
+    """
+    from .long_video_shots import shot_identity
+    peers=[]
+    for index, record in enumerate(state.get('windows',[])):
+        if record.get('status') != 'accepted' or index == current_index:
+            continue
+        if index >= len(state['plan']):
+            continue
+        attempt=state.get('content_attempts',{}).get(str(index),0)
+        _, expected=shot_identity(state['config'],state['plan'][index],attempt)
+        if record.get('fingerprint') == expected:
+            peers.append(record)
+    return peers

@@ -39,8 +39,10 @@ class MiniMaxH3LongVideoShotOutput(MiniMaxH3StreamingVideoCombine):
         # sampler/decode/ColorGuard evidence without changing source pixels.
         if source_report:
             attach_report(images, source_report)
-        from .short_quality_reference import validate_output
+        from .short_quality_reference import validate_output, validate_project_reference, reference_peers
         quality_reference = validate_output(guide, images)
+        previous = reference_peers(state, window.get('index',0))
+        validate_project_reference(previous, quality_reference)
         artifacts, audio_index = {}, None
         original_audio = None
         guide = dict(guide)

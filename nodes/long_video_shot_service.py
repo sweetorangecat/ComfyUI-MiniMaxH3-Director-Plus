@@ -5,7 +5,7 @@ from pathlib import Path
 import uuid
 
 from .long_video_service import Coordinator, delivery_identity
-from .long_video_shots import ENTRY_MODE, plan_shots
+from .long_video_shots import ENTRY_MODE, plan_shots, shot_identity
 from .long_video_graph import freeze_assets, output_canvas, OUTPUT_TYPES
 from .long_video_store import ProjectStore, StaleCoordination, fingerprint
 from .long_video_media import encoder_capabilities, resolve_encoding
@@ -100,6 +100,9 @@ def recover_shot(store, take_id):
 
 def _delivery_canvas(config, records):
     """Keep the actual original short output, including harmless SR rounding."""
+    from .short_quality_reference import validate_project_reference
+    if records:
+        validate_project_reference(records[:-1], records[-1].get('short_quality_reference'))
     sizes = {(r['technical']['width'], r['technical']['height']) for r in records}
     if len(sizes) != 1:
         raise ValueError('Independent clip output sizes differ; re-generate the mismatched clip')
@@ -141,8 +144,7 @@ class ShotCoordinator(Coordinator):
             index = window['index']
             snapshot = self.store.coordination_snapshot(state, index)
             attempt = state.get('content_attempts', {}).get(str(index), 0)
-            seed = (config['seed'] + index * 1009 + attempt * 1000003) % (2**64)
-            key = fingerprint({'generation': config['generation_key'], 'window': window, 'seed': seed})
+            seed, key = shot_identity(config, window, attempt)
             record = state['windows'][index] if index < len(state['windows']) else None
             if record and record['fingerprint'] != key and record['status'] != 'invalidated':
                 self.store.invalidate_from(index, 'Independent clip inputs changed', expected_snapshot=snapshot)

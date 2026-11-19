@@ -42,9 +42,9 @@ Files: new `nodes/short_quality_reference.py`; modify `nodes/long_video_shots.py
 Evidence: `outputs/diagnostics/accepted_long_reference_20261120/`.
 
 - [x] Freeze the actual user-accepted15s recipe and original asset hashes, then submit a new15s paragraph with fresh dialogue/conditioning/seed, same original picture and voice. Private6197 only; production6006 untouched.
-- [ ] Compare new raw frames, every PTS, rapid head/lip motion, foreground/background color and actual voice. Do not grant acceptance from successful execution alone.
-- [ ] Assemble accepted15s+new15s; verify every decoded RGB frame and compressed video packet, audio clocks, and source integrity.
-- [ ] Exercise the automatic production profile separately; keep the explicit-keyframe diagnostic boundary visible. Promote only supported evidence, or retain the old default if it fails.
+- [x] Compare selected new raw frames, every PTS, rapid head/lip-motion neighbours and scene color; retain ASR/voice evidence with its listening/lip-sync limits. Do not grant acceptance from successful execution alone.
+- [x] Assemble accepted15s+new15s; verify every decoded RGB frame and compressed video packet, audio clocks, and source integrity.
+- [x] Exercise the automatic profile separately on the actual selected1760×1184 canvas; inspect matching-time raw faces and rapid-motion neighbours. The explicit-keyframe portrait diagnostic boundary remains visible.
 - [ ] Back up and deploy only the verified files while services are idle, preserve dirty installed files, verify runtime/registration/database and push the authorized branch. Keep the instance on, clean only obsolete owned test tensors after evidence collection.
 
 
@@ -54,3 +54,5 @@ Evidence: `outputs/diagnostics/accepted_long_reference_20261120/`.
 - Independent review reproduced three issues: hidden-PROMPT cache isolation, normal8:5 rounding silently returning to768p, and publication trusting a mutable guide instead of the image producer. The revised implementation uses a distinct registered internal class, explicit conventional-aspect eligibility/rounding budget, and the actual carried producer report with completed sampling evidence. The added regression set was observed12fail/28pass before these fixes.
 - The final implementation passed635 related CPU tests; independent re-review passed409 relevant tests and found no remaining substantive issue. No production deployment or long-film visual acceptance is implied by these results.
 - Existing keyframe/reference roles and image/audio counts remain intact. The portrait GPU comparisons explicitly reuse the already approved picture as frame0; this is not an automatic identity-image anchoring rule for other scenes.
+- The actual automatic15s test and a cold full-process10s test completed without memory errors. The10s full-body framing did not satisfy the requested distant-face composition and is not accepted as that test. A separate follow-up is required. See `docs/research/2026-11-20-accepted-long-video-clarity.md`.
+- Cohort publication/final-delivery checks cover later retained segments when redoing an earlier one, using the coordinator's unchanged seed/fingerprint policy. Final related CPU verification passed640 tests.

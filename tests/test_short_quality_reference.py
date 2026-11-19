@@ -171,3 +171,51 @@ def test_memory_control_changes_only_after_the_high_grid_actually_qualifies(monk
     monkeypatch.setattr(performance,'_apply_acceleration',lambda model,guide:guide)
     result=performance.MiniMaxH3AccelerationRouter().apply(object(),guide,attention_chunks=control)
     assert result['minimax_head_chunks_ui']==expected
+
+
+@pytest.mark.parametrize('first,current',[(True,False),(False,True)])
+def test_a_project_cannot_mix_reference_and_compatibility_segments(first,current):
+    reference=quality.validate_output(actual(),produced())
+    previous=[{'short_quality_reference':reference}] if first else [{}]
+    with pytest.raises(ValueError,match='基准'):
+        quality.validate_project_reference(previous,reference if current else None)
+
+
+def test_same_project_keeps_the_first_accepted_geometry_and_lifter():
+    reference=quality.validate_output(actual(),produced())
+    quality.validate_project_reference([],reference)
+    quality.validate_project_reference([{'short_quality_reference':reference}],deepcopy(reference))
+    quality.validate_project_reference([{}],None)
+    changed=deepcopy(reference);changed['canvas']=[1920,1088]
+    with pytest.raises(ValueError,match='基准'):
+        quality.validate_project_reference([{'short_quality_reference':reference}],changed)
+
+
+def test_complete_film_rejects_mixed_profiles_even_at_identical_final_dimensions():
+    from nodes.long_video_shot_service import _delivery_canvas
+    reference=quality.validate_output(actual(),produced())
+    record={'technical':{'width':1632,'height':1088},'short_quality_reference':reference}
+    assert _delivery_canvas({'export':{'target':[1620,1080]}},[record,deepcopy(record)])==(1632,1088)
+    with pytest.raises(ValueError,match='基准'):
+        _delivery_canvas({'export':{'target':[1620,1080]}},[record,{'technical':record['technical']}])
+
+
+def test_redo_first_clip_checks_the_still_valid_accepted_later_clips():
+    from nodes.long_video_shots import shot_identity
+    reference=quality.validate_output(actual(),produced())
+    plan=[{'index':i,'prompt':f'shot{i}'} for i in range(3)]
+    config={'generation_key':'generation1','seed':42}
+    windows=[]
+    for window in plan:
+        seed,key=shot_identity(config,window,0)
+        windows.append({'window':window,'seed':seed,'fingerprint':key,
+                        'status':'accepted','short_quality_reference':reference})
+    state={'config':config,'plan':plan,'windows':windows,'content_attempts':{'0':1}}
+    peers=quality.reference_peers(state,0)
+    assert len(peers)==2
+    with pytest.raises(ValueError,match='基准'):
+        quality.validate_project_reference(peers,None)
+    # A complete generation change makes these later clips ineligible for
+    # reuse; they must not block starting the new rendering recipe.
+    state['config']={**config,'generation_key':'generation2'}
+    assert quality.reference_peers(state,0)==[]

@@ -18,6 +18,12 @@ from .long_video_store import fingerprint
 ENTRY_MODE = 'independent_shots'
 
 
+def shot_identity(config, window, attempt=0):
+    """One seed/fingerprint policy for scheduling and accepted-clip reuse."""
+    seed = (config['seed'] + window['index'] * 1009 + attempt * 1000003) % (2**64)
+    return seed, fingerprint({'generation':config['generation_key'], 'window':window, 'seed':seed})
+
+
 def _clock(frames):
     return f'{frames / FPS:.6f}'.rstrip('0').rstrip('.')
 
