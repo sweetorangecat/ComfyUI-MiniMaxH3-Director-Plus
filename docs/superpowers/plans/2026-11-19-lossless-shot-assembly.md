@@ -74,8 +74,8 @@ Place the existing video decode loop in the opposite branch, with its complete c
 
 - [x] Use at least two different completed original clips sharing decoder parameters. Run old and new assembly on the same parts; record wall time, output size, full frame hashes, video packet hashes, all PTS and audio sample clocks. Label this as assembly fidelity, not new skin detail.
 - [x] Recheck the real15-second higher-grid GPU job independently. Do not infer15s/long picture acceptance from a successful packet test.
-- [ ] Deploy only the verified assembly files after checking production's queue is idle. Back up originals, verify uploaded hashes, restart only the production service if required and verify registration/database/queue. Do not stop the instance or interfere with private GPU generation.
-- [ ] Preserve the unrelated handoff document, commit only this change and its verified research notes, and push the existing authorized branch. Finish with the measured result and remaining picture-quality limits.
+- [x] Deploy only the verified assembly files after checking production's queue is idle. Back up originals, verify uploaded hashes, restart only the production service if required and verify registration/database/queue. Do not stop the instance or interfere with private GPU generation.
+- [x] Preserve the unrelated handoff document, commit only this change and its verified research notes, and push the existing authorized branch. Finish with the measured result and remaining picture-quality limits.
 
 
 ### Verification recorded before deployment
@@ -86,3 +86,12 @@ Place the existing video decode loop in the opposite branch, with its complete c
 - Actual two distinct15-second clips,1920×1098: old assembly37.3881s, new9.8041s including full validation. New output preserved all720 decoded RGB frames and all720 compressed video packets exactly; AAC payloads matched the old assembler, and source hashes remained unchanged. This establishes assembly fidelity, not acceptance of the source skin quality.
 - Actual remote PyAV17.1.0 check: all240 RGB frames and240 video packets of two distinct5-second clips matched, exact audio/video clocks passed, sources unchanged.
 - The real15-second1088p experiment completed separately and still has a smoothing/beautification limit; it was not promoted to a production default.
+
+
+### Deployment and final45s check
+
+- Feature commit `5418c3528f7e63c4cf84c6df3b2216c4a3a76d9c` pushed to `codex/u11-native-av-long-video`.
+- Local installed plugin received only this feature through a tracked cherry-pick, `c4ccac1e061cbc28deb4732d78601ed061c2751c`. Hashes of all38 pre-existing dirty files remained unchanged.18 relevant media tests passed in that installed checkout. Local Comfy was not listening on8188/8189; files take effect on its next normal start.
+- Remote6006 was idle; backed up the original module, atomically installed the two verified files and restarted the same command/cwd/environment. Director registration, queue and read-only database quick-check passed. All61 runtime Python files matched the current worktree on both installed machines. The completed owned6197 service was stopped, and the AutoDL instance stayed running.
+- Actual three distinct15-second clips assembled into45s,1920×1098. All1080 decoded RGB frames and1080 compressed video packets matched their source segments exactly, all clocks passed, source hashes remained unchanged. Assembly plus full validation took14.8842s. This is a new assembly of retained sources, not new GPU generation or proof that those sources meet the skin/action target.
+- Removed19 explicit obsolete private-test tensors,992,091,826bytes; actual free-space increase992,133,120bytes.174 delivered evidence files were re-hashed before deletion,3104 model symlinks checked, no active open handles depended on the targets. Kept all media, inputs, model assets and current15s conditioning/latent. Free space afterward29,809,733,632bytes.
